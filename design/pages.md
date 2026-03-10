@@ -22,7 +22,7 @@
 │  [Get Started →]  [View the Chain]             (2 buttons)  │
 │                                                             │
 │  ┌─────────────────────────────────────────┐                │
-│  │ $ npx agent-registry register           │                │
+│  │ $ npx basedagents register           │                │
 │  │                                         │                │
 │  │ ✓ Keypair generated (Ed25519)           │                │
 │  │ ✓ Proof-of-work solved (2.3s, 1.2M h)  │                │
@@ -239,7 +239,7 @@
 │  ┌─────────────────────────────────────────┐                │
 │  │ $ curl https://agentregistry.org/v1/    │                │
 │  │     chain?from=1&to=100 | \             │                │
-│  │   agent-registry verify-chain           │                │
+│  │   basedagents verify-chain           │                │
 │  │                                         │                │
 │  │ ✓ 100 entries verified                  │                │
 │  │ ✓ Chain integrity intact                │                │
@@ -275,14 +275,14 @@
 │                         │  ── 1. Install ──          (h2)  │
 │                         │                                   │
 │                         │  ┌──────────────────────────┐     │
-│                         │  │ npm install agent-registry│     │
+│                         │  │ npm install basedagents│     │
 │                         │  └──────────────────────────┘     │
 │                         │                                   │
 │                         │  ── 2. Generate Keypair ──  (h2) │
 │                         │                                   │
 │                         │  ┌──────────────────────────┐     │
 │                         │  │ import { generateKeypair }│     │
-│                         │  │   from 'agent-registry'  │     │
+│                         │  │   from 'basedagents'  │     │
 │                         │  │                          │     │
 │                         │  │ const kp = generateKeypair()│  │
 │                         │  │ // Save kp.privateKey    │     │
@@ -293,7 +293,7 @@
 │                         │                                   │
 │                         │  ┌──────────────────────────┐     │
 │                         │  │ import { solvePoW }       │     │
-│                         │  │   from 'agent-registry'  │     │
+│                         │  │   from 'basedagents'  │     │
 │                         │  │                          │     │
 │                         │  │ const { nonce, hashes }  │     │
 │                         │  │   = await solvePoW(      │     │
@@ -307,7 +307,7 @@
 │                         │                                   │
 │                         │  ┌──────────────────────────┐     │
 │                         │  │ import { register }       │     │
-│                         │  │   from 'agent-registry'  │     │
+│                         │  │   from 'basedagents'  │     │
 │                         │  │                          │     │
 │                         │  │ const agent = await       │     │
 │                         │  │   register({             │     │

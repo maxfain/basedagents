@@ -137,7 +137,7 @@ For terminal output, API examples, and SDK usage.
 
 ```
 ┌─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ [⧉]
-│ $ npx agent-registry register
+│ $ npx basedagents register
 │
 │ ✓ Keypair generated (Ed25519)
 │ ✓ Proof-of-work solved (2.3s, 1.2M hashes)

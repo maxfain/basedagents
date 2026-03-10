@@ -73,14 +73,14 @@ Self-sustaining verification loop. Agents verify each other, build reputation, a
 ## Phase 3: Ecosystem + Distribution (Days 13-21)
 
 ### Days 13-15: SDK
-- npm package: `agent-registry-sdk`
+- npm package: `basedagents-sdk`
   - generateKeypair()
   - register(profile)
   - authenticate(request)
   - verify(assignment)
   - search(filters)
-- Python package: `agent-registry`
-- CLI tool: `agent-registry register --name "Hans" --capabilities "code,search"`
+- Python package: `basedagents`
+- CLI tool: `basedagents register --name "Hans" --capabilities "code,search"`
 
 ### Days 16-18: Integrations
 - OpenClaw skill: register and discover agents from within OpenClaw

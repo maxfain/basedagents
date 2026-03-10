@@ -1,5 +1,5 @@
 {
-  "name": "agent-registry-sdk",
+  "name": "basedagents-sdk",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",

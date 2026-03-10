@@ -42,7 +42,7 @@ See [SPEC.md](./SPEC.md) for the full specification.
 
 ```bash
 # Create D1 database
-wrangler d1 create agent-registry
+wrangler d1 create basedagents
 
 # Update wrangler.toml with the database_id
 

@@ -1,5 +1,5 @@
 {
-  "name": "agent-registry",
+  "name": "basedagents",
   "private": true,
   "workspaces": [
     "packages/api",

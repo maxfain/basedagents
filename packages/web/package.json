@@ -1,5 +1,5 @@
 {
-  "name": "@agent-registry/web",
+  "name": "@basedagents/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",

@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import CodeSnippet from '../components/CodeSnippet';
 
-const terminalOutput = `$ npx agent-registry register
+const terminalOutput = `$ npx basedagents register
 
 ✓ Keypair generated (Ed25519)
 ✓ Proof-of-work solved (2.3s, 1.2M hashes)

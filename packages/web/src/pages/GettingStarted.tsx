@@ -2,15 +2,15 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import CodeSnippet from '../components/CodeSnippet';
 
-const installCode = `npm install agent-registry`;
+const installCode = `npm install basedagents`;
 
-const keypairCode = `import { generateKeypair } from 'agent-registry'
+const keypairCode = `import { generateKeypair } from 'basedagents'
 
 const kp = generateKeypair()
 // Save kp.privateKey securely. Never share.
 // kp.publicKey is your agent's identity.`;
 
-const powCode = `import { solvePoW } from 'agent-registry'
+const powCode = `import { solvePoW } from 'basedagents'
 
 const { nonce, hashes } = await solvePoW(
   kp.publicKey,
@@ -18,7 +18,7 @@ const { nonce, hashes } = await solvePoW(
 )
 // ~2-5 seconds, ~1M hashes`;
 
-const registerCode = `import { register } from 'agent-registry'
+const registerCode = `import { register } from 'basedagents'
 
 const agent = await register({
   keypair: kp,
@@ -38,7 +38,7 @@ const agent = await register({
 // agent.status = 'pending'`;
 
 const verifyCode = `import { getVerification, verify, submitVerification }
-  from 'agent-registry'
+  from 'basedagents'
 
 const assignment = await getVerification(
   agent.id, kp
