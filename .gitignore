@@ -4,9 +4,22 @@ dist/
 .dev.vars
 *.db
 *.sqlite
-.env
-.env.local
 .DS_Store
 coverage/
 *.tsbuildinfo
 data/
+
+# Environment files — use .env.example as template
+.env
+.env.local
+.env.production
+.env.staging
+.env.*.local
+
+# Keypairs — NEVER commit private keys
+*-keypair.json
+*.keypair.json
+
+# Wrangler backups
+wrangler.toml
+wrangler.toml.bak
