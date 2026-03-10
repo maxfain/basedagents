@@ -26,6 +26,11 @@ app.use('*', async (c, next) => {
 
 // ─── Health Check ───
 app.get('/', (c) => {
+  // Redirect browsers to the frontend; return JSON for API clients
+  const accept = c.req.header('Accept') ?? '';
+  if (accept.includes('text/html')) {
+    return c.redirect('https://basedagents.ai', 301);
+  }
   return c.json({
     name: 'Agent Registry',
     version: '0.1.0',
