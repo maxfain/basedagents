@@ -1,16 +1,50 @@
 import { createMiddleware } from 'hono/factory';
 
 /**
- * Simple in-memory rate limiter.
- * TODO: Replace with a distributed solution for production.
+ * Simple in-memory rate limiter using a sliding window.
+ * Not suitable for distributed deployments — replace with Redis-based solution later.
  */
 export const rateLimit = (opts: { windowMs: number; max: number }) => {
-  const _opts = opts; // Will be used in implementation
+  const { windowMs, max } = opts;
+  const hits = new Map<string, number[]>();
+
+  // Periodic cleanup every 60 seconds
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, timestamps] of hits) {
+      const filtered = timestamps.filter((t) => now - t < windowMs);
+      if (filtered.length === 0) {
+        hits.delete(key);
+      } else {
+        hits.set(key, filtered);
+      }
+    }
+  }, 60_000).unref();
 
   return createMiddleware(async (c, next) => {
-    // TODO: Implement rate limiting — backend agent
-    // For now, pass through
-    void _opts;
+    // Use IP + path prefix as the rate limit key
+    const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+      || c.req.header('x-real-ip')
+      || 'unknown';
+    const key = `${ip}`;
+    const now = Date.now();
+
+    const timestamps = hits.get(key) || [];
+    // Filter to current window
+    const windowTimestamps = timestamps.filter((t) => now - t < windowMs);
+
+    if (windowTimestamps.length >= max) {
+      const retryAfter = Math.ceil((windowTimestamps[0] + windowMs - now) / 1000);
+      c.header('Retry-After', String(retryAfter));
+      return c.json(
+        { error: 'rate_limited', message: `Too many requests. Retry after ${retryAfter}s` },
+        429
+      );
+    }
+
+    windowTimestamps.push(now);
+    hits.set(key, windowTimestamps);
+
     await next();
   });
 };

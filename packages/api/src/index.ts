@@ -1,14 +1,14 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
-import type { Bindings } from './types/index.js';
+import type { AppEnv } from './types/index.js';
 
 import registerRoutes from './routes/register.js';
 import agentRoutes from './routes/agents.js';
 import verifyRoutes from './routes/verify.js';
 import chainRoutes from './routes/chain.js';
 
-const app = new Hono<{ Bindings: Bindings }>();
+const app = new Hono<AppEnv>();
 
 // ─── Global Middleware ───
 app.use('*', logger());

@@ -116,10 +116,24 @@ export interface RegisterCompleteResponse {
   message: string;
 }
 
+// ─── App Context Variables (set by auth middleware) ───
+
+export type Variables = {
+  agentId: string;
+  publicKey: Uint8Array;
+  agentStatus: string;
+};
+
 // ─── App Bindings (for Cloudflare Workers + local) ───
 
 export type Bindings = {
   DB?: D1Database;
+};
+
+/** Hono env type combining Bindings and Variables */
+export type AppEnv = {
+  Bindings: Bindings;
+  Variables: Variables;
 };
 
 // D1Database type stub for when not running on CF
