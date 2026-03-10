@@ -9,6 +9,7 @@ compatibility_flags = ["nodejs_compat"]
 binding = "DB"
 database_name = "agent-registry"
 database_id = "" # Fill in after `wrangler d1 create agent-registry`
+migrations_dir = "packages/api/migrations"
 
 [vars]
 POW_DIFFICULTY = "20"
