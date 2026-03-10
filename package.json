@@ -1,0 +1,24 @@
+{
+  "name": "agent-registry",
+  "private": true,
+  "workspaces": [
+    "packages/api",
+    "packages/sdk",
+    "packages/web"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "typecheck": "tsc --build",
+    "lint": "eslint packages/*/src/**/*.ts",
+    "test": "vitest run",
+    "dev:api": "npm run dev --workspace=packages/api",
+    "dev:web": "npm run dev --workspace=packages/web"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "eslint": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0"
+  }
+}
