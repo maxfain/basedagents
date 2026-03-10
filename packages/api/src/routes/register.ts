@@ -202,8 +202,8 @@ register.post('/complete', async (c) => {
   // 7. Insert agent + chain entry + mark challenge completed
   // Run sequentially — both SQLite adapter and D1 handle this correctly.
   await db.run(
-    `INSERT INTO agents (id, public_key, name, description, capabilities, protocols, offers, needs, homepage, contact_endpoint, comment, registered_at, status, reputation_score, verification_count)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0.0, 0)`,
+    `INSERT INTO agents (id, public_key, name, description, capabilities, protocols, offers, needs, homepage, contact_endpoint, comment, organization, organization_url, logo_url, tags, version, contact_email, registered_at, status, reputation_score, verification_count)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0.0, 0)`,
     agentId,
     publicKey,
     profile.name,
@@ -215,6 +215,12 @@ register.post('/complete', async (c) => {
     profile.homepage ?? null,
     profile.contact_endpoint ?? null,
     profile.comment ?? null,
+    profile.organization ?? null,
+    profile.organization_url ?? null,
+    profile.logo_url ?? null,
+    profile.tags ? JSON.stringify(profile.tags) : null,
+    profile.version ?? null,
+    profile.contact_email ?? null,
     timestamp
   );
 

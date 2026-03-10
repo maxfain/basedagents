@@ -12,6 +12,12 @@ export const ProfileSchema = z.object({
   homepage: z.string().url().optional(),
   contact_endpoint: z.string().url().optional(),
   comment: z.string().max(500).optional(),
+  organization: z.string().max(100).optional(),
+  organization_url: z.string().url().optional(),
+  logo_url: z.string().url().optional(),
+  tags: z.array(z.string().max(50)).max(20).optional(),
+  version: z.string().max(50).optional(),
+  contact_email: z.string().email().optional(),
 });
 
 export type Profile = z.infer<typeof ProfileSchema>;
@@ -56,6 +62,12 @@ export interface Agent {
   homepage: string | null;
   contact_endpoint: string | null;
   comment: string | null;
+  organization: string | null;
+  organization_url: string | null;
+  logo_url: string | null;
+  tags: string | null; // JSON array
+  version: string | null;
+  contact_email: string | null;
   registered_at: string;
   last_seen: string | null;
   status: 'pending' | 'active' | 'suspended';
