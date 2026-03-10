@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import type { AppEnv } from './types/index.js';
-import type { DBAdapter } from './db/adapter.js';
+import { D1Adapter } from './db/d1-adapter.js';
 
 import registerRoutes from './routes/register.js';
 import agentRoutes from './routes/agents.js';
@@ -16,17 +16,9 @@ app.use('*', logger());
 app.use('*', cors());
 
 // ─── Database Adapter Middleware ───
-// On Cloudflare Workers: wraps c.env.DB (D1) with the adapter.
-// On Node.js: the adapter is set before the server starts (see below).
-let nodeAdapter: DBAdapter | null = null;
-
+// Wraps the D1 binding from Cloudflare Workers environment.
 app.use('*', async (c, next) => {
-  if (nodeAdapter) {
-    // Node.js path — adapter was initialized at startup
-    c.set('db', nodeAdapter);
-  } else if (c.env.DB) {
-    // Cloudflare Workers path — wrap D1 binding
-    const { D1Adapter } = await import('./db/d1-adapter.js');
+  if (c.env?.DB) {
     c.set('db', new D1Adapter(c.env.DB));
   }
   await next();
@@ -62,30 +54,9 @@ app.onError((err, c) => {
   return c.json({ error: 'internal_error', message: 'Internal server error' }, 500);
 });
 
-// ─── Node.js Server (for local development / VPS deployment) ───
-// When running on Cloudflare Workers, this block is tree-shaken out.
-const isNode = typeof globalThis.process !== 'undefined' && globalThis.process.versions?.node;
-
-if (isNode) {
-  const { serve } = await import('@hono/node-server');
-  const { initDatabase } = await import('./db/index.js');
-  const { SQLiteAdapter } = await import('./db/sqlite-adapter.js');
-  const { mkdirSync } = await import('node:fs');
-
-  const port = parseInt(process.env['PORT'] || '3000', 10);
-  const dbPath = process.env['DATABASE_PATH'] || './data/registry.db';
-
-  // Ensure data directory exists
-  mkdirSync('./data', { recursive: true });
-
-  // Initialize database and create adapter
-  const sqliteDb = initDatabase(dbPath);
-  nodeAdapter = new SQLiteAdapter(sqliteDb);
-
-  serve({ fetch: app.fetch, port }, (info) => {
-    console.log(`🔑 Agent Registry API running at http://localhost:${info.port}`);
-  });
-}
-
 // Export for Cloudflare Workers
 export default app;
+
+// ─── Node.js Server (for local development / VPS deployment) ───
+// This file is the Workers entry point. For Node.js local dev,
+// use a separate entry: src/node.ts
