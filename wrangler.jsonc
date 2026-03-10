@@ -22,5 +22,10 @@
   },
 
   // Pages static output (frontend)
-  "pages_build_output_dir": "packages/web/dist"
+  "pages_build_output_dir": "packages/web/dist",
+
+  // Custom domain route
+  "routes": [
+    { "pattern": "api.whythings.com", "zone_name": "whythings.com" }
+  ]
 }
