@@ -1,21 +1,33 @@
 import React from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getAgentById, getVerificationsForAgent, truncateHash, formatTimeAgo } from '../data/mockData';
+import { useAgent } from '../hooks';
+import { truncateHash, formatTimeAgo } from '../data/mockData';
 import StatusIndicator from '../components/StatusIndicator';
 import { TagList } from '../components/CapabilityTag';
 import ReputationBadge from '../components/ReputationBadge';
+import DemoBanner from '../components/DemoBanner';
 
 export default function AgentProfile(): React.ReactElement {
   const { id } = useParams<{ id: string }>();
-  const agent = getAgentById(id || '');
-  const verifications = getVerificationsForAgent(id || '');
+  const { agent, verifications, loading, error, usingMock } = useAgent(id);
+
+  if (loading) {
+    return (
+      <div className="container" style={{ padding: '96px 0', textAlign: 'center' }}>
+        <p style={{ color: 'var(--text-tertiary)' }}>Loading agent...</p>
+      </div>
+    );
+  }
 
   if (!agent) {
     return (
       <div className="container" style={{ padding: '96px 0', textAlign: 'center' }}>
         <h1>Agent not found</h1>
         <p style={{ color: 'var(--text-secondary)', marginTop: 8 }}>
-          No agent with ID <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--hash)' }}>{id}</code>
+          {error
+            ? error
+            : <>No agent with ID <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--hash)' }}>{id}</code></>
+          }
         </p>
         <Link to="/agents" className="btn btn-primary" style={{ marginTop: 24, display: 'inline-flex' }}>
           ← Back to Directory
@@ -27,6 +39,8 @@ export default function AgentProfile(): React.ReactElement {
   return (
     <div style={{ padding: '48px 0' }}>
       <div className="container">
+        <DemoBanner visible={usingMock} />
+
         {/* Header */}
         <div style={{ marginBottom: 32 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
@@ -120,49 +134,51 @@ export default function AgentProfile(): React.ReactElement {
           </div>
         </div>
 
-        {/* Chain Entry */}
-        <div
-          style={{
-            background: 'var(--bg-secondary)',
-            border: '1px solid var(--border)',
-            borderRadius: 8,
-            padding: 24,
-            marginBottom: 48,
-          }}
-        >
-          <h2 style={{ fontSize: 18, marginBottom: 16 }}>Chain Entry</h2>
+        {/* Chain Entry — only show if we have chain data */}
+        {agent.chainSequence > 0 && (
           <div
             style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 14,
-              lineHeight: 2.2,
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              padding: 24,
+              marginBottom: 48,
             }}
           >
-            <div>
-              <span style={{ color: 'var(--text-tertiary)', display: 'inline-block', width: 120 }}>Sequence</span>
-              <span style={{ color: 'var(--text-primary)' }}>#{agent.chainSequence}</span>
+            <h2 style={{ fontSize: 18, marginBottom: 16 }}>Chain Entry</h2>
+            <div
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 14,
+                lineHeight: 2.2,
+              }}
+            >
+              <div>
+                <span style={{ color: 'var(--text-tertiary)', display: 'inline-block', width: 120 }}>Sequence</span>
+                <span style={{ color: 'var(--text-primary)' }}>#{agent.chainSequence}</span>
+              </div>
+              <div>
+                <span style={{ color: 'var(--text-tertiary)', display: 'inline-block', width: 120 }}>Hash</span>
+                <span style={{ color: 'var(--hash)' }}>{truncateHash(agent.entryHash, 20)}</span>
+              </div>
+              <div>
+                <span style={{ color: 'var(--text-tertiary)', display: 'inline-block', width: 120 }}>Previous</span>
+                <span style={{ color: 'var(--text-tertiary)' }}>{truncateHash(agent.previousHash, 20)}</span>
+              </div>
+              <div>
+                <span style={{ color: 'var(--text-tertiary)', display: 'inline-block', width: 120 }}>PoW Nonce</span>
+                <span style={{ color: 'var(--text-secondary)' }}>{agent.nonce}</span>
+              </div>
+              <div>
+                <span style={{ color: 'var(--text-tertiary)', display: 'inline-block', width: 120 }}>Registered</span>
+                <span style={{ color: 'var(--text-tertiary)' }}>{agent.registeredAt}</span>
+              </div>
             </div>
-            <div>
-              <span style={{ color: 'var(--text-tertiary)', display: 'inline-block', width: 120 }}>Hash</span>
-              <span style={{ color: 'var(--hash)' }}>{truncateHash(agent.entryHash, 20)}</span>
-            </div>
-            <div>
-              <span style={{ color: 'var(--text-tertiary)', display: 'inline-block', width: 120 }}>Previous</span>
-              <span style={{ color: 'var(--text-tertiary)' }}>{truncateHash(agent.previousHash, 20)}</span>
-            </div>
-            <div>
-              <span style={{ color: 'var(--text-tertiary)', display: 'inline-block', width: 120 }}>PoW Nonce</span>
-              <span style={{ color: 'var(--text-secondary)' }}>{agent.nonce}</span>
-            </div>
-            <div>
-              <span style={{ color: 'var(--text-tertiary)', display: 'inline-block', width: 120 }}>Registered</span>
-              <span style={{ color: 'var(--text-tertiary)' }}>{agent.registeredAt}</span>
-            </div>
+            <Link to="/chain" style={{ display: 'inline-block', marginTop: 16, fontSize: 14 }}>
+              View in Chain →
+            </Link>
           </div>
-          <Link to="/chain" style={{ display: 'inline-block', marginTop: 16, fontSize: 14 }}>
-            View in Chain →
-          </Link>
-        </div>
+        )}
 
         {/* Verification History */}
         <div>

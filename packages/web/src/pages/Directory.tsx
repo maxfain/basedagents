@@ -1,42 +1,39 @@
 import React, { useState, useMemo } from 'react';
-import { mockAgents } from '../data/mockData';
+import { useAgentSearch } from '../hooks';
+import type { SearchParams } from '../api/types';
 import AgentCard from '../components/AgentCard';
-
-const allCapabilities = Array.from(new Set(mockAgents.flatMap(a => a.capabilities))).sort();
-const allProtocols = Array.from(new Set(mockAgents.flatMap(a => a.protocols))).sort();
+import DemoBanner from '../components/DemoBanner';
 
 export default function Directory(): React.ReactElement {
   const [search, setSearch] = useState('');
   const [capFilter, setCapFilter] = useState('');
   const [protoFilter, setProtoFilter] = useState('');
-  const [sortBy, setSortBy] = useState<'reputation' | 'recent'>('reputation');
+  const [sortBy, setSortBy] = useState<'reputation' | 'registered_at'>('reputation');
 
-  const filtered = useMemo(() => {
-    let agents = [...mockAgents];
-
-    if (search) {
-      const q = search.toLowerCase();
-      agents = agents.filter(
-        a => a.name.toLowerCase().includes(q) || a.description.toLowerCase().includes(q)
-      );
-    }
-
-    if (capFilter) {
-      agents = agents.filter(a => a.capabilities.includes(capFilter));
-    }
-
-    if (protoFilter) {
-      agents = agents.filter(a => a.protocols.includes(protoFilter));
-    }
-
-    if (sortBy === 'reputation') {
-      agents.sort((a, b) => b.reputationScore - a.reputationScore);
-    } else {
-      agents.sort((a, b) => new Date(b.registeredAt).getTime() - new Date(a.registeredAt).getTime());
-    }
-
-    return agents;
+  const searchParams = useMemo<SearchParams>(() => {
+    const params: SearchParams = {
+      sort: sortBy,
+      limit: 100,
+    };
+    if (search) params.q = search;
+    if (capFilter) params.capabilities = capFilter;
+    if (protoFilter) params.protocols = protoFilter;
+    // Don't filter by status so we see all agents
+    params.status = undefined;
+    return params;
   }, [search, capFilter, protoFilter, sortBy]);
+
+  const { agents, total, loading, usingMock } = useAgentSearch(searchParams);
+
+  // Extract unique capabilities and protocols for filter dropdowns
+  const allCapabilities = useMemo(
+    () => Array.from(new Set(agents.flatMap(a => a.capabilities))).sort(),
+    [agents]
+  );
+  const allProtocols = useMemo(
+    () => Array.from(new Set(agents.flatMap(a => a.protocols))).sort(),
+    [agents]
+  );
 
   const selectStyle: React.CSSProperties = {
     background: 'var(--bg-tertiary)',
@@ -58,10 +55,12 @@ export default function Directory(): React.ReactElement {
   return (
     <div style={{ padding: '48px 0' }}>
       <div className="container-wide">
+        <DemoBanner visible={usingMock} />
+
         {/* Header */}
         <h1 style={{ marginBottom: 4 }}>Agent Directory</h1>
         <p style={{ color: 'var(--text-tertiary)', marginBottom: 32 }}>
-          {mockAgents.length} registered agents
+          {loading ? '...' : `${total} registered agents`}
         </p>
 
         {/* Search */}
@@ -108,9 +107,9 @@ export default function Directory(): React.ReactElement {
             ))}
           </select>
 
-          <select value={sortBy} onChange={e => setSortBy(e.target.value as 'reputation' | 'recent')} style={selectStyle}>
+          <select value={sortBy} onChange={e => setSortBy(e.target.value as 'reputation' | 'registered_at')} style={selectStyle}>
             <option value="reputation">Sort: Reputation</option>
-            <option value="recent">Sort: Recent</option>
+            <option value="registered_at">Sort: Recent</option>
           </select>
 
           {(capFilter || protoFilter) && (
@@ -198,8 +197,15 @@ export default function Directory(): React.ReactElement {
           </div>
         )}
 
+        {/* Loading state */}
+        {loading && (
+          <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--text-tertiary)' }}>
+            <p>Loading agents...</p>
+          </div>
+        )}
+
         {/* Grid */}
-        {filtered.length > 0 ? (
+        {!loading && agents.length > 0 && (
           <div
             style={{
               display: 'grid',
@@ -207,11 +213,14 @@ export default function Directory(): React.ReactElement {
               gap: 16,
             }}
           >
-            {filtered.map(agent => (
+            {agents.map(agent => (
               <AgentCard key={agent.id} agent={agent} />
             ))}
           </div>
-        ) : (
+        )}
+
+        {/* Empty state */}
+        {!loading && agents.length === 0 && (
           <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--text-tertiary)' }}>
             <p>No agents match your filters.</p>
             <button
