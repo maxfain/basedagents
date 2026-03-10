@@ -1,154 +1,77 @@
-# Brand Guide — Agent Registry
+# Brand Guide
 
 ## Color Palette
 
-A dark, neutral foundation with a single accent color. No gradients, no neon, no rainbow. Think: the confidence of a well-lit terminal.
+**Background**
+- `--bg-primary: #0A0A0B` — near-black, main background
+- `--bg-secondary: #111113` — cards, elevated surfaces
+- `--bg-tertiary: #18181B` — hover states, input fields
 
-### Primary
+**Accent**
+- `--accent: #6366F1` — indigo-500, primary actions (buttons, links, active states)
+- `--accent-hover: #818CF8` — indigo-400, hover
+- `--accent-muted: rgba(99, 102, 241, 0.12)` — subtle backgrounds, tag fills
 
-| Name | Hex | Usage |
-|------|-----|-------|
-| **Ink** | `#0A0A0B` | Page background, primary dark |
-| **Surface** | `#141416` | Card backgrounds, elevated surfaces |
-| **Border** | `#1E1E22` | Borders, dividers, subtle separation |
-| **Muted** | `#63636E` | Secondary text, labels, placeholders |
-| **Text** | `#EDEDEF` | Primary text |
-| **Bright** | `#FAFAFA` | Headings, emphasis text |
+**Text**
+- `--text-primary: #FAFAFA` — headings, primary content
+- `--text-secondary: #A1A1AA` — zinc-400, descriptions, secondary info
+- `--text-tertiary: #52525B` — zinc-600, timestamps, metadata
 
-### Accent
+**Status**
+- `--status-active: #22C55E` — green-500, active agents
+- `--status-pending: #F59E0B` — amber-500, pending verification
+- `--status-suspended: #EF4444` — red-500, suspended
+- `--status-pass: #22C55E` — verification passed
+- `--status-fail: #EF4444` — verification failed
 
-| Name | Hex | Usage |
-|------|-----|-------|
-| **Blue** | `#3B82F6` | Links, primary actions, interactive elements |
-| **Blue Subtle** | `#3B82F61A` | Hover states, selected backgrounds (blue @ 10% opacity) |
-| **Blue Muted** | `#3B82F640` | Focus rings, active indicators (blue @ 25% opacity) |
+**Chain / Hash**
+- `--hash: #38BDF8` — sky-400, hash values and chain references
 
-### Semantic
-
-| Name | Hex | Usage |
-|------|-----|-------|
-| **Green** | `#22C55E` | Active status, pass results, positive signals |
-| **Amber** | `#F59E0B` | Pending status, warnings |
-| **Red** | `#EF4444` | Suspended status, fail results, errors |
-
-### Usage Rules
-
-- **Background is always Ink or Surface.** No light mode for v1.
-- **Blue is the only accent.** Don't introduce purple, teal, or orange for "variety."
-- **Semantic colors appear only in status/result contexts.** Never decorative.
-- **Borders are subtle.** 1px, Border color. They define space, not draw attention.
-
----
+**Border**
+- `--border: rgba(255, 255, 255, 0.06)` — subtle dividers
+- `--border-hover: rgba(255, 255, 255, 0.1)` — interactive element borders
 
 ## Typography
 
-System font stack with a monospace companion. No custom font loading for v1 — speed matters.
-
-### Font Stack
-
+**Font Stack**
 ```css
---font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
---font-mono: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', 'Courier New', monospace;
+--font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+--font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
 ```
 
-If we add a Google Font later, **Inter** for sans and **JetBrains Mono** for code.
+Load Inter (400, 500, 600) and JetBrains Mono (400, 500) from Google Fonts.
 
-### Scale
+**Scale**
+| Token      | Size   | Weight | Use                          |
+|------------|--------|--------|------------------------------|
+| `hero`     | 48px   | 600    | Landing page headline        |
+| `h1`       | 32px   | 600    | Page titles                  |
+| `h2`       | 24px   | 600    | Section headers              |
+| `h3`       | 18px   | 500    | Card titles, agent names     |
+| `body`     | 15px   | 400    | Default text                 |
+| `small`    | 13px   | 400    | Metadata, timestamps         |
+| `mono`     | 14px   | 400    | Code, hashes, agent IDs      |
 
-| Level | Size | Weight | Line Height | Usage |
-|-------|------|--------|-------------|-------|
-| **H1** | 40px / 2.5rem | 600 | 1.2 | Page titles |
-| **H2** | 28px / 1.75rem | 600 | 1.3 | Section headings |
-| **H3** | 20px / 1.25rem | 500 | 1.4 | Card titles, subsections |
-| **Body** | 15px / 0.9375rem | 400 | 1.6 | Paragraphs, descriptions |
-| **Small** | 13px / 0.8125rem | 400 | 1.5 | Labels, metadata, captions |
-| **Mono** | 14px / 0.875rem | 400 | 1.6 | Code, agent IDs, hashes |
-
-### Rules
-
-- **Headings use weight 500-600.** Never bold (700+) — it feels loud.
-- **Body text is always `Text` color.** Never pure white (`#FFF`).
-- **Agent IDs and hashes always render in monospace.** They're identifiers, not prose.
-- **Letter-spacing on headings:** `-0.02em` (slight tightening, like Linear/Vercel).
-- **Max paragraph width:** `640px` (readable line length).
-
----
+**Line Heights:** 1.2 for headings, 1.6 for body.
 
 ## Logo Concept
 
-**Text mark only.** No icon, no symbol, no mascot. The name does the work.
+**Wordmark:** "Agent Registry" in Inter 600. The "A" and "R" are slightly letterspaced for weight. Rendered in `--text-primary`.
 
-### The Mark
+**Logomark:** A minimal glyph — two interlocking chain links formed from angular brackets `< >`, implying both code and chaining. Rendered in `--accent`. Used as favicon and small contexts.
 
-```
-agent registry
-```
+**Lockup:** Logomark left of wordmark. 8px gap. No tagline in the logo itself.
 
-- All lowercase. No camel case, no title case.
-- Set in the sans-serif stack, weight 500.
-- Two words, no separator.
-- "agent" in `Text` color (#EDEDEF), "registry" in `Muted` color (#63636E).
-- The weight difference creates hierarchy without adding visual noise.
-
-### Compact Form
-
-```
-ag_
-```
-
-- Used in favicons, small contexts, and as a prefix motif.
-- Rendered in monospace, Blue accent color.
-- Mirrors the agent ID format (`ag_7Xk9mP2...`) — the product IS the brand.
-
-### Logo Don'ts
-
-- No icons, shields, chains, or nodes. These scream web3.
-- No all-caps. We're infrastructure, not a defense contractor.
-- No tagline in the logo. Taglines live in copy, not identity.
-
----
+**Usage:** Always on dark backgrounds. No gradients, no effects. The logo is type — keep it sharp.
 
 ## Tone of Voice
 
-### Principles
+**For the site:** Infrastructure documentation meets developer tool marketing. Authoritative but approachable. No hype, no "revolutionary" or "game-changing." State what it does, show a code example, move on.
 
-1. **Technical but not academic.** Write like you're explaining it to a senior engineer, not a professor. Use precise terms but skip the formalism.
+**Headlines:** Short, declarative. "Identity for agents." not "The revolutionary new way to give your AI agents an identity!"
 
-2. **Confident, not hype.** State what it does. Don't say "revolutionary" or "cutting-edge." The tech speaks for itself.
+**Body copy:** Second person, present tense. "Your agent generates a keypair. It solves proof-of-work. It's in the registry." Technical terms are fine — the audience knows what Ed25519 is.
 
-3. **Direct.** Short sentences. Active voice. Lead with the verb or the result, not the preamble.
+**Avoid:** Blockchain/crypto jargon (no "web3", "decentralized", "trustless"). Buzzwords ("AI-powered", "next-gen"). Exclamation marks. Emoji in marketing copy.
 
-4. **Developer-first.** Show code before explaining concepts. Developers read code faster than prose.
-
-### Examples
-
-**Good:**
-> Register your agent in three lines of code. Identity is a keypair — no accounts, no API keys.
-
-**Bad:**
-> The Agent Registry provides a groundbreaking decentralized identity solution that leverages cutting-edge cryptographic primitives to enable seamless agent-to-agent trust establishment.
-
-**Good:**
-> Reputation is earned, not declared. Agents verify each other and build trust through work.
-
-**Bad:**
-> Our innovative peer-verification mechanism facilitates organic trust network formation through bidirectional capability assessment protocols.
-
-### Words We Use
-
-- register, identity, verify, reputation, discover, search, chain, sign
-- agent, profile, capability, protocol, endpoint
-- public, open, verifiable, tamper-evident
-
-### Words We Don't Use
-
-- decentralized, blockchain, web3, token, stake, mint, burn
-- revolutionary, game-changing, disruptive, next-gen
-- AI-powered (everything is AI here — it's redundant)
-- enterprise-grade, world-class, best-in-class
-
-### Copy Patterns
-
-- **CTAs:** "Register an agent" / "Search the registry" / "View the chain" — verb + object, no fluff.
-- **Descriptions:** Lead with what it does, then how. "Every registration is hash-chained into a public ledger. Anyone can verify the full history."
-- **Error messages:** Say what happened and what to do. "Invalid signature. Make sure you're signing with the private key that matches this agent ID."
+**Embrace:** Code snippets as documentation. Concrete numbers (difficulty: 20 = ~1M hashes). Comparisons to known infrastructure (like git, like DNS, like SSH keys).
