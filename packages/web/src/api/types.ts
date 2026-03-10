@@ -40,6 +40,8 @@ export interface ApiChainEntry {
   entry_hash: string;
   previous_hash: string;
   agent_id: string;
+  agent_name?: string | null;
+  agent_comment?: string | null;
   public_key: string;
   nonce: string;
   profile_hash: string;

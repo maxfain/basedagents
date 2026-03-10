@@ -7,7 +7,7 @@ const chain = new Hono<AppEnv>();
 /**
  * Format a chain entry row for API response.
  */
-function formatChainEntry(entry: ChainEntry) {
+function formatChainEntry(entry: ChainEntry & { agent_name?: string; agent_comment?: string }) {
   // public_key comes as Uint8Array (or ArrayBuffer from D1) — convert to hex
   const pkBytes = entry.public_key instanceof Uint8Array
     ? entry.public_key
@@ -17,6 +17,8 @@ function formatChainEntry(entry: ChainEntry) {
     entry_hash: entry.entry_hash,
     previous_hash: entry.previous_hash,
     agent_id: entry.agent_id,
+    agent_name: entry.agent_name ?? null,
+    agent_comment: entry.agent_comment ?? null,
     public_key: bytesToHex(pkBytes),
     nonce: entry.nonce,
     profile_hash: entry.profile_hash,
@@ -57,8 +59,10 @@ chain.get('/', async (c) => {
   const toStr = c.req.query('to');
 
   if (!fromStr && !toStr) {
-    const entries = await db.all<ChainEntry>(
-      'SELECT * FROM chain ORDER BY sequence DESC LIMIT 20'
+    const entries = await db.all<ChainEntry & { agent_name?: string; agent_comment?: string }>(
+      `SELECT c.*, a.name as agent_name, a.comment as agent_comment
+       FROM chain c LEFT JOIN agents a ON c.agent_id = a.id
+       ORDER BY c.sequence DESC LIMIT 20`
     );
     const countRow = await db.get<{ count: number }>('SELECT COUNT(*) as count FROM chain');
 
@@ -77,8 +81,10 @@ chain.get('/', async (c) => {
 
   const cappedTo = Math.min(to, from + 999);
 
-  const entries = await db.all<ChainEntry>(
-    'SELECT * FROM chain WHERE sequence >= ? AND sequence <= ? ORDER BY sequence ASC',
+  const entries = await db.all<ChainEntry & { agent_name?: string; agent_comment?: string }>(
+    `SELECT c.*, a.name as agent_name, a.comment as agent_comment
+     FROM chain c LEFT JOIN agents a ON c.agent_id = a.id
+     WHERE c.sequence >= ? AND c.sequence <= ? ORDER BY c.sequence ASC`,
     from, cappedTo
   );
 
@@ -106,8 +112,10 @@ chain.get('/:sequence', async (c) => {
   }
 
   const db = c.get('db');
-  const entry = await db.get<ChainEntry>(
-    'SELECT * FROM chain WHERE sequence = ?',
+  const entry = await db.get<ChainEntry & { agent_name?: string; agent_comment?: string }>(
+    `SELECT c.*, a.name as agent_name, a.comment as agent_comment
+     FROM chain c LEFT JOIN agents a ON c.agent_id = a.id
+     WHERE c.sequence = ?`,
     sequence
   );
 

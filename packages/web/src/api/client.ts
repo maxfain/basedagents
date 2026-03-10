@@ -59,8 +59,9 @@ export function mapApiChainEntry(e: ApiChainEntry): ChainEntry {
     entryHash: e.entry_hash,
     previousHash: e.previous_hash,
     agentId: e.agent_id,
-    agentName: '', // Not provided by chain endpoint
-    agentStatus: 'active', // Not provided by chain endpoint
+    agentName: e.agent_name ?? '',
+    agentStatus: 'active',
+    agentComment: e.agent_comment ?? null,
     timestamp: e.timestamp,
     nonce: e.nonce,
     profileHash: e.profile_hash,

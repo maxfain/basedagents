@@ -1,0 +1,33 @@
+{
+  "name": "basedagents-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-12-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // D1 Database binding (Cloudflare's edge SQLite)
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "basedagents",
+      "database_id": "e8173f0d-7d4f-44c7-8abb-8871a8b56627",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "vars": {
+    "POW_DIFFICULTY": "20",
+    "CHALLENGE_TTL_SECONDS": "300",
+    "AUTH_MAX_CLOCK_SKEW": "60",
+    "BOOTSTRAP_THRESHOLD": "100"
+  },
+
+  // Custom domain route
+  "routes": [
+    { "pattern": "api.basedagents.ai/*", "zone_name": "basedagents.ai" }
+  ],
+
+  // Cron triggers
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  }
+}

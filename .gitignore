@@ -7,7 +7,8 @@ dist/
 .DS_Store
 coverage/
 *.tsbuildinfo
-data/
+# Local data files (DB dumps, exports)
+/data/
 
 # Environment files — use .env.example as template
 .env

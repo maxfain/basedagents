@@ -143,6 +143,12 @@ export default function ChainEntryRow({ entry }: ChainEntryRowProps): React.Reac
             <span style={{ color: 'var(--text-tertiary)' }}>Timestamp:{'    '}</span>
             <span style={{ color: 'var(--text-secondary)' }}>{entry.timestamp}</span>
           </div>
+          {entry.agentComment && (
+            <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+              <span style={{ color: 'var(--text-tertiary)' }}>Comment:{'      '}</span>
+              <span style={{ color: 'var(--accent)', fontStyle: 'italic' }}>&ldquo;{entry.agentComment}&rdquo;</span>
+            </div>
+          )}
         </div>
       )}
     </div>
