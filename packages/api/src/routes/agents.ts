@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import type { AppEnv, Agent, Verification } from '../types/index.js';
 import { ProfileSchema } from '../types/index.js';
-import { getDatabase } from '../db/index.js';
 import { agentAuth } from '../middleware/auth.js';
 
 const agents = new Hono<AppEnv>();
@@ -32,20 +31,9 @@ function formatAgent(agent: Agent) {
  * GET /v1/agents/search
  * Search/filter agents by capabilities, protocols, offers, needs.
  * Full-text search on name + description. Paginated.
- *
- * Query params:
- *   q — free text search on name + description
- *   capabilities — comma-separated capabilities to filter by
- *   protocols — comma-separated protocols to filter by
- *   offers — comma-separated offers to filter by
- *   needs — comma-separated needs to filter by
- *   status — filter by status (default: active)
- *   page — page number (default: 1)
- *   limit — results per page (default: 20, max: 100)
- *   sort — sort field: reputation, registered_at (default: reputation)
  */
 agents.get('/search', async (c) => {
-  const db = getDatabase();
+  const db = c.get('db');
 
   const q = c.req.query('q');
   const capabilities = c.req.query('capabilities');
@@ -62,14 +50,12 @@ agents.get('/search', async (c) => {
   const conditions: string[] = ['status = ?'];
   const params: unknown[] = [status];
 
-  // Free text search on name + description
   if (q) {
     conditions.push('(name LIKE ? OR description LIKE ?)');
     const pattern = `%${q}%`;
     params.push(pattern, pattern);
   }
 
-  // JSON array field search — check if the stored JSON array contains the value
   if (capabilities) {
     for (const cap of capabilities.split(',')) {
       conditions.push("capabilities LIKE ?");
@@ -104,22 +90,24 @@ agents.get('/search', async (c) => {
     : 'reputation_score DESC';
 
   // Get total count
-  const countRow = db.prepare(
-    `SELECT COUNT(*) as count FROM agents WHERE ${whereClause}`
-  ).get(...params) as { count: number };
+  const countRow = await db.get<{ count: number }>(
+    `SELECT COUNT(*) as count FROM agents WHERE ${whereClause}`,
+    ...params
+  );
 
   // Get paginated results
-  const rows = db.prepare(
-    `SELECT * FROM agents WHERE ${whereClause} ORDER BY ${orderBy} LIMIT ? OFFSET ?`
-  ).all(...params, limit, offset) as Agent[];
+  const rows = await db.all<Agent>(
+    `SELECT * FROM agents WHERE ${whereClause} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+    ...params, limit, offset
+  );
 
   return c.json({
     agents: rows.map(formatAgent),
     pagination: {
       page,
       limit,
-      total: countRow.count,
-      total_pages: Math.ceil(countRow.count / limit),
+      total: countRow?.count ?? 0,
+      total_pages: Math.ceil((countRow?.count ?? 0) / limit),
     },
   });
 });
@@ -130,22 +118,23 @@ agents.get('/search', async (c) => {
  */
 agents.get('/:id', async (c) => {
   const id = c.req.param('id');
-  const db = getDatabase();
+  const db = c.get('db');
 
-  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Agent | undefined;
+  const agent = await db.get<Agent>('SELECT * FROM agents WHERE id = ?', id);
 
   if (!agent) {
     return c.json({ error: 'not_found', message: 'Agent not found' }, 404);
   }
 
   // Get recent verifications (last 10 where this agent was the target)
-  const recentVerifications = db.prepare(
+  const recentVerifications = await db.all<Pick<Verification, 'verifier_id' | 'result' | 'coherence_score' | 'created_at'>>(
     `SELECT verifier_id, result, coherence_score, created_at
      FROM verifications
      WHERE target_id = ?
      ORDER BY created_at DESC
-     LIMIT 10`
-  ).all(id) as Pick<Verification, 'verifier_id' | 'result' | 'coherence_score' | 'created_at'>[];
+     LIMIT 10`,
+    id
+  );
 
   return c.json({
     ...formatAgent(agent),
@@ -171,20 +160,14 @@ agents.put('/:id', agentAuth, async (c) => {
     return c.json({ error: 'forbidden', message: 'You can only update your own profile' }, 403);
   }
 
-  // Parse body — note: agentAuth already consumed the body via c.req.text(),
-  // so we need to handle this. We'll re-parse from the raw text.
-  // Actually, Hono caches the body, so let's try json parsing.
   let body: unknown;
   try {
-    // The body was already read by auth middleware, but Hono may cache it.
-    // We need to get the raw text that auth already read and parse it.
     const rawBody = await c.req.text();
     body = JSON.parse(rawBody);
   } catch {
     return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400);
   }
 
-  // Validate profile fields (partial update — allow subset of profile fields)
   const profileUpdate = ProfileSchema.partial().safeParse(body);
   if (!profileUpdate.success) {
     return c.json({
@@ -194,7 +177,7 @@ agents.put('/:id', agentAuth, async (c) => {
     }, 400);
   }
 
-  const db = getDatabase();
+  const db = c.get('db');
   const updates = profileUpdate.data;
 
   // Build dynamic UPDATE query
@@ -238,18 +221,18 @@ agents.put('/:id', agentAuth, async (c) => {
     return c.json({ error: 'bad_request', message: 'No fields to update' }, 400);
   }
 
-  // Also update last_seen
   setClauses.push('last_seen = ?');
   params.push(new Date().toISOString());
   params.push(id);
 
-  db.prepare(
-    `UPDATE agents SET ${setClauses.join(', ')} WHERE id = ?`
-  ).run(...params);
+  await db.run(
+    `UPDATE agents SET ${setClauses.join(', ')} WHERE id = ?`,
+    ...params
+  );
 
   // Return updated agent
-  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Agent;
-  return c.json(formatAgent(agent));
+  const agent = await db.get<Agent>('SELECT * FROM agents WHERE id = ?', id);
+  return c.json(formatAgent(agent!));
 });
 
 /**
@@ -258,44 +241,45 @@ agents.put('/:id', agentAuth, async (c) => {
  */
 agents.get('/:id/reputation', async (c) => {
   const id = c.req.param('id');
-  const db = getDatabase();
+  const db = c.get('db');
 
-  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Agent | undefined;
+  const agent = await db.get<Agent>('SELECT * FROM agents WHERE id = ?', id);
   if (!agent) {
     return c.json({ error: 'not_found', message: 'Agent not found' }, 404);
   }
 
-  // Compute detailed reputation breakdown
   // Verifications received (as target)
-  const received = db.prepare(
+  const received = await db.get<{ total: number; passes: number; avg_coherence: number | null }>(
     `SELECT
        COUNT(*) as total,
        SUM(CASE WHEN result = 'pass' THEN 1 ELSE 0 END) as passes,
        AVG(CASE WHEN coherence_score IS NOT NULL THEN coherence_score END) as avg_coherence
-     FROM verifications WHERE target_id = ?`
-  ).get(id) as { total: number; passes: number; avg_coherence: number | null };
+     FROM verifications WHERE target_id = ?`,
+    id
+  );
 
-  // Verifications given (as verifier) — contribution score
-  const given = db.prepare(
-    'SELECT COUNT(*) as total FROM verifications WHERE verifier_id = ?'
-  ).get(id) as { total: number };
+  // Verifications given (as verifier)
+  const given = await db.get<{ total: number }>(
+    'SELECT COUNT(*) as total FROM verifications WHERE verifier_id = ?',
+    id
+  );
 
-  // Uptime: ratio of non-timeout results when this agent was target
-  const uptimeData = db.prepare(
+  // Uptime
+  const uptimeData = await db.get<{ total: number; responsive: number }>(
     `SELECT
        COUNT(*) as total,
        SUM(CASE WHEN result != 'timeout' THEN 1 ELSE 0 END) as responsive
-     FROM verifications WHERE target_id = ?`
-  ).get(id) as { total: number; responsive: number };
+     FROM verifications WHERE target_id = ?`,
+    id
+  );
 
-  const passRate = received.total > 0 ? received.passes / received.total : 0;
-  const avgCoherence = received.avg_coherence ?? 0;
-  // Contribution: normalized — cap at 1.0 (10+ verifications given = max contribution)
-  const contribution = Math.min(1.0, given.total / 10);
-  const uptime = uptimeData.total > 0 ? uptimeData.responsive / uptimeData.total : 0;
+  const passRate = (received?.total ?? 0) > 0 ? (received?.passes ?? 0) / received!.total : 0;
+  const avgCoherence = received?.avg_coherence ?? 0;
+  const contribution = Math.min(1.0, (given?.total ?? 0) / 10);
+  const uptime = (uptimeData?.total ?? 0) > 0 ? (uptimeData?.responsive ?? 0) / uptimeData!.total : 0;
 
   const rawScore = 0.4 * passRate + 0.3 * avgCoherence + 0.2 * contribution + 0.1 * uptime;
-  const confidenceMultiplier = Math.log(1 + received.total);
+  const confidenceMultiplier = Math.log(1 + (received?.total ?? 0));
   const finalScore = rawScore * confidenceMultiplier;
 
   return c.json({
@@ -315,8 +299,8 @@ agents.get('/:id/reputation', async (c) => {
     },
     raw_score: Math.round(rawScore * 1000) / 1000,
     confidence_multiplier: Math.round(confidenceMultiplier * 1000) / 1000,
-    verifications_received: received.total,
-    verifications_given: given.total,
+    verifications_received: received?.total ?? 0,
+    verifications_given: given?.total ?? 0,
   });
 });
 

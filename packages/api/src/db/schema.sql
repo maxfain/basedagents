@@ -17,7 +17,10 @@ CREATE TABLE IF NOT EXISTS agents (
   last_seen DATETIME,
   status TEXT NOT NULL DEFAULT 'pending', -- pending | active | suspended
   reputation_score REAL NOT NULL DEFAULT 0.0,
-  verification_count INTEGER NOT NULL DEFAULT 0
+  verification_count INTEGER NOT NULL DEFAULT 0,
+  security_score INTEGER,
+  security_scanned_at DATETIME,
+  badge_tier TEXT DEFAULT 'unverified'
 );
 
 -- Registration challenges (short-lived)

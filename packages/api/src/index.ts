@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import type { AppEnv } from './types/index.js';
+import type { DBAdapter } from './db/adapter.js';
 
 import registerRoutes from './routes/register.js';
 import agentRoutes from './routes/agents.js';
@@ -13,6 +14,23 @@ const app = new Hono<AppEnv>();
 // ─── Global Middleware ───
 app.use('*', logger());
 app.use('*', cors());
+
+// ─── Database Adapter Middleware ───
+// On Cloudflare Workers: wraps c.env.DB (D1) with the adapter.
+// On Node.js: the adapter is set before the server starts (see below).
+let nodeAdapter: DBAdapter | null = null;
+
+app.use('*', async (c, next) => {
+  if (nodeAdapter) {
+    // Node.js path — adapter was initialized at startup
+    c.set('db', nodeAdapter);
+  } else if (c.env.DB) {
+    // Cloudflare Workers path — wrap D1 binding
+    const { D1Adapter } = await import('./db/d1-adapter.js');
+    c.set('db', new D1Adapter(c.env.DB));
+  }
+  await next();
+});
 
 // ─── Health Check ───
 app.get('/', (c) => {
@@ -51,6 +69,7 @@ const isNode = typeof globalThis.process !== 'undefined' && globalThis.process.v
 if (isNode) {
   const { serve } = await import('@hono/node-server');
   const { initDatabase } = await import('./db/index.js');
+  const { SQLiteAdapter } = await import('./db/sqlite-adapter.js');
   const { mkdirSync } = await import('node:fs');
 
   const port = parseInt(process.env['PORT'] || '3000', 10);
@@ -59,8 +78,9 @@ if (isNode) {
   // Ensure data directory exists
   mkdirSync('./data', { recursive: true });
 
-  // Initialize database
-  initDatabase(dbPath);
+  // Initialize database and create adapter
+  const sqliteDb = initDatabase(dbPath);
+  nodeAdapter = new SQLiteAdapter(sqliteDb);
 
   serve({ fetch: app.fetch, port }, (info) => {
     console.log(`🔑 Agent Registry API running at http://localhost:${info.port}`);

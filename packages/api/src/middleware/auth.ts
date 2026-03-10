@@ -1,6 +1,6 @@
 import type { Context, Next } from 'hono';
 import { sha256, bytesToHex, verifySignature, base58Decode, publicKeyToAgentId } from '../crypto/index.js';
-import { getDatabase } from '../db/index.js';
+import type { DBAdapter } from '../db/adapter.js';
 
 /**
  * AgentSig authentication middleware.
@@ -86,8 +86,8 @@ export async function agentAuth(c: Context, next: Next): Promise<Response | void
 
   // Check agent exists in database
   const agentId = publicKeyToAgentId(publicKey);
-  const db = getDatabase();
-  const agent = db.prepare('SELECT id, status FROM agents WHERE id = ?').get(agentId) as { id: string; status: string } | undefined;
+  const db = c.get('db') as DBAdapter;
+  const agent = await db.get<{ id: string; status: string }>('SELECT id, status FROM agents WHERE id = ?', agentId);
 
   if (!agent) {
     return c.json({ error: 'unauthorized', message: 'Agent not registered' }, 401);

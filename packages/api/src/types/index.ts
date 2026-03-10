@@ -45,7 +45,7 @@ export const VerifySubmitSchema = z.object({
 
 export interface Agent {
   id: string;
-  public_key: Buffer;
+  public_key: Uint8Array;
   name: string;
   description: string;
   capabilities: string; // JSON array
@@ -87,7 +87,7 @@ export interface ChainEntry {
   entry_hash: string;
   previous_hash: string;
   agent_id: string;
-  public_key: Buffer;
+  public_key: Uint8Array;
   nonce: string;
   profile_hash: string;
   timestamp: string;
@@ -116,9 +116,12 @@ export interface RegisterCompleteResponse {
   message: string;
 }
 
-// ─── App Context Variables (set by auth middleware) ───
+// ─── App Context Variables (set by middleware) ───
+
+import type { DBAdapter } from '../db/adapter.js';
 
 export type Variables = {
+  db: DBAdapter;
   agentId: string;
   publicKey: Uint8Array;
   agentStatus: string;

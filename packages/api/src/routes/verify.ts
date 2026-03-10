@@ -1,136 +1,120 @@
 import { Hono } from 'hono';
-import { v4 as uuidv4 } from 'uuid';
 import type { AppEnv, Agent, Verification } from '../types/index.js';
 import { VerifySubmitSchema } from '../types/index.js';
-import { getDatabase } from '../db/index.js';
 import { agentAuth } from '../middleware/auth.js';
-import { verifySignature, base58Decode } from '../crypto/index.js';
+import { verifySignature } from '../crypto/index.js';
+import type { DBAdapter } from '../db/adapter.js';
 
 const verify = new Hono<AppEnv>();
 
 /**
  * Calculate reputation score for an agent.
- *
- * Formula:
- *   rawScore = 0.4 * pass_rate + 0.3 * avg_coherence + 0.2 * contribution + 0.1 * uptime
- *   reputation = rawScore * log(1 + total_verifications_received)
  */
-function calculateReputation(db: ReturnType<typeof getDatabase>, agentId: string): number {
-  // Verifications received (as target)
-  const received = db.prepare(
+async function calculateReputation(db: DBAdapter, agentId: string): Promise<number> {
+  const received = await db.get<{ total: number; passes: number; avg_coherence: number | null }>(
     `SELECT
        COUNT(*) as total,
        SUM(CASE WHEN result = 'pass' THEN 1 ELSE 0 END) as passes,
        AVG(CASE WHEN coherence_score IS NOT NULL THEN coherence_score END) as avg_coherence
-     FROM verifications WHERE target_id = ?`
-  ).get(agentId) as { total: number; passes: number; avg_coherence: number | null };
+     FROM verifications WHERE target_id = ?`,
+    agentId
+  );
 
-  // Verifications given (as verifier)
-  const given = db.prepare(
-    'SELECT COUNT(*) as total FROM verifications WHERE verifier_id = ?'
-  ).get(agentId) as { total: number };
+  const given = await db.get<{ total: number }>(
+    'SELECT COUNT(*) as total FROM verifications WHERE verifier_id = ?',
+    agentId
+  );
 
-  // Uptime: ratio of non-timeout results
-  const uptimeData = db.prepare(
+  const uptimeData = await db.get<{ total: number; responsive: number }>(
     `SELECT
        COUNT(*) as total,
        SUM(CASE WHEN result != 'timeout' THEN 1 ELSE 0 END) as responsive
-     FROM verifications WHERE target_id = ?`
-  ).get(agentId) as { total: number; responsive: number };
+     FROM verifications WHERE target_id = ?`,
+    agentId
+  );
 
-  const passRate = received.total > 0 ? received.passes / received.total : 0;
-  const avgCoherence = received.avg_coherence ?? 0;
-  const contribution = Math.min(1.0, given.total / 10);
-  const uptime = uptimeData.total > 0 ? uptimeData.responsive / uptimeData.total : 0;
+  const passRate = (received?.total ?? 0) > 0 ? (received?.passes ?? 0) / received!.total : 0;
+  const avgCoherence = received?.avg_coherence ?? 0;
+  const contribution = Math.min(1.0, (given?.total ?? 0) / 10);
+  const uptime = (uptimeData?.total ?? 0) > 0 ? (uptimeData?.responsive ?? 0) / uptimeData!.total : 0;
 
   const rawScore = 0.4 * passRate + 0.3 * avgCoherence + 0.2 * contribution + 0.1 * uptime;
-  const confidenceMultiplier = Math.log(1 + received.total);
+  const confidenceMultiplier = Math.log(1 + (received?.total ?? 0));
 
   return Math.round(rawScore * confidenceMultiplier * 100) / 100;
 }
 
 /**
  * Update an agent's status based on their reputation and verification history.
- *
- * Status lifecycle:
- *   pending → active (after first successful verification)
- *   active → suspended (reputation below 1.0 or unreachable 5+ times)
- *   suspended → active (passes a new verification)
  */
-function updateAgentStatus(db: ReturnType<typeof getDatabase>, agentId: string, newReputation: number): void {
-  const agent = db.prepare('SELECT status FROM agents WHERE id = ?').get(agentId) as { status: string } | undefined;
+async function updateAgentStatus(db: DBAdapter, agentId: string, newReputation: number): Promise<void> {
+  const agent = await db.get<{ status: string }>('SELECT status FROM agents WHERE id = ?', agentId);
   if (!agent) return;
 
   let newStatus = agent.status;
 
   if (agent.status === 'pending') {
-    // Check if agent has at least one successful verification as target
-    const passCount = db.prepare(
-      "SELECT COUNT(*) as count FROM verifications WHERE target_id = ? AND result = 'pass'"
-    ).get(agentId) as { count: number };
-
-    if (passCount.count > 0) {
+    const passCount = await db.get<{ count: number }>(
+      "SELECT COUNT(*) as count FROM verifications WHERE target_id = ? AND result = 'pass'",
+      agentId
+    );
+    if ((passCount?.count ?? 0) > 0) {
       newStatus = 'active';
     }
   } else if (agent.status === 'active') {
-    // Check for suspension conditions
     if (newReputation < 1.0 && newReputation > 0) {
-      // Only suspend if there are enough verifications to be meaningful
-      const totalVerifications = db.prepare(
-        'SELECT COUNT(*) as count FROM verifications WHERE target_id = ?'
-      ).get(agentId) as { count: number };
-
-      if (totalVerifications.count >= 3) {
+      const totalVerifications = await db.get<{ count: number }>(
+        'SELECT COUNT(*) as count FROM verifications WHERE target_id = ?',
+        agentId
+      );
+      if ((totalVerifications?.count ?? 0) >= 3) {
         newStatus = 'suspended';
       }
     }
 
-    // Check consecutive timeouts (unreachable 5+ times in a row)
-    const recentResults = db.prepare(
-      'SELECT result FROM verifications WHERE target_id = ? ORDER BY created_at DESC LIMIT 5'
-    ).all(agentId) as { result: string }[];
+    const recentResults = await db.all<{ result: string }>(
+      'SELECT result FROM verifications WHERE target_id = ? ORDER BY created_at DESC LIMIT 5',
+      agentId
+    );
 
     if (recentResults.length >= 5 && recentResults.every((r) => r.result === 'timeout')) {
       newStatus = 'suspended';
     }
   } else if (agent.status === 'suspended') {
-    // Check if latest verification was a pass — reactivate
-    const latest = db.prepare(
-      'SELECT result FROM verifications WHERE target_id = ? ORDER BY created_at DESC LIMIT 1'
-    ).get(agentId) as { result: string } | undefined;
-
+    const latest = await db.get<{ result: string }>(
+      'SELECT result FROM verifications WHERE target_id = ? ORDER BY created_at DESC LIMIT 1',
+      agentId
+    );
     if (latest?.result === 'pass') {
       newStatus = 'active';
     }
   }
 
   if (newStatus !== agent.status) {
-    db.prepare('UPDATE agents SET status = ? WHERE id = ?').run(newStatus, agentId);
+    await db.run('UPDATE agents SET status = ? WHERE id = ?', newStatus, agentId);
   }
 }
 
 /**
  * GET /v1/verify/assignment
  * Get a verification assignment for the authenticated agent.
- * Returns a random active agent to verify (not self).
  */
 verify.get('/assignment', agentAuth, async (c) => {
   const agentId = c.get('agentId') as string;
-  const db = getDatabase();
+  const db = c.get('db');
 
-  // Check agent count for bootstrap mode info
-  const activeCount = db.prepare(
+  const activeCount = await db.get<{ count: number }>(
     "SELECT COUNT(*) as count FROM agents WHERE status = 'active'"
-  ).get() as { count: number };
+  );
 
-  // Pick a random agent to verify (active or pending, not self)
-  const target = db.prepare(
+  const target = await db.get<Pick<Agent, 'id' | 'name' | 'contact_endpoint' | 'capabilities'>>(
     `SELECT id, name, contact_endpoint, capabilities
      FROM agents
      WHERE id != ? AND status IN ('active', 'pending')
      ORDER BY RANDOM()
-     LIMIT 1`
-  ).get(agentId) as Pick<Agent, 'id' | 'name' | 'contact_endpoint' | 'capabilities'> | undefined;
+     LIMIT 1`,
+    agentId
+  );
 
   if (!target) {
     return c.json({
@@ -139,9 +123,8 @@ verify.get('/assignment', agentAuth, async (c) => {
     }, 404);
   }
 
-  // Generate assignment ID
-  const assignmentId = uuidv4();
-  const deadline = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
+  const assignmentId = crypto.randomUUID();
+  const deadline = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
   return c.json({
     assignment_id: assignmentId,
@@ -152,7 +135,7 @@ verify.get('/assignment', agentAuth, async (c) => {
       capabilities: JSON.parse(target.capabilities),
     },
     deadline,
-    bootstrap_mode: activeCount.count < 100,
+    bootstrap_mode: (activeCount?.count ?? 0) < 100,
     instructions: 'Contact the agent at its endpoint. Send a simple capability probe. Report results.',
   });
 });
@@ -164,7 +147,6 @@ verify.get('/assignment', agentAuth, async (c) => {
 verify.post('/submit', agentAuth, async (c) => {
   const verifierId = c.get('agentId') as string;
 
-  // Parse body
   let body: unknown;
   try {
     const rawBody = await c.req.text();
@@ -183,15 +165,14 @@ verify.post('/submit', agentAuth, async (c) => {
   }
 
   const { assignment_id, target_id, result, response_time_ms, coherence_score, notes, signature } = parsed.data;
-  const db = getDatabase();
+  const db = c.get('db');
 
   // Verify target exists
-  const target = db.prepare('SELECT id, status FROM agents WHERE id = ?').get(target_id) as { id: string; status: string } | undefined;
+  const target = await db.get<{ id: string; status: string }>('SELECT id, status FROM agents WHERE id = ?', target_id);
   if (!target) {
     return c.json({ error: 'not_found', message: 'Target agent not found' }, 404);
   }
 
-  // Can't verify yourself
   if (verifierId === target_id) {
     return c.json({ error: 'bad_request', message: 'Cannot verify yourself' }, 400);
   }
@@ -206,10 +187,6 @@ verify.post('/submit', agentAuth, async (c) => {
     notes,
   });
 
-  // Note: We validate the signature exists and is well-formed.
-  // Full cryptographic verification of the report signature would require
-  // the verifier to sign the report data with their key.
-  // For now, we verify format and trust the auth middleware's verification.
   let sigBytes: Uint8Array;
   try {
     const binaryStr = atob(signature);
@@ -221,7 +198,6 @@ verify.post('/submit', agentAuth, async (c) => {
     return c.json({ error: 'bad_request', message: 'Invalid base64 signature on report' }, 400);
   }
 
-  // Verify the report signature against the verifier's public key
   const verifierPubKey = c.get('publicKey') as Uint8Array;
   const reportBytes = new TextEncoder().encode(reportData);
   const sigValid = await verifySignature(reportBytes, sigBytes, verifierPubKey);
@@ -230,13 +206,12 @@ verify.post('/submit', agentAuth, async (c) => {
   }
 
   // Store the verification
-  const verificationId = uuidv4();
+  const verificationId = crypto.randomUUID();
   const now = new Date().toISOString();
 
-  db.prepare(
+  await db.run(
     `INSERT INTO verifications (id, verifier_id, target_id, result, response_time_ms, coherence_score, notes, signature, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     verificationId,
     verifierId,
     target_id,
@@ -249,33 +224,35 @@ verify.post('/submit', agentAuth, async (c) => {
   );
 
   // Update verification counts
-  db.prepare(
-    'UPDATE agents SET verification_count = verification_count + 1 WHERE id = ?'
-  ).run(target_id);
+  await db.run(
+    'UPDATE agents SET verification_count = verification_count + 1 WHERE id = ?',
+    target_id
+  );
 
   // Update last_seen for verifier
-  db.prepare(
-    'UPDATE agents SET last_seen = ? WHERE id = ?'
-  ).run(now, verifierId);
+  await db.run(
+    'UPDATE agents SET last_seen = ? WHERE id = ?',
+    now, verifierId
+  );
 
   // Recalculate reputation for both target and verifier
-  const targetReputation = calculateReputation(db, target_id);
-  const verifierReputation = calculateReputation(db, verifierId);
+  const targetReputation = await calculateReputation(db, target_id);
+  const verifierReputation = await calculateReputation(db, verifierId);
 
   // Get previous reputations for delta calculation
-  const targetAgent = db.prepare('SELECT reputation_score FROM agents WHERE id = ?').get(target_id) as { reputation_score: number };
-  const verifierAgent = db.prepare('SELECT reputation_score FROM agents WHERE id = ?').get(verifierId) as { reputation_score: number };
+  const targetAgent = await db.get<{ reputation_score: number }>('SELECT reputation_score FROM agents WHERE id = ?', target_id);
+  const verifierAgent = await db.get<{ reputation_score: number }>('SELECT reputation_score FROM agents WHERE id = ?', verifierId);
 
-  const targetDelta = Math.round((targetReputation - targetAgent.reputation_score) * 100) / 100;
-  const verifierDelta = Math.round((verifierReputation - verifierAgent.reputation_score) * 100) / 100;
+  const targetDelta = Math.round((targetReputation - (targetAgent?.reputation_score ?? 0)) * 100) / 100;
+  const verifierDelta = Math.round((verifierReputation - (verifierAgent?.reputation_score ?? 0)) * 100) / 100;
 
   // Update reputation scores
-  db.prepare('UPDATE agents SET reputation_score = ? WHERE id = ?').run(targetReputation, target_id);
-  db.prepare('UPDATE agents SET reputation_score = ? WHERE id = ?').run(verifierReputation, verifierId);
+  await db.run('UPDATE agents SET reputation_score = ? WHERE id = ?', targetReputation, target_id);
+  await db.run('UPDATE agents SET reputation_score = ? WHERE id = ?', verifierReputation, verifierId);
 
   // Update status lifecycle for both agents
-  updateAgentStatus(db, target_id, targetReputation);
-  updateAgentStatus(db, verifierId, verifierReputation);
+  await updateAgentStatus(db, target_id, targetReputation);
+  await updateAgentStatus(db, verifierId, verifierReputation);
 
   return c.json({
     ok: true,
