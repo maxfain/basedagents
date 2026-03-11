@@ -355,7 +355,7 @@ export class RegistryClient {
     return res;
   }
 
-  private async fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  async fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await this.fetch(path, init);
     return res.json() as Promise<T>;
   }

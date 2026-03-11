@@ -8,6 +8,7 @@
 
 import { validate } from './validate.js';
 import { register } from './register.js';
+import { whois } from './whois.js';
 
 const VERSION = '0.2.0';
 
@@ -18,6 +19,7 @@ Usage:
   basedagents <command> [options]
 
 Commands:
+  whois <name-or-id>               Look up any agent by name or ID
   register                         Interactive registration (prompts)
   register --manifest <file>       Non-interactive — read profile from JSON file
   validate [file]                  Validate a basedagents.json manifest
@@ -28,6 +30,8 @@ Options:
   --help, -h        Show this help message
 
 Examples:
+  npx basedagents whois Hans
+  npx basedagents whois ag_7Xk9mP2qR8nK4vL3
   npx basedagents register
   npx basedagents register --manifest ./basedagents.json
   npx basedagents validate
@@ -50,6 +54,11 @@ export async function main(): Promise<void> {
   }
 
   const command = args[0];
+
+  if (command === 'whois') {
+    await whois(args.slice(1));
+    return;
+  }
 
   if (command === 'register') {
     await register(args.slice(1));
