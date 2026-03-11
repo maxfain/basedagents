@@ -1,0 +1,228 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://basedagents.ai/schema/manifest/0.1.json",
+  "title": "BasedAgents Manifest",
+  "description": "Agent manifest for the BasedAgents identity and reputation registry. Place as basedagents.json in your agent's root.",
+  "type": "object",
+  "required": ["manifest_version", "identity", "capabilities", "protocols"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+
+    "manifest_version": {
+      "type": "string",
+      "const": "0.1",
+      "description": "Manifest schema version. Must be '0.1' for this schema."
+    },
+
+    "identity": {
+      "type": "object",
+      "required": ["name", "version", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "version": { "type": "string", "maxLength": 50, "description": "Agent software version (semver recommended)" },
+        "description": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "homepage": { "type": "string", "format": "uri" },
+        "logo_url": { "type": "string", "format": "uri" },
+        "contact_endpoint": { "type": "string", "format": "uri", "description": "Endpoint for verification probes" },
+        "contact_email": { "type": "string", "format": "email" },
+        "organization": { "type": "string", "maxLength": 100 },
+        "organization_url": { "type": "string", "format": "uri" },
+        "tags": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "type": "string", "maxLength": 50 }
+        }
+      }
+    },
+
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "framework": {
+          "type": "string",
+          "examples": ["openai-agents", "langchain", "crewai", "autogen", "custom"]
+        },
+        "model": {
+          "type": "string",
+          "examples": ["gpt-4o", "claude-3-7-sonnet-20250219", "gemini-2.0-flash"]
+        },
+        "model_provider": {
+          "type": "string",
+          "examples": ["openai", "anthropic", "google", "self-hosted"]
+        },
+        "language": {
+          "type": "string",
+          "examples": ["typescript", "python", "rust", "go"]
+        }
+      }
+    },
+
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": { "type": "string", "minLength": 1, "maxLength": 100 },
+      "description": "What the agent can do. Use known capability names for discoverability.",
+      "examples": [["code-review", "security-scan", "pr-comment"]]
+    },
+
+    "protocols": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": ["https", "mcp", "a2a", "websocket", "grpc", "openapi"]
+      },
+      "description": "Communication protocols the agent supports"
+    },
+
+    "tools": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "registry": {
+            "type": "string",
+            "enum": ["npm", "pypi", "cargo", "clawhub"],
+            "default": "npm"
+          },
+          "version": { "type": "string", "description": "semver range, e.g. '^5.0.0'" },
+          "purpose": { "type": "string", "maxLength": 200 },
+          "private": {
+            "type": "boolean",
+            "description": "If true, tool exists but details are proprietary. Scores neutral (0.5)."
+          }
+        }
+      }
+    },
+
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "network": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "outbound": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Hostnames the agent makes outbound requests to"
+            },
+            "inbound": {
+              "type": "boolean",
+              "description": "Whether the agent accepts incoming connections"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "reads": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Data sources read. Format: 'service:resource'",
+              "examples": [["github:pull_request", "github:repository:contents"]]
+            },
+            "writes": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Data targets written. Format: 'service:resource'"
+            },
+            "stores": {
+              "type": "boolean",
+              "description": "Whether the agent persists any user data"
+            },
+            "retains_pii": {
+              "type": "boolean",
+              "description": "Whether the agent retains personally identifiable information. Requires contact_email if true."
+            }
+          }
+        },
+        "compute": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_tokens_per_request": { "type": "integer", "minimum": 1 },
+            "max_concurrent_requests": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "content_policy": {
+          "type": "string",
+          "enum": ["openai", "anthropic", "google", "custom", "none"],
+          "description": "Which content policy the agent operates under"
+        },
+        "refuses": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "harmful_code_generation",
+              "secrets_exfiltration",
+              "prompt_injection",
+              "pii_collection",
+              "unauthorized_tool_calls",
+              "data_exfiltration",
+              "social_engineering",
+              "self_replication"
+            ]
+          },
+          "description": "Behaviors this agent explicitly refuses"
+        },
+        "scope_bound": {
+          "type": "boolean",
+          "description": "Agent only acts within explicitly defined task scope"
+        },
+        "human_in_loop": {
+          "type": "boolean",
+          "description": "All actions require human approval"
+        },
+        "human_in_loop_for": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Specific action types requiring human approval"
+        },
+        "sandboxed": {
+          "type": "boolean",
+          "description": "Code execution happens in an isolated sandbox"
+        }
+      }
+    },
+
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "endpoint": { "type": "string", "format": "uri" },
+        "protocol": { "type": "string", "enum": ["https", "mcp", "a2a", "websocket"] },
+        "probe_instructions": { "type": "string", "maxLength": 500 },
+        "expected_response_ms": { "type": "integer", "minimum": 100, "maximum": 60000 }
+      }
+    },
+
+    "registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Populated by the registry on registration. Do not set manually.",
+      "properties": {
+        "id": { "type": "string", "pattern": "^ag_[1-9A-HJ-NP-Za-km-z]+$" },
+        "url": { "type": "string", "format": "uri" }
+      }
+    }
+  }
+}
