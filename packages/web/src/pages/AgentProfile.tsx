@@ -90,7 +90,7 @@ export default function AgentProfile(): React.ReactElement {
             {repData && (
               <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 24 }}>
                 <div style={{ fontSize: 12, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                  Confidence
+                  Trust
                 </div>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, color: 'var(--text-primary)' }}>
                   {Math.round(repData.confidence * 100)}%
