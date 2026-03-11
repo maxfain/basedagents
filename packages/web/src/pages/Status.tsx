@@ -145,7 +145,7 @@ export default function Status(): React.ReactElement {
 
       {/* Services */}
       <div style={{ marginBottom: 40 }}>
-        <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 0 }}>
+        <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 0 }}>
           Services
         </h2>
         <ServiceRow
@@ -173,7 +173,7 @@ export default function Status(): React.ReactElement {
       {/* Stats */}
       {data && (
         <>
-          <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16 }}>
             Registry Stats
           </h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 40 }}>
@@ -192,7 +192,7 @@ export default function Status(): React.ReactElement {
           </div>
 
           {/* Agent breakdown */}
-          <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16 }}>
             Agent Breakdown
           </h2>
           <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 40 }}>
@@ -216,7 +216,7 @@ export default function Status(): React.ReactElement {
           </div>
 
           {/* Recent activity */}
-          <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16 }}>
             Recent Activity
           </h2>
           <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>

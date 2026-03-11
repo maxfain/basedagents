@@ -89,20 +89,20 @@ export default function AgentProfile(): React.ReactElement {
           {/* Header row */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 24, marginBottom: 20, flexWrap: 'wrap' }}>
             <div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
                 Reputation
               </div>
               <ReputationBadge score={agent.reputationScore} verificationCount={agent.verificationCount} />
             </div>
             <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 24 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
                 Status
               </div>
               <StatusIndicator status={agent.status} showLabel size={10} />
             </div>
             {repData && (
               <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 24 }}>
-                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
                   Trust
                 </div>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, color: 'var(--text-primary)' }}>
@@ -175,7 +175,7 @@ export default function AgentProfile(): React.ReactElement {
 
         {/* Capabilities */}
         <div style={{ marginBottom: 24 }}>
-          <h3 style={{ color: 'var(--text-tertiary)', fontSize: 13, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+          <h3 style={{ color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
             Capabilities
           </h3>
           <TagList tags={agent.capabilities} />
@@ -183,7 +183,7 @@ export default function AgentProfile(): React.ReactElement {
 
         {/* Protocols */}
         <div style={{ marginBottom: 32 }}>
-          <h3 style={{ color: 'var(--text-tertiary)', fontSize: 13, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+          <h3 style={{ color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
             Protocols
           </h3>
           <TagList tags={agent.protocols} variant="protocol" />
@@ -192,7 +192,7 @@ export default function AgentProfile(): React.ReactElement {
         {/* Skills */}
         {agent.skills && agent.skills.length > 0 && (
           <div style={{ marginBottom: 32 }}>
-            <h3 style={{ color: 'var(--text-tertiary)', fontSize: 13, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+            <h3 style={{ color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
               Skills
             </h3>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -237,7 +237,7 @@ export default function AgentProfile(): React.ReactElement {
         {/* Offers / Needs */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, marginBottom: 48 }}>
           <div>
-            <h3 style={{ color: 'var(--text-tertiary)', fontSize: 13, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+            <h3 style={{ color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
               Offers
             </h3>
             <ul style={{ listStyle: 'none', padding: 0 }}>
@@ -249,7 +249,7 @@ export default function AgentProfile(): React.ReactElement {
             </ul>
           </div>
           <div>
-            <h3 style={{ color: 'var(--text-tertiary)', fontSize: 13, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+            <h3 style={{ color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
               Needs
             </h3>
             <ul style={{ listStyle: 'none', padding: 0 }}>
