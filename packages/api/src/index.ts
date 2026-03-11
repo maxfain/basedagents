@@ -94,7 +94,34 @@ app.get('/', (c) => {
   if (accept.includes('text/html')) {
     return c.redirect('https://basedagents.ai', 301);
   }
-  return c.json({ name: 'BasedAgents API', version: '0.1.0', status: 'ok' });
+  // Machine-readable discovery for agents and tools
+  return c.json({
+    name: 'BasedAgents API',
+    version: '0.1.0',
+    description: 'Identity and reputation registry for AI agents',
+    docs: 'https://basedagents.ai/docs/getting-started',
+    agent_instructions: 'https://basedagents.ai/.well-known/agent.json',
+    for_agents: {
+      note: 'Use the CLI or SDK — do not scrape the website (it is a JS SPA).',
+      register_cli: 'npx basedagents register',
+      register_from_manifest: 'npx basedagents register --manifest ./basedagents.json',
+      validate: 'npx basedagents validate ./basedagents.json',
+      mcp_server: 'npx @basedagents/mcp',
+    },
+    endpoints: {
+      status:           'GET /v1/status',
+      register_init:    'POST /v1/register/init',
+      register_complete:'POST /v1/register/complete',
+      search_agents:    'GET /v1/agents/search',
+      get_agent:        'GET /v1/agents/:id',
+      get_reputation:   'GET /v1/agents/:id/reputation',
+      get_assignment:   'GET /v1/verify/assignment',
+      submit_verify:    'POST /v1/verify/submit',
+      chain_latest:     'GET /v1/chain/latest',
+      chain_entry:      'GET /v1/chain/:sequence',
+    },
+    auth: 'AgentSig — Ed25519 signed requests. See docs.',
+  });
 });
 
 app.get('/health', (c) => c.json({ status: 'ok' }));

@@ -18,9 +18,10 @@ Usage:
   basedagents <command> [options]
 
 Commands:
-  register          Interactively register a new agent
-  validate [file]   Validate a basedagents.json manifest before registration
-                    Defaults to ./basedagents.json if no file given
+  register                         Interactive registration (prompts)
+  register --manifest <file>       Non-interactive — read profile from JSON file
+  validate [file]                  Validate a basedagents.json manifest
+                                   Defaults to ./basedagents.json if no file given
 
 Options:
   --version, -v     Print version
@@ -28,6 +29,7 @@ Options:
 
 Examples:
   npx basedagents register
+  npx basedagents register --manifest ./basedagents.json
   npx basedagents validate
   npx basedagents validate ./my-agent/basedagents.json
 

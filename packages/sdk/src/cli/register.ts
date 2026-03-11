@@ -66,10 +66,120 @@ function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
+// ─── Non-interactive manifest registration ───
+async function registerFromManifest(manifestPath: string, apiUrl: string, dryRun: boolean): Promise<void> {
+  const { readFileSync } = await import('fs');
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  } catch {
+    console.log(red(`  ✗ Could not read manifest: ${manifestPath}`));
+    process.exit(1);
+  }
+
+  const m = raw as Record<string, unknown>;
+  const identity = (m.identity ?? m) as Record<string, unknown>;
+
+  const name          = String(identity.name ?? '');
+  const description   = String(identity.description ?? '');
+  const capabilities  = (identity.capabilities as string[] | undefined) ?? [];
+  const protocols     = (identity.protocols as string[] | undefined) ?? ['https'];
+  const version       = String(identity.version ?? '1.0.0');
+  const homepage      = identity.homepage ? String(identity.homepage) : undefined;
+  const contactEndpoint = (identity.contact_endpoint ?? identity.contactEndpoint)
+    ? String(identity.contact_endpoint ?? identity.contactEndpoint)
+    : undefined;
+  const organization  = identity.organization ? String(identity.organization) : undefined;
+  const skills        = ((identity.skills as Array<{ name: string; registry?: string }> | undefined) ?? [])
+    .map(s => ({ name: s.name, registry: (s.registry ?? 'npm') as 'npm' | 'pypi' | 'cargo' | 'clawhub' }));
+  const tags          = (identity.tags as string[] | undefined) ?? [];
+  const offers        = (identity.offers as string[] | undefined) ?? [];
+  const needs         = (identity.needs as string[] | undefined) ?? [];
+
+  if (!name || !description || !capabilities.length) {
+    console.log(red('  ✗ Manifest must have name, description, and at least one capability.'));
+    process.exit(1);
+  }
+
+  console.log('');
+  console.log(bold('basedagents register') + dim(' --manifest'));
+  console.log('');
+  console.log(`  ${dim('Name')}          ${name}`);
+  console.log(`  ${dim('Description')}  ${description.slice(0, 70)}${description.length > 70 ? '…' : ''}`);
+  console.log(`  ${dim('Capabilities')} ${capabilities.join(', ')}`);
+  console.log(`  ${dim('Protocols')}    ${protocols.join(', ')}`);
+  if (contactEndpoint) console.log(`  ${dim('Endpoint')}     ${contactEndpoint}`);
+  console.log('');
+
+  if (dryRun) { console.log(dim('  --dry-run: stopping here.\n')); return; }
+
+  // Keypair
+  process.stdout.write('  Generating Ed25519 keypair...');
+  const keypair = await generateKeypair();
+  const agentId = publicKeyToAgentId(keypair.publicKey);
+  console.log(` ${green('✓')}`);
+
+  const { mkdirSync, writeFileSync, existsSync } = await import('fs');
+  const { join } = await import('path');
+  const { homedir } = await import('os');
+  const keysDir = join(homedir(), '.basedagents', 'keys');
+  mkdirSync(keysDir, { recursive: true });
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  let keypairPath = join(keysDir, `${slug}-keypair.json`);
+  let i = 2;
+  while (existsSync(keypairPath)) keypairPath = join(keysDir, `${slug}-${i++}-keypair.json`);
+  writeFileSync(keypairPath, serializeKeypair(keypair), { mode: 0o600 });
+  console.log(`  ${green('✓')} Keypair → ${cyan(keypairPath)}`);
+  console.log(yellow(`  ⚠  Back this up. Losing it = losing control of ${cyan(agentId)}`));
+  console.log('');
+
+  // PoW
+  const t0 = Date.now();
+  const { nonce } = await solveProofOfWorkAsync(keypair.publicKey, 22, { onProgress: showProgress });
+  const powMs = Date.now() - t0;
+  process.stdout.write(`\r  ${green('✓')} Proof-of-work solved in ${cyan(Math.round(powMs / 1000) + 's')}              \n`);
+
+  // Register
+  process.stdout.write('  Registering...');
+  const client = new RegistryClient(apiUrl);
+  const profile = {
+    name, description, capabilities, protocols, version,
+    ...(homepage        ? { homepage }                          : {}),
+    ...(contactEndpoint ? { contact_endpoint: contactEndpoint } : {}),
+    ...(organization    ? { organization }                      : {}),
+    ...(skills.length   ? { skills }                            : {}),
+    ...(tags.length     ? { tags }                              : {}),
+    ...(offers.length   ? { offers }                            : {}),
+    ...(needs.length    ? { needs }                             : {}),
+  };
+  const agent = await client.register(keypair, profile);
+  console.log(` ${green('✓')}`);
+
+  console.log('');
+  console.log(green(bold('✓ Registered!')));
+  console.log(`  ${dim('Agent ID')}  ${cyan(agent.id)}`);
+  console.log(`  ${dim('Status')}    ${agent.status}`);
+  console.log(`  ${dim('Profile')}   https://basedagents.ai/agents/${agent.id}`);
+  console.log(`  ${dim('Keypair')}   ${keypairPath}`);
+  console.log('');
+}
+
 // ─── Main register flow ───
 export async function register(args: string[]): Promise<void> {
   const apiUrl = args.includes('--api') ? args[args.indexOf('--api') + 1] : API_URL;
   const dryRun = args.includes('--dry-run');
+
+  // Non-interactive manifest mode
+  const manifestIdx = args.indexOf('--manifest');
+  if (manifestIdx !== -1) {
+    const manifestPath = args[manifestIdx + 1];
+    if (!manifestPath || manifestPath.startsWith('--')) {
+      console.log(red('\n  ✗ --manifest requires a file path\n'));
+      process.exit(1);
+    }
+    await registerFromManifest(manifestPath, apiUrl, dryRun);
+    return;
+  }
 
   console.log('');
   console.log(bold('basedagents register'));

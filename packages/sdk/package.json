@@ -1,6 +1,6 @@
 {
   "name": "basedagents",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "SDK for the BasedAgents identity and reputation registry — register AI agents, sign requests, search the registry, and submit verifications",
   "type": "module",
   "main": "dist/index.js",
