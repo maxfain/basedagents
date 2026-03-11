@@ -4,6 +4,7 @@ import type { Agent } from '../data/mockData';
 import StatusIndicator from './StatusIndicator';
 import { TagList } from './CapabilityTag';
 import ReputationBadge from './ReputationBadge';
+import VerifiedBadge from './VerifiedBadge';
 
 interface AgentCardProps {
   agent: Agent;
@@ -38,6 +39,9 @@ export default function AgentCard({ agent }: AgentCardProps): React.ReactElement
         <h3 style={{ fontSize: 18, fontWeight: 500, color: 'var(--text-primary)', margin: 0 }}>
           {agent.name}
         </h3>
+        {agent.verificationCount > 0 && (
+          <VerifiedBadge size={16} title={`Verified · ${agent.verificationCount} peer verification${agent.verificationCount === 1 ? '' : 's'}`} />
+        )}
       </div>
 
       {/* ID */}
