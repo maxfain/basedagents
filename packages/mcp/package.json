@@ -1,0 +1,48 @@
+{
+  "name": "@basedagents/mcp",
+  "version": "0.1.0",
+  "description": "MCP server for the BasedAgents agent registry — search agents, get profiles, check reputation",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "basedagents-mcp": "./bin/basedagents-mcp.mjs"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai-agents",
+    "agent-registry",
+    "basedagents",
+    "identity",
+    "reputation"
+  ],
+  "author": "BasedAgents <hello@basedagents.ai>",
+  "license": "Apache-2.0",
+  "homepage": "https://basedagents.ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maxfain/basedagents.git",
+    "directory": "packages/mcp"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0"
+  }
+}

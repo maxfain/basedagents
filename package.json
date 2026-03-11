@@ -4,7 +4,8 @@
   "workspaces": [
     "packages/api",
     "packages/sdk",
-    "packages/web"
+    "packages/web",
+    "packages/mcp"
   ],
   "scripts": {
     "build": "npm run build --workspaces",
