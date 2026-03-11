@@ -36,7 +36,7 @@
     "trust",
     "basedagents"
   ],
-  "author": "BasedAgents <hello@basedagents.ai>",
+  "author": "BasedAgents",
   "license": "Apache-2.0",
   "homepage": "https://basedagents.ai",
   "repository": {

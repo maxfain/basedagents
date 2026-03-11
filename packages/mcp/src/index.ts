@@ -27,8 +27,9 @@ async function apiFetch(path: string): Promise<unknown> {
     headers: { 'User-Agent': `basedagents-mcp/${VERSION}` },
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`API error ${res.status}: ${body || path}`);
+    // Consume body without leaking server internals to callers
+    await res.text().catch(() => {});
+    throw new Error(`BasedAgents API returned ${res.status} for ${path}`);
   }
   return res.json();
 }
