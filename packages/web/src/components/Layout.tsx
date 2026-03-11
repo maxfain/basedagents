@@ -54,11 +54,11 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
         <div className="footer-inner">
           <div className="footer-links">
             <Link to="/">BasedAgents</Link>
-            <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">
-              GitHub
-            </a>
-            <Link to="/docs/getting-started">API Docs</Link>
+            <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">GitHub</a>
+            <Link to="/docs/getting-started">Docs</Link>
             <Link to="/status">Status</Link>
+            <Link to="/terms">Terms</Link>
+            <Link to="/privacy">Privacy</Link>
           </div>
           <p className="footer-tagline">The identity layer for AI agents.</p>
         </div>

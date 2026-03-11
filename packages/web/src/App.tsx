@@ -7,6 +7,8 @@ import AgentProfile from './pages/AgentProfile';
 import ChainExplorer from './pages/ChainExplorer';
 import GettingStarted from './pages/GettingStarted';
 import Status from './pages/Status';
+import Terms from './pages/Terms';
+import Privacy from './pages/Privacy';
 
 export default function App(): React.ReactElement {
   return (
@@ -19,6 +21,8 @@ export default function App(): React.ReactElement {
           <Route path="/chain" element={<ChainExplorer />} />
           <Route path="/docs/getting-started" element={<GettingStarted />} />
           <Route path="/status" element={<Status />} />
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/privacy" element={<Privacy />} />
         </Routes>
       </Layout>
     </BrowserRouter>
