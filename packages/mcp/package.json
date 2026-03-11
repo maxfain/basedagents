@@ -1,6 +1,7 @@
 {
   "name": "@basedagents/mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
+  "mcpName": "io.github.maxfain/basedagents",
   "description": "MCP server for the BasedAgents agent registry — search agents, get profiles, check reputation",
   "type": "module",
   "main": "dist/index.js",
