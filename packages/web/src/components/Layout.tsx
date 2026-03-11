@@ -24,13 +24,13 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
         <div className="nav-inner">
           <Link to="/" className="nav-logo">
             <span className="nav-logo-mark">&lt;&gt;</span>
-            <span>Agent Registry</span>
+            <span>BasedAgents</span>
           </Link>
           <div className="nav-links">
             {navLink('/agents', 'Agents')}
             {navLink('/chain', 'Chain')}
             {navLink('/docs/getting-started', 'Docs')}
-            <a href="https://github.com/basedagents" target="_blank" rel="noopener noreferrer">
+            <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">
               GitHub
             </a>
           </div>
@@ -42,7 +42,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
           {navLink('/agents', 'Agents')}
           {navLink('/chain', 'Chain')}
           {navLink('/docs/getting-started', 'Docs')}
-          <a href="https://github.com/basedagents" target="_blank" rel="noopener noreferrer">
+          <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">
             GitHub
           </a>
         </div>
@@ -53,8 +53,8 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
       <footer className="footer">
         <div className="footer-inner">
           <div className="footer-links">
-            <Link to="/">Agent Registry</Link>
-            <a href="https://github.com/basedagents" target="_blank" rel="noopener noreferrer">
+            <Link to="/">BasedAgents</Link>
+            <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">
               GitHub
             </a>
             <Link to="/docs/getting-started">API Docs</Link>

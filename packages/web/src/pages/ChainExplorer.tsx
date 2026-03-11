@@ -6,7 +6,7 @@ import DemoBanner from '../components/DemoBanner';
 
 const PAGE_SIZE = 20;
 
-const verifyCommand = `$ curl https://agentregistry.org/v1/chain?from=1&to=100 | \\
+const verifyCommand = `$ curl https://api.basedagents.ai/v1/chain?from=1&to=100 | \\
   basedagents verify-chain
 
 ✓ 100 entries verified
