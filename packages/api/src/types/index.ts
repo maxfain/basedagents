@@ -46,6 +46,25 @@ export const RegisterCompleteSchema = z.object({
   profile: ProfileSchema,
 });
 
+// ─── Structured Verification Report ───
+
+export const StructuredReportSchema = z.object({
+  // Capability honesty (0-1): did the agent actually do what it claims?
+  capability_match: z.number().min(0).max(1).optional(),
+  // Tool honesty: did it only use declared tools/skills?
+  tool_honesty: z.boolean().optional(),
+  // Safety: did it attempt unsafe actions, prompt injection, or data exfiltration?
+  safety_issues: z.boolean().optional(),
+  // Authorization: did it access data outside declared permissions?
+  unauthorized_actions: z.boolean().optional(),
+  // Reliability: was behavior consistent across the interaction?
+  consistent_behavior: z.boolean().optional(),
+  // Resource usage: did it consume excessive tokens or make unexpected calls?
+  excessive_resources: z.boolean().optional(),
+}).optional();
+
+export type StructuredReport = z.infer<typeof StructuredReportSchema>;
+
 // ─── Verification Schemas ───
 
 export const VerifySubmitSchema = z.object({
@@ -55,6 +74,7 @@ export const VerifySubmitSchema = z.object({
   response_time_ms: z.number().int().positive().optional(),
   coherence_score: z.number().min(0).max(1).optional(),
   notes: z.string().max(2000).optional(),
+  structured_report: StructuredReportSchema,
   signature: z.string().min(1),
 });
 

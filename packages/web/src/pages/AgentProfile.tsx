@@ -1,6 +1,6 @@
 import React from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useAgent } from '../hooks';
+import { useAgent, useReputation } from '../hooks';
 import { truncateHash, formatTimeAgo } from '../data/mockData';
 import StatusIndicator from '../components/StatusIndicator';
 import { TagList } from '../components/CapabilityTag';
@@ -10,6 +10,7 @@ import DemoBanner from '../components/DemoBanner';
 export default function AgentProfile(): React.ReactElement {
   const { id } = useParams<{ id: string }>();
   const { agent, verifications, loading, error, usingMock } = useAgent(id);
+  const { data: repData } = useReputation(id);
 
   if (loading) {
     return (
@@ -62,32 +63,96 @@ export default function AgentProfile(): React.ReactElement {
           </p>
         </div>
 
-        {/* Score card */}
+        {/* Reputation card */}
         <div
           style={{
             background: 'var(--bg-secondary)',
             border: '1px solid var(--border)',
             borderRadius: 8,
-            padding: 20,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 24,
+            padding: 24,
             marginBottom: 32,
-            flexWrap: 'wrap',
           }}
         >
-          <div>
-            <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 8 }}>
-              Reputation Score
+          {/* Header row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 24, marginBottom: 20, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                Reputation
+              </div>
+              <ReputationBadge score={agent.reputationScore} verificationCount={agent.verificationCount} />
             </div>
-            <ReputationBadge score={agent.reputationScore} verificationCount={agent.verificationCount} />
-          </div>
-          <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 24 }}>
-            <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 8 }}>
-              Status
+            <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 24 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                Status
+              </div>
+              <StatusIndicator status={agent.status} showLabel size={10} />
             </div>
-            <StatusIndicator status={agent.status} showLabel size={10} />
+            {repData && (
+              <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 24 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                  Confidence
+                </div>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, color: 'var(--text-primary)' }}>
+                  {Math.round(repData.confidence * 100)}%
+                  <span style={{ color: 'var(--text-tertiary)', fontSize: 12, marginLeft: 4 }}>
+                    ({repData.verifications_received}v received)
+                  </span>
+                </span>
+              </div>
+            )}
+            {repData && repData.safety_flags > 0 && (
+              <div style={{
+                background: 'rgba(239,68,68,0.1)',
+                border: '1px solid rgba(239,68,68,0.3)',
+                borderRadius: 6,
+                padding: '6px 12px',
+                fontSize: 13,
+                color: '#ef4444',
+              }}>
+                ⚠️ {repData.safety_flags} safety flag{repData.safety_flags > 1 ? 's' : ''}
+              </div>
+            )}
           </div>
+
+          {/* Component breakdown */}
+          {repData && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+              {[
+                { key: 'pass_rate', label: 'Pass Rate', desc: 'Verifications passed', color: 'var(--status-active)' },
+                { key: 'coherence', label: 'Coherence', desc: 'Capability accuracy', color: 'var(--accent)' },
+                { key: 'skill_trust', label: 'Skill Trust', desc: 'Declared skills', color: '#a78bfa' },
+                { key: 'uptime', label: 'Uptime', desc: 'Response reliability', color: '#f59e0b' },
+                { key: 'contribution', label: 'Contribution', desc: 'Verifications given', color: '#6ee7b7' },
+              ].map(({ key, label, desc, color }) => {
+                const val = repData.breakdown[key as keyof typeof repData.breakdown] ?? 0;
+                const pct = Math.round(val * 100);
+                return (
+                  <div key={key} style={{ background: 'var(--bg-tertiary)', borderRadius: 6, padding: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{label}</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color }}>{pct}%</span>
+                    </div>
+                    <div style={{ height: 4, borderRadius: 2, background: 'var(--border)', overflow: 'hidden' }}>
+                      <div style={{ width: `${pct}%`, height: '100%', borderRadius: 2, background: color, transition: 'width 400ms ease' }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>{desc}</div>
+                  </div>
+                );
+              })}
+              {repData.penalty > 0 && (
+                <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 6, padding: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: '#ef4444' }}>Penalty</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: '#ef4444' }}>-{Math.round(repData.penalty * 100)}%</span>
+                  </div>
+                  <div style={{ height: 4, borderRadius: 2, background: 'var(--border)', overflow: 'hidden' }}>
+                    <div style={{ width: `${Math.round(repData.penalty * 100)}%`, height: '100%', borderRadius: 2, background: '#ef4444' }} />
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>Safety / auth violations</div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Capabilities */}
