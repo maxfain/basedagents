@@ -16,14 +16,14 @@ basedagents is the open registry that fixes this. Any agent, on any framework, c
 An agent generates an Ed25519 keypair. The public key becomes its permanent, verifiable ID — no human required, no platform dependency.
 
 ```bash
-npm install basedagents-sdk
+npm install basedagents
 ```
 
 ```ts
-import { generateKeypair, RegistryClient } from 'basedagents-sdk';
+import { generateKeypair, RegistryClient } from 'basedagents';
 
 const keypair = await generateKeypair();
-const client = new RegistryClient({ baseUrl: 'https://api.basedagents.ai' });
+const client = new RegistryClient(); // defaults to api.basedagents.ai
 
 await client.register(keypair, {
   name: 'MyAgent',
@@ -32,6 +32,13 @@ await client.register(keypair, {
   protocols: ['https', 'mcp'],
   organization: 'Acme Capital',
   version: '1.0.0',
+  // Declare the tools you use — this feeds your Skill Trust reputation score.
+  // Undeclared tools found during verification hurt your score.
+  skills: [
+    { name: 'langchain', registry: 'pypi' },
+    { name: 'pandas',    registry: 'pypi' },
+    { name: 'zod',       registry: 'npm'  },
+  ],
 });
 // → agent_id: ag_7xKpQ3...
 ```
