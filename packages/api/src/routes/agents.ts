@@ -223,6 +223,13 @@ async function handleProfileUpdate(c: Context<AppEnv>): Promise<Response> {
   }
 
   const db = c.get('db');
+
+  // Snapshot trust-relevant fields BEFORE the update for chain diffing
+  const before = await db.get<{ capabilities: string | null; protocols: string | null; skills: string | null }>(
+    'SELECT capabilities, protocols, skills FROM agents WHERE id = ?', id
+  );
+  if (!before) return c.json({ error: 'not_found', message: 'Agent not found' }, 404);
+
   const updates = parsed.data;
   const setClauses: string[] = [];
   const params: unknown[] = [];
@@ -275,33 +282,42 @@ async function handleProfileUpdate(c: Context<AppEnv>): Promise<Response> {
   params.push(id);
   await db.run(`UPDATE agents SET ${setClauses.join(', ')} WHERE id = ?`, ...params);
 
-  // Write a chain entry for the update (no PoW required — ownership proven via AgentSig)
   const updatedAgent = await db.get<Agent>('SELECT * FROM agents WHERE id = ?', id);
-  const profileSnapshot = {
-    name: updatedAgent!.name,
-    description: updatedAgent!.description,
-    capabilities: JSON.parse(updatedAgent!.capabilities ?? '[]'),
-    protocols: JSON.parse(updatedAgent!.protocols ?? '[]'),
-    version: updatedAgent!.version,
-    organization: updatedAgent!.organization,
-    skills: updatedAgent!.skills ? JSON.parse(updatedAgent!.skills) : [],
-  };
-  const profileHash = hashProfile(profileSnapshot as Record<string, unknown>);
-  const latestEntry = await db.get<{ entry_hash: string }>(
-    'SELECT entry_hash FROM chain ORDER BY sequence DESC LIMIT 1'
-  );
-  const previousHash = latestEntry?.entry_hash ?? GENESIS_HASH;
-  const pubKeyRaw = updatedAgent!.public_key;
-  const pubKeyBytes = pubKeyRaw instanceof Uint8Array
-    ? pubKeyRaw
-    : new Uint8Array(Object.values(pubKeyRaw as Record<string, number>));
-  const entryHash = computeChainHash(previousHash, pubKeyBytes, '', profileHash, now);
 
-  await db.run(
-    `INSERT INTO chain (entry_hash, previous_hash, agent_id, public_key, nonce, profile_hash, timestamp, entry_type)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'update')`,
-    entryHash, previousHash, id, updatedAgent!.public_key, '', profileHash, now
-  );
+  // Only write a chain entry when trust-relevant fields changed:
+  // capabilities, protocols, or skills — these are what verifiers evaluate.
+  // Cosmetic changes (description, logo, contact info) do not affect trust and stay off-chain.
+  const trustFields = ['capabilities', 'protocols', 'skills'] as const;
+  const trustChanged = trustFields.some(field => {
+    if (updates[field] === undefined) return false;
+    const beforeVal = JSON.stringify(JSON.parse(before[field] ?? '[]'));
+    const afterVal  = JSON.stringify(updates[field]);
+    return beforeVal !== afterVal;
+  });
+
+  if (trustChanged) {
+    const profileSnapshot = {
+      capabilities: JSON.parse(updatedAgent!.capabilities ?? '[]'),
+      protocols: JSON.parse(updatedAgent!.protocols ?? '[]'),
+      skills: updatedAgent!.skills ? JSON.parse(updatedAgent!.skills) : [],
+    };
+    const profileHash = hashProfile(profileSnapshot as Record<string, unknown>);
+    const latestEntry = await db.get<{ entry_hash: string }>(
+      'SELECT entry_hash FROM chain ORDER BY sequence DESC LIMIT 1'
+    );
+    const previousHash = latestEntry?.entry_hash ?? GENESIS_HASH;
+    const pubKeyRaw = updatedAgent!.public_key;
+    const pubKeyBytes = pubKeyRaw instanceof Uint8Array
+      ? pubKeyRaw
+      : new Uint8Array(Object.values(pubKeyRaw as Record<string, number>));
+    const entryHash = computeChainHash(previousHash, pubKeyBytes, '', profileHash, now);
+
+    await db.run(
+      `INSERT INTO chain (entry_hash, previous_hash, agent_id, public_key, nonce, profile_hash, timestamp, entry_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'capability_update')`,
+      entryHash, previousHash, id, updatedAgent!.public_key, '', profileHash, now
+    );
+  }
 
   return c.json(formatAgent(updatedAgent!));
 }
