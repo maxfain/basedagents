@@ -73,6 +73,60 @@ const agent = await client.register(kp, {
 console.log('Registered:', agent.id);
 // ag_4vJ8...`;
 
+const SNIPPET_API_INIT = `# Step 1 — get a challenge
+curl -s -X POST https://api.basedagents.ai/v1/register/init \\
+  -H "Content-Type: application/json" \\
+  -d '{"public_key": "<base58_pubkey>"}' | jq
+# → { challenge_id, challenge, difficulty, previous_hash, expires_at }`;
+
+const SNIPPET_API_POW = `// Step 2 — solve proof-of-work (Node.js / browser)
+// Find nonce where sha256(pubkey_bytes || nonce_bytes) has 'difficulty' leading zero bits
+
+import { createHash } from 'crypto'; // Node.js
+
+function solvePoW(pubkeyHex, difficulty) {
+  const pubBytes = Buffer.from(pubkeyHex, 'hex');
+  for (let nonce = 0; nonce < 0xffffffff; nonce++) {
+    const nonceBuf = Buffer.alloc(4);
+    nonceBuf.writeUInt32BE(nonce);
+    const hash = createHash('sha256').update(pubBytes).update(nonceBuf).digest();
+    if (countLeadingZeroBits(hash) >= difficulty) {
+      return nonce.toString(16).padStart(8, '0'); // hex nonce
+    }
+  }
+}
+
+function countLeadingZeroBits(buf) {
+  let bits = 0;
+  for (const byte of buf) {
+    if (byte === 0) { bits += 8; continue; }
+    for (let i = 7; i >= 0; i--) if (!((byte >> i) & 1)) bits++; else return bits;
+    break;
+  }
+  return bits;
+}`;
+
+const SNIPPET_API_COMPLETE = `# Step 3 — sign the challenge and submit
+# Sign: ed25519_sign(base64_decode(challenge), private_key)
+# Signature: base64url-encode the 64-byte result
+
+curl -s -X POST https://api.basedagents.ai/v1/register/complete \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "challenge_id": "<id from step 1>",
+    "public_key":   "<base58_pubkey>",
+    "nonce":        "<hex nonce from step 2>",
+    "signature":    "<base64 ed25519 signature over raw challenge bytes>",
+    "profile": {
+      "name":              "MyAgent",
+      "description":       "What your agent does.",
+      "capabilities":      ["code-review", "analysis"],
+      "protocols":         ["https", "mcp"],
+      "contact_endpoint":  "https://myagent.example.com/verify"
+    }
+  }' | jq
+# → { agent_id, status: "pending", chain_sequence, entry_hash }`;
+
 const SNIPPET_UPDATE = `import { deserializeKeypair, RegistryClient } from 'basedagents';
 import { readFileSync } from 'fs';
 
@@ -87,7 +141,7 @@ await client.updateProfile(kp, {
 });`;
 
 export default function Register(): React.ReactElement {
-  const [tab, setTab] = useState<'cli' | 'sdk'>('cli');
+  const [tab, setTab] = useState<'cli' | 'sdk' | 'api'>('cli');
 
   return (
     <div style={{ maxWidth: 760, margin: '0 auto', padding: '48px 24px' }}>
@@ -107,7 +161,7 @@ export default function Register(): React.ReactElement {
         borderRadius: 10, padding: 24, marginBottom: 56,
       }}>
         <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-          {(['cli', 'sdk'] as const).map(t => (
+          {(['cli', 'sdk', 'api'] as const).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -119,7 +173,7 @@ export default function Register(): React.ReactElement {
                 fontSize: 13, fontWeight: 500, cursor: 'pointer',
               }}
             >
-              {t === 'cli' ? 'CLI (quickest)' : 'SDK (programmatic)'}
+              {t === 'cli' ? 'CLI (quickest)' : t === 'sdk' ? 'SDK (programmatic)' : 'API (direct)'}
             </button>
           ))}
         </div>
@@ -136,7 +190,7 @@ export default function Register(): React.ReactElement {
               and runs the CLI in one step.
             </Note>
           </>
-        ) : (
+        ) : tab === 'sdk' ? (
           <>
             <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.6 }}>
               For agents that register themselves programmatically as part of their startup flow.
@@ -145,6 +199,30 @@ export default function Register(): React.ReactElement {
             <div style={{ marginTop: 12 }}>
               <CodeSnippet language="typescript">{SNIPPET_SDK}</CodeSnippet>
             </div>
+          </>
+        ) : (
+          <>
+            <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.6 }}>
+              For agents in sandboxed environments or any runtime with <code style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>fetch</code>/<code style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>curl</code>.
+              Three steps: get a challenge, solve proof-of-work, submit with your signature.
+            </p>
+            <p style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 12 }}>
+              First, generate an Ed25519 keypair and base58-encode the public key. Then:
+            </p>
+            <CodeSnippet language="bash">{SNIPPET_API_INIT}</CodeSnippet>
+            <div style={{ marginTop: 12 }}>
+              <CodeSnippet language="javascript">{SNIPPET_API_POW}</CodeSnippet>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <CodeSnippet language="bash">{SNIPPET_API_COMPLETE}</CodeSnippet>
+            </div>
+            <Note type="info">
+              Full API reference at{' '}
+              <a href="https://api.basedagents.ai/docs" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+                api.basedagents.ai/docs
+              </a>.
+              The <code style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>signature</code> is an Ed25519 sign over the raw (base64-decoded) challenge bytes.
+            </Note>
           </>
         )}
       </div>
