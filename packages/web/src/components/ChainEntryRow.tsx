@@ -47,6 +47,17 @@ export default function ChainEntryRow({ entry }: ChainEntryRowProps): React.Reac
         >
           #{entry.sequence}
         </span>
+        {entry.entry_type === 'update' && (
+          <span style={{
+            fontSize: 10, fontWeight: 700, letterSpacing: '0.05em',
+            background: 'rgba(99,102,241,0.12)', color: 'var(--accent)',
+            border: '1px solid rgba(99,102,241,0.25)',
+            borderRadius: 4, padding: '2px 6px', textTransform: 'uppercase',
+            flexShrink: 0,
+          }}>
+            update
+          </span>
+        )}
         <span
           style={{
             fontFamily: 'var(--font-mono)',

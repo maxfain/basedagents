@@ -4,6 +4,7 @@ import type { AppEnv, Agent, Verification } from '../types/index.js';
 import { ProfileSchema } from '../types/index.js';
 import { agentAuth } from '../middleware/auth.js';
 import { computeReputation } from '../reputation/calculator.js';
+import { hashProfile, computeChainHash, GENESIS_HASH } from '../crypto/index.js';
 
 const agents = new Hono<AppEnv>();
 
@@ -64,6 +65,7 @@ function formatAgent(agent: Agent) {
     status: agent.status,
     reputation_score: agent.reputation_score,
     verification_count: agent.verification_count,
+    profile_version: (agent as Agent & { profile_version?: number }).profile_version ?? 1,
     registered_at: agent.registered_at,
     last_seen: agent.last_seen,
   };
@@ -243,6 +245,17 @@ async function handleProfileUpdate(c: Context<AppEnv>): Promise<Response> {
     return c.json({ error: 'bad_request', message: 'No fields to update' }, 400);
   }
 
+  // Name uniqueness check (case-insensitive) — only when name is being changed
+  if (updates.name !== undefined) {
+    const nameTaken = await db.get<{ id: string }>(
+      'SELECT id FROM agents WHERE name = ? COLLATE NOCASE AND id != ?',
+      updates.name, id
+    );
+    if (nameTaken) {
+      return c.json({ error: 'conflict', message: `Agent name '${updates.name}' is already taken` }, 409);
+    }
+  }
+
   const now = new Date().toISOString();
   setClauses.push('last_seen = ?');
   params.push(now);
@@ -253,11 +266,41 @@ async function handleProfileUpdate(c: Context<AppEnv>): Promise<Response> {
     params.push(0, null);
   }
 
+  // Bump profile_version
+  setClauses.push('profile_version = profile_version + 1');
+
   params.push(id);
   await db.run(`UPDATE agents SET ${setClauses.join(', ')} WHERE id = ?`, ...params);
 
-  const agent = await db.get<Agent>('SELECT * FROM agents WHERE id = ?', id);
-  return c.json(formatAgent(agent!));
+  // Write a chain entry for the update (no PoW required — ownership proven via AgentSig)
+  const updatedAgent = await db.get<Agent>('SELECT * FROM agents WHERE id = ?', id);
+  const profileSnapshot = {
+    name: updatedAgent!.name,
+    description: updatedAgent!.description,
+    capabilities: JSON.parse(updatedAgent!.capabilities ?? '[]'),
+    protocols: JSON.parse(updatedAgent!.protocols ?? '[]'),
+    version: updatedAgent!.version,
+    organization: updatedAgent!.organization,
+    skills: updatedAgent!.skills ? JSON.parse(updatedAgent!.skills) : [],
+  };
+  const profileHash = hashProfile(profileSnapshot as Record<string, unknown>);
+  const latestEntry = await db.get<{ entry_hash: string }>(
+    'SELECT entry_hash FROM chain ORDER BY sequence DESC LIMIT 1'
+  );
+  const previousHash = latestEntry?.entry_hash ?? GENESIS_HASH;
+  const pubKeyRaw = updatedAgent!.public_key;
+  const pubKeyBytes = pubKeyRaw instanceof Uint8Array
+    ? pubKeyRaw
+    : new Uint8Array(Object.values(pubKeyRaw as Record<string, number>));
+  const entryHash = computeChainHash(previousHash, pubKeyBytes, '', profileHash, now);
+
+  await db.run(
+    `INSERT INTO chain (entry_hash, previous_hash, agent_id, public_key, nonce, profile_hash, timestamp, entry_type)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'update')`,
+    entryHash, previousHash, id, updatedAgent!.public_key, '', profileHash, now
+  );
+
+  return c.json(formatAgent(updatedAgent!));
 }
 
 agents.patch('/:id/profile', agentAuth, (c) => handleProfileUpdate(c as Context<AppEnv>));

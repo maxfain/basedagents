@@ -23,6 +23,7 @@ function formatChainEntry(entry: ChainEntry & { agent_name?: string; agent_comme
     nonce: entry.nonce,
     profile_hash: entry.profile_hash,
     timestamp: entry.timestamp,
+    entry_type: (entry as ChainEntry & { entry_type?: string }).entry_type ?? 'registration',
   };
 }
 

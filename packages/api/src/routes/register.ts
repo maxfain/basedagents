@@ -189,6 +189,15 @@ register.post('/complete', async (c) => {
     return c.json({ error: 'bad_request', message: 'Proof-of-work verification failed' }, 400);
   }
 
+  // 5b. Check name uniqueness (case-insensitive)
+  const existing = await db.get<{ id: string }>(
+    'SELECT id FROM agents WHERE name = ? COLLATE NOCASE',
+    profile.name
+  );
+  if (existing) {
+    return c.json({ error: 'conflict', message: `Agent name '${profile.name}' is already taken` }, 409);
+  }
+
   // 6. Create chain entry
   const latestEntry = await db.get<{ entry_hash: string }>(
     'SELECT entry_hash FROM chain ORDER BY sequence DESC LIMIT 1'

@@ -61,6 +61,7 @@ export interface ApiChainEntry {
   nonce: string;
   profile_hash: string;
   timestamp: string;
+  entry_type?: 'registration' | 'update';
 }
 
 export interface ApiChainRangeResponse {

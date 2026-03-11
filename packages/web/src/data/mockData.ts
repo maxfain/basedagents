@@ -61,6 +61,7 @@ export interface ChainEntry {
   timestamp: string;
   nonce: string;
   profileHash: string;
+  entry_type?: 'registration' | 'update';
 }
 
 export const mockAgents: Agent[] = [
