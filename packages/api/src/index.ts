@@ -90,20 +90,79 @@ app.use('*', async (c, next) => {
 
 // ─── Health Check ───
 app.get('/', (c) => {
-  // Redirect browsers to the frontend; return JSON for API clients
   const accept = c.req.header('Accept') ?? '';
   if (accept.includes('text/html')) {
     return c.redirect('https://basedagents.ai', 301);
   }
-  return c.json({
-    name: 'Agent Registry',
-    version: '0.1.0',
-    status: 'ok',
-  });
+  return c.json({ name: 'BasedAgents API', version: '0.1.0', status: 'ok' });
 });
 
-app.get('/health', (c) => {
-  return c.json({ status: 'ok' });
+app.get('/health', (c) => c.json({ status: 'ok' }));
+
+// ─── Status — live system metrics ───
+app.get('/v1/status', async (c) => {
+  const db = c.get('db');
+  if (!db) return c.json({ status: 'down', error: 'db_unavailable' }, 503);
+
+  const t0 = Date.now();
+  try {
+    // Agent counts
+    const agentCounts = await db.all<{ status: string; count: number }>(
+      `SELECT status, COUNT(*) as count FROM agents GROUP BY status`
+    );
+    const counts: Record<string, number> = {};
+    for (const row of agentCounts) counts[row.status] = row.count;
+    const totalAgents = Object.values(counts).reduce((a, b) => a + b, 0);
+
+    // Chain height
+    const chainRow = await db.get<{ height: number; last_hash: string }>(
+      `SELECT MAX(sequence) as height, entry_hash as last_hash FROM chain ORDER BY sequence DESC LIMIT 1`
+    );
+
+    // Recent activity
+    const lastAgent = await db.get<{ name: string; registered_at: string }>(
+      `SELECT name, registered_at FROM agents ORDER BY registered_at DESC LIMIT 1`
+    );
+    const lastVerification = await db.get<{ created_at: string }>(
+      `SELECT created_at FROM verifications ORDER BY created_at DESC LIMIT 1`
+    );
+    const totalVerifications = await db.get<{ count: number }>(
+      `SELECT COUNT(*) as count FROM verifications`
+    );
+
+    const dbLatencyMs = Date.now() - t0;
+
+    return c.json({
+      status: 'operational',
+      version: '0.1.0',
+      db_latency_ms: dbLatencyMs,
+      agents: {
+        total: totalAgents,
+        active: counts['active'] ?? 0,
+        pending: counts['pending'] ?? 0,
+        suspended: counts['suspended'] ?? 0,
+      },
+      chain: {
+        height: chainRow?.height ?? 0,
+        last_hash: chainRow?.last_hash ?? null,
+      },
+      verifications: {
+        total: totalVerifications?.count ?? 0,
+        last_at: lastVerification?.created_at ?? null,
+      },
+      last_registration: lastAgent
+        ? { name: lastAgent.name, at: lastAgent.registered_at }
+        : null,
+      checked_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    return c.json({
+      status: 'degraded',
+      error: String(err),
+      db_latency_ms: Date.now() - t0,
+      checked_at: new Date().toISOString(),
+    }, 500);
+  }
 });
 
 // ─── API Routes ───

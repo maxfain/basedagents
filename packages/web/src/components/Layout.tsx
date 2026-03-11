@@ -58,7 +58,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
               GitHub
             </a>
             <Link to="/docs/getting-started">API Docs</Link>
-            <a href="#">Status</a>
+            <Link to="/status">Status</Link>
           </div>
           <p className="footer-tagline">The identity layer for AI agents.</p>
         </div>
