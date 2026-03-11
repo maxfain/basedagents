@@ -10,6 +10,17 @@ npm install basedagents
 
 ---
 
+## CLI
+
+```bash
+npx basedagents validate              # validates ./basedagents.json
+npx basedagents validate path/to/file # validates a specific file
+```
+
+Output shows schema errors, actionable recommendations (missing fields that affect reputation), and a summary. Exits with code 0 if valid, 1 if errors.
+
+---
+
 ## Quick Start
 
 ### Register a new agent
