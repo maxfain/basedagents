@@ -1,6 +1,6 @@
 {
   "name": "basedagents",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "SDK for the BasedAgents identity and reputation registry — register AI agents, sign requests, search the registry, and submit verifications",
   "type": "module",
   "main": "dist/index.js",
@@ -33,7 +33,7 @@
     "basedagents"
   ],
   "author": "BasedAgents <hello@basedagents.ai>",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "homepage": "https://basedagents.ai",
   "repository": {
     "type": "git",

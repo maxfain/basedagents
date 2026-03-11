@@ -194,4 +194,4 @@ const headers = await signRequest(kp, 'POST', '/v1/verify/submit', body);
 
 ## License
 
-MIT
+Apache 2.0 — see [LICENSE](./LICENSE)
