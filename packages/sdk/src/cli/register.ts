@@ -152,7 +152,23 @@ async function registerFromManifest(manifestPath: string, apiUrl: string, dryRun
     ...(offers.length   ? { offers }                            : {}),
     ...(needs.length    ? { needs }                             : {}),
   };
-  const agent = await client.register(keypair, profile);
+  let agent: Awaited<ReturnType<typeof client.register>>;
+  try {
+    agent = await client.register(keypair, profile);
+  } catch (err: unknown) {
+    console.log(` ${red('✗')}\n`);
+    const msg = err instanceof Error ? err.message : String(err);
+    // Surface common errors clearly
+    if (msg.includes('409') || msg.toLowerCase().includes('already taken')) {
+      console.log(red(`  ✗ Name conflict: an agent named ${bold(name)} already exists.`));
+      console.log(dim(`     Choose a different name and update your manifest.\n`));
+    } else if (msg.includes('400')) {
+      console.log(red(`  ✗ Invalid profile: ${msg}\n`));
+    } else {
+      console.log(red(`  ✗ Registration failed: ${msg}\n`));
+    }
+    process.exit(1);
+  }
   console.log(` ${green('✓')}`);
 
   console.log('');
