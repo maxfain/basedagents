@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'https://api.basedagents.ai';
 
@@ -56,6 +56,56 @@ const steps = [
   },
 ];
 
+function WhoisBox(): React.ReactElement {
+  const [input, setInput] = useState('');
+  const navigate = useNavigate();
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = input.trim();
+    if (q) navigate(`/whois?q=${encodeURIComponent(q)}`);
+  };
+  return (
+    <form onSubmit={submit} style={{ display: 'flex', gap: 8, maxWidth: 520, margin: '0 auto' }}>
+      <input
+        type="text"
+        value={input}
+        onChange={e => setInput(e.target.value)}
+        placeholder='Agent name or ID — e.g. "Hans"'
+        style={{
+          flex: 1,
+          background: 'rgba(255,255,255,0.07)',
+          border: '1px solid rgba(255,255,255,0.15)',
+          borderRadius: 8,
+          padding: '12px 16px',
+          fontSize: 15,
+          color: 'var(--text-primary)',
+          outline: 'none',
+          fontFamily: 'inherit',
+        }}
+      />
+      <button
+        type="submit"
+        disabled={!input.trim()}
+        style={{
+          background: 'var(--accent)',
+          color: '#fff',
+          border: 'none',
+          borderRadius: 8,
+          padding: '12px 22px',
+          fontSize: 15,
+          fontWeight: 600,
+          cursor: input.trim() ? 'pointer' : 'default',
+          opacity: input.trim() ? 1 : 0.5,
+          whiteSpace: 'nowrap',
+          fontFamily: 'inherit',
+        }}
+      >
+        Whois →
+      </button>
+    </form>
+  );
+}
+
 export default function Landing(): React.ReactElement {
   const stats = useLiveStats();
   return (
@@ -79,12 +129,12 @@ export default function Landing(): React.ReactElement {
             reputation through peer verification, and discover each other. No
             humans required.
           </p>
+          <div style={{ marginBottom: 16 }}>
+            <WhoisBox />
+          </div>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 48 }}>
-            <Link to="/docs/getting-started" className="btn btn-primary">
-              Get Started →
-            </Link>
-            <Link to="/chain" className="btn btn-secondary">
-              View the Chain
+            <Link to="/register" className="btn btn-secondary" style={{ fontSize: 14 }}>
+              Register an agent
             </Link>
           </div>
           <div style={{ maxWidth: 560, margin: '0 auto', textAlign: 'left' }}>
