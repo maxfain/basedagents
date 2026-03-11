@@ -1,0 +1,60 @@
+{
+  "$schema": "https://basedagents.ai/schema/manifest/0.1.json",
+  "manifest_version": "0.1",
+
+  "identity": {
+    "name": "Albert",
+    "version": "1.0.0",
+    "description": "ResearchAgent specialized in scientific research, literature summarization, and citation management. Searches academic sources, synthesizes findings, and produces properly cited summaries.",
+    "tags": ["research", "science", "summarization", "citation", "academic", "literature-review"]
+  },
+
+  "runtime": {
+    "framework": "custom",
+    "model": "claude-opus-4-6",
+    "model_provider": "anthropic",
+    "language": "typescript"
+  },
+
+  "capabilities": [
+    "web-search",
+    "document-qa",
+    "summarization",
+    "citation-finding",
+    "fact-checking",
+    "data-extraction",
+    "content-generation"
+  ],
+
+  "protocols": ["https", "mcp"],
+
+  "tools": [
+    { "name": "arxiv-api", "registry": "npm", "purpose": "Search and retrieve scientific papers from arXiv" },
+    { "name": "semantic-scholar", "registry": "npm", "purpose": "Academic paper search and citation graph traversal" }
+  ],
+
+  "permissions": {
+    "network": {
+      "outbound": ["api.semanticscholar.org", "export.arxiv.org", "api.anthropic.com"],
+      "inbound": false
+    },
+    "data": {
+      "reads": ["arxiv:papers", "semantic-scholar:papers", "semantic-scholar:citations"],
+      "writes": [],
+      "stores": false,
+      "retains_pii": false
+    },
+    "compute": {
+      "max_tokens_per_request": 16000,
+      "max_concurrent_requests": 3
+    }
+  },
+
+  "safety": {
+    "content_policy": "anthropic",
+    "refuses": ["harmful_code_generation", "secrets_exfiltration", "prompt_injection", "pii_collection"],
+    "scope_bound": true,
+    "human_in_loop": false,
+    "sandboxed": false
+  }
+}

@@ -1,5 +1,30 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+
+const API_URL = import.meta.env.VITE_API_URL ?? 'https://api.basedagents.ai';
+
+interface LiveStats {
+  agents: number;
+  verifications: number;
+  chainHeight: number;
+}
+
+function useLiveStats(): LiveStats | null {
+  const [stats, setStats] = useState<LiveStats | null>(null);
+  useEffect(() => {
+    fetch(`${API_URL}/v1/status`)
+      .then(r => r.json())
+      .then((d: { agents?: { total?: number }; verifications?: { total?: number }; chain?: { height?: number } }) => {
+        setStats({
+          agents: d.agents?.total ?? 0,
+          verifications: d.verifications?.total ?? 0,
+          chainHeight: d.chain?.height ?? 0,
+        });
+      })
+      .catch(() => {}); // fail silently — just hide the bar
+  }, []);
+  return stats;
+}
 import CodeSnippet from '../components/CodeSnippet';
 
 const terminalOutput = `$ npx basedagents register
@@ -32,6 +57,7 @@ const steps = [
 ];
 
 export default function Landing(): React.ReactElement {
+  const stats = useLiveStats();
   return (
     <div>
       {/* Hero */}
@@ -135,19 +161,23 @@ export default function Landing(): React.ReactElement {
               fontSize: 15,
             }}
           >
-            <span>
-              <strong style={{ color: 'var(--text-primary)' }}>1,247</strong>{' '}
-              <span style={{ color: 'var(--text-tertiary)' }}>agents</span>
-            </span>
-            <span style={{ color: 'var(--text-tertiary)' }}>·</span>
-            <span>
-              <strong style={{ color: 'var(--text-primary)' }}>38,912</strong>{' '}
-              <span style={{ color: 'var(--text-tertiary)' }}>verifications</span>
-            </span>
-            <span style={{ color: 'var(--text-tertiary)' }}>·</span>
-            <span>
-              <strong style={{ color: 'var(--text-primary)' }}>chain #12,408</strong>
-            </span>
+            {stats && (
+              <>
+                <span>
+                  <strong style={{ color: 'var(--text-primary)' }}>{stats.agents.toLocaleString()}</strong>{' '}
+                  <span style={{ color: 'var(--text-tertiary)' }}>agents</span>
+                </span>
+                <span style={{ color: 'var(--text-tertiary)' }}>·</span>
+                <span>
+                  <strong style={{ color: 'var(--text-primary)' }}>{stats.verifications.toLocaleString()}</strong>{' '}
+                  <span style={{ color: 'var(--text-tertiary)' }}>verifications</span>
+                </span>
+                <span style={{ color: 'var(--text-tertiary)' }}>·</span>
+                <span>
+                  <strong style={{ color: 'var(--text-primary)' }}>chain #{stats.chainHeight.toLocaleString()}</strong>
+                </span>
+              </>
+            )}
           </div>
         </div>
       </section>
