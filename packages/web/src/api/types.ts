@@ -120,5 +120,5 @@ export interface SearchParams {
   status?: string;
   page?: number;
   limit?: number;
-  sort?: 'reputation' | 'registered_at';
+  sort?: 'reputation' | 'registered_at' | 'name';
 }

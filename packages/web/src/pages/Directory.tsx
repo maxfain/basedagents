@@ -4,24 +4,24 @@ import type { SearchParams } from '../api/types';
 import AgentCard from '../components/AgentCard';
 import DemoBanner from '../components/DemoBanner';
 
+type StatusTab = 'all' | 'active' | 'pending';
+type SortOption = 'reputation' | 'registered_at' | 'name';
+
 export default function Directory(): React.ReactElement {
   const [search, setSearch] = useState('');
   const [capFilter, setCapFilter] = useState('');
   const [protoFilter, setProtoFilter] = useState('');
-  const [sortBy, setSortBy] = useState<'reputation' | 'registered_at'>('reputation');
+  const [sortBy, setSortBy] = useState<SortOption>('reputation');
+  const [statusTab, setStatusTab] = useState<StatusTab>('all');
 
   const searchParams = useMemo<SearchParams>(() => {
-    const params: SearchParams = {
-      sort: sortBy,
-      limit: 100,
-    };
+    const params: SearchParams = { sort: sortBy, limit: 100 };
     if (search) params.q = search;
     if (capFilter) params.capabilities = capFilter;
     if (protoFilter) params.protocols = protoFilter;
-    // Don't filter by status so we see all agents
-    params.status = undefined;
+    if (statusTab !== 'all') params.status = statusTab;
     return params;
-  }, [search, capFilter, protoFilter, sortBy]);
+  }, [search, capFilter, protoFilter, sortBy, statusTab]);
 
   const { agents, total, loading, usingMock } = useAgentSearch(searchParams);
 
@@ -58,144 +58,84 @@ export default function Directory(): React.ReactElement {
         <DemoBanner visible={usingMock} />
 
         {/* Header */}
-        <h1 style={{ marginBottom: 4 }}>Agent Directory</h1>
-        <p style={{ color: 'var(--text-tertiary)', marginBottom: 32 }}>
-          {loading ? '...' : `${total} registered agents`}
-        </p>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <h1 style={{ marginBottom: 4 }}>Agent Directory</h1>
+            <p style={{ color: 'var(--text-tertiary)', margin: 0 }}>
+              {loading ? '…' : `${total} agent${total !== 1 ? 's' : ''}`}
+            </p>
+          </div>
+          {/* Sort */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>Sort by</span>
+            <select value={sortBy} onChange={e => setSortBy(e.target.value as SortOption)} style={selectStyle}>
+              <option value="reputation">Reputation</option>
+              <option value="registered_at">Newest</option>
+              <option value="name">Name</option>
+            </select>
+          </div>
+        </div>
 
-        {/* Search */}
-        <div style={{ marginBottom: 16 }}>
+        {/* Status tabs */}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid var(--border)', paddingBottom: 0 }}>
+          {(['all', 'active', 'pending'] as StatusTab[]).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setStatusTab(tab)}
+              style={{
+                background: 'none',
+                border: 'none',
+                borderBottom: statusTab === tab ? '2px solid var(--accent)' : '2px solid transparent',
+                color: statusTab === tab ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                fontWeight: statusTab === tab ? 600 : 400,
+                fontSize: 14,
+                padding: '8px 16px',
+                cursor: 'pointer',
+                marginBottom: -1,
+                fontFamily: 'inherit',
+                textTransform: 'capitalize',
+              }}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        {/* Search + Filters row */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 28, flexWrap: 'wrap' }}>
           <input
             type="text"
-            placeholder="Search agents..."
+            placeholder="Search agents…"
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={{
-              width: '100%',
+              flex: '1 1 200px',
               background: 'var(--bg-tertiary)',
               border: '1px solid var(--border)',
               borderRadius: 8,
-              padding: '12px 16px',
+              padding: '9px 14px',
               color: 'var(--text-primary)',
-              fontSize: 15,
+              fontSize: 14,
               fontFamily: 'var(--font-sans)',
               outline: 'none',
             }}
           />
-        </div>
-
-        {/* Filters */}
-        <div
-          style={{
-            display: 'flex',
-            gap: 12,
-            marginBottom: 32,
-            flexWrap: 'wrap',
-          }}
-        >
           <select value={capFilter} onChange={e => setCapFilter(e.target.value)} style={selectStyle}>
             <option value="">All Capabilities</option>
-            {allCapabilities.map(c => (
-              <option key={c} value={c}>{c}</option>
-            ))}
+            {allCapabilities.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-
           <select value={protoFilter} onChange={e => setProtoFilter(e.target.value)} style={selectStyle}>
             <option value="">All Protocols</option>
-            {allProtocols.map(p => (
-              <option key={p} value={p}>{p}</option>
-            ))}
+            {allProtocols.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
-
-          <select value={sortBy} onChange={e => setSortBy(e.target.value as 'reputation' | 'registered_at')} style={selectStyle}>
-            <option value="reputation">Sort: Reputation</option>
-            <option value="registered_at">Sort: Recent</option>
-          </select>
-
           {(capFilter || protoFilter) && (
-            <button
-              onClick={() => { setCapFilter(''); setProtoFilter(''); }}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--accent)',
-                fontSize: 14,
-                cursor: 'pointer',
-                padding: '8px 12px',
-              }}
-            >
-              Clear filters
+            <button onClick={() => { setCapFilter(''); setProtoFilter(''); }} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 13, cursor: 'pointer', padding: '8px 4px' }}>
+              Clear
             </button>
           )}
         </div>
 
-        {/* Active filters */}
-        {(capFilter || protoFilter) && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' }}>
-            {capFilter && (
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '4px 10px',
-                  background: 'var(--accent-muted)',
-                  color: 'var(--accent)',
-                  borderRadius: 4,
-                  fontSize: 13,
-                  fontFamily: 'var(--font-mono)',
-                }}
-              >
-                {capFilter}
-                <button
-                  onClick={() => setCapFilter('')}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--accent)',
-                    cursor: 'pointer',
-                    fontSize: 14,
-                    padding: 0,
-                    lineHeight: 1,
-                  }}
-                >
-                  ✕
-                </button>
-              </span>
-            )}
-            {protoFilter && (
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '4px 10px',
-                  background: 'rgba(255,255,255,0.04)',
-                  color: 'var(--text-secondary)',
-                  borderRadius: 4,
-                  fontSize: 13,
-                  fontFamily: 'var(--font-mono)',
-                }}
-              >
-                {protoFilter}
-                <button
-                  onClick={() => setProtoFilter('')}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--text-secondary)',
-                    cursor: 'pointer',
-                    fontSize: 14,
-                    padding: 0,
-                    lineHeight: 1,
-                  }}
-                >
-                  ✕
-                </button>
-              </span>
-            )}
-          </div>
-        )}
+
 
         {/* Loading state */}
         {loading && (

@@ -138,6 +138,8 @@ agents.get('/search', async (c) => {
   const whereClause = conditions.join(' AND ');
   const orderBy = sort === 'registered_at'
     ? 'registered_at DESC'
+    : sort === 'name'
+    ? 'name ASC'
     : 'reputation_score DESC';
 
   // Get total count
