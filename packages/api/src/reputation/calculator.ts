@@ -78,6 +78,26 @@ export async function computeReputation(
   db: DBAdapter
 ): Promise<ReputationBreakdown> {
 
+  // ── Check for manual override (genesis / trust anchors) ──
+  const overrideRow = await db.get<{ reputation_override: number | null }>(
+    'SELECT reputation_override FROM agents WHERE id = ?',
+    agentId
+  );
+  if (overrideRow?.reputation_override != null) {
+    const score = overrideRow.reputation_override;
+    return {
+      final_score: score,
+      raw_score: score,
+      confidence: 1.0,
+      penalty: 0,
+      components: { pass_rate: score, coherence: score, contribution: score, uptime: score, skill_trust: score },
+      weights: { pass_rate: 0.30, coherence: 0.20, contribution: 0.15, uptime: 0.15, skill_trust: 0.15, penalty: 0.20 },
+      verifications_received: 0,
+      verifications_given: 0,
+      safety_flags: 0,
+    };
+  }
+
   // ── Fetch verifications received (join verifier rep) ──
   const verifications = await db.all<VerificationRow>(
     `SELECT v.result, v.coherence_score, v.created_at, v.structured_report,
