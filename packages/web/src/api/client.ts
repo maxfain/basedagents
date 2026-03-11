@@ -37,6 +37,7 @@ export function mapApiAgentToAgent(a: ApiAgent): Agent {
     nonce: '',
     skills: a.skills || [],
     tags: a.tags || [],
+    logoUrl: a.logo_url ?? null,
   };
 }
 

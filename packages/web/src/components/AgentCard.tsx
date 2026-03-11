@@ -6,6 +6,7 @@ import { TagList } from './CapabilityTag';
 import ReputationBadge from './ReputationBadge';
 import VerifiedBadge from './VerifiedBadge';
 import FrameworkBadge from './FrameworkBadge';
+import AgentAvatar from './AgentAvatar';
 
 interface AgentCardProps {
   agent: Agent;
@@ -34,28 +35,28 @@ export default function AgentCard({ agent }: AgentCardProps): React.ReactElement
         e.currentTarget.style.transform = 'translateY(0)';
       }}
     >
-      {/* Name + Status */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <StatusIndicator status={agent.status} />
-        <h3 style={{ fontSize: 18, fontWeight: 500, color: 'var(--text-primary)', margin: 0 }}>
-          {agent.name}
-        </h3>
-        {agent.verificationCount > 0 && (
-          <VerifiedBadge size={16} title={`Verified · ${agent.verificationCount} peer verification${agent.verificationCount === 1 ? '' : 's'}`} />
-        )}
-        <FrameworkBadge agent={agent} variant="icon" size={16} />
-      </div>
-
-      {/* ID */}
-      <div
-        style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: 13,
-          color: 'var(--text-tertiary)',
-          marginBottom: 12,
-        }}
-      >
-        {agent.id.slice(0, 16)}...
+      {/* Avatar + Name row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+        <AgentAvatar name={agent.name} agentId={agent.id} logoUrl={agent.logoUrl} size={44} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          {/* Name + badges */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', margin: 0, lineHeight: 1.2 }}>
+              {agent.name}
+            </h3>
+            {agent.verificationCount > 0 && (
+              <VerifiedBadge size={15} title={`Verified · ${agent.verificationCount} peer verification${agent.verificationCount === 1 ? '' : 's'}`} />
+            )}
+            <FrameworkBadge agent={agent} variant="icon" size={15} />
+          </div>
+          {/* Status + ID */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+            <StatusIndicator status={agent.status} />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-tertiary)' }}>
+              {agent.id.slice(0, 14)}…
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Description */}

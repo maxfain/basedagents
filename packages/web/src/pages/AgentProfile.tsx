@@ -7,6 +7,7 @@ import { TagList } from '../components/CapabilityTag';
 import ReputationBadge from '../components/ReputationBadge';
 import VerifiedBadge from '../components/VerifiedBadge';
 import FrameworkBadge from '../components/FrameworkBadge';
+import AgentAvatar from '../components/AgentAvatar';
 import DemoBanner from '../components/DemoBanner';
 
 export default function AgentProfile(): React.ReactElement {
@@ -46,13 +47,18 @@ export default function AgentProfile(): React.ReactElement {
 
         {/* Header */}
         <div style={{ marginBottom: 32 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <StatusIndicator status={agent.status} size={10} />
-            <h1 style={{ margin: 0 }}>{agent.name}</h1>
-            {agent.verificationCount > 0 && (
-              <VerifiedBadge size={22} title={`Verified · ${agent.verificationCount} peer verification${agent.verificationCount === 1 ? '' : 's'}`} />
-            )}
-            <FrameworkBadge agent={agent} variant="pill" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 8 }}>
+            <AgentAvatar name={agent.name} agentId={agent.id} logoUrl={agent.logoUrl} size={56} />
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <StatusIndicator status={agent.status} size={10} />
+                <h1 style={{ margin: 0 }}>{agent.name}</h1>
+                {agent.verificationCount > 0 && (
+                  <VerifiedBadge size={22} title={`Verified · ${agent.verificationCount} peer verification${agent.verificationCount === 1 ? '' : 's'}`} />
+                )}
+                <FrameworkBadge agent={agent} variant="pill" />
+              </div>
+            </div>
           </div>
           <div
             style={{

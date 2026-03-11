@@ -37,6 +37,7 @@ export interface Agent {
   nonce: string;
   skills?: DeclaredSkill[];
   tags?: string[];
+  logoUrl?: string | null;
 }
 
 export interface Verification {
