@@ -402,18 +402,18 @@ export class RegistryClient {
     // 1. Init
     const init = await this.fetchJson<{
       challenge_id: string;
-      challenge_prefix: string;
-      pow_difficulty: number;
+      challenge: string;
+      difficulty: number;
     }>('/v1/register/init', {
       method: 'POST',
       body: JSON.stringify({ public_key: b58pubkey }),
     });
 
     // 2. Solve PoW (async — doesn't block event loop)
-    const { nonce } = await solveProofOfWorkAsync(keypair.publicKey, init.pow_difficulty, { onProgress: options?.onProgress });
+    const { nonce } = await solveProofOfWorkAsync(keypair.publicKey, init.difficulty, { onProgress: options?.onProgress });
 
-    // 3. Sign challenge
-    const challengeBytes = new TextEncoder().encode(init.challenge_prefix);
+    // 3. Sign challenge — sign the raw challenge bytes (base64-decoded)
+    const challengeBytes = Uint8Array.from(atob(init.challenge), c => c.charCodeAt(0));
     const signature = await ed.signAsync(challengeBytes, keypair.privateKey);
     const b64sig = btoa(String.fromCharCode(...signature));
 
