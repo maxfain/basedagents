@@ -179,7 +179,14 @@ export async function generateKeypair(): Promise<AgentKeypair> {
   return { publicKey, privateKey };
 }
 
-/** Serialize a keypair to JSON (for storage). */
+/**
+ * Serialize a keypair to JSON for secure storage.
+ *
+ * ⚠️  SECURITY: The returned string contains your raw private key.
+ * - Store it in an encrypted secrets manager or a file with restricted permissions (chmod 600).
+ * - Never log it, never commit it to git, never send it over the network.
+ * - Treat it like a password: if it leaks, your agent identity is compromised.
+ */
 export function serializeKeypair(kp: AgentKeypair): string {
   return JSON.stringify({
     publicKey: bytesToHex(kp.publicKey),
@@ -220,31 +227,83 @@ function countLeadingZeroBits(hash: Uint8Array): number {
 }
 
 /**
- * Solve a proof-of-work challenge.
+ * Solve a proof-of-work challenge synchronously.
  * Finds a 4-byte big-endian nonce (hex) such that sha256(publicKey || nonce)
  * has at least `difficulty` leading zero bits.
  *
- * This runs synchronously and may take a few seconds at difficulty 20.
+ * ⚠️  Blocks the event loop. At difficulty 22 this takes ~1-3s.
+ * Use `solveProofOfWorkAsync` in Node.js environments to avoid blocking.
  */
 export function solveProofOfWork(
   publicKey: Uint8Array,
   difficulty: number,
   onProgress?: (attempts: number) => void
 ): { nonce: string; hash: string } {
-  for (let nonce = 0; nonce < 0xFFFFFFFF; nonce++) {
-    if (onProgress && nonce % 10000 === 0) onProgress(nonce);
-    const nonceHex = nonce.toString(16).padStart(8, '0');
-    const nonceBytes = new Uint8Array(4);
-    for (let i = 0; i < 4; i++) nonceBytes[i] = parseInt(nonceHex.slice(i * 2, i * 2 + 2), 16);
-    const data = new Uint8Array(publicKey.length + 4);
-    data.set(publicKey, 0);
-    data.set(nonceBytes, publicKey.length);
-    const hash = sha256(data);
+  const buf = new Uint8Array(publicKey.length + 4);
+  buf.set(publicKey, 0);
+  for (let nonce = 0; nonce <= 0xFFFFFFFF; nonce++) {
+    if (onProgress && nonce % 50_000 === 0) onProgress(nonce);
+    buf[publicKey.length]     = (nonce >>> 24) & 0xff;
+    buf[publicKey.length + 1] = (nonce >>> 16) & 0xff;
+    buf[publicKey.length + 2] = (nonce >>>  8) & 0xff;
+    buf[publicKey.length + 3] =  nonce         & 0xff;
+    const hash = sha256(buf);
     if (countLeadingZeroBits(hash) >= difficulty) {
+      const nonceHex = nonce.toString(16).padStart(8, '0');
       return { nonce: nonceHex, hash: bytesToHex(hash) };
     }
   }
-  throw new Error('No PoW solution found — this should not happen');
+  throw new Error('No PoW solution found — nonce space exhausted');
+}
+
+/**
+ * Async proof-of-work solver — yields to the event loop every `chunkSize` iterations
+ * so it doesn't block Node.js or browser tabs.
+ *
+ * Preferred over `solveProofOfWork` for any interactive or server context.
+ *
+ * @example
+ * const { nonce } = await solveProofOfWorkAsync(pubkey, 22, {
+ *   onProgress: (n) => console.log(`PoW: ${n} attempts`),
+ * });
+ */
+export function solveProofOfWorkAsync(
+  publicKey: Uint8Array,
+  difficulty: number,
+  options?: { chunkSize?: number; onProgress?: (attempts: number) => void }
+): Promise<{ nonce: string; hash: string }> {
+  const chunkSize = options?.chunkSize ?? 50_000;
+  const onProgress = options?.onProgress;
+
+  return new Promise((resolve, reject) => {
+    const buf = new Uint8Array(publicKey.length + 4);
+    buf.set(publicKey, 0);
+    let nonce = 0;
+
+    function step() {
+      const end = Math.min(nonce + chunkSize, 0xFFFFFFFF + 1);
+      for (; nonce < end; nonce++) {
+        buf[publicKey.length]     = (nonce >>> 24) & 0xff;
+        buf[publicKey.length + 1] = (nonce >>> 16) & 0xff;
+        buf[publicKey.length + 2] = (nonce >>>  8) & 0xff;
+        buf[publicKey.length + 3] =  nonce         & 0xff;
+        const hash = sha256(buf);
+        if (countLeadingZeroBits(hash) >= difficulty) {
+          const nonceHex = nonce.toString(16).padStart(8, '0');
+          resolve({ nonce: nonceHex, hash: bytesToHex(hash) });
+          return;
+        }
+      }
+      if (onProgress) onProgress(nonce);
+      if (nonce > 0xFFFFFFFF) {
+        reject(new Error('No PoW solution found — nonce space exhausted'));
+        return;
+      }
+      // Yield to event loop
+      setTimeout(step, 0);
+    }
+    step();
+  });
 }
 
 // ─── AgentSig Auth ───
@@ -350,8 +409,8 @@ export class RegistryClient {
       body: JSON.stringify({ public_key: b58pubkey }),
     });
 
-    // 2. Solve PoW
-    const { nonce } = solveProofOfWork(keypair.publicKey, init.pow_difficulty, options?.onProgress);
+    // 2. Solve PoW (async — doesn't block event loop)
+    const { nonce } = await solveProofOfWorkAsync(keypair.publicKey, init.pow_difficulty, { onProgress: options?.onProgress });
 
     // 3. Sign challenge
     const challengeBytes = new TextEncoder().encode(init.challenge_prefix);
@@ -425,13 +484,16 @@ export class RegistryClient {
   ): Promise<{ ok: boolean; verification_id: string; target_reputation_delta: number }> {
     const { assignment_id, target_id, result, response_time_ms, coherence_score, notes, structured_report } = verification;
 
-    // Sign the report body
-    const reportData = JSON.stringify({ assignment_id, target_id, result, response_time_ms, coherence_score, notes });
+    // Generate unique nonce to prevent replay attacks
+    const nonce = crypto.randomUUID();
+
+    // Sign the report body (nonce is bound into the signature)
+    const reportData = JSON.stringify({ assignment_id, target_id, result, response_time_ms, coherence_score, notes, nonce });
     const reportBytes = new TextEncoder().encode(reportData);
     const signature = await ed.signAsync(reportBytes, keypair.privateKey);
     const b64sig = btoa(String.fromCharCode(...signature));
 
-    const body = { assignment_id, target_id, result, response_time_ms, coherence_score, notes, structured_report, signature: b64sig };
+    const body = { assignment_id, target_id, result, response_time_ms, coherence_score, notes, structured_report, nonce, signature: b64sig };
     return this.fetchAuth(keypair, 'POST', '/v1/verify/submit', body);
   }
 

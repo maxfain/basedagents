@@ -75,6 +75,8 @@ export const VerifySubmitSchema = z.object({
   coherence_score: z.number().min(0).max(1).optional(),
   notes: z.string().max(2000).optional(),
   structured_report: StructuredReportSchema,
+  // Anti-replay: client-generated nonce (UUID). Stored and checked for uniqueness.
+  nonce: z.string().uuid(),
   signature: z.string().min(1),
 });
 
@@ -176,6 +178,8 @@ export type Variables = {
 
 export type Bindings = {
   DB?: D1Database;
+  BOOTSTRAP_THRESHOLD?: string;
+  ADMIN_SECRET?: string;
 };
 
 /** Hono env type combining Bindings and Variables */

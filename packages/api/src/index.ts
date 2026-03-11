@@ -14,9 +14,70 @@ import skillRoutes from './routes/skills.js';
 
 const app = new Hono<AppEnv>();
 
+// ─── CORS — explicit origin whitelist ───
+const ALLOWED_ORIGINS = [
+  'https://basedagents.ai',
+  'https://www.basedagents.ai',
+  // Cloudflare Pages preview deploys
+  /^https:\/\/[a-z0-9]+\.auth-ai-web\.pages\.dev$/,
+  // Local dev
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:4000',
+];
+
+// ─── In-memory rate limiter (per-isolate; acceptable for single-worker deploy) ───
+// Key: `${route}:${ip}`, Value: { count, resetAt }
+const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
+  '/v1/register/init':     { max: 5,  windowMs: 60_000 },   // 5 init attempts/min per IP
+  '/v1/register/complete': { max: 5,  windowMs: 60_000 },
+  '/v1/verify/submit':     { max: 20, windowMs: 60_000 },   // 20 verifications/min
+  '/v1/agents/search':     { max: 60, windowMs: 60_000 },   // 60 searches/min
+};
+
+function checkRateLimit(key: string, max: number, windowMs: number): boolean {
+  const now = Date.now();
+  const entry = rateLimitStore.get(key);
+  if (!entry || now > entry.resetAt) {
+    rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
+    return true;
+  }
+  if (entry.count >= max) return false;
+  entry.count++;
+  return true;
+}
+
 // ─── Global Middleware ───
 app.use('*', logger());
-app.use('*', cors());
+app.use('*', cors({
+  origin: (origin) => {
+    if (!origin) return null; // no-origin (server-to-server) — allow
+    for (const allowed of ALLOWED_ORIGINS) {
+      if (typeof allowed === 'string' && allowed === origin) return origin;
+      if (allowed instanceof RegExp && allowed.test(origin)) return origin;
+    }
+    return null; // reject
+  },
+  allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Timestamp'],
+  exposeHeaders: ['X-RateLimit-Remaining'],
+  maxAge: 86400,
+}));
+
+// ─── Rate limiting middleware ───
+app.use('*', async (c, next) => {
+  const path = new URL(c.req.url).pathname;
+  const limit = RATE_LIMITS[path];
+  if (limit) {
+    const ip = c.req.header('CF-Connecting-IP') ?? c.req.header('X-Forwarded-For') ?? 'unknown';
+    const key = `${path}:${ip}`;
+    if (!checkRateLimit(key, limit.max, limit.windowMs)) {
+      return c.json({ error: 'rate_limited', message: 'Too many requests. Please slow down.' }, 429);
+    }
+  }
+  await next();
+});
 
 // ─── Database Adapter Middleware ───
 // Wraps the D1 binding from Cloudflare Workers environment.
@@ -53,7 +114,16 @@ app.route('/v1/chain', chainRoutes);
 app.route('/v1/skills', skillRoutes);
 
 // ─── Admin: Manual Bootstrap Probe Trigger ───
+// Protected by ADMIN_SECRET env var. Set via: wrangler secret put ADMIN_SECRET
 app.post('/v1/admin/bootstrap-probe', async (c) => {
+  const adminSecret = c.env?.ADMIN_SECRET;
+  if (!adminSecret) {
+    return c.json({ error: 'forbidden', message: 'Admin endpoint disabled — ADMIN_SECRET not configured' }, 403);
+  }
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader || authHeader !== `Bearer ${adminSecret}`) {
+    return c.json({ error: 'unauthorized', message: 'Invalid admin token' }, 401);
+  }
   const db = c.get('db');
   if (!db) return c.json({ error: 'db_unavailable', message: 'Database not available' }, 503);
   const threshold = parseInt(c.env?.BOOTSTRAP_THRESHOLD ?? '100', 10);
@@ -73,11 +143,8 @@ app.onError((err, c) => {
 });
 
 // ─── Cloudflare Workers Scheduled Handler (Cron) ───
-const scheduled: ExportedHandlerScheduledHandler<{ DB?: D1Database; BOOTSTRAP_THRESHOLD?: string }> = async (
-  _event,
-  env,
-  _ctx
-) => {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const scheduled = async (_event: unknown, env: any, _ctx: unknown) => {
   if (!env.DB) { console.error('[cron] No DB binding'); return; }
   const db = new D1Adapter(env.DB);
   const threshold = parseInt(env.BOOTSTRAP_THRESHOLD ?? '100', 10);

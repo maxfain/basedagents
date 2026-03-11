@@ -4,42 +4,38 @@ import { VerifySubmitSchema } from '../types/index.js';
 import { agentAuth } from '../middleware/auth.js';
 import { verifySignature } from '../crypto/index.js';
 import { computeReputation } from '../reputation/calculator.js';
+import type { DBAdapter } from '../db/adapter.js';
 
 const verify = new Hono<AppEnv>();
 
 /**
  * Update agent status based on reputation and verification history.
  */
-async function updateAgentStatus(db: NonNullable<ReturnType<typeof verify.get>>, agentId: string, rep: number): Promise<void> {
-  // @ts-ignore — we pass db directly
+async function updateAgentStatus(db: DBAdapter, agentId: string, _rep: number): Promise<void> {
   const agent = await db.get<{ status: string }>('SELECT status FROM agents WHERE id = ?', agentId);
   if (!agent) return;
 
   let newStatus = agent.status;
 
   if (agent.status === 'pending') {
-    // @ts-ignore
     const passCount = await db.get<{ count: number }>(
       "SELECT COUNT(*) as count FROM verifications WHERE target_id = ? AND result = 'pass'", agentId
     );
     if ((passCount?.count ?? 0) > 0) newStatus = 'active';
   } else if (agent.status === 'active') {
-    // @ts-ignore
     const recentResults = await db.all<{ result: string }>(
       'SELECT result FROM verifications WHERE target_id = ? ORDER BY created_at DESC LIMIT 5', agentId
     );
-    if (recentResults.length >= 5 && recentResults.every(r => r.result === 'timeout')) {
+    if (recentResults.length >= 5 && recentResults.every((r: { result: string }) => r.result === 'timeout')) {
       newStatus = 'suspended';
     }
   } else if (agent.status === 'suspended') {
-    // @ts-ignore
     const latest = await db.get<{ result: string }>(
       'SELECT result FROM verifications WHERE target_id = ? ORDER BY created_at DESC LIMIT 1', agentId
     );
     if (latest?.result === 'pass') newStatus = 'active';
   }
 
-  // @ts-ignore
   if (newStatus !== agent.status) await db.run('UPDATE agents SET status = ? WHERE id = ?', newStatus, agentId);
 }
 
@@ -105,11 +101,19 @@ verify.post('/submit', agentAuth, async (c) => {
     return c.json({ error: 'bad_request', message: 'Validation failed', details: parsed.error.flatten() }, 400);
   }
 
-  const { assignment_id, target_id, result, response_time_ms, coherence_score, notes, signature, structured_report } = parsed.data;
+  const { assignment_id, target_id, result, response_time_ms, coherence_score, notes, signature, structured_report, nonce } = parsed.data;
 
   // ── Self-verification ban ──
   if (verifierId === target_id) {
     return c.json({ error: 'bad_request', message: 'Cannot verify yourself' }, 400);
+  }
+
+  // ── Replay check — nonce must be globally unique ──
+  const nonceExists = await db.get<{ id: string }>(
+    'SELECT id FROM verifications WHERE nonce = ? LIMIT 1', nonce
+  );
+  if (nonceExists) {
+    return c.json({ error: 'bad_request', message: 'Duplicate nonce — this report has already been submitted' }, 400);
   }
 
   // ── Target must exist ──
@@ -130,8 +134,8 @@ verify.post('/submit', agentAuth, async (c) => {
     }, 403);
   }
 
-  // ── Verify report signature ──
-  const reportData = JSON.stringify({ assignment_id, target_id, result, response_time_ms, coherence_score, notes });
+  // ── Verify report signature (nonce is bound into signed payload — prevents replay) ──
+  const reportData = JSON.stringify({ assignment_id, target_id, result, response_time_ms, coherence_score, notes, nonce });
   let sigBytes: Uint8Array;
   try {
     const bin = atob(signature);
@@ -152,11 +156,11 @@ verify.post('/submit', agentAuth, async (c) => {
   const structuredReportJson = structured_report ? JSON.stringify(structured_report) : null;
 
   await db.run(
-    `INSERT INTO verifications (id, verifier_id, target_id, result, response_time_ms, coherence_score, notes, signature, structured_report, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO verifications (id, verifier_id, target_id, result, response_time_ms, coherence_score, notes, signature, structured_report, nonce, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     verificationId, verifierId, target_id, result,
     response_time_ms ?? null, coherence_score ?? null,
-    notes ?? null, signature, structuredReportJson, now
+    notes ?? null, signature, structuredReportJson, nonce, now
   );
 
   // ── Handle safety flags ──
@@ -183,9 +187,7 @@ verify.post('/submit', agentAuth, async (c) => {
   await db.run('UPDATE agents SET reputation_score = ?, penalty_score = ? WHERE id = ?', targetRep.final_score, targetRep.penalty, target_id);
   await db.run('UPDATE agents SET reputation_score = ? WHERE id = ?', verifierRep.final_score, verifierId);
 
-  // @ts-ignore
   await updateAgentStatus(db, target_id, targetRep.final_score);
-  // @ts-ignore
   await updateAgentStatus(db, verifierId, verifierRep.final_score);
 
   const targetDelta = Math.round((targetRep.final_score - (prevTarget?.reputation_score ?? 0)) * 1000) / 1000;

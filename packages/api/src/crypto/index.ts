@@ -90,8 +90,11 @@ export function base58Decode(str: string): Uint8Array {
 
 // ─── Proof of Work ───
 
-/** Default PoW difficulty (number of leading zero bits required) */
-export const DEFAULT_DIFFICULTY = 20;
+/** Default PoW difficulty (number of leading zero bits required).
+ *  22 bits: ~4M hashes on average. Solvable in ~1-3s on modern hardware.
+ *  20 bits was solvable in milliseconds — too cheap for anti-spam.
+ */
+export const DEFAULT_DIFFICULTY = 22;
 
 /**
  * Count leading zero bits in a byte array.

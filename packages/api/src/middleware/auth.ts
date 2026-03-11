@@ -102,27 +102,57 @@ export async function agentAuth(c: Context, next: Next): Promise<Response | void
 }
 
 /**
- * Optional auth — sets agent context if header present, continues regardless.
+ * Optional auth — sets agent context ONLY if signature fully verifies.
+ * Never sets context from an unverified public key.
+ * If header is present but invalid, silently skips (does not set context, does not reject).
  */
 export async function optionalAuth(c: Context, next: Next): Promise<void> {
   const authHeader = c.req.header('Authorization');
 
   if (authHeader?.startsWith('AgentSig ')) {
     try {
-      // Try to parse and verify, but don't fail if it doesn't work
       const credentials = authHeader.slice('AgentSig '.length);
       const colonIdx = credentials.indexOf(':');
-      if (colonIdx !== -1) {
-        const base58PubKey = credentials.slice(0, colonIdx);
-        const publicKey = base58Decode(base58PubKey);
-        if (publicKey.length === 32) {
-          const agentId = publicKeyToAgentId(publicKey);
+      if (colonIdx === -1) { await next(); return; }
+
+      const base58PubKey = credentials.slice(0, colonIdx);
+      const base64Sig = credentials.slice(colonIdx + 1);
+
+      const publicKey = base58Decode(base58PubKey);
+      if (publicKey.length !== 32) { await next(); return; }
+
+      const binStr = atob(base64Sig);
+      const signature = new Uint8Array(binStr.length);
+      for (let i = 0; i < binStr.length; i++) signature[i] = binStr.charCodeAt(i);
+      if (signature.length !== 64) { await next(); return; }
+
+      const timestamp = c.req.header('X-Timestamp');
+      if (!timestamp) { await next(); return; }
+      const ts = parseInt(timestamp, 10);
+      const now = Math.floor(Date.now() / 1000);
+      if (isNaN(ts) || Math.abs(now - ts) > 60) { await next(); return; }
+
+      const body = await c.req.text();
+      const bodyHash = bytesToHex(sha256(new TextEncoder().encode(body)));
+      const method = c.req.method;
+      const path = new URL(c.req.url).pathname;
+      const message = `${method}:${path}:${timestamp}:${bodyHash}`;
+      const valid = await verifySignature(new TextEncoder().encode(message), signature, publicKey);
+      if (!valid) { await next(); return; }
+
+      // Only set context after full verification
+      const agentId = publicKeyToAgentId(publicKey);
+      const db = c.get('db') as DBAdapter;
+      if (db) {
+        const agent = await db.get<{ id: string; status: string }>('SELECT id, status FROM agents WHERE id = ?', agentId);
+        if (agent) {
           c.set('agentId', agentId);
           c.set('publicKey', publicKey);
+          c.set('agentStatus', agent.status);
         }
       }
     } catch {
-      // Silently ignore auth errors in optional mode
+      // Invalid header format — continue without auth context
     }
   }
 

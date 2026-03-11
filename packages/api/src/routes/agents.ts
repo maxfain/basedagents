@@ -55,41 +55,47 @@ agents.get('/search', async (c) => {
   const sort = c.req.query('sort') || 'reputation';
   const offset = (page - 1) * limit;
 
+  // Escape SQL LIKE wildcards to prevent pattern injection
+  // SQLite LIKE escape character: backslash
+  function escapeLike(s: string): string {
+    return s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+  }
+
   // Build dynamic query
   const conditions: string[] = ['status = ?'];
   const params: unknown[] = [status];
 
   if (q) {
-    conditions.push('(name LIKE ? OR description LIKE ?)');
-    const pattern = `%${q}%`;
-    params.push(pattern, pattern);
+    const safe = escapeLike(q);
+    conditions.push('(name LIKE ? ESCAPE \'\\\' OR description LIKE ? ESCAPE \'\\\')');
+    params.push(`%${safe}%`, `%${safe}%`);
   }
 
   if (capabilities) {
     for (const cap of capabilities.split(',')) {
-      conditions.push("capabilities LIKE ?");
-      params.push(`%"${cap.trim()}"%`);
+      conditions.push('capabilities LIKE ? ESCAPE \'\\\'');
+      params.push(`%"${escapeLike(cap.trim())}"%`);
     }
   }
 
   if (protocols) {
     for (const proto of protocols.split(',')) {
-      conditions.push("protocols LIKE ?");
-      params.push(`%"${proto.trim()}"%`);
+      conditions.push('protocols LIKE ? ESCAPE \'\\\'');
+      params.push(`%"${escapeLike(proto.trim())}"%`);
     }
   }
 
   if (offers) {
     for (const offer of offers.split(',')) {
-      conditions.push("offers LIKE ?");
-      params.push(`%"${offer.trim()}"%`);
+      conditions.push('offers LIKE ? ESCAPE \'\\\'');
+      params.push(`%"${escapeLike(offer.trim())}"%`);
     }
   }
 
   if (needs) {
     for (const need of needs.split(',')) {
-      conditions.push("needs LIKE ?");
-      params.push(`%"${need.trim()}"%`);
+      conditions.push('needs LIKE ? ESCAPE \'\\\'');
+      params.push(`%"${escapeLike(need.trim())}"%`);
     }
   }
 
