@@ -128,19 +128,8 @@ async function registerFromManifest(manifestPath: string, apiUrl: string, dryRun
   let keypairPath = join(keysDir, `${slug}-keypair.json`);
   let i = 2;
   while (existsSync(keypairPath)) keypairPath = join(keysDir, `${slug}-${i++}-keypair.json`);
-  writeFileSync(keypairPath, serializeKeypair(keypair), { mode: 0o600 });
-  console.log(`  ${green('✓')} Keypair → ${cyan(keypairPath)}`);
-  console.log(yellow(`  ⚠  Back this up. Losing it = losing control of ${cyan(agentId)}`));
-  console.log('');
-
-  // PoW
-  const t0 = Date.now();
-  const { nonce } = await solveProofOfWorkAsync(keypair.publicKey, 22, { onProgress: showProgress });
-  const powMs = Date.now() - t0;
-  process.stdout.write(`\r  ${green('✓')} Proof-of-work solved in ${cyan(Math.round(powMs / 1000) + 's')}              \n`);
-
-  // Register
-  process.stdout.write('  Registering...');
+  // PoW + Registration — keypair written to disk only after successful registration
+  // (avoids orphaned key files on network/validation failure)
   const client = new RegistryClient(apiUrl);
   const profile = {
     name, description, capabilities, protocols, version,
@@ -152,13 +141,14 @@ async function registerFromManifest(manifestPath: string, apiUrl: string, dryRun
     ...(offers.length   ? { offers }                            : {}),
     ...(needs.length    ? { needs }                             : {}),
   };
+
+  // client.register() fetches difficulty from /v1/register/init — no hardcoded value
   let agent: Awaited<ReturnType<typeof client.register>>;
   try {
-    agent = await client.register(keypair, profile);
+    agent = await client.register(keypair, profile, { onProgress: showProgress });
   } catch (err: unknown) {
     console.log(` ${red('✗')}\n`);
     const msg = err instanceof Error ? err.message : String(err);
-    // Surface common errors clearly
     if (msg.includes('409') || msg.toLowerCase().includes('already taken')) {
       console.log(red(`  ✗ Name conflict: an agent named ${bold(name)} already exists.`));
       console.log(dim(`     Choose a different name and update your manifest.\n`));
@@ -171,12 +161,16 @@ async function registerFromManifest(manifestPath: string, apiUrl: string, dryRun
   }
   console.log(` ${green('✓')}`);
 
+  // Write keypair only after successful registration — avoids orphaned key files on failure
+  writeFileSync(keypairPath, serializeKeypair(keypair), { mode: 0o600 });
+
   console.log('');
   console.log(green(bold('✓ Registered!')));
   console.log(`  ${dim('Agent ID')}  ${cyan(agent.id)}`);
   console.log(`  ${dim('Status')}    ${agent.status}`);
   console.log(`  ${dim('Profile')}   https://basedagents.ai/agents/${agent.id}`);
   console.log(`  ${dim('Keypair')}   ${keypairPath}`);
+  console.log(yellow(`  ⚠  Back this up. Losing it = losing control of ${cyan(agent.id)}`));
   console.log('');
 }
 
@@ -301,26 +295,13 @@ export async function register(args: string[]): Promise<void> {
       keypairPath = join(keysDir, `${slug}-${i++}-keypair.json`);
     }
 
-    writeFileSync(keypairPath, serializeKeypair(keypair), { mode: 0o600 });
-    console.log(`  ${green('✓')} Keypair saved to ${cyan(keypairPath)}`);
-    console.log('');
-    console.log(yellow(`  ⚠  Back this file up. It is your agent's private key.`));
-    console.log(yellow(`     Losing it means losing control of ${cyan(agentId)}`));
-    console.log('');
-
     if (dryRun) {
       console.log(dim('  --dry-run: skipping registration.\n'));
       rl.close();
       return;
     }
 
-    // ── Proof-of-Work ──
-    const t0 = Date.now();
-    const { nonce } = await solveProofOfWorkAsync(keypair.publicKey, 22, { onProgress: showProgress });
-    const powMs = Date.now() - t0;
-    process.stdout.write(`\r  ${green('✓')} Proof-of-work solved in ${cyan(Math.round(powMs / 1000) + 's')} (${cyan(nonce)})              \n`);
-
-    // ── Register ──
+    // ── Register (PoW difficulty fetched from server via client.register) ──
     process.stdout.write('  Registering with basedagents.ai...');
     const client = new RegistryClient(apiUrl);
 
@@ -336,8 +317,16 @@ export async function register(args: string[]): Promise<void> {
       ...(skills.length   ? { skills }                          : {}),
     };
 
-    const agent = await client.register(keypair, profile);
+    const agent = await client.register(keypair, profile, { onProgress: showProgress });
     console.log(` ${green('✓')}`);
+
+    // Write keypair only after successful registration — no orphaned files on failure
+    writeFileSync(keypairPath, serializeKeypair(keypair), { mode: 0o600 });
+    console.log(`  ${green('✓')} Keypair saved to ${cyan(keypairPath)}`);
+    console.log('');
+    console.log(yellow(`  ⚠  Back this file up. It is your agent's private key.`));
+    console.log(yellow(`     Losing it means losing control of ${cyan(agent.id)}`));
+    console.log('');
 
     // ── Success ──
     console.log('');

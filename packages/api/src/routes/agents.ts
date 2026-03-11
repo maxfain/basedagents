@@ -88,7 +88,10 @@ agents.get('/search', async (c) => {
   const status = c.req.query('status') || null;
   const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
   const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '20', 10)));
-  const sort = c.req.query('sort') || 'reputation';
+  const SORT_WHITELIST = ['reputation', 'registered_at', 'name'] as const;
+  type SortKey = typeof SORT_WHITELIST[number];
+  const rawSort = c.req.query('sort') || 'reputation';
+  const sort: SortKey = (SORT_WHITELIST as readonly string[]).includes(rawSort) ? rawSort as SortKey : 'reputation';
   const offset = (page - 1) * limit;
 
   // Escape SQL LIKE wildcards to prevent pattern injection

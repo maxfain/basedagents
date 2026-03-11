@@ -134,7 +134,8 @@ export async function computeReputation(
           const row = await db.get<{ trust_score: number }>('SELECT trust_score FROM skill_cache WHERE id = ?', cacheId);
           return row?.trust_score ?? 0.0;
         }));
-        skillTrust = scores.reduce((a, b) => a + b, 0) / scores.length;
+        const sum = scores.reduce((a, b) => a + b, 0);
+        skillTrust = scores.length > 0 ? sum / scores.length : 0;
       }
     } catch { /* malformed */ }
   }
@@ -212,8 +213,9 @@ export async function computeReputation(
   // ── Confidence (bounded, full at 20 verifications) ──
   const confidence = Math.min(1.0, Math.log(1 + n) / Math.log(21));
 
-  // ── Final score ──
-  const finalScore = Math.min(1.0, Math.max(0, raw * confidence + profileBase));
+  // ── Final score ── (guard against NaN from all-null coherence scores or zero weights)
+  const safeRaw = isNaN(raw) ? 0 : raw;
+  const finalScore = Math.min(1.0, Math.max(0, safeRaw * confidence + profileBase));
 
   return {
     final_score: Math.round(finalScore * 1000) / 1000,

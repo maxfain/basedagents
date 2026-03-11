@@ -13,31 +13,35 @@ const verify = new Hono<AppEnv>();
  * Update agent status based on reputation and verification history.
  */
 async function updateAgentStatus(db: DBAdapter, agentId: string, _rep: number): Promise<void> {
-  const agent = await db.get<{ status: string }>('SELECT status FROM agents WHERE id = ?', agentId);
-  if (!agent) return;
+  // Atomic status transitions — conditional UPDATEs avoid TOCTOU races from concurrent verifications.
+  // Each UPDATE only fires when the current status matches the expected source state.
 
-  let newStatus = agent.status;
+  // pending → active: any passing verification
+  await db.run(
+    `UPDATE agents SET status = 'active'
+     WHERE id = ? AND status = 'pending'
+       AND EXISTS (SELECT 1 FROM verifications WHERE target_id = ? AND result = 'pass')`,
+    agentId, agentId
+  );
 
-  if (agent.status === 'pending') {
-    const passCount = await db.get<{ count: number }>(
-      "SELECT COUNT(*) as count FROM verifications WHERE target_id = ? AND result = 'pass'", agentId
-    );
-    if ((passCount?.count ?? 0) > 0) newStatus = 'active';
-  } else if (agent.status === 'active') {
-    const recentResults = await db.all<{ result: string }>(
-      'SELECT result FROM verifications WHERE target_id = ? ORDER BY created_at DESC LIMIT 5', agentId
-    );
-    if (recentResults.length >= 5 && recentResults.every((r: { result: string }) => r.result === 'timeout')) {
-      newStatus = 'suspended';
-    }
-  } else if (agent.status === 'suspended') {
-    const latest = await db.get<{ result: string }>(
-      'SELECT result FROM verifications WHERE target_id = ? ORDER BY created_at DESC LIMIT 1', agentId
-    );
-    if (latest?.result === 'pass') newStatus = 'active';
-  }
+  // active → suspended: last 5 verifications are all timeouts
+  await db.run(
+    `UPDATE agents SET status = 'suspended'
+     WHERE id = ? AND status = 'active'
+       AND (SELECT COUNT(*) FROM (
+         SELECT result FROM verifications WHERE target_id = ? ORDER BY created_at DESC LIMIT 5
+       ) sub WHERE sub.result = 'timeout') = 5
+       AND (SELECT COUNT(*) FROM verifications WHERE target_id = ?) >= 5`,
+    agentId, agentId, agentId
+  );
 
-  if (newStatus !== agent.status) await db.run('UPDATE agents SET status = ? WHERE id = ?', newStatus, agentId);
+  // suspended → active: most recent verification passed
+  await db.run(
+    `UPDATE agents SET status = 'active'
+     WHERE id = ? AND status = 'suspended'
+       AND (SELECT result FROM verifications WHERE target_id = ? ORDER BY created_at DESC LIMIT 1) = 'pass'`,
+    agentId, agentId
+  );
 }
 
 /**
