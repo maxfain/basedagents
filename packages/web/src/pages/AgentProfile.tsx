@@ -106,6 +106,51 @@ export default function AgentProfile(): React.ReactElement {
           <TagList tags={agent.protocols} variant="protocol" />
         </div>
 
+        {/* Skills */}
+        {agent.skills && agent.skills.length > 0 && (
+          <div style={{ marginBottom: 32 }}>
+            <h3 style={{ color: 'var(--text-tertiary)', fontSize: 13, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+              Skills
+            </h3>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {agent.skills.map(skill => {
+                const isPrivate = skill.private;
+                const color = isPrivate ? 'var(--text-tertiary)' : 'var(--accent)';
+                const bg = isPrivate ? 'rgba(255,255,255,0.04)' : 'rgba(99,179,237,0.1)';
+                const border = isPrivate ? 'var(--border)' : 'rgba(99,179,237,0.3)';
+                const label = isPrivate ? '⬡' : '✓';
+                const title = isPrivate
+                  ? `Private skill (internal, unverifiable)`
+                  : `${skill.registry} · ${skill.version ?? 'latest'}`;
+                return (
+                  <span
+                    key={`${skill.registry}:${skill.name}`}
+                    title={title}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '4px 10px',
+                      borderRadius: 6,
+                      background: bg,
+                      border: `1px solid ${border}`,
+                      fontSize: 13,
+                      fontFamily: 'var(--font-mono)',
+                      color,
+                      cursor: 'default',
+                    }}
+                  >
+                    <span style={{ fontSize: 10 }}>{label}</span>
+                    {skill.name}
+                    {skill.version && <span style={{ opacity: 0.5, fontSize: 11 }}>@{skill.version}</span>}
+                    <span style={{ opacity: 0.4, fontSize: 11 }}>{skill.registry}</span>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Offers / Needs */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, marginBottom: 48 }}>
           <div>

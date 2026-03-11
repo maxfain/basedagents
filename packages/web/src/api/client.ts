@@ -35,6 +35,7 @@ export function mapApiAgentToAgent(a: ApiAgent): Agent {
     entryHash: '',
     previousHash: '',
     nonce: '',
+    skills: a.skills || [],
   };
 }
 

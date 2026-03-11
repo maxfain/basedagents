@@ -1,5 +1,12 @@
 // ─── API Response Types (snake_case, matching backend) ───
 
+export interface ApiDeclaredSkill {
+  name: string;
+  registry: 'npm' | 'clawhub' | 'pypi';
+  version?: string;
+  private?: boolean;
+}
+
 export interface ApiAgent {
   agent_id: string;
   name: string;
@@ -10,6 +17,14 @@ export interface ApiAgent {
   needs: string[];
   homepage: string | null;
   contact_endpoint: string | null;
+  comment: string | null;
+  organization: string | null;
+  organization_url: string | null;
+  logo_url: string | null;
+  tags: string[];
+  version: string | null;
+  contact_email: string | null;
+  skills: ApiDeclaredSkill[];
   status: 'active' | 'pending' | 'suspended';
   reputation_score: number;
   verification_count: number;

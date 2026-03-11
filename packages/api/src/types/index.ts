@@ -2,6 +2,15 @@ import { z } from 'zod';
 
 // ─── Profile Schema ───
 
+export const SkillSchema = z.object({
+  name: z.string().min(1).max(100),
+  registry: z.enum(['npm', 'clawhub', 'pypi']).optional().default('npm'),
+  version: z.string().max(50).optional(),
+  private: z.boolean().optional().default(false),
+});
+
+export type DeclaredSkill = z.infer<typeof SkillSchema>;
+
 export const ProfileSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().min(1).max(1000),
@@ -18,6 +27,7 @@ export const ProfileSchema = z.object({
   tags: z.array(z.string().max(50)).max(20).optional(),
   version: z.string().max(50).optional(),
   contact_email: z.string().email().optional(),
+  skills: z.array(SkillSchema).max(50).optional(),
 });
 
 export type Profile = z.infer<typeof ProfileSchema>;
@@ -68,6 +78,7 @@ export interface Agent {
   tags: string | null; // JSON array
   version: string | null;
   contact_email: string | null;
+  skills: string | null; // JSON array of DeclaredSkill
   registered_at: string;
   last_seen: string | null;
   status: 'pending' | 'active' | 'suspended';

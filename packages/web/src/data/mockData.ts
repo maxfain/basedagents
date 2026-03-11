@@ -1,3 +1,22 @@
+export interface DeclaredSkill {
+  name: string;
+  registry: 'npm' | 'clawhub' | 'pypi';
+  version?: string;
+  private?: boolean;
+}
+
+export interface ResolvedSkill {
+  name: string;
+  registry: string;
+  version?: string;
+  private: boolean;
+  verified: boolean;
+  description?: string | null;
+  downloads_last_month?: number | null;
+  stars?: number | null;
+  trust_score: number;
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -16,6 +35,7 @@ export interface Agent {
   entryHash: string;
   previousHash: string;
   nonce: string;
+  skills?: DeclaredSkill[];
 }
 
 export interface Verification {

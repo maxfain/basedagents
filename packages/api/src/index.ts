@@ -4,11 +4,13 @@ import { logger } from 'hono/logger';
 import type { AppEnv } from './types/index.js';
 import { D1Adapter } from './db/d1-adapter.js';
 import { runBootstrapProber } from './bootstrap/prober.js';
+import { resolveAllAgentSkills } from './skills/resolver.js';
 
 import registerRoutes from './routes/register.js';
 import agentRoutes from './routes/agents.js';
 import verifyRoutes from './routes/verify.js';
 import chainRoutes from './routes/chain.js';
+import skillRoutes from './routes/skills.js';
 
 const app = new Hono<AppEnv>();
 
@@ -48,6 +50,7 @@ app.route('/v1/register', registerRoutes);
 app.route('/v1/agents', agentRoutes);
 app.route('/v1/verify', verifyRoutes);
 app.route('/v1/chain', chainRoutes);
+app.route('/v1/skills', skillRoutes);
 
 // ─── Admin: Manual Bootstrap Probe Trigger ───
 app.post('/v1/admin/bootstrap-probe', async (c) => {
@@ -81,6 +84,10 @@ const scheduled: ExportedHandlerScheduledHandler<{ DB?: D1Database; BOOTSTRAP_TH
   console.log('[cron] Running bootstrap prober...');
   const result = await runBootstrapProber(db, threshold);
   console.log(`[cron] Bootstrap prober done: activated=${result.activated.length} suspended=${result.suspended.length} probed=${result.probed}`);
+
+  console.log('[cron] Resolving agent skills...');
+  const skillResult = await resolveAllAgentSkills(db);
+  console.log(`[cron] Skill resolution done: updated=${skillResult.updated}`);
 };
 
 // Export for Cloudflare Workers

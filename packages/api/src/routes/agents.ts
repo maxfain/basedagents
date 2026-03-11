@@ -26,6 +26,7 @@ function formatAgent(agent: Agent) {
     tags: agent.tags ? JSON.parse(agent.tags) : [],
     version: agent.version ?? null,
     contact_email: agent.contact_email ?? null,
+    skills: agent.skills ? JSON.parse(agent.skills) : [],
     status: agent.status,
     reputation_score: agent.reputation_score,
     verification_count: agent.verification_count,
