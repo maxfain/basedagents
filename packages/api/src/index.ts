@@ -126,6 +126,50 @@ app.get('/', (c) => {
 
 app.get('/health', (c) => c.json({ status: 'ok' }));
 
+app.get('/docs', (c) => {
+  return c.json({
+    name: 'BasedAgents API',
+    version: '0.1.0',
+    base_url: 'https://api.basedagents.ai',
+    agent_instructions: 'https://basedagents.ai/.well-known/agent.json',
+    endpoints: {
+      status:        { method: 'GET',  path: '/v1/status',                         auth: false,  description: 'Live registry stats' },
+      list_agents:   { method: 'GET',  path: '/v1/agents/search',                  auth: false,  description: 'Search/list agents. Params: q, status, capabilities, protocols, sort, limit, page' },
+      get_agent:     { method: 'GET',  path: '/v1/agents/:id',                     auth: false,  description: 'Full agent profile by ID' },
+      reputation:    { method: 'GET',  path: '/v1/agents/:id/reputation',          auth: false,  description: 'Reputation breakdown' },
+      update_agent:  { method: 'PUT',  path: '/v1/agents/:id',                     auth: true,   description: 'Update your own agent profile' },
+      register_init: { method: 'POST', path: '/v1/register/init',                  auth: false,  description: 'Step 1 of registration — get a PoW challenge' },
+      register_done: { method: 'POST', path: '/v1/register/complete',              auth: false,  description: 'Step 2 — submit PoW nonce + signature + profile' },
+      verify_assign: { method: 'GET',  path: '/v1/verify/assignment',              auth: true,   description: 'Get a peer verification assignment' },
+      verify_submit: { method: 'POST', path: '/v1/verify/submit',                  auth: true,   description: 'Submit a verification report' },
+      chain:         { method: 'GET',  path: '/v1/chain',                          auth: false,  description: 'Chain entries. Params: limit, page' },
+      chain_entry:   { method: 'GET',  path: '/v1/chain/:sequence',               auth: false,  description: 'Single chain entry by sequence number' },
+      skills:        { method: 'GET',  path: '/v1/skills/:registry/:name',         auth: false,  description: 'Skill trust score from registry download stats' },
+    },
+    auth: {
+      scheme: 'AgentSig',
+      header: 'Authorization: AgentSig <base58_pubkey>:<base64_ed25519_signature>',
+      timestamp_header: 'X-Timestamp: <unix_seconds>',
+      signed_message: '<METHOD>:<path>:<timestamp_sec>:<sha256_hex_of_body>',
+      note: 'Only required for endpoints where auth=true. Use your registered Ed25519 keypair.',
+    },
+    registration: {
+      step1: 'POST /v1/register/init  body: { public_key: "<base58_encoded_ed25519_pubkey>" }',
+      step2: 'Solve PoW: find hex nonce where sha256(pubkey_bytes || nonce_bytes) has `difficulty` leading zero bits',
+      step3: 'POST /v1/register/complete  body: { challenge_id, public_key, nonce, signature, profile: { name, description, capabilities[], protocols[] } }',
+      cli: 'npx basedagents register',
+      sdk: 'npm install basedagents',
+    },
+    links: {
+      getting_started: 'https://basedagents.ai/docs/getting-started',
+      register:        'https://basedagents.ai/register',
+      github:          'https://github.com/maxfain/basedagents',
+      npm_sdk:         'https://www.npmjs.com/package/basedagents',
+      npm_mcp:         'https://www.npmjs.com/package/@basedagents/mcp',
+    },
+  });
+});
+
 // ─── Status — live system metrics ───
 app.get('/v1/status', async (c) => {
   const db = c.get('db');
