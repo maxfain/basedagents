@@ -4,6 +4,7 @@ import { VerifySubmitSchema } from '../types/index.js';
 import { agentAuth } from '../middleware/auth.js';
 import { verifySignature } from '../crypto/index.js';
 import { computeReputation } from '../reputation/calculator.js';
+import { runEigenTrust } from '../reputation/eigentrust.js';
 import type { DBAdapter } from '../db/adapter.js';
 
 const verify = new Hono<AppEnv>();
@@ -190,8 +191,17 @@ verify.post('/submit', agentAuth, async (c) => {
   await updateAgentStatus(db, target_id, targetRep.final_score);
   await updateAgentStatus(db, verifierId, verifierRep.final_score);
 
-  const targetDelta = Math.round((targetRep.final_score - (prevTarget?.reputation_score ?? 0)) * 1000) / 1000;
-  const verifierDelta = Math.round((verifierRep.final_score - (prevVerifier?.reputation_score ?? 0)) * 1000) / 1000;
+  // Phase 2: run network-wide EigenTrust after local scores are seeded
+  await runEigenTrust(db);
+
+  // Re-read final scores after EigenTrust (may have adjusted them)
+  const [postTarget, postVerifier] = await Promise.all([
+    db.get<{ reputation_score: number }>('SELECT reputation_score FROM agents WHERE id = ?', target_id),
+    db.get<{ reputation_score: number }>('SELECT reputation_score FROM agents WHERE id = ?', verifierId),
+  ]);
+
+  const targetDelta = Math.round(((postTarget?.reputation_score ?? targetRep.final_score) - (prevTarget?.reputation_score ?? 0)) * 1000) / 1000;
+  const verifierDelta = Math.round(((postVerifier?.reputation_score ?? verifierRep.final_score) - (prevVerifier?.reputation_score ?? 0)) * 1000) / 1000;
 
   return c.json({
     ok: true,
