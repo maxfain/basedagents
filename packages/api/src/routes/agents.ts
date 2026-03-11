@@ -8,7 +8,39 @@ import { computeReputation } from '../reputation/calculator.js';
 const agents = new Hono<AppEnv>();
 
 /**
- * Format an agent row for API response (parse JSON fields).
+ * Obfuscate an email address for public API responses.
+ * The full address is never returned — only a masked version to protect
+ * against scraping while still confirming one was registered.
+ *
+ * hansl@agentmail.com  →  h***l@a******l.com
+ * a@b.io               →  a@b.io  (too short to mask, leave as-is)
+ */
+function obfuscateEmail(email: string): string {
+  const at = email.lastIndexOf('@');
+  if (at < 1) return email;
+
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1);
+  const dotIdx = domain.lastIndexOf('.');
+  if (dotIdx < 1) return email;
+
+  const domainName = domain.slice(0, dotIdx);
+  const tld = domain.slice(dotIdx); // e.g. ".com"
+
+  const maskLocal = local.length <= 2
+    ? local
+    : local[0] + '*'.repeat(local.length - 2) + local[local.length - 1];
+
+  const maskDomain = domainName.length <= 2
+    ? domainName
+    : domainName[0] + '*'.repeat(domainName.length - 2) + domainName[domainName.length - 1];
+
+  return `${maskLocal}@${maskDomain}${tld}`;
+}
+
+/**
+ * Format an agent row for public API responses.
+ * Sensitive fields (contact_email) are obfuscated — never returned in full.
  */
 function formatAgent(agent: Agent) {
   return {
@@ -27,7 +59,7 @@ function formatAgent(agent: Agent) {
     logo_url: agent.logo_url ?? null,
     tags: agent.tags ? JSON.parse(agent.tags) : [],
     version: agent.version ?? null,
-    contact_email: agent.contact_email ?? null,
+    contact_email: agent.contact_email ? obfuscateEmail(agent.contact_email) : null,
     skills: agent.skills ? JSON.parse(agent.skills) : [],
     status: agent.status,
     reputation_score: agent.reputation_score,
