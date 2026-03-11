@@ -281,14 +281,62 @@ agents.get('/:id/reputation', async (c) => {
     id
   );
 
-  const passRate = (received?.total ?? 0) > 0 ? (received?.passes ?? 0) / received!.total : 0;
+  const n = received?.total ?? 0;
+  const passRate = n > 0 ? (received?.passes ?? 0) / n : 0;
   const avgCoherence = received?.avg_coherence ?? 0;
   const contribution = Math.min(1.0, (given?.total ?? 0) / 10);
   const uptime = (uptimeData?.total ?? 0) > 0 ? (uptimeData?.responsive ?? 0) / uptimeData!.total : 0;
 
-  const rawScore = 0.4 * passRate + 0.3 * avgCoherence + 0.2 * contribution + 0.1 * uptime;
-  const confidenceMultiplier = Math.log(1 + (received?.total ?? 0));
-  const finalScore = rawScore * confidenceMultiplier;
+  // Skill trust: average trust_score of agent's resolved skills (0 if none declared)
+  const skillRows = await db.all<{ trust_score: number }>(
+    `SELECT sc.trust_score
+     FROM skill_cache sc
+     WHERE sc.id IN (
+       SELECT json_each.value
+       FROM agents, json_each(
+         json_group_array(json_extract(json_each.value, '$.registry') || ':' || json_extract(json_each.value, '$.name'))
+       )
+       WHERE id = ?
+     )`,
+    id
+  );
+  // Simpler fallback: parse skills from agent row directly
+  const agentRow = await db.get<{ skills: string | null }>('SELECT skills FROM agents WHERE id = ?', id);
+  let skillTrust = 0;
+  if (agentRow?.skills) {
+    try {
+      const declared: Array<{ name: string; registry?: string; private?: boolean }> = JSON.parse(agentRow.skills);
+      if (declared.length > 0) {
+        const resolved = await Promise.all(declared.map(async s => {
+          const cacheId = `${s.registry ?? 'npm'}:${s.name}`;
+          if (s.private) return 0.5;
+          const row = await db.get<{ trust_score: number }>('SELECT trust_score FROM skill_cache WHERE id = ?', cacheId);
+          return row?.trust_score ?? 0.0;
+        }));
+        skillTrust = resolved.reduce((a, b) => a + b, 0) / resolved.length;
+      }
+    } catch { /* malformed skills, skip */ }
+  }
+
+  // Profile completeness base score (max 0.05)
+  const profileBase = agentRow?.skills ? 0.05 : 0;
+
+  // Weighted raw score (bounded [0,1] by construction)
+  // Weights: pass_rate 0.35, coherence 0.25, contribution 0.15, uptime 0.10, skill_trust 0.15
+  const rawScore = (
+    0.35 * passRate +
+    0.25 * avgCoherence +
+    0.15 * contribution +
+    0.10 * uptime +
+    0.15 * skillTrust
+  );
+
+  // Confidence multiplier: normalized so 20 verifications = full weight
+  // min(1, log(1+n) / log(21)) — bounded [0,1]
+  const confidenceMultiplier = n === 0 ? 0 : Math.min(1.0, Math.log(1 + n) / Math.log(21));
+
+  // Final score: raw * confidence + profile_base, capped at 1.0
+  const finalScore = Math.min(1.0, rawScore * confidenceMultiplier + profileBase);
 
   return c.json({
     agent_id: id,
@@ -298,16 +346,19 @@ agents.get('/:id/reputation', async (c) => {
       avg_coherence: Math.round(avgCoherence * 1000) / 1000,
       contribution: Math.round(contribution * 1000) / 1000,
       uptime: Math.round(uptime * 1000) / 1000,
+      skill_trust: Math.round(skillTrust * 1000) / 1000,
+      profile_base: profileBase,
     },
     weights: {
-      pass_rate: 0.4,
-      avg_coherence: 0.3,
-      contribution: 0.2,
-      uptime: 0.1,
+      pass_rate: 0.35,
+      avg_coherence: 0.25,
+      contribution: 0.15,
+      uptime: 0.10,
+      skill_trust: 0.15,
     },
     raw_score: Math.round(rawScore * 1000) / 1000,
     confidence_multiplier: Math.round(confidenceMultiplier * 1000) / 1000,
-    verifications_received: received?.total ?? 0,
+    verifications_received: n,
     verifications_given: given?.total ?? 0,
   });
 });

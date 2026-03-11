@@ -53,20 +53,29 @@ interface SkillCacheRow {
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 // ─── Trust Score Calculation ───
-
+//
+// Formula: min(0.9, log10(downloads + 1) / 6)
+//
+// Intuition (downloads → score):
+//   0       → 0.00  (unresolved / brand new)
+//   1       → 0.05
+//   10      → 0.17
+//   100     → 0.34
+//   1,000   → 0.50
+//   10,000  → 0.67
+//   100,000 → 0.83
+//   1,000,000 → 0.90 (capped)
+//
+// Stars bonus: up to +0.10 (≥10 stars → +0.05, ≥100 stars → +0.10)
+// Total cap: 1.0
+//
 function computeTrustScore(downloads: number | null, stars: number | null): number {
-  if (downloads === null && stars === null) return 0.0;
-  let score = 0.0;
   const d = downloads ?? 0;
-  if (d >= 10_000) score = 0.9;
-  else if (d >= 1_000) score = 0.7;
-  else if (d >= 100) score = 0.5;
-  else if (d > 0) score = 0.3;
+  const baseScore = Math.min(0.9, Math.log10(d + 1) / 6);
   // Stars bonus (up to +0.1)
   const s = stars ?? 0;
-  if (s >= 100) score = Math.min(1.0, score + 0.1);
-  else if (s >= 10) score = Math.min(1.0, score + 0.05);
-  return Math.round(score * 100) / 100;
+  const starsBonus = s >= 100 ? 0.10 : s >= 10 ? 0.05 : 0;
+  return Math.round(Math.min(1.0, baseScore + starsBonus) * 100) / 100;
 }
 
 // ─── Registry Fetchers ───
