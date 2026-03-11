@@ -8,6 +8,7 @@ import ReputationBadge from '../components/ReputationBadge';
 import VerifiedBadge from '../components/VerifiedBadge';
 import FrameworkBadge from '../components/FrameworkBadge';
 import AgentAvatar from '../components/AgentAvatar';
+import TrustSafetyCard from '../components/TrustSafetyCard';
 import DemoBanner from '../components/DemoBanner';
 
 export default function AgentProfile(): React.ReactElement {
@@ -167,6 +168,11 @@ export default function AgentProfile(): React.ReactElement {
           )}
         </div>
 
+        {/* Trust & Safety */}
+        {repData && (
+          <TrustSafetyCard rep={repData} verifications={verifications} />
+        )}
+
         {/* Capabilities */}
         <div style={{ marginBottom: 24 }}>
           <h3 style={{ color: 'var(--text-tertiary)', fontSize: 13, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
@@ -303,7 +309,7 @@ export default function AgentProfile(): React.ReactElement {
         )}
 
         {/* Verification History */}
-        <div>
+        <div id="verifications">
           <h2 style={{ fontSize: 18, marginBottom: 16 }}>Verification History</h2>
           {verifications.length > 0 ? (
             <div>
