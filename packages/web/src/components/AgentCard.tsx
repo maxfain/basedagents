@@ -39,22 +39,22 @@ export default function AgentCard({ agent }: AgentCardProps): React.ReactElement
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
         <AgentAvatar name={agent.name} agentId={agent.id} logoUrl={agent.logoUrl} size={44} />
         <div style={{ minWidth: 0, flex: 1 }}>
-          {/* Name + badges */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {/* Name + verified badge */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', margin: 0, lineHeight: 1.2 }}>
               {agent.name}
             </h3>
             {agent.verificationCount > 0 && (
               <VerifiedBadge size={15} title={`Verified · ${agent.verificationCount} peer verification${agent.verificationCount === 1 ? '' : 's'}`} />
             )}
-            <FrameworkBadge agent={agent} variant="icon" size={15} />
           </div>
-          {/* Status + ID */}
+          {/* Status + ID + framework badge */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
             <StatusIndicator status={agent.status} />
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-tertiary)' }}>
               {agent.id.slice(0, 14)}…
             </span>
+            <FrameworkBadge agent={agent} variant="icon" size={14} />
           </div>
         </div>
       </div>
