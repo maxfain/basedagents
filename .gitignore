@@ -24,3 +24,4 @@ coverage/
 # Wrangler backups
 wrangler.toml
 wrangler.toml.bak
+.claude/
