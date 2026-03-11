@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://basedagents.ai/sitemap.xml
+
+# AI agents: see /.well-known/agent.json for machine-readable instructions
