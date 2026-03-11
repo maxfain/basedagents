@@ -412,8 +412,8 @@ export class RegistryClient {
     // 2. Solve PoW (async — doesn't block event loop)
     const { nonce } = await solveProofOfWorkAsync(keypair.publicKey, init.difficulty, { onProgress: options?.onProgress });
 
-    // 3. Sign challenge — sign the raw challenge bytes (base64-decoded)
-    const challengeBytes = Uint8Array.from(atob(init.challenge), c => c.charCodeAt(0));
+    // 3. Sign challenge — server verifies TextEncoder.encode(challenge_bytes) i.e. the base64 string as UTF-8
+    const challengeBytes = new TextEncoder().encode(init.challenge);
     const signature = await ed.signAsync(challengeBytes, keypair.privateKey);
     const b64sig = btoa(String.fromCharCode(...signature));
 
