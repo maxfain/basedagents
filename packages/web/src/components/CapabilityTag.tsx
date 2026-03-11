@@ -48,14 +48,11 @@ export function TagList({ tags, variant = 'capability', max }: TagListProps): Re
             display: 'inline-block',
             padding: '4px 10px',
             borderRadius: 4,
-            fontFamily: 'var(--font-mono)',
             fontSize: 13,
-            fontWeight: 500,
-            background: 'var(--accent-muted)',
             color: 'var(--text-tertiary)',
           }}
         >
-          +{overflow}
+          …
         </span>
       )}
     </div>

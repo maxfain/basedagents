@@ -22,6 +22,6 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
-    "basedagents": "^0.1.0"
+    "basedagents": "^0.1.2"
   }
 }
