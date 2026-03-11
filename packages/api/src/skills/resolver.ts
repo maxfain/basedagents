@@ -80,19 +80,28 @@ function computeTrustScore(downloads: number | null, stars: number | null): numb
 
 // ─── Registry Fetchers ───
 
+// Encode npm package name for use in URLs.
+// Scoped packages (@scope/name) need the slash encoded but @ kept literal,
+// otherwise the npm API returns "package not found".
+function npmEncoded(name: string): string {
+  return name.startsWith('@') ? `@${encodeURIComponent(name.slice(1))}` : encodeURIComponent(name);
+}
+
 async function fetchNpm(name: string): Promise<Partial<ResolvedSkill> | null> {
   try {
+    const encoded = npmEncoded(name);
     const [meta, downloads] = await Promise.all([
-      fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}/latest`),
-      fetch(`https://api.npmjs.org/downloads/point/last-month/${encodeURIComponent(name)}`),
+      fetch(`https://registry.npmjs.org/${encoded}/latest`),
+      fetch(`https://api.npmjs.org/downloads/point/last-month/${encoded}`),
     ]);
     if (!meta.ok) return null;
     const metaJson = await meta.json() as Record<string, unknown>;
     const dlJson = downloads.ok ? await downloads.json() as Record<string, unknown> : null;
+    const dl = dlJson && typeof dlJson.downloads === 'number' ? dlJson.downloads : null;
     return {
       verified: true,
       description: (metaJson.description as string) ?? null,
-      downloads_last_month: dlJson ? (dlJson.downloads as number) : null,
+      downloads_last_month: dl,
       stars: null, // npm doesn't expose stars
     };
   } catch {
@@ -101,16 +110,21 @@ async function fetchNpm(name: string): Promise<Partial<ResolvedSkill> | null> {
 }
 
 async function fetchClawhub(name: string): Promise<Partial<ResolvedSkill> | null> {
-  // ClaWHub doesn't have a public API yet — stub for when it does
+  // ClaWHub API: GET /api/v1/skills/:slug
+  // Response: { skill: { displayName, summary, stats: { downloads, installsAllTime, installsCurrent, stars } } }
   try {
     const res = await fetch(`https://clawhub.ai/api/v1/skills/${encodeURIComponent(name)}`);
     if (!res.ok) return null;
     const data = await res.json() as Record<string, unknown>;
+    const skill = data.skill as Record<string, unknown> | undefined;
+    if (!skill) return null;
+    const stats = skill.stats as Record<string, unknown> | undefined;
     return {
       verified: true,
-      description: (data.description as string) ?? null,
-      downloads_last_month: (data.downloads as number) ?? null,
-      stars: (data.stars as number) ?? null,
+      description: (skill.summary as string) ?? null,
+      // Prefer installsAllTime as the lifetime download count signal
+      downloads_last_month: (stats?.installsCurrent as number) ?? (stats?.downloads as number) ?? null,
+      stars: (stats?.stars as number) ?? null,
     };
   } catch {
     return null;

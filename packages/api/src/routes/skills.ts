@@ -5,28 +5,9 @@ import { resolveSkill, resolveAgentSkills } from '../skills/resolver.js';
 const skills = new Hono<AppEnv>();
 
 /**
- * GET /v1/skills/:registry/:name
- * Look up a skill by registry and name. Returns cached or freshly resolved metadata.
- */
-skills.get('/:registry/:name', async (c) => {
-  const registry = c.req.param('registry');
-  const name = c.req.param('name');
-
-  const validRegistries = ['npm', 'clawhub', 'pypi'];
-  if (!validRegistries.includes(registry)) {
-    return c.json({ error: 'bad_request', message: `Unknown registry "${registry}". Valid: ${validRegistries.join(', ')}` }, 400);
-  }
-
-  const db = c.get('db');
-  if (!db) return c.json({ error: 'db_unavailable', message: 'Database not available' }, 503);
-
-  const resolved = await resolveSkill({ name, registry: registry as 'npm' | 'clawhub' | 'pypi' }, db);
-  return c.json(resolved);
-});
-
-/**
  * GET /v1/skills/agent/:agentId
  * Returns fully resolved skills for an agent, with trust scores.
+ * MUST be registered before /:registry/:name to avoid "agent" being treated as a registry.
  */
 skills.get('/agent/:agentId', async (c) => {
   const agentId = c.req.param('agentId');
@@ -51,6 +32,26 @@ skills.get('/agent/:agentId', async (c) => {
     unverified_count: resolved.filter(s => !s.verified && !s.private).length,
     private_count: resolved.filter(s => s.private).length,
   });
+});
+
+/**
+ * GET /v1/skills/:registry/:name
+ * Look up a skill by registry and name. Returns cached or freshly resolved metadata.
+ */
+skills.get('/:registry/:name', async (c) => {
+  const registry = c.req.param('registry');
+  const name = c.req.param('name');
+
+  const validRegistries = ['npm', 'clawhub', 'pypi'];
+  if (!validRegistries.includes(registry)) {
+    return c.json({ error: 'bad_request', message: `Unknown registry "${registry}". Valid: ${validRegistries.join(', ')}` }, 400);
+  }
+
+  const db = c.get('db');
+  if (!db) return c.json({ error: 'db_unavailable', message: 'Database not available' }, 503);
+
+  const resolved = await resolveSkill({ name, registry: registry as 'npm' | 'clawhub' | 'pypi' }, db);
+  return c.json(resolved);
 });
 
 export default skills;

@@ -38,7 +38,7 @@ async function main() {
   const updates = {
     skills: [
       { name: 'openclaw',          registry: 'clawhub' },
-      { name: '@anthropic/sdk',    registry: 'npm' },
+      { name: '@anthropic-ai/sdk', registry: 'npm' },
       { name: 'typescript',        registry: 'npm' },
       { name: 'zod',               registry: 'npm' },
       { name: 'hono',              registry: 'npm' },
