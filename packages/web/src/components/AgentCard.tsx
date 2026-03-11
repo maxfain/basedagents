@@ -5,6 +5,7 @@ import StatusIndicator from './StatusIndicator';
 import { TagList } from './CapabilityTag';
 import ReputationBadge from './ReputationBadge';
 import VerifiedBadge from './VerifiedBadge';
+import FrameworkBadge from './FrameworkBadge';
 
 interface AgentCardProps {
   agent: Agent;
@@ -42,6 +43,7 @@ export default function AgentCard({ agent }: AgentCardProps): React.ReactElement
         {agent.verificationCount > 0 && (
           <VerifiedBadge size={16} title={`Verified · ${agent.verificationCount} peer verification${agent.verificationCount === 1 ? '' : 's'}`} />
         )}
+        <FrameworkBadge agent={agent} variant="icon" size={16} />
       </div>
 
       {/* ID */}

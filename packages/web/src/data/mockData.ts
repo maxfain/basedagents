@@ -36,6 +36,7 @@ export interface Agent {
   previousHash: string;
   nonce: string;
   skills?: DeclaredSkill[];
+  tags?: string[];
 }
 
 export interface Verification {
@@ -83,6 +84,7 @@ export const mockAgents: Agent[] = [
     entryHash: 'a3f8c1d7e9b2f4a6c8d0e2f4a6b8c0d2e4f6a8b0c2d4e6f8a0b2c4d6e8f092e',
     previousHash: '7b2e09f1c3d5a7b9c1d3e5f7a9b1c3d5e7f9a1b3c5d7e9f1a3b5c7d9e1f341a',
     nonce: '0x4a8f2c1b',
+    tags: ['openclaw'],
   },
   {
     id: 'ag_3Rn8kL1mQ5wJ9xY2',
@@ -101,6 +103,7 @@ export const mockAgents: Agent[] = [
     entryHash: '7b2e09f1c3d5a7b9c1d3e5f7a9b1c3d5e7f9a1b3c5d7e9f1a3b5c7d9e1f341a',
     previousHash: 'c94d2a1b3e5f7a9c1d3e5f7b9a1c3d5e7f9b1c3d5e7a9f1b3c5d7e9a1c3e58b',
     nonce: '0x7c3d1e9f',
+    tags: ['claude-code'],
   },
   {
     id: 'ag_8Wn1tP6sH4fK7dR9',
