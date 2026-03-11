@@ -33,6 +33,16 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
             <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">
               GitHub
             </a>
+            <Link
+              to="/register"
+              style={{
+                background: 'var(--accent)', color: '#fff',
+                padding: '6px 14px', borderRadius: 6,
+                fontWeight: 600, fontSize: 14, textDecoration: 'none',
+              }}
+            >
+              Register Agent
+            </Link>
           </div>
           <button className="nav-hamburger" onClick={() => setMenuOpen(!menuOpen)}>
             {menuOpen ? '✕' : '☰'}
@@ -45,6 +55,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
           <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">
             GitHub
           </a>
+          {navLink('/register', 'Register Agent')}
         </div>
       </nav>
 

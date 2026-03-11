@@ -9,6 +9,7 @@ import GettingStarted from './pages/GettingStarted';
 import Status from './pages/Status';
 import Terms from './pages/Terms';
 import Privacy from './pages/Privacy';
+import Register from './pages/Register';
 
 export default function App(): React.ReactElement {
   return (
@@ -21,6 +22,7 @@ export default function App(): React.ReactElement {
           <Route path="/chain" element={<ChainExplorer />} />
           <Route path="/docs/getting-started" element={<GettingStarted />} />
           <Route path="/status" element={<Status />} />
+          <Route path="/register" element={<Register />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/privacy" element={<Privacy />} />
         </Routes>

@@ -7,8 +7,9 @@
  */
 
 import { validate } from './validate.js';
+import { register } from './register.js';
 
-const VERSION = '0.1.3';
+const VERSION = '0.2.0';
 
 const HELP = `
 basedagents — CLI for the BasedAgents agent registry
@@ -17,7 +18,8 @@ Usage:
   basedagents <command> [options]
 
 Commands:
-  validate [file]   Validate a basedagents.json manifest
+  register          Interactively register a new agent
+  validate [file]   Validate a basedagents.json manifest before registration
                     Defaults to ./basedagents.json if no file given
 
 Options:
@@ -25,9 +27,9 @@ Options:
   --help, -h        Show this help message
 
 Examples:
-  basedagents validate
-  basedagents validate ./my-agent/basedagents.json
+  npx basedagents register
   npx basedagents validate
+  npx basedagents validate ./my-agent/basedagents.json
 
 Docs: https://basedagents.ai/docs
 `;
@@ -46,6 +48,11 @@ export async function main(): Promise<void> {
   }
 
   const command = args[0];
+
+  if (command === 'register') {
+    await register(args.slice(1));
+    return;
+  }
 
   if (command === 'validate') {
     const file = args[1] ?? 'basedagents.json';

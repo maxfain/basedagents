@@ -1,0 +1,251 @@
+/**
+ * basedagents register
+ *
+ * Interactive terminal flow for registering a new agent.
+ * Generates a keypair, prompts for profile info, solves PoW, and submits.
+ */
+
+import { createInterface } from 'readline';
+import { writeFileSync, mkdirSync, existsSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
+import { generateKeypair, serializeKeypair, publicKeyToAgentId, solveProofOfWorkAsync } from '../index.js';
+import { RegistryClient } from '../index.js';
+
+// ─── ANSI ───
+const R = '\x1b[0m';
+const bold   = (s: string) => `\x1b[1m${s}${R}`;
+const dim    = (s: string) => `\x1b[2m${s}${R}`;
+const red    = (s: string) => `\x1b[31m${s}${R}`;
+const yellow = (s: string) => `\x1b[33m${s}${R}`;
+const green  = (s: string) => `\x1b[32m${s}${R}`;
+const cyan   = (s: string) => `\x1b[36m${s}${R}`;
+
+const API_URL = process.env.BASEDAGENTS_API_URL ?? 'https://api.basedagents.ai';
+
+// ─── Readline helpers ───
+function makeRl() {
+  return createInterface({ input: process.stdin, output: process.stdout });
+}
+
+function prompt(rl: ReturnType<typeof makeRl>, question: string): Promise<string> {
+  return new Promise(resolve => rl.question(question, answer => resolve(answer.trim())));
+}
+
+async function ask(rl: ReturnType<typeof makeRl>, label: string, defaultVal?: string, required = false): Promise<string> {
+  const hint = defaultVal ? dim(` (${defaultVal})`) : required ? dim(' (required)') : dim(' (optional, Enter to skip)');
+  while (true) {
+    const answer = await prompt(rl, `  ${label}${hint}: `);
+    const value = answer || defaultVal || '';
+    if (required && !value) {
+      console.log(red(`  → Required.`));
+      continue;
+    }
+    return value;
+  }
+}
+
+async function confirm(rl: ReturnType<typeof makeRl>, question: string, defaultYes = true): Promise<boolean> {
+  const hint = defaultYes ? dim('Y/n') : dim('y/N');
+  const answer = await prompt(rl, `  ${question} [${hint}]: `);
+  if (!answer) return defaultYes;
+  return answer.toLowerCase().startsWith('y');
+}
+
+// ─── PoW progress spinner ───
+const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+let spinnerIdx = 0;
+
+function showProgress(attempts: number) {
+  const spin = SPINNER[spinnerIdx++ % SPINNER.length];
+  process.stdout.write(`\r  ${spin} Solving proof-of-work... ${cyan(attempts.toLocaleString())} hashes`);
+}
+
+// ─── Slugify for filename ───
+function slugify(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+// ─── Main register flow ───
+export async function register(args: string[]): Promise<void> {
+  const apiUrl = args.includes('--api') ? args[args.indexOf('--api') + 1] : API_URL;
+  const dryRun = args.includes('--dry-run');
+
+  console.log('');
+  console.log(bold('basedagents register'));
+  console.log(dim('Register a new agent on basedagents.ai'));
+  console.log('');
+
+  const rl = makeRl();
+
+  try {
+    // ── Profile prompts ──
+    console.log(bold('Agent Profile'));
+    console.log(dim('  Required fields are marked. Everything else is optional but improves discoverability and reputation.'));
+    console.log('');
+
+    const name = await ask(rl, 'Agent name', undefined, true);
+    const description = await ask(rl, 'Description (what does this agent do?)', undefined, true);
+
+    console.log('');
+    console.log(dim('  Capabilities: comma-separated list of what your agent can do.'));
+    console.log(dim(`  Known values: code-review, code-generation, analysis, reasoning, search,`));
+    console.log(dim(`                planning, data-analysis, summarization, tool-use, web-search`));
+    const capInput = await ask(rl, 'Capabilities', undefined, true);
+    const capabilities = capInput.split(',').map(s => s.trim()).filter(Boolean);
+
+    console.log('');
+    console.log(dim('  Protocols: how your agent accepts connections.'));
+    console.log(dim(`  Options: https, mcp, a2a, websocket, grpc, openapi`));
+    const protoInput = await ask(rl, 'Protocols', 'https');
+    const protocols = protoInput.split(',').map(s => s.trim()).filter(Boolean);
+
+    console.log('');
+    const homepage = await ask(rl, 'Homepage URL');
+    const contactEndpoint = await ask(rl, 'Verification endpoint URL');
+    if (!contactEndpoint) {
+      console.log(yellow(`  ⚠  Without a contact endpoint your agent will stay in pending status.`));
+      console.log(yellow(`     You can add it later with: ${cyan('client.updateProfile(kp, { contact_endpoint: "..." })')}`));
+    }
+
+    const organization = await ask(rl, 'Organization');
+    const version = await ask(rl, 'Version', '1.0.0');
+
+    console.log('');
+    console.log(dim('  Skills: npm/pypi/cargo packages your agent uses. Comma-separated.'));
+    console.log(dim('  Example: typescript, zod, langchain'));
+    console.log(dim('  These feed your Skill Trust reputation score (15% of total).'));
+    const skillsInput = await ask(rl, 'Skills');
+    const skills = skillsInput
+      ? skillsInput.split(',').map(s => {
+          const trimmed = s.trim();
+          // detect registry prefix like "pypi:langchain"
+          const colonIdx = trimmed.indexOf(':');
+          if (colonIdx > 0) {
+            return { name: trimmed.slice(colonIdx + 1), registry: trimmed.slice(0, colonIdx) as 'npm' | 'pypi' | 'cargo' };
+          }
+          return { name: trimmed, registry: 'npm' as const };
+        }).filter(s => s.name)
+      : [];
+
+    // ── Summary ──
+    console.log('');
+    console.log('─'.repeat(52));
+    console.log(bold('Summary'));
+    console.log('─'.repeat(52));
+    const rows: [string, string][] = [
+      ['Name',         name],
+      ['Description',  description.length > 60 ? description.slice(0, 60) + '…' : description],
+      ['Capabilities', capabilities.join(', ')],
+      ['Protocols',    protocols.join(', ')],
+      ...(homepage         ? [['Homepage',  homepage]] as [string,string][] : []),
+      ...(contactEndpoint  ? [['Endpoint',  contactEndpoint]] as [string,string][] : []),
+      ...(organization     ? [['Org',       organization]] as [string,string][] : []),
+      ['Version',      version],
+      ...(skills.length    ? [['Skills',    skills.map(s => `${s.registry}:${s.name}`).join(', ')]] as [string,string][] : []),
+    ];
+    for (const [k, v] of rows) {
+      console.log(`  ${dim(k.padEnd(14))} ${v}`);
+    }
+    console.log('─'.repeat(52));
+    console.log('');
+
+    const proceed = await confirm(rl, 'Register this agent?');
+    if (!proceed) {
+      console.log(dim('\n  Aborted.\n'));
+      rl.close();
+      return;
+    }
+
+    // ── Keypair ──
+    console.log('');
+    process.stdout.write('  Generating Ed25519 keypair...');
+    const keypair = await generateKeypair();
+    const agentId = publicKeyToAgentId(keypair.publicKey);
+    console.log(` ${green('✓')}`);
+
+    // Save keypair
+    const keysDir = join(homedir(), '.basedagents', 'keys');
+    mkdirSync(keysDir, { recursive: true });
+    const slug = slugify(name);
+    let keypairPath = join(keysDir, `${slug}-keypair.json`);
+    // avoid collision
+    let i = 2;
+    while (existsSync(keypairPath)) {
+      keypairPath = join(keysDir, `${slug}-${i++}-keypair.json`);
+    }
+
+    writeFileSync(keypairPath, serializeKeypair(keypair), { mode: 0o600 });
+    console.log(`  ${green('✓')} Keypair saved to ${cyan(keypairPath)}`);
+    console.log('');
+    console.log(yellow(`  ⚠  Back this file up. It is your agent's private key.`));
+    console.log(yellow(`     Losing it means losing control of ${cyan(agentId)}`));
+    console.log('');
+
+    if (dryRun) {
+      console.log(dim('  --dry-run: skipping registration.\n'));
+      rl.close();
+      return;
+    }
+
+    // ── Proof-of-Work ──
+    const t0 = Date.now();
+    const { nonce } = await solveProofOfWorkAsync(keypair.publicKey, 22, { onProgress: showProgress });
+    const powMs = Date.now() - t0;
+    process.stdout.write(`\r  ${green('✓')} Proof-of-work solved in ${cyan(Math.round(powMs / 1000) + 's')} (${cyan(nonce)})              \n`);
+
+    // ── Register ──
+    process.stdout.write('  Registering with basedagents.ai...');
+    const client = new RegistryClient(apiUrl);
+
+    const profile = {
+      name,
+      description,
+      capabilities,
+      protocols,
+      ...(homepage        ? { homepage }                         : {}),
+      ...(contactEndpoint ? { contact_endpoint: contactEndpoint } : {}),
+      ...(organization    ? { organization }                     : {}),
+      version,
+      ...(skills.length   ? { skills }                          : {}),
+    };
+
+    const agent = await client.register(keypair, profile);
+    console.log(` ${green('✓')}`);
+
+    // ── Success ──
+    console.log('');
+    console.log('─'.repeat(52));
+    console.log(green(bold('✓ Agent registered!')));
+    console.log('─'.repeat(52));
+    console.log(`  ${dim('Agent ID')}     ${cyan(agent.id)}`);
+    console.log(`  ${dim('Status')}       ${agent.status}`);
+    console.log(`  ${dim('Keypair')}      ${keypairPath}`);
+    console.log(`  ${dim('Profile')}      https://basedagents.ai/agents/${agent.id}`);
+    console.log('─'.repeat(52));
+    console.log('');
+
+    if (agent.status === 'pending') {
+      console.log(dim('  Next steps:'));
+      if (!contactEndpoint) {
+        console.log(dim('  1. Set a contact endpoint so the registry can verify your agent:'));
+        console.log(`     ${cyan(`npx basedagents update --contact-endpoint https://your-agent.example.com/verify`)}`);
+      } else {
+        console.log(dim('  1. Your agent will be probed automatically within 5 minutes.'));
+        console.log(dim('     Make sure your endpoint is reachable and returns 2xx.'));
+      }
+      console.log(dim('  2. Once verified, status flips to active and you appear in the directory.'));
+    }
+
+    console.log('');
+
+  } catch (err: unknown) {
+    console.log('');
+    const msg = err instanceof Error ? err.message : String(err);
+    console.log(red(`  ✗ Registration failed: ${msg}`));
+    console.log('');
+    process.exit(1);
+  } finally {
+    rl.close();
+  }
+}
