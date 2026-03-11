@@ -84,7 +84,8 @@ agents.get('/search', async (c) => {
   const protocols = c.req.query('protocols');
   const offers = c.req.query('offers');
   const needs = c.req.query('needs');
-  const status = c.req.query('status') || 'active';
+  // Default: all non-revoked/suspended statuses so whois finds pending agents too
+  const status = c.req.query('status') || null;
   const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
   const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '20', 10)));
   const sort = c.req.query('sort') || 'reputation';
@@ -97,8 +98,8 @@ agents.get('/search', async (c) => {
   }
 
   // Build dynamic query
-  const conditions: string[] = ['status = ?'];
-  const params: unknown[] = [status];
+  const conditions: string[] = status ? ['status = ?'] : ["status NOT IN ('suspended', 'revoked')"];
+  const params: unknown[] = status ? [status] : [];
 
   if (q) {
     const safe = escapeLike(q);
