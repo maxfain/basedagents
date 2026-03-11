@@ -126,4 +126,4 @@ Open an issue, open a PR. The spec is in [SPEC.md](./SPEC.md) — if you think s
 
 ## License
 
-MIT
+APACHE 2.0
