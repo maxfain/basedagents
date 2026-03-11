@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import type { AppEnv, Agent, Verification } from '../types/index.js';
 import { ProfileSchema } from '../types/index.js';
 import { agentAuth } from '../middleware/auth.js';
@@ -163,92 +164,72 @@ agents.get('/:id', async (c) => {
 });
 
 /**
- * PUT /v1/agents/:id
- * Update an agent's profile (requires AgentSig auth, owner only).
+ * PATCH /v1/agents/:id/profile
+ * Partially update an agent's profile (AgentSig auth, owner only).
+ * Also aliased at PUT /v1/agents/:id for backwards compat.
  */
-agents.put('/:id', agentAuth, async (c) => {
+async function handleProfileUpdate(c: Context<AppEnv>): Promise<Response> {
   const id = c.req.param('id');
   const authenticatedAgentId = c.get('agentId') as string;
 
-  // Owner check
   if (id !== authenticatedAgentId) {
     return c.json({ error: 'forbidden', message: 'You can only update your own profile' }, 403);
   }
 
   let body: unknown;
-  try {
-    const rawBody = await c.req.text();
-    body = JSON.parse(rawBody);
-  } catch {
-    return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400);
-  }
+  try { body = JSON.parse(await c.req.text()); }
+  catch { return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400); }
 
-  const profileUpdate = ProfileSchema.partial().safeParse(body);
-  if (!profileUpdate.success) {
-    return c.json({
-      error: 'bad_request',
-      message: 'Validation failed',
-      details: profileUpdate.error.flatten(),
-    }, 400);
+  const parsed = ProfileSchema.partial().safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: 'bad_request', message: 'Validation failed', details: parsed.error.flatten() }, 400);
   }
 
   const db = c.get('db');
-  const updates = profileUpdate.data;
-
-  // Build dynamic UPDATE query
+  const updates = parsed.data;
   const setClauses: string[] = [];
   const params: unknown[] = [];
 
-  if (updates.name !== undefined) {
-    setClauses.push('name = ?');
-    params.push(updates.name);
+  const jsonFields = ['capabilities', 'protocols', 'offers', 'needs', 'tags', 'skills'] as const;
+  const textFields = ['name', 'description', 'homepage', 'contact_endpoint', 'comment',
+                      'organization', 'organization_url', 'logo_url', 'version', 'contact_email'] as const;
+
+  for (const field of textFields) {
+    if (updates[field] !== undefined) {
+      setClauses.push(`${field} = ?`);
+      params.push(updates[field]);
+    }
   }
-  if (updates.description !== undefined) {
-    setClauses.push('description = ?');
-    params.push(updates.description);
-  }
-  if (updates.capabilities !== undefined) {
-    setClauses.push('capabilities = ?');
-    params.push(JSON.stringify(updates.capabilities));
-  }
-  if (updates.protocols !== undefined) {
-    setClauses.push('protocols = ?');
-    params.push(JSON.stringify(updates.protocols));
-  }
-  if (updates.offers !== undefined) {
-    setClauses.push('offers = ?');
-    params.push(JSON.stringify(updates.offers));
-  }
-  if (updates.needs !== undefined) {
-    setClauses.push('needs = ?');
-    params.push(JSON.stringify(updates.needs));
-  }
-  if (updates.homepage !== undefined) {
-    setClauses.push('homepage = ?');
-    params.push(updates.homepage);
-  }
-  if (updates.contact_endpoint !== undefined) {
-    setClauses.push('contact_endpoint = ?');
-    params.push(updates.contact_endpoint);
+  for (const field of jsonFields) {
+    if (updates[field] !== undefined) {
+      setClauses.push(`${field} = ?`);
+      params.push(JSON.stringify(updates[field]));
+    }
   }
 
   if (setClauses.length === 0) {
     return c.json({ error: 'bad_request', message: 'No fields to update' }, 400);
   }
 
+  const now = new Date().toISOString();
   setClauses.push('last_seen = ?');
-  params.push(new Date().toISOString());
+  params.push(now);
+
+  // If contact_endpoint is being set, reset probe tracking so bootstrap prober retries
+  if (updates.contact_endpoint !== undefined) {
+    setClauses.push('probe_attempts = ?', 'last_probe_result = ?');
+    params.push(0, null);
+  }
+
   params.push(id);
+  await db.run(`UPDATE agents SET ${setClauses.join(', ')} WHERE id = ?`, ...params);
 
-  await db.run(
-    `UPDATE agents SET ${setClauses.join(', ')} WHERE id = ?`,
-    ...params
-  );
-
-  // Return updated agent
   const agent = await db.get<Agent>('SELECT * FROM agents WHERE id = ?', id);
   return c.json(formatAgent(agent!));
-});
+}
+
+agents.patch('/:id/profile', agentAuth, (c) => handleProfileUpdate(c as Context<AppEnv>));
+agents.put('/:id', agentAuth, (c) => handleProfileUpdate(c as Context<AppEnv>));
 
 /**
  * GET /v1/agents/:id/reputation
