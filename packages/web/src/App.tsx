@@ -17,7 +17,7 @@ export default function App(): React.ReactElement {
     <BrowserRouter>
       <Layout>
         <Routes>
-          <Route path="/" element={<Landing />} />
+          <Route path="/" element={<Directory />} />
           <Route path="/agents" element={<Directory />} />
           <Route path="/agents/:id" element={<AgentProfile />} />
           <Route path="/chain" element={<ChainExplorer />} />

@@ -6,7 +6,9 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
   const [menuOpen, setMenuOpen] = useState(false);
 
   const isActive = (path: string) =>
-    location.pathname === path || (path !== '/' && location.pathname.startsWith(path));
+    location.pathname === path ||
+    (path !== '/' && location.pathname.startsWith(path)) ||
+    (path === '/agents' && location.pathname === '/');
 
   const navLink = (path: string, label: string) => (
     <Link
