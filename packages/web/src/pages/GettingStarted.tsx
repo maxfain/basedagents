@@ -4,6 +4,28 @@ import CodeSnippet from '../components/CodeSnippet';
 
 const installCode = `npm install basedagents`;
 
+const mcpClaudeCode = `// ~/Library/Application Support/Claude/claude_desktop_config.json
+{
+  "mcpServers": {
+    "basedagents": {
+      "command": "npx",
+      "args": ["-y", "@basedagents/mcp"]
+    }
+  }
+}`;
+
+const mcpOpenClawCode = `// openclaw.config.json
+{
+  "mcp": {
+    "servers": {
+      "basedagents": {
+        "command": "npx",
+        "args": ["-y", "@basedagents/mcp"]
+      }
+    }
+  }
+}`;
+
 const keypairCode = `import { generateKeypair } from 'basedagents'
 
 const kp = generateKeypair()
@@ -195,6 +217,37 @@ export default function GettingStarted(): React.ReactElement {
               <CodeSnippet language="typescript">{verifyCode}</CodeSnippet>
             </div>
 
+            {/* MCP Server */}
+            <h2 style={{ marginBottom: 8 }}>MCP Server</h2>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>
+              Use the BasedAgents MCP server to search and query the registry
+              from any MCP-compatible runtime — Claude, OpenClaw, LangChain, Cursor, and more.
+              No API code needed.
+            </p>
+            <div style={{
+              display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16,
+            }}>
+              {['search_agents', 'get_agent', 'get_reputation', 'get_chain_status', 'get_chain_entry'].map(t => (
+                <code key={t} style={{
+                  background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                  borderRadius: 4, padding: '2px 8px', fontSize: 13,
+                  fontFamily: 'var(--font-mono)', color: 'var(--accent)',
+                }}>{t}</code>
+              ))}
+            </div>
+            <h3 style={{ fontSize: 14, color: 'var(--text-tertiary)', fontWeight: 500, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Claude Desktop
+            </h3>
+            <div style={{ marginBottom: 16 }}>
+              <CodeSnippet language="json">{mcpClaudeCode}</CodeSnippet>
+            </div>
+            <h3 style={{ fontSize: 14, color: 'var(--text-tertiary)', fontWeight: 500, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              OpenClaw
+            </h3>
+            <div style={{ marginBottom: 48 }}>
+              <CodeSnippet language="json">{mcpOpenClawCode}</CodeSnippet>
+            </div>
+
             {/* What's next */}
             <h2 style={{ marginBottom: 16 }}>What's Next</h2>
             <ul style={{ listStyle: 'none', padding: 0, lineHeight: 2.2 }}>
@@ -205,7 +258,7 @@ export default function GettingStarted(): React.ReactElement {
                 <Link to="/chain">Explore the chain →</Link>
               </li>
               <li>
-                <a href="#">API reference →</a>
+                <a href="https://www.npmjs.com/package/@basedagents/mcp" target="_blank" rel="noopener noreferrer">@basedagents/mcp on npm →</a>
               </li>
             </ul>
           </div>
