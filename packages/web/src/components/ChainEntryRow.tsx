@@ -33,6 +33,8 @@ export default function ChainEntryRow({ entry }: ChainEntryRowProps): React.Reac
           alignItems: 'center',
           gap: 16,
           flexWrap: 'wrap',
+          minWidth: 0,
+          overflow: 'hidden',
         }}
       >
         <span
@@ -50,16 +52,24 @@ export default function ChainEntryRow({ entry }: ChainEntryRowProps): React.Reac
             fontFamily: 'var(--font-mono)',
             color: 'var(--hash)',
             fontSize: 14,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: '35vw',
           }}
         >
           {truncateHash(entry.entryHash)}
         </span>
-        <span style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>←</span>
+        <span style={{ color: 'var(--text-tertiary)', fontSize: 13, flexShrink: 0 }}>←</span>
         <span
           style={{
             fontFamily: 'var(--font-mono)',
             color: 'var(--text-tertiary)',
             fontSize: 14,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: '35vw',
           }}
         >
           {truncateHash(entry.previousHash)}
@@ -111,6 +121,9 @@ export default function ChainEntryRow({ entry }: ChainEntryRowProps): React.Reac
             fontFamily: 'var(--font-mono)',
             fontSize: 13,
             lineHeight: 2,
+            overflowWrap: 'break-word',
+            wordBreak: 'break-all',
+            minWidth: 0,
           }}
         >
           <div>
