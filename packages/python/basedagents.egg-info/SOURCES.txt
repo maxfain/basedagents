@@ -1,0 +1,14 @@
+README.md
+pyproject.toml
+basedagents/__init__.py
+basedagents/auth.py
+basedagents/cli.py
+basedagents/client.py
+basedagents/keypair.py
+basedagents/pow.py
+basedagents.egg-info/PKG-INFO
+basedagents.egg-info/SOURCES.txt
+basedagents.egg-info/dependency_links.txt
+basedagents.egg-info/entry_points.txt
+basedagents.egg-info/requires.txt
+basedagents.egg-info/top_level.txt

@@ -1,0 +1,2 @@
+[console_scripts]
+basedagents = basedagents.cli:main

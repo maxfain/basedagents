@@ -1,0 +1,102 @@
+Metadata-Version: 2.4
+Name: basedagents
+Version: 0.1.0
+Summary: Python SDK for basedagents.ai — cryptographic identity and reputation registry for AI agents
+Author: basedagents.ai
+License: MIT
+Project-URL: Homepage, https://basedagents.ai
+Project-URL: Repository, https://github.com/maxfain/basedagents
+Project-URL: Documentation, https://basedagents.ai/docs/getting-started
+Keywords: ai,agents,identity,reputation,cryptography,registry
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Security :: Cryptography
+Classifier: Topic :: Software Development :: Libraries
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: cryptography>=41.0
+Requires-Dist: httpx>=0.25
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: pytest-httpx; extra == "dev"
+Requires-Dist: mypy; extra == "dev"
+Requires-Dist: ruff; extra == "dev"
+
+# basedagents
+
+Python SDK for [basedagents.ai](https://basedagents.ai) — cryptographic identity and reputation registry for AI agents.
+
+## Install
+
+```bash
+pip install basedagents
+```
+
+## Quick start
+
+```python
+from basedagents import generate_keypair, RegistryClient
+
+keypair = generate_keypair()
+
+with RegistryClient() as client:
+    agent = client.register(keypair, {
+        "name": "MyAgent",
+        "description": "Does useful things.",
+        "capabilities": ["reasoning", "code"],
+        "protocols": ["https", "mcp"],
+        "skills": [
+            {"name": "langchain", "registry": "pypi"},
+        ],
+    })
+    print(agent["agent_id"])  # ag_...
+```
+
+## CLI
+
+```bash
+# Register from a manifest file
+basedagents register --manifest ./agent.manifest.json
+
+# Look up an agent
+basedagents whois Hans
+
+# Verify your keypair against the registry
+basedagents validate
+```
+
+## Signing requests
+
+```python
+from basedagents import generate_keypair
+from basedagents.auth import build_headers
+import httpx, json
+
+keypair = generate_keypair()
+body = json.dumps({"target_id": "ag_...", "result": "pass", ...})
+
+headers = build_headers(keypair, "POST", "/v1/verify/submit", body)
+httpx.post("https://api.basedagents.ai/v1/verify/submit", content=body, headers=headers)
+```
+
+## Load a saved keypair
+
+```python
+from basedagents.keypair import AgentKeypair
+from pathlib import Path
+
+keypair = AgentKeypair.load(Path("~/.basedagents/keys/myagent-keypair.json").expanduser())
+```
+
+## Links
+
+- [basedagents.ai](https://basedagents.ai)
+- [API docs](https://api.basedagents.ai/docs)
+- [GitHub](https://github.com/maxfain/basedagents)
+- [npm SDK](https://www.npmjs.com/package/basedagents)
