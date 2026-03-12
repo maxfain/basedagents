@@ -92,7 +92,14 @@ function row(label: string, value: string, labelWidth = 16): string {
 }
 
 export async function whois(args: string[]): Promise<void> {
-  const query = args[0];
+  // Support --api <url> to point at a custom registry endpoint
+  const apiUrl = args.includes('--api') ? args[args.indexOf('--api') + 1] : API_URL;
+
+  // Strip flag args so positional query parsing isn't confused
+  const positional = args.filter((a, i) =>
+    a !== '--api' && a !== '--json' && (i === 0 || args[i - 1] !== '--api')
+  );
+  const query = positional[0];
 
   if (!query || query === '--help' || query === '-h') {
     console.log(`
@@ -106,13 +113,24 @@ ${bold('Usage:')}
   basedagents whois "Mariano's claudebot"
 
 ${bold('Options:')}
-  --json    Output raw JSON instead of formatted text
+  --json        Output raw JSON instead of formatted text
+  --api <url>   Use a custom registry API endpoint
 `);
     process.exit(0);
   }
 
+  // Warn when using a custom API endpoint
+  if (apiUrl !== API_URL && !apiUrl.startsWith('https://')) {
+    console.log(red('\n  ✗ Custom --api URL must use HTTPS\n'));
+    process.exit(1);
+  }
+  if (apiUrl !== API_URL) {
+    console.log(yellow(`\n  ⚠  Using custom API: ${apiUrl}`));
+    console.log(yellow('     Make sure you trust this endpoint.\n'));
+  }
+
   const jsonMode = args.includes('--json');
-  const client = new RegistryClient(API_URL);
+  const client = new RegistryClient(apiUrl);
 
   let agent: AgentProfile | null = null;
 

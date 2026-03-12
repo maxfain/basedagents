@@ -179,6 +179,16 @@ export async function register(args: string[]): Promise<void> {
   const apiUrl = args.includes('--api') ? args[args.indexOf('--api') + 1] : API_URL;
   const dryRun = args.includes('--dry-run');
 
+  // Warn when using a custom API endpoint
+  if (apiUrl !== API_URL && !apiUrl.startsWith('https://')) {
+    console.log(red('\n  ✗ Custom --api URL must use HTTPS\n'));
+    process.exit(1);
+  }
+  if (apiUrl !== API_URL) {
+    console.log(yellow(`\n  ⚠  Using custom API: ${apiUrl}`));
+    console.log(yellow('     Make sure you trust this endpoint — your keypair will be sent to it.\n'));
+  }
+
   // Non-interactive manifest mode
   const manifestIdx = args.indexOf('--manifest');
   if (manifestIdx !== -1) {

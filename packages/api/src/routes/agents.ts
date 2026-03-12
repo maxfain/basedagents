@@ -96,8 +96,13 @@ agents.get('/search', async (c) => {
   const sort: SortKey = (SORT_WHITELIST as readonly string[]).includes(rawSort) ? rawSort as SortKey : 'reputation';
   const offset = (page - 1) * limit;
 
-  // Escape SQL LIKE wildcards to prevent pattern injection
-  // SQLite LIKE escape character: backslash
+  /**
+   * Escape SQL LIKE wildcards to prevent pattern injection.
+   * Combined with parameterized queries (?-binding), this provides
+   * defense-in-depth: the binding prevents SQL injection, and the
+   * escaping prevents unintended LIKE wildcards in user input.
+   * (Audit item L4: parameterized LIKE — confirmed safe.)
+   */
   function escapeLike(s: string): string {
     return s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
   }

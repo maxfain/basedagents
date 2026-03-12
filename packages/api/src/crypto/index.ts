@@ -158,7 +158,13 @@ export const GENESIS_HASH = '0'.repeat(64);
 
 /**
  * Compute a hash chain entry.
- * entry_hash = sha256(previous_hash || public_key || nonce || profile_hash || timestamp)
+ *
+ * NOTE: Breaking change from v1 format (raw concatenation without length delimiters).
+ * v1: sha256(previousHash || publicKey || nonce || profileHash || timestamp)
+ * v2: sha256(len(p0) || p0 || len(p1) || p1 || ...) — length-prefixed, big-endian uint32
+ *
+ * Chain verification must account for both formats during migration.
+ * This is acceptable since the chain is small (height ~5).
  */
 export function computeChainHash(
   previousHash: string,
@@ -168,7 +174,6 @@ export function computeChainHash(
   timestamp: string
 ): string {
   const encoder = new TextEncoder();
-  // Concatenate all components as their string representations
   const parts = [
     encoder.encode(previousHash),
     publicKey,
@@ -176,10 +181,17 @@ export function computeChainHash(
     encoder.encode(profileHash),
     encoder.encode(timestamp),
   ];
-  const totalLength = parts.reduce((sum, p) => sum + p.length, 0);
+  // Length-delimited encoding: each part prefixed with 4-byte big-endian length.
+  // Prevents collision when adjacent parts have ambiguous boundaries
+  // (e.g. previousHash="ab"+nonce="cd" vs previousHash="abc"+nonce="d").
+  const totalLength = parts.reduce((sum, p) => sum + 4 + p.length, 0);
   const data = new Uint8Array(totalLength);
   let offset = 0;
   for (const part of parts) {
+    // Write 4-byte big-endian length prefix
+    const view = new DataView(data.buffer, offset, 4);
+    view.setUint32(0, part.length, false); // big-endian
+    offset += 4;
     data.set(part, offset);
     offset += part.length;
   }
@@ -187,11 +199,30 @@ export function computeChainHash(
 }
 
 /**
+ * Canonical JSON serialization (RFC 8785 subset).
+ * Recursively sorts object keys. Handles nested objects and arrays.
+ */
+export function canonicalJsonStringify(value: unknown): string {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'boolean' || typeof value === 'number') return JSON.stringify(value);
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return '[' + value.map(canonicalJsonStringify).join(',') + ']';
+  }
+  if (typeof value === 'object') {
+    const keys = Object.keys(value as Record<string, unknown>).sort();
+    const pairs = keys.map(k => JSON.stringify(k) + ':' + canonicalJsonStringify((value as Record<string, unknown>)[k]));
+    return '{' + pairs.join(',') + '}';
+  }
+  return JSON.stringify(value);
+}
+
+/**
  * Hash a profile object for chain inclusion.
- * Uses canonical JSON (sorted keys) for deterministic hashing.
+ * Uses canonical JSON (RFC 8785 subset) for deterministic, recursive key sorting.
  */
 export function hashProfile(profile: Record<string, unknown>): string {
-  const json = JSON.stringify(profile, Object.keys(profile).sort());
+  const json = canonicalJsonStringify(profile);
   return bytesToHex(sha256(new TextEncoder().encode(json)));
 }
 
