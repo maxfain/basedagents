@@ -25,3 +25,8 @@ coverage/
 wrangler.toml
 wrangler.toml.bak
 .claude/
+packages/python/**/__pycache__/
+packages/python/*.egg-info/
+packages/python/dist/
+packages/python/.venv/
+packages/python/build/
