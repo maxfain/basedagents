@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 API_URL = "https://api.basedagents.ai"
-VERSION = "0.1.2"
+VERSION = "0.2.0"
 
 
 def _print_err(msg: str) -> None:

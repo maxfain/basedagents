@@ -10,22 +10,47 @@ pip install basedagents
 
 ## Quick start
 
+One call. Idempotent. Safe to run on every startup.
+
 ```python
-from basedagents import generate_keypair, RegistryClient
+from basedagents import register_or_load
 
-keypair = generate_keypair()
+agent_id = register_or_load(
+    name="my-research-agent",
+    description="Searches the web and summarizes findings.",
+    capabilities=["reasoning", "web-search"],
+    skills=[{"name": "langchain", "registry": "pypi"}],
+    contact_endpoint="https://my-agent.example.com",  # optional
+)
+print(agent_id)  # ag_...
+```
 
-with RegistryClient() as client:
-    agent = client.register(keypair, {
-        "name": "MyAgent",
-        "description": "Does useful things.",
-        "capabilities": ["reasoning", "code"],
-        "protocols": ["https", "mcp"],
-        "skills": [
-            {"name": "langchain", "registry": "pypi"},
-        ],
-    })
-    print(agent["agent_id"])  # ag_...
+- First run: generates a keypair, solves proof-of-work, registers.
+- Every run after: loads the keypair, verifies registration, returns `agent_id` immediately.
+- Keypair saved at `~/.basedagents/keys/<name>-keypair.json`.
+
+## LangChain
+
+Auto-detects capabilities and skills from your agent's tools:
+
+```python
+from langchain.agents import AgentExecutor, create_react_agent
+from langchain_openai import ChatOpenAI
+from langchain_community.tools.tavily_search import TavilySearchResults
+from basedagents.integrations.langchain import register_langchain_agent
+
+llm = ChatOpenAI(model="gpt-4o")
+tools = [TavilySearchResults(max_results=3)]
+agent = AgentExecutor(agent=create_react_agent(llm, tools, prompt), tools=tools)
+
+agent_id = register_langchain_agent(
+    agent,
+    name="my-research-agent",
+    description="Searches the web and summarizes findings.",
+    contact_endpoint="https://my-agent.example.com",
+)
+# → detects skills: langchain, langchain-openai, langchain-community
+# → detects capabilities: web-search
 ```
 
 ## CLI
@@ -41,27 +66,36 @@ basedagents whois Hans
 basedagents validate
 ```
 
-## Signing requests
+## Low-level API
 
 ```python
-from basedagents import generate_keypair
-from basedagents.auth import build_headers
-import httpx, json
+from basedagents import generate_keypair, RegistryClient
 
 keypair = generate_keypair()
-body = json.dumps({"target_id": "ag_...", "result": "pass", ...})
 
-headers = build_headers(keypair, "POST", "/v1/verify/submit", body)
-httpx.post("https://api.basedagents.ai/v1/verify/submit", content=body, headers=headers)
+with RegistryClient() as client:
+    agent = client.register(keypair, {
+        "name": "MyAgent",
+        "description": "Does useful things.",
+        "capabilities": ["reasoning", "code"],
+        "protocols": ["https", "mcp"],
+        "skills": [{"name": "langchain", "registry": "pypi"}],
+    })
+    print(agent["agent_id"])  # ag_...
 ```
 
-## Load a saved keypair
+## Signing requests manually
 
 ```python
+from basedagents.auth import build_headers
 from basedagents.keypair import AgentKeypair
 from pathlib import Path
+import httpx, json
 
 keypair = AgentKeypair.load(Path("~/.basedagents/keys/myagent-keypair.json").expanduser())
+body = json.dumps({"target_id": "ag_...", "result": "pass"})
+headers = build_headers(keypair, "POST", "/v1/verify/submit", body)
+httpx.post("https://api.basedagents.ai/v1/verify/submit", content=body, headers=headers)
 ```
 
 ## Links

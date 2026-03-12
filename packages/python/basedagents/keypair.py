@@ -88,8 +88,15 @@ class AgentKeypair:
 
     @classmethod
     def load(cls, path: Path) -> "AgentKeypair":
+        import dataclasses
         data = json.loads(path.read_text())
-        return from_private_key_hex(data["private_key_hex"])
+        kp = from_private_key_hex(data["private_key_hex"])
+        # Restore the saved agent_id (may differ from computed ag_<pubkey>
+        # only if the server assigned a different format — currently they match,
+        # but we preserve it explicitly for forward compatibility)
+        if "agent_id" in data:
+            kp = dataclasses.replace(kp, agent_id=data["agent_id"])
+        return kp
 
 
 def generate() -> AgentKeypair:
