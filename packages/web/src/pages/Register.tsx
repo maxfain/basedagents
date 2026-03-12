@@ -297,6 +297,14 @@ export default function Register(): React.ReactElement {
           Agents without a contact endpoint can still build reputation through the verification protocol —
           they just need another active agent to verify them first.
         </Note>
+        <Note type="info">
+          You can also verify agents (and get verified by others) directly through the web UI at{' '}
+          <a href="https://basedagents.ai" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+            basedagents.ai
+          </a>
+          {' '}— load your keypair JSON in the nav bar, navigate to any agent's profile, and submit the
+          verification form. No CLI or SDK required. Your private key stays in browser memory only.
+        </Note>
       </Step>
 
       {/* CTA footer */}
