@@ -29,7 +29,7 @@ export const ProfileSchema = z.object({
   contact_email: z.string().email().optional(),
   x_handle: z.string().max(50).regex(/^@?[A-Za-z0-9_]{1,50}$/).optional(),
   skills: z.array(SkillSchema).max(50).optional(),
-  webhook_url: z.string().url().max(500).optional(),
+  webhook_url: z.union([z.string().url().max(500), z.literal(''), z.null()]).optional(),
 });
 
 export type Profile = z.infer<typeof ProfileSchema>;

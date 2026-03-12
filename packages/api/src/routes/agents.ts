@@ -251,6 +251,9 @@ async function handleProfileUpdate(c: Context<AppEnv>): Promise<Response> {
       if (field === 'x_handle' && updates[field]) {
         const h = updates[field] as string;
         params.push(h.startsWith('@') ? h : `@${h}`);
+      } else if (field === 'webhook_url' && (!updates[field] || updates[field] === '')) {
+        // Empty string or null clears the webhook
+        params.push(null);
       } else {
         params.push(updates[field]);
       }
