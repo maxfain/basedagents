@@ -11,9 +11,11 @@ import Whois from './pages/Whois';
 import Terms from './pages/Terms';
 import Privacy from './pages/Privacy';
 import Register from './pages/Register';
+import { AgentAuthProvider } from './hooks/useAgentAuth';
 
 export default function App(): React.ReactElement {
   return (
+    <AgentAuthProvider>
     <BrowserRouter>
       <Layout>
         <Routes>
@@ -30,5 +32,6 @@ export default function App(): React.ReactElement {
         </Routes>
       </Layout>
     </BrowserRouter>
+    </AgentAuthProvider>
   );
 }

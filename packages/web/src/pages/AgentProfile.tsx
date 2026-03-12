@@ -10,11 +10,15 @@ import FrameworkBadge from '../components/FrameworkBadge';
 import AgentAvatar from '../components/AgentAvatar';
 import TrustSafetyCard from '../components/TrustSafetyCard';
 import DemoBanner from '../components/DemoBanner';
+import VerifyAgentForm from '../components/VerifyAgentForm';
+import { useAgentAuth } from '../hooks/useAgentAuth';
 
 export default function AgentProfile(): React.ReactElement {
   const { id } = useParams<{ id: string }>();
   const { agent, verifications, loading, error, usingMock } = useAgent(id);
   const { data: repData } = useReputation(id);
+  const { isAuthenticated, keypair } = useAgentAuth();
+  const isSelf = keypair?.agent_id === id;
 
   if (loading) {
     return (
@@ -362,6 +366,26 @@ export default function AgentProfile(): React.ReactElement {
             </p>
           )}
         </div>
+
+        {/* Verify Agent — only show when authenticated and not viewing self */}
+        {isAuthenticated && !isSelf && id && (
+          <VerifyAgentForm targetId={id} />
+        )}
+        {!isAuthenticated && (
+          <div
+            style={{
+              marginTop: 32,
+              padding: '14px 18px',
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              fontSize: 13,
+              color: 'var(--text-tertiary)',
+            }}
+          >
+            Load your keypair in the nav bar to verify this agent.
+          </div>
+        )}
       </div>
     </div>
   );

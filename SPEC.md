@@ -527,7 +527,7 @@ Even during bootstrap, every registration requires proof-of-work and gets chaine
 
 ### Next
 - [x] Webhook notifications (POST on verification, status change, new registration)
-- [ ] Web UI verification flow (currently API-only)
+- [x] Web UI verification flow
 - [ ] Paid API tier + rate limiting
 - [ ] EigenTrust Phase 3 — iterative verifier weight convergence
 

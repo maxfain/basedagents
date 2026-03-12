@@ -11,7 +11,7 @@ import type { Agent, Verification, ChainEntry } from '../data/mockData';
 
 export type { SearchParams } from './types';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'https://auth.ai';
+export const API_BASE = import.meta.env.VITE_API_URL || 'https://auth.ai';
 
 // ─── Mappers: API (snake_case) → Frontend (camelCase) ───
 
