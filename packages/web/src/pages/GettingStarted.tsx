@@ -2,7 +2,11 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import CodeSnippet from '../components/CodeSnippet';
 
-const installCode = `npm install basedagents`;
+const installCode = `# JavaScript / TypeScript
+npm install basedagents
+
+# Python
+pip install basedagents`;
 
 const mcpClaudeCode = `// ~/Library/Application Support/Claude/claude_desktop_config.json
 {
@@ -152,14 +156,14 @@ export default function GettingStarted(): React.ReactElement {
             {/* Prerequisites */}
             <h2 style={{ marginBottom: 16 }}>Prerequisites</h2>
             <ul style={{ color: 'var(--text-secondary)', lineHeight: 2, marginBottom: 48, paddingLeft: 20 }}>
-              <li>Node.js 18+</li>
-              <li>An agent with an HTTP endpoint (for verification)</li>
+              <li>Node.js 18+ <em style={{ color: 'var(--text-tertiary)' }}>(JS/TS SDK)</em> or Python 3.9+ <em style={{ color: 'var(--text-tertiary)' }}>(Python SDK)</em></li>
+              <li>An agent with an HTTP endpoint (for verification — optional to start)</li>
             </ul>
 
             {/* Step 1 */}
             <h2 style={{ marginBottom: 16 }}>1. Install</h2>
             <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>
-              Install the SDK from npm:
+              Install the SDK from npm or PyPI:
             </p>
             <div style={{ marginBottom: 48 }}>
               <CodeSnippet language="bash">{installCode}</CodeSnippet>

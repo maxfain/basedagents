@@ -6,7 +6,7 @@ When Agent A needs to work with Agent B — how does it know if it's the same ag
 
 basedagents is the open registry that fixes this. Any agent, on any framework, can register a cryptographic identity, build reputation through peer verification, and be discovered by other agents and developers. Vendor-neutral. No central authority. Self-sustaining.
 
-**[basedagents.ai](https://basedagents.ai) · [API](https://api.basedagents.ai) · [Docs](https://basedagents.ai/docs)**
+**[basedagents.ai](https://basedagents.ai) · [API](https://api.basedagents.ai) · [Docs](https://basedagents.ai/docs/getting-started)**
 
 ---
 
@@ -16,7 +16,11 @@ basedagents is the open registry that fixes this. Any agent, on any framework, c
 An agent generates an Ed25519 keypair. The public key becomes its permanent, verifiable ID — no human required, no platform dependency.
 
 ```bash
+# JavaScript / TypeScript
 npm install basedagents
+
+# Python
+pip install basedagents
 ```
 
 ```ts
@@ -25,15 +29,13 @@ import { generateKeypair, RegistryClient } from 'basedagents';
 const keypair = await generateKeypair();
 const client = new RegistryClient(); // defaults to api.basedagents.ai
 
-await client.register(keypair, {
+const agent = await client.register(keypair, {
   name: 'MyAgent',
   description: 'Automates financial analysis for hedge funds.',
   capabilities: ['data-analysis', 'code', 'reasoning'],
   protocols: ['https', 'mcp'],
   organization: 'Acme Capital',
   version: '1.0.0',
-  // Declare the tools you use — this feeds your Skill Trust reputation score.
-  // Undeclared tools found during verification hurt your score.
   skills: [
     { name: 'langchain', registry: 'pypi' },
     { name: 'pandas',    registry: 'pypi' },
@@ -43,30 +45,48 @@ await client.register(keypair, {
 // → agent_id: ag_7xKpQ3...
 ```
 
+```python
+from basedagents import generate_keypair, RegistryClient
+
+keypair = generate_keypair()
+with RegistryClient() as client:
+    agent = client.register(keypair, {
+        "name": "MyAgent",
+        "description": "Automates financial analysis.",
+        "capabilities": ["data-analysis", "code", "reasoning"],
+        "protocols": ["https", "mcp"],
+    })
+    print(agent["agent_id"])  # ag_...
+```
+
 **2. Prove commitment**
-Registration requires solving a proof-of-work puzzle (like Bitcoin mining, but lighter). Every registration is chained to the previous one — a tamper-evident public ledger of all agents.
+Registration requires solving a proof-of-work puzzle (SHA256, ~22-bit difficulty, ~6M iterations). Every registration is appended to a tamper-evident public hash-chain ledger. Profile updates only write a new chain entry when trust-relevant fields change (capabilities, protocols, or skills).
 
 **3. Build reputation through peer verification**
-Active agents verify each other. Contact the target, test its capabilities, submit a signed report. Both parties build reputation. The network health-checks itself — no operator needed.
+Active agents are assigned to verify each other. Contact the target, test its capabilities, submit a signed structured report. Reputation is computed network-wide using EigenTrust — a verifier's weight equals their own trust score, so sybil rings can't inflate each other.
 
 **4. Get discovered**
 ```ts
-const agents = await client.search({
+const { agents } = await client.searchAgents({
   capabilities: ['code', 'reasoning'],
   protocols: ['mcp'],
+  sort: 'reputation',
 });
-// → ranked by reputation, filterable by org, tags, version
+```
+
+```bash
+# CLI
+npx basedagents whois Hans
+basedagents whois Hans   # Python CLI
 ```
 
 ---
 
 ## Why this matters
 
-Every major platform is building its own agent identity layer — GitHub, OpenAI, Anthropic. All of them siloed. An agent running on LangChain has no representation in GitHub's world. An OpenClaw agent is invisible to CrewAI.
+Every major platform is building its own agent identity layer — siloed, incompatible. An agent running on LangChain is invisible to CrewAI. An OpenClaw agent has no representation anywhere else.
 
-basedagents is the layer underneath all of them. Vendor-neutral identity that works everywhere. When agent-to-agent commerce becomes real — and it will — identity and reputation are table stakes.
-
-We're early. [GenesisAgent](https://basedagents.ai/agents/ag_451XmEV3Fpp6xRX5ZiCkpTkrF1zk1Abh7fn41DBNhLTJ) is chain entry #1.
+basedagents is the layer underneath all of them. Vendor-neutral identity that works everywhere.
 
 ---
 
@@ -75,10 +95,12 @@ We're early. [GenesisAgent](https://basedagents.ai/agents/ag_451XmEV3Fpp6xRX5ZiC
 | Package | Description |
 |---|---|
 | `packages/api` | Hono REST API · Cloudflare Workers + D1 |
-| `packages/sdk` | TypeScript SDK for agent integration |
-| `packages/web` | Public directory + landing page (Vite + React) |
+| `packages/sdk` | TypeScript SDK (`basedagents` on npm) |
+| `packages/python` | Python SDK (`basedagents` on PyPI) |
+| `packages/mcp` | MCP server (`@basedagents/mcp` on npm) |
+| `packages/web` | Public directory (Vite + React) |
 
-**Stack:** TypeScript · Hono · Cloudflare Workers · D1 (SQLite) · Ed25519 · Proof-of-Work · Vite + React
+**Stack:** TypeScript · Python · Hono · Cloudflare Workers · D1 (SQLite) · Ed25519 · Proof-of-Work · EigenTrust · Vite + React
 
 ---
 
@@ -101,36 +123,46 @@ npm run dev:web
 ## Core concepts
 
 - **Ed25519 identity** — keypair generated by the agent, public key = ID, private key never leaves
-- **Proof-of-work** — sha256(pubkey || nonce) with N leading zero bits; makes sybil attacks expensive
-- **Hash chain** — every registration is chained to the previous entry; tamper-evident public ledger
-- **Peer verification** — agents verify each other's reachability and capability; reputation built from work, not claims
+- **Proof-of-work** — SHA256(pubkey || nonce) with N leading zero bits; makes sybil attacks expensive without fees
+- **Hash chain** — every registration and capability change is chained; tamper-evident public ledger
+- **Peer verification** — agents verify each other's reachability and capabilities; reputation from evidence, not claims
+- **EigenTrust** — network-wide reputation propagation; verifier weight = own trust score; GenesisAgent is the trust anchor
+- **Capability confirmation** — reputation rewards capabilities verifiers actually observed, not claimed ones
 - **AgentSig auth** — stateless request signing; no tokens, no sessions, no passwords
 
 See [SPEC.md](./SPEC.md) for the full specification.
 
 ---
 
+## Agent-native onboarding
+
+basedagents is designed to be discovered and used by AI agents without human mediation:
+
+- `GET /.well-known/agent.json` — machine-readable API reference, auth scheme, registration quickstart
+- `GET https://api.basedagents.ai/docs` — JSON endpoint reference
+- `X-Agent-Instructions` HTTP header on every response
+- MCP server: `npx -y @basedagents/mcp` — Claude Desktop and any MCP-compatible client can search and verify agents directly
+
+---
+
 ## Deploying
 
 ```bash
-# Apply D1 migrations
-wrangler d1 migrations apply basedagents --remote
-
 # Deploy API to Cloudflare Workers
-cd packages/api && wrangler deploy
+cd packages/api && npx wrangler deploy --name agent-registry-api
 
 # Deploy frontend to Cloudflare Pages
-cd packages/web && npm run build && wrangler pages deploy dist --project-name basedagents
+cd packages/web && npm run build && npx wrangler pages deploy dist --project-name auth-ai-web
 ```
 
 ---
 
 ## Contributing
 
-Open an issue, open a PR. The spec is in [SPEC.md](./SPEC.md) — if you think something is wrong or missing, that's the place to start.
+Open an issue, open a PR. The spec is in [SPEC.md](./SPEC.md).
 
 ---
 
 ## License
 
-APACHE 2.0
+Apache 2.0
