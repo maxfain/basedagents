@@ -1,25 +1,39 @@
 """
 AutoGen integration for basedagents.
 
-Introspects an AutoGen ConversableAgent, AssistantAgent, or GroupChat and
+Supports both AutoGen 0.2.x (pyautogen) and 0.4.x (autogen-agentchat).
+Introspects an AssistantAgent, ConversableAgent, or GroupChat and
 auto-populates capabilities and skills for registration.
 
-Usage:
-    from autogen import AssistantAgent, GroupChat
+Usage (AutoGen 0.4.x):
+    from autogen_agentchat.agents import AssistantAgent
     from basedagents.integrations.autogen import register_autogen_agent
 
-    # Single agent
-    agent_id = register_autogen_agent(
-        assistant,
-        name="my-autogen-assistant",
-        description="Writes and executes Python code.",
+    agent = AssistantAgent(
+        name="assistant",
+        model_client=OpenAIChatCompletionClient(model="gpt-4o"),
+        tools=[get_weather, search_web],
     )
 
-    # GroupChat (multi-agent)
     agent_id = register_autogen_agent(
-        groupchat,
-        name="my-autogen-group",
-        description="Research + coding multi-agent system.",
+        agent,
+        name="my-assistant",
+        description="Answers questions using web search and weather tools.",
+    )
+
+Usage (AutoGen 0.2.x):
+    from autogen import AssistantAgent
+    from basedagents.integrations.autogen import register_autogen_agent
+
+    assistant = AssistantAgent(
+        name="assistant",
+        llm_config={"model": "gpt-4"},
+    )
+
+    agent_id = register_autogen_agent(
+        assistant,
+        name="my-assistant",
+        description="Coding assistant.",
     )
 """
 from __future__ import annotations
@@ -27,76 +41,149 @@ from __future__ import annotations
 from typing import Any
 
 
-# ── Known AutoGen agent class names → capabilities ────────────────────────────
-_AGENT_CLASS_CAPABILITIES: dict[str, list[str]] = {
-    "AssistantAgent": ["reasoning", "code"],
-    "UserProxyAgent": ["code"],             # executes code by default
-    "GPTAssistantAgent": ["reasoning", "code"],
-    "RetrieveAssistantAgent": ["reasoning", "knowledge"],
-    "RetrieveUserProxyAgent": ["knowledge"],
-    "MathUserProxyAgent": ["reasoning"],
-    "TeachableAgent": ["reasoning", "knowledge"],
-    "CompressibleAgent": ["reasoning"],
-    "TransformMessages": ["reasoning"],
-    "WebSurferAgent": ["web-search", "web-scraping"],
-    "MultimodalConversableAgent": ["vision", "reasoning"],
+# ── Model → PyPI package mapping ─────────────────────────────────────────────
+_MODEL_TO_PYPI: dict[str, str] = {
+    "gpt": "autogen-ext[openai]",
+    "o1": "autogen-ext[openai]",
+    "o3": "autogen-ext[openai]",
+    "claude": "autogen-ext[anthropic]",
+    "gemini": "autogen-ext[google]",
+    "mistral": "autogen-ext[mistral]",
+    "llama": "autogen-ext[ollama]",
+    "groq": "autogen-ext[groq]",
 }
 
-# ── Code execution detection ──────────────────────────────────────────────────
-_CODE_EXEC_CLASSES = {"UserProxyAgent", "GPTAssistantAgent"}
+# ── Tool/function name → capabilities ─────────────────────────────────────────
+_TOOL_NAME_CAPABILITIES: dict[str, list[str]] = {
+    "search": ["web-search"],
+    "web": ["web-search"],
+    "browse": ["web-search"],
+    "weather": ["web-search"],
+    "code": ["code"],
+    "execute": ["code"],
+    "run": ["code"],
+    "python": ["code"],
+    "shell": ["code", "system"],
+    "bash": ["code", "system"],
+    "file": ["file-access"],
+    "read": ["file-access"],
+    "write": ["file-access"],
+    "sql": ["sql"],
+    "database": ["sql"],
+    "db": ["sql"],
+    "data": ["data-analysis"],
+    "analyze": ["data-analysis"],
+    "chart": ["data-analysis"],
+    "plot": ["data-analysis"],
+    "image": ["vision"],
+    "vision": ["vision"],
+    "ocr": ["vision"],
+    "email": ["http"],
+    "http": ["http"],
+    "api": ["http"],
+    "fetch": ["http"],
+}
+
+# ── System message keywords → capabilities ────────────────────────────────────
+_SYSTEM_MSG_CAPABILITIES: dict[str, list[str]] = {
+    "code": ["code"],
+    "program": ["code"],
+    "python": ["code"],
+    "sql": ["sql"],
+    "database": ["sql"],
+    "search": ["web-search"],
+    "research": ["web-search", "reasoning"],
+    "analyze": ["data-analysis"],
+    "data": ["data-analysis"],
+    "write": ["reasoning"],
+    "summarize": ["reasoning"],
+    "plan": ["reasoning"],
+    "reason": ["reasoning"],
+}
 
 
-def _collect_agents(agent_or_group: Any) -> list[Any]:
-    """Extract agents from GroupChat, GroupChatManager, or return single agent."""
-    # GroupChat has .agents
-    agents = getattr(agent_or_group, "agents", None)
-    if agents:
-        return list(agents)
-    # GroupChatManager has .groupchat.agents
-    gc = getattr(agent_or_group, "groupchat", None)
-    if gc:
-        return list(getattr(gc, "agents", []) or [])
-    # Single agent
-    return [agent_or_group]
+def _detect_autogen_version(agent: Any) -> str:
+    """Detect whether this is 0.2.x or 0.4.x AutoGen."""
+    module = type(agent).__module__ or ""
+    if "autogen_agentchat" in module or "autogen_core" in module:
+        return "0.4"
+    return "0.2"
 
 
-def _is_multi_agent(agent_or_group: Any) -> bool:
-    return len(_collect_agents(agent_or_group)) > 1
+def _extract_tools_04(agent: Any) -> list[Any]:
+    """Extract tools from AutoGen 0.4.x agent."""
+    # AssistantAgent stores tools in _tools or tools attribute
+    tools = getattr(agent, "_tools", None) or getattr(agent, "tools", None) or []
+    if callable(tools):
+        try:
+            tools = tools()
+        except Exception:
+            tools = []
+    return list(tools)
 
 
-def _agent_executes_code(agent: Any) -> bool:
-    """Check if an agent is configured to execute code."""
-    cls = type(agent).__name__
-    if cls in _CODE_EXEC_CLASSES:
-        return True
-    # human_input_mode="NEVER" + code_execution_config set = code executor
-    code_cfg = getattr(agent, "code_execution_config", None)
-    if code_cfg and code_cfg is not False:
-        return True
-    return False
+def _extract_tools_02(agent: Any) -> list[str]:
+    """Extract registered function names from AutoGen 0.2.x agent."""
+    # function_map is a dict of name → callable
+    function_map = getattr(agent, "function_map", {}) or {}
+    return list(function_map.keys())
 
 
-def _detect_llm_skill(agent: Any) -> str | None:
-    """Try to detect LLM provider package from llm_config."""
-    llm_config = getattr(agent, "llm_config", None) or {}
-    if not isinstance(llm_config, dict):
-        return None
-    model = llm_config.get("model", "") or ""
-    config_list = llm_config.get("config_list", [{}])
-    if config_list:
-        model = model or config_list[0].get("model", "")
-    model = model.lower()
-    if "gpt" in model or "o1" in model or "o3" in model:
-        return "pyautogen"
-    if "claude" in model:
-        return "pyautogen"
-    if "gemini" in model:
-        return "pyautogen"
-    return "pyautogen"  # always include base pyautogen
+def _capabilities_from_tool_names(names: list[str]) -> set[str]:
+    caps: set[str] = set()
+    for name in names:
+        name_lower = name.lower()
+        for keyword, tool_caps in _TOOL_NAME_CAPABILITIES.items():
+            if keyword in name_lower:
+                caps.update(tool_caps)
+    return caps
+
+
+def _capabilities_from_system_message(agent: Any) -> set[str]:
+    caps: set[str] = set()
+    msg = (
+        getattr(agent, "system_message", "")
+        or getattr(agent, "_system_messages", "")
+        or ""
+    )
+    if isinstance(msg, list):
+        msg = " ".join(str(m) for m in msg)
+    msg_lower = str(msg).lower()
+    for keyword, kw_caps in _SYSTEM_MSG_CAPABILITIES.items():
+        if keyword in msg_lower:
+            caps.update(kw_caps)
+    return caps
+
+
+def _model_skill(agent: Any) -> str | None:
+    """Detect the model package from llm_config or model_client."""
+    # 0.4.x: model_client attribute
+    model_client = getattr(agent, "_model_client", None) or getattr(agent, "model_client", None)
+    if model_client:
+        cls_name = type(model_client).__name__.lower()
+        for keyword, pkg in _MODEL_TO_PYPI.items():
+            if keyword in cls_name:
+                return pkg
+        return "autogen-ext"
+
+    # 0.2.x: llm_config dict
+    llm_config = getattr(agent, "llm_config", {}) or {}
+    if isinstance(llm_config, dict):
+        model = llm_config.get("model", "") or ""
+        for keyword, pkg in _MODEL_TO_PYPI.items():
+            if model.lower().startswith(keyword):
+                return pkg
+
+    return None
+
+
+def _is_groupchat(agent: Any) -> bool:
+    cls_name = type(agent).__name__
+    return "GroupChat" in cls_name or "GroupChatManager" in cls_name
 
 
 def extract_profile(
-    agent_or_group: Any,
+    agent: Any,
     extra_capabilities: list[str] | None = None,
     extra_skills: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
@@ -104,46 +191,54 @@ def extract_profile(
     Introspect an AutoGen agent or GroupChat and return a partial profile dict
     with auto-detected capabilities and skills.
     """
-    agents = _collect_agents(agent_or_group)
+    version = _detect_autogen_version(agent)
     capabilities: set[str] = set(extra_capabilities or [])
+    capabilities.add("reasoning")  # all LLM agents reason
+
     skills_seen: set[str] = set()
     skills: list[dict[str, str]] = list(extra_skills or [])
 
-    # Base skill
-    skills.append({"name": "pyautogen", "registry": "pypi"})
-    skills_seen.add("pyautogen")
+    # Base package
+    base_pkg = "autogen-agentchat" if version == "0.4" else "pyautogen"
+    skills.append({"name": base_pkg, "registry": "pypi"})
+    skills_seen.add(base_pkg)
 
-    if _is_multi_agent(agent_or_group):
-        capabilities.add("multi-agent")
+    # GroupChat: aggregate tools/capabilities across all agents
+    if _is_groupchat(agent):
+        inner_agents = getattr(agent, "agents", []) or []
+        for a in inner_agents:
+            sub = extract_profile(a)
+            capabilities.update(sub["capabilities"])
+            for s in sub["skills"]:
+                if s["name"] not in skills_seen:
+                    skills.append(s)
+                    skills_seen.add(s["name"])
+        return {
+            "capabilities": sorted(capabilities),
+            "protocols": ["https"],
+            "skills": skills,
+        }
 
-    for agent in agents:
-        cls_name = type(agent).__name__
+    # Tools
+    if version == "0.4":
+        tools = _extract_tools_04(agent)
+        tool_names = []
+        for t in tools:
+            n = getattr(t, "name", None) or getattr(t, "__name__", None) or type(t).__name__
+            tool_names.append(n)
+        capabilities.update(_capabilities_from_tool_names(tool_names))
+    else:
+        func_names = _extract_tools_02(agent)
+        capabilities.update(_capabilities_from_tool_names(func_names))
 
-        for cap in _AGENT_CLASS_CAPABILITIES.get(cls_name, []):
-            capabilities.add(cap)
+    # System message heuristics
+    capabilities.update(_capabilities_from_system_message(agent))
 
-        if _agent_executes_code(agent):
-            capabilities.add("code")
-
-        # Detect function/tool calling
-        fn_map = getattr(agent, "function_map", None) or {}
-        if fn_map:
-            capabilities.add("tool-use")
-
-        # Detect retrieval augmentation
-        retrieve_config = getattr(agent, "retrieve_config", None)
-        if retrieve_config:
-            capabilities.add("knowledge")
-
-        # Extra skill from LLM config
-        pkg = _detect_llm_skill(agent)
-        if pkg and pkg not in skills_seen:
-            skills.append({"name": pkg, "registry": "pypi"})
-            skills_seen.add(pkg)
-
-    # Fallback capability
-    if not capabilities:
-        capabilities.add("reasoning")
+    # Model skill
+    model_pkg = _model_skill(agent)
+    if model_pkg and model_pkg not in skills_seen:
+        skills.append({"name": model_pkg, "registry": "pypi"})
+        skills_seen.add(model_pkg)
 
     return {
         "capabilities": sorted(capabilities),
@@ -153,7 +248,7 @@ def extract_profile(
 
 
 def register_autogen_agent(
-    agent_or_group: Any,
+    agent: Any,
     name: str,
     description: str = "",
     contact_endpoint: str | None = None,
@@ -167,45 +262,32 @@ def register_autogen_agent(
     verbose: bool = True,
 ) -> str:
     """
-    Register an AutoGen agent or GroupChat with basedagents.ai.
+    Register an AutoGen agent with basedagents.ai.
 
+    Supports AutoGen 0.2.x (pyautogen) and 0.4.x (autogen-agentchat).
     Introspects the agent to auto-detect capabilities and skills.
     Idempotent — safe to call on every startup.
 
     Args:
-        agent_or_group: AutoGen ConversableAgent, AssistantAgent, UserProxyAgent,
-                        GroupChat, or GroupChatManager
-        name: Unique agent name (globally unique on registry)
-        description: What this agent/group does
-        contact_endpoint: URL where the agent can be reached for verification
+        agent: AutoGen AssistantAgent, ConversableAgent, or GroupChat
+        name: Unique agent name
+        description: What the agent does
+        contact_endpoint: URL where the agent can be reached
         organization: Optional org name
         version: Optional version string
-        tags: Optional extra tags
-        extra_capabilities: Additional capabilities beyond auto-detected ones
-        extra_skills: Additional skills beyond auto-detected ones
+        tags: Optional tags (e.g. ["autogen", "coding"])
+        extra_capabilities: Additional capabilities beyond auto-detected
+        extra_skills: Additional skills beyond auto-detected
         keypair_path: Override keypair file location
         api_url: Override API URL (defaults to BASEDAGENTS_API env or prod)
         verbose: Print progress (default True)
 
     Returns:
         agent_id string
-
-    Example:
-        import autogen
-        from basedagents.integrations.autogen import register_autogen_agent
-
-        assistant = autogen.AssistantAgent("assistant", llm_config={"model": "gpt-4o"})
-        user_proxy = autogen.UserProxyAgent("user_proxy", code_execution_config={"work_dir": "."})
-
-        agent_id = register_autogen_agent(
-            assistant,
-            name="my-autogen-assistant",
-            description="Writes and debugs Python code via GPT-4o.",
-        )
     """
     from ..easy import register_or_load
 
-    profile = extract_profile(agent_or_group, extra_capabilities, extra_skills)
+    profile = extract_profile(agent, extra_capabilities, extra_skills)
     merged_tags = list(set(["autogen"] + (tags or [])))
 
     return register_or_load(

@@ -1,146 +1,167 @@
 """
 CrewAI integration for basedagents.
 
-Introspects a CrewAI Crew or Agent and auto-populates capabilities and skills
+Introspects a CrewAI Agent or Crew and auto-populates capabilities and skills
 for registration.
 
-Usage:
-    from crewai import Crew, Agent
+Usage (single agent):
+    from crewai import Agent
     from basedagents.integrations.crewai import register_crewai_agent
 
-    # Register from a Crew (uses all agents' tools)
-    agent_id = register_crewai_agent(
-        crew,
-        name="my-research-crew",
-        description="Multi-agent crew for research and analysis.",
+    researcher = Agent(
+        role="Researcher",
+        goal="Find and summarize information",
+        tools=[TavilySearchResults()],
     )
 
-    # Or register a single CrewAI Agent
     agent_id = register_crewai_agent(
-        agent,
+        researcher,
         name="my-researcher",
-        description="Searches and summarises the web.",
+        description="Searches the web and summarizes findings.",
     )
+
+Usage (whole crew):
+    from crewai import Crew
+    from basedagents.integrations.crewai import register_crewai_agent
+
+    crew = Crew(agents=[researcher, writer], tasks=[...])
+    agent_id = register_crewai_agent(crew, name="my-crew", description="...")
 """
 from __future__ import annotations
 
 from typing import Any
 
 
-# ── Tool name → capabilities mapping ─────────────────────────────────────────
+# ── Tool → capability mapping ─────────────────────────────────────────────────
 _TOOL_TO_CAPABILITIES: dict[str, list[str]] = {
     # Search
+    "TavilySearchResults": ["web-search"],
+    "DuckDuckGoSearchRun": ["web-search"],
     "SerperDevTool": ["web-search"],
-    "TavilySearchTool": ["web-search"],
-    "EXASearchTool": ["web-search"],
-    "BraveSearchTool": ["web-search"],
-    "DuckDuckGoSearchTool": ["web-search"],
-    "GoogleSearchTool": ["web-search"],
-    "ScrapeWebsiteTool": ["web-scraping"],
-    "SeleniumScrapingTool": ["web-scraping"],
-    "ScrapeElementFromWebsiteTool": ["web-scraping"],
-    "WebsiteSearchTool": ["web-search", "web-scraping"],
+    "SerpAPIWrapper": ["web-search"],
+    "BraveSearch": ["web-search"],
+    "WebsiteSearchTool": ["web-search"],
+    "ScrapeWebsiteTool": ["web-search"],
     # Code
-    "CodeDocsSearchTool": ["code", "knowledge"],
     "CodeInterpreterTool": ["code"],
-    "GithubSearchTool": ["code", "web-search"],
+    "PythonREPLTool": ["code"],
+    "ShellTool": ["code", "system"],
+    "CodeDocsSearchTool": ["code"],
     # Files
     "FileReadTool": ["file-access"],
     "FileWriterTool": ["file-access"],
     "DirectoryReadTool": ["file-access"],
     "DirectorySearchTool": ["file-access"],
-    "PDFSearchTool": ["file-access", "knowledge"],
-    "DOCXSearchTool": ["file-access", "knowledge"],
-    "CSVSearchTool": ["file-access", "data-analysis"],
-    "JSONSearchTool": ["file-access"],
-    "TXTSearchTool": ["file-access"],
-    "XMLSearchTool": ["file-access"],
-    "SpreadsheetSearchTool": ["file-access", "data-analysis"],
     # Data
-    "PGSearchTool": ["data-analysis", "sql"],
-    "MySQLSearchTool": ["data-analysis", "sql"],
-    "NL2SQLTool": ["data-analysis", "sql"],
-    # Knowledge / RAG
-    "RagTool": ["knowledge"],
+    "CSVSearchTool": ["data-analysis"],
+    "JSONSearchTool": ["data-analysis"],
+    "XMLSearchTool": ["data-analysis"],
+    "PDFSearchTool": ["data-analysis"],
+    # Database
+    "PGSearchTool": ["sql"],
+    "MySQLSearchTool": ["sql"],
+    # Knowledge / docs
     "YoutubeVideoSearchTool": ["knowledge"],
     "YoutubeChannelSearchTool": ["knowledge"],
+    "GithubSearchTool": ["knowledge"],
     "MDXSearchTool": ["knowledge"],
-    # Comms
-    "BrowserbaseTool": ["web-scraping"],
-    "MultiOnTool": ["web-scraping"],
-    # Vision
-    "VisionTool": ["vision"],
+    "DOCXSearchTool": ["knowledge"],
+    # Reasoning (always present with LLM-powered agents)
+    "Agent": ["reasoning"],
 }
 
-# ── Tool name → PyPI package ──────────────────────────────────────────────────
+# ── Tool → PyPI package mapping ───────────────────────────────────────────────
 _TOOL_TO_PYPI: dict[str, str] = {
+    "TavilySearchResults": "langchain-community",
+    "DuckDuckGoSearchRun": "langchain-community",
     "SerperDevTool": "crewai-tools",
-    "TavilySearchTool": "crewai-tools",
-    "EXASearchTool": "crewai-tools",
-    "BraveSearchTool": "crewai-tools",
-    "DuckDuckGoSearchTool": "crewai-tools",
     "ScrapeWebsiteTool": "crewai-tools",
-    "SeleniumScrapingTool": "crewai-tools",
     "WebsiteSearchTool": "crewai-tools",
-    "CodeDocsSearchTool": "crewai-tools",
-    "CodeInterpreterTool": "crewai-tools",
-    "GithubSearchTool": "crewai-tools",
     "FileReadTool": "crewai-tools",
     "FileWriterTool": "crewai-tools",
     "DirectoryReadTool": "crewai-tools",
-    "PDFSearchTool": "crewai-tools",
-    "DOCXSearchTool": "crewai-tools",
+    "DirectorySearchTool": "crewai-tools",
+    "CodeInterpreterTool": "crewai-tools",
     "CSVSearchTool": "crewai-tools",
-    "PGSearchTool": "crewai-tools",
-    "NL2SQLTool": "crewai-tools",
-    "RagTool": "crewai-tools",
-    "YoutubeVideoSearchTool": "crewai-tools",
-    "VisionTool": "crewai-tools",
+    "JSONSearchTool": "crewai-tools",
+    "PDFSearchTool": "crewai-tools",
+    "GithubSearchTool": "crewai-tools",
+    "PythonREPLTool": "langchain-experimental",
+    "ShellTool": "langchain-community",
+}
+
+# Role keywords → capabilities
+_ROLE_TO_CAPABILITIES: dict[str, list[str]] = {
+    "research": ["web-search", "reasoning"],
+    "researcher": ["web-search", "reasoning"],
+    "writer": ["reasoning"],
+    "analyst": ["data-analysis", "reasoning"],
+    "coder": ["code", "reasoning"],
+    "developer": ["code", "reasoning"],
+    "engineer": ["code", "reasoning"],
+    "data": ["data-analysis"],
+    "sql": ["sql"],
+    "search": ["web-search"],
 }
 
 
-def _collect_tools(crew_or_agent: Any) -> list[Any]:
-    """Extract all tools from a Crew or single Agent."""
+def _collect_tools(agent_or_crew: Any) -> list[Any]:
+    """Extract all tools from an Agent or Crew."""
     tools: list[Any] = []
 
-    # Single Agent: has .tools
-    if hasattr(crew_or_agent, "tools") and not hasattr(crew_or_agent, "agents"):
-        return list(getattr(crew_or_agent, "tools", []) or [])
+    # Crew: aggregate tools from all agents
+    agents = getattr(agent_or_crew, "agents", None)
+    if agents:
+        for agent in agents:
+            tools.extend(getattr(agent, "tools", []) or [])
+        return tools
 
-    # Crew: has .agents, each with .tools
-    agents = getattr(crew_or_agent, "agents", []) or []
-    for agent in agents:
-        tools.extend(list(getattr(agent, "tools", []) or []))
-
-    return tools
+    # Single Agent
+    return list(getattr(agent_or_crew, "tools", []) or [])
 
 
-def _is_multi_agent(crew_or_agent: Any) -> bool:
-    agents = getattr(crew_or_agent, "agents", None)
-    return bool(agents and len(agents) > 1)
+def _role_capabilities(agent_or_crew: Any) -> list[str]:
+    """Infer capabilities from agent role string."""
+    caps: set[str] = set()
+
+    agents = getattr(agent_or_crew, "agents", None)
+    roles = []
+    if agents:
+        for a in agents:
+            role = getattr(a, "role", "") or ""
+            roles.append(role.lower())
+    else:
+        role = getattr(agent_or_crew, "role", "") or ""
+        roles.append(role.lower())
+
+    for role in roles:
+        for keyword, role_caps in _ROLE_TO_CAPABILITIES.items():
+            if keyword in role:
+                caps.update(role_caps)
+
+    return list(caps)
 
 
 def extract_profile(
-    crew_or_agent: Any,
+    agent_or_crew: Any,
     extra_capabilities: list[str] | None = None,
     extra_skills: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """
-    Introspect a CrewAI Crew or Agent and return a partial profile dict
+    Introspect a CrewAI Agent or Crew and return a partial profile dict
     with auto-detected capabilities and skills.
     """
-    tools = _collect_tools(crew_or_agent)
+    tools = _collect_tools(agent_or_crew)
     capabilities: set[str] = set(extra_capabilities or [])
+    capabilities.update(_role_capabilities(agent_or_crew))
+    capabilities.add("reasoning")  # all LLM agents reason
+
     skills_seen: set[str] = set()
     skills: list[dict[str, str]] = list(extra_skills or [])
 
-    # Always add crewai base skill
+    # Always include crewai base skill
     skills.append({"name": "crewai", "registry": "pypi"})
     skills_seen.add("crewai")
-
-    # Multi-agent crews get the orchestration capability
-    if _is_multi_agent(crew_or_agent):
-        capabilities.add("multi-agent")
 
     for tool in tools:
         cls_name = type(tool).__name__
@@ -149,41 +170,20 @@ def extract_profile(
         for key in (cls_name, tool_name):
             for cap in _TOOL_TO_CAPABILITIES.get(key, []):
                 capabilities.add(cap)
-
-        pkg = _TOOL_TO_PYPI.get(cls_name) or _TOOL_TO_PYPI.get(tool_name)
-        if pkg and pkg not in skills_seen:
-            skills.append({"name": pkg, "registry": "pypi"})
-            skills_seen.add(pkg)
-
-    # Detect LLM provider
-    llm = getattr(crew_or_agent, "llm", None)
-    if llm is None:
-        # Try first agent's LLM
-        agents = getattr(crew_or_agent, "agents", []) or []
-        if agents:
-            llm = getattr(agents[0], "llm", None)
-    if llm:
-        cls_name = type(llm).__name__
-        _LLM_TO_PYPI = {
-            "ChatOpenAI": "langchain-openai",
-            "ChatAnthropic": "langchain-anthropic",
-            "ChatGoogleGenerativeAI": "langchain-google-genai",
-            "ChatGroq": "langchain-groq",
-        }
-        pkg = _LLM_TO_PYPI.get(cls_name)
-        if pkg and pkg not in skills_seen:
-            skills.append({"name": pkg, "registry": "pypi"})
-            skills_seen.add(pkg)
+            pkg = _TOOL_TO_PYPI.get(key)
+            if pkg and pkg not in skills_seen:
+                skills.append({"name": pkg, "registry": "pypi"})
+                skills_seen.add(pkg)
 
     return {
-        "capabilities": sorted(capabilities) if capabilities else ["reasoning"],
+        "capabilities": sorted(capabilities),
         "protocols": ["https"],
         "skills": skills,
     }
 
 
 def register_crewai_agent(
-    crew_or_agent: Any,
+    agent_or_crew: Any,
     name: str,
     description: str = "",
     contact_endpoint: str | None = None,
@@ -197,42 +197,31 @@ def register_crewai_agent(
     verbose: bool = True,
 ) -> str:
     """
-    Register a CrewAI Crew or Agent with basedagents.ai.
+    Register a CrewAI Agent or Crew with basedagents.ai.
 
-    Introspects tools to auto-detect capabilities and skills.
+    Introspects the agent/crew to auto-detect capabilities and skills.
     Idempotent — safe to call on every startup.
 
     Args:
-        crew_or_agent: CrewAI Crew or Agent instance
-        name: Unique agent name (globally unique on registry)
-        description: What this crew/agent does
-        contact_endpoint: URL where the agent can be reached for verification
+        agent_or_crew: CrewAI Agent or Crew instance
+        name: Unique agent name
+        description: What the agent does
+        contact_endpoint: URL where the agent can be reached
         organization: Optional org name
         version: Optional version string
-        tags: Optional extra tags
-        extra_capabilities: Additional capabilities beyond auto-detected ones
-        extra_skills: Additional skills beyond auto-detected ones
+        tags: Optional tags (e.g. ["crewai", "research"])
+        extra_capabilities: Additional capabilities beyond auto-detected
+        extra_skills: Additional skills beyond auto-detected
         keypair_path: Override keypair file location
         api_url: Override API URL (defaults to BASEDAGENTS_API env or prod)
         verbose: Print progress (default True)
 
     Returns:
         agent_id string
-
-    Example:
-        from crewai import Crew
-        from basedagents.integrations.crewai import register_crewai_agent
-
-        crew = Crew(agents=[researcher, writer], tasks=[...])
-        agent_id = register_crewai_agent(
-            crew,
-            name="my-research-crew",
-            description="Research and write blog posts.",
-        )
     """
     from ..easy import register_or_load
 
-    profile = extract_profile(crew_or_agent, extra_capabilities, extra_skills)
+    profile = extract_profile(agent_or_crew, extra_capabilities, extra_skills)
     merged_tags = list(set(["crewai"] + (tags or [])))
 
     return register_or_load(
