@@ -22,7 +22,8 @@
   ],
   "scripts": {
     "build": "tsc",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "test": "vitest run"
   },
   "keywords": [
     "ai",
@@ -49,6 +50,9 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
   },
   "dependencies": {
     "@noble/ed25519": "^2.2.0",
