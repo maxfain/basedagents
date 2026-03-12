@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { AppEnv, Challenge } from '../types/index.js';
+import { postTweet, registrationTweet } from '../lib/twitter.js';
 import { RegisterInitSchema, RegisterCompleteSchema } from '../types/index.js';
 import {
   base58Decode,
@@ -299,6 +300,24 @@ register.post('/complete', async (c) => {
         deadline: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       };
     }
+  }
+
+  // Fire-and-forget tweet for new registration
+  const env = c.env;
+  if (env.TWITTER_CONSUMER_KEY && env.TWITTER_CONSUMER_SECRET &&
+      env.TWITTER_ACCESS_TOKEN && env.TWITTER_ACCESS_SECRET) {
+    const tweetText = registrationTweet({
+      name: profile.name,
+      x_handle: profile.x_handle ?? null,
+      capabilities: profile.capabilities,
+      agent_id: agentId,
+    });
+    postTweet(tweetText, {
+      consumerKey: env.TWITTER_CONSUMER_KEY,
+      consumerSecret: env.TWITTER_CONSUMER_SECRET,
+      accessToken: env.TWITTER_ACCESS_TOKEN,
+      accessSecret: env.TWITTER_ACCESS_SECRET,
+    }); // intentionally not awaited
   }
 
   return c.json(responseBody, 201);

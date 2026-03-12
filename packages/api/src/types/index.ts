@@ -184,6 +184,10 @@ export type Bindings = {
   ADMIN_SECRET?: string;
   REGISTRY_SIGNING_KEY?: string;
   REGISTRY_SIGNING_PUBLIC_KEY?: string;
+  TWITTER_CONSUMER_KEY?: string;
+  TWITTER_CONSUMER_SECRET?: string;
+  TWITTER_ACCESS_TOKEN?: string;
+  TWITTER_ACCESS_SECRET?: string;
 };
 
 /** Hono env type combining Bindings and Variables */

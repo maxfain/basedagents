@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { AppEnv, Agent } from '../types/index.js';
+import { postTweet, firstVerificationTweet } from '../lib/twitter.js';
 import { VerifySubmitSchema } from '../types/index.js';
 import { agentAuth } from '../middleware/auth.js';
 import { verifySignature } from '../crypto/index.js';
@@ -123,7 +124,8 @@ verify.post('/submit', agentAuth, async (c) => {
   }
 
   // ── Target must exist ──
-  const target = await db.get<{ id: string; status: string }>('SELECT id, status FROM agents WHERE id = ?', target_id);
+  const target = await db.get<{ id: string; name: string; status: string; verification_count: number; x_handle: string | null }>(
+    'SELECT id, name, status, verification_count, x_handle FROM agents WHERE id = ?', target_id);
   if (!target) return c.json({ error: 'not_found', message: 'Target agent not found' }, 404);
 
   // ── Low-rep verifier guard ──
@@ -210,6 +212,28 @@ verify.post('/submit', agentAuth, async (c) => {
 
   const targetDelta = Math.round(((postTarget?.reputation_score ?? targetRep.final_score) - (prevTarget?.reputation_score ?? 0)) * 1000) / 1000;
   const verifierDelta = Math.round(((postVerifier?.reputation_score ?? verifierRep.final_score) - (prevVerifier?.reputation_score ?? 0)) * 1000) / 1000;
+
+  // Fire-and-forget tweet on first successful verification
+  const wasFirstVerification = (target?.verification_count ?? 0) === 0;
+  if (result === 'pass' && wasFirstVerification) {
+    const env = c.env;
+    if (env.TWITTER_CONSUMER_KEY && env.TWITTER_CONSUMER_SECRET &&
+        env.TWITTER_ACCESS_TOKEN && env.TWITTER_ACCESS_SECRET) {
+      const finalRep = postTarget?.reputation_score ?? targetRep.final_score;
+      const tweetText = firstVerificationTweet({
+        name: target!.name,
+        x_handle: target?.x_handle ?? null,
+        reputation_score: finalRep,
+        agent_id: target_id,
+      });
+      postTweet(tweetText, {
+        consumerKey: env.TWITTER_CONSUMER_KEY,
+        consumerSecret: env.TWITTER_CONSUMER_SECRET,
+        accessToken: env.TWITTER_ACCESS_TOKEN,
+        accessSecret: env.TWITTER_ACCESS_SECRET,
+      }); // intentionally not awaited
+    }
+  }
 
   return c.json({
     ok: true,
