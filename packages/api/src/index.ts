@@ -4,7 +4,7 @@ import { logger } from 'hono/logger';
 import type { AppEnv } from './types/index.js';
 import { D1Adapter } from './db/d1-adapter.js';
 import { runBootstrapProber } from './bootstrap/prober.js';
-import { resolveAllAgentSkills } from './skills/resolver.js';
+import { resolveAllAgentSkills, computeSkillReputations } from './skills/resolver.js';
 
 import registerRoutes from './routes/register.js';
 import agentRoutes from './routes/agents.js';
@@ -282,9 +282,13 @@ const scheduled = async (_event: unknown, env: any, _ctx: unknown) => {
   const result = await runBootstrapProber(db, threshold);
   console.log(`[cron] Bootstrap prober done: activated=${result.activated.length} suspended=${result.suspended.length} probed=${result.probed}`);
 
-  console.log('[cron] Resolving agent skills...');
+  console.log('[cron] Resolving agent skills (registry metadata)...');
   const skillResult = await resolveAllAgentSkills(db);
   console.log(`[cron] Skill resolution done: updated=${skillResult.updated}`);
+
+  console.log('[cron] Computing skill reputations (inverted: agent rep → skill rep)...');
+  await computeSkillReputations(db);
+  console.log('[cron] Skill reputation computation done.');
 };
 
 // Export for Cloudflare Workers

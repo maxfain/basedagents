@@ -281,3 +281,56 @@ export async function resolveAllAgentSkills(db: DBAdapter): Promise<{ updated: n
   }
   return { updated };
 }
+
+/**
+ * Compute skill trust scores from agent reputation (inverted model).
+ *
+ * A skill's trust = weighted average reputation of agents that declare it
+ * and have been verified, weighted by their verification count.
+ *
+ * This is the correct direction: agent reputation → skill reputation.
+ * (Not: skill download count → agent reputation, which is what we had before.)
+ *
+ * Called after every verification and in the periodic cron.
+ */
+export async function computeSkillReputations(db: DBAdapter): Promise<void> {
+  const agents = await db.all<{
+    id: string;
+    skills: string | null;
+    reputation_score: number;
+    verification_count: number;
+  }>(
+    "SELECT id, skills, reputation_score, verification_count FROM agents WHERE status IN ('active', 'pending')"
+  );
+
+  // skill_id → weighted reputation accumulator
+  const skillData = new Map<string, { weightedRep: number; totalWeight: number }>();
+
+  for (const agent of agents) {
+    if (!agent.skills) continue;
+    let skills: Array<{ name: string; registry?: string; private?: boolean }>;
+    try { skills = JSON.parse(agent.skills); } catch { continue; }
+
+    for (const skill of skills) {
+      if (skill.private) continue;
+      const id = `${skill.registry ?? 'npm'}:${skill.name}`;
+      const weight = Math.max(1, agent.verification_count); // unverified agents count once
+      if (!skillData.has(id)) skillData.set(id, { weightedRep: 0, totalWeight: 0 });
+      const entry = skillData.get(id)!;
+      entry.weightedRep += agent.reputation_score * weight;
+      entry.totalWeight += weight;
+    }
+  }
+
+  const now = new Date().toISOString();
+  for (const [id, { weightedRep, totalWeight }] of skillData) {
+    const trustScore = totalWeight > 0
+      ? Math.round((weightedRep / totalWeight) * 1000) / 1000
+      : 0;
+    // Only update existing cache rows (registry metadata rows created by resolveSkill)
+    await db.run(
+      'UPDATE skill_cache SET trust_score = ?, last_checked_at = ? WHERE id = ?',
+      trustScore, now, id
+    );
+  }
+}

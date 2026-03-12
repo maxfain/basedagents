@@ -8,7 +8,7 @@
  *   coherence      (0.20) — time-weighted avg coherence score from verifiers
  *   contribution   (0.15) — how many verifications the agent has given (caps at 10)
  *   uptime         (0.15) — % of verifications where agent responded (not timeout)
- *   skill_trust    (0.15) — avg trust score of declared skills
+ *   cap_confirmation_rate (0.15) — fraction of declared capabilities confirmed by verifiers
  *   penalty        (0.20) — explicit penalty for safety issues / unauthorized actions
  *
  * Confidence:
@@ -58,14 +58,14 @@ export interface ReputationBreakdown {
     coherence: number;
     contribution: number;
     uptime: number;
-    skill_trust: number;
+    cap_confirmation_rate: number;
   };
   weights: {
     pass_rate: number;
     coherence: number;
     contribution: number;
     uptime: number;
-    skill_trust: number;
+    cap_confirmation_rate: number;
     penalty: number;
   };
   verifications_received: number;
@@ -90,8 +90,8 @@ export async function computeReputation(
       raw_score: score,
       confidence: 1.0,
       penalty: 0,
-      components: { pass_rate: score, coherence: score, contribution: score, uptime: score, skill_trust: score },
-      weights: { pass_rate: 0.30, coherence: 0.20, contribution: 0.15, uptime: 0.15, skill_trust: 0.15, penalty: 0.20 },
+      components: { pass_rate: score, coherence: score, contribution: score, uptime: score, cap_confirmation_rate: score },
+      weights: { pass_rate: 0.35, coherence: 0.20, contribution: 0.15, uptime: 0.15, cap_confirmation_rate: 0.15, penalty: 0.20 },
       verifications_received: 0,
       verifications_given: 0,
       safety_flags: 0,
@@ -118,26 +118,38 @@ export async function computeReputation(
   );
   const given = givenRow?.total ?? 0;
 
-  // ── Skill trust ──
-  const agentRow = await db.get<{ skills: string | null; safety_flags: number }>(
-    'SELECT skills, safety_flags FROM agents WHERE id = ?',
+  // ── Capability confirmation rate ──
+  // Fraction of declared capabilities confirmed by at least one passing verifier.
+  // This replaces skill_trust (download-count based) — what matters is whether
+  // verifiers actually observed the claimed capabilities in action.
+  const agentRow = await db.get<{ skills: string | null; capabilities: string | null; safety_flags: number }>(
+    'SELECT skills, capabilities, safety_flags FROM agents WHERE id = ?',
     agentId
   );
-  let skillTrust = 0;
-  if (agentRow?.skills) {
+  let capConfirmationRate = 0;
+  const declared: string[] = [];
+  if (agentRow?.capabilities) {
     try {
-      const declared: Array<{ name: string; registry?: string; private?: boolean }> = JSON.parse(agentRow.skills);
-      if (declared.length > 0) {
-        const scores = await Promise.all(declared.map(async s => {
-          if (s.private) return 0.5;
-          const cacheId = `${s.registry ?? 'npm'}:${s.name}`;
-          const row = await db.get<{ trust_score: number }>('SELECT trust_score FROM skill_cache WHERE id = ?', cacheId);
-          return row?.trust_score ?? 0.0;
-        }));
-        const sum = scores.reduce((a, b) => a + b, 0);
-        skillTrust = scores.length > 0 ? sum / scores.length : 0;
-      }
+      const caps: string[] = JSON.parse(agentRow.capabilities);
+      declared.push(...caps);
     } catch { /* malformed */ }
+  }
+  if (declared.length > 0) {
+    // Collect all capabilities confirmed across passing verifications
+    const confirmedSet = new Set<string>();
+    for (const v of verifications) {
+      if (v.result !== 'pass' || !v.structured_report) continue;
+      try {
+        const report = JSON.parse(v.structured_report) as { capabilities_confirmed?: string[] };
+        for (const cap of report.capabilities_confirmed ?? []) {
+          confirmedSet.add(cap.toLowerCase().replace(/[_-]/g, ''));
+        }
+      } catch { /* skip */ }
+    }
+    const confirmedCount = declared.filter(c =>
+      confirmedSet.has(c.toLowerCase().replace(/[_-]/g, ''))
+    ).length;
+    capConfirmationRate = confirmedCount / declared.length;
   }
 
   // ── Profile base score ──
@@ -150,8 +162,8 @@ export async function computeReputation(
       raw_score: 0,
       confidence: 0,
       penalty: 0,
-      components: { pass_rate: 0, coherence: 0, contribution: 0, uptime: 0, skill_trust: skillTrust },
-      weights: { pass_rate: 0.30, coherence: 0.20, contribution: 0.15, uptime: 0.15, skill_trust: 0.15, penalty: 0.20 },
+      components: { pass_rate: 0, coherence: 0, contribution: 0, uptime: 0, cap_confirmation_rate: capConfirmationRate },
+      weights: { pass_rate: 0.35, coherence: 0.20, contribution: 0.15, uptime: 0.15, cap_confirmation_rate: 0.15, penalty: 0.20 },
       verifications_received: 0,
       verifications_given: given,
       safety_flags: safetyFlags,
@@ -202,12 +214,12 @@ export async function computeReputation(
 
   // ── Raw score ──
   const raw = (
-    0.30 * passRate +
+    0.35 * passRate +           // bumped: primary signal
     0.20 * coherence +
     0.15 * contribution +
     0.15 * uptime +
-    0.15 * skillTrust +
-    -0.20 * penalty       // safety issues actively subtract
+    0.15 * capConfirmationRate + // replaces skill_trust: verifier-confirmed capabilities
+    -0.20 * penalty
   );
 
   // ── Confidence (bounded, full at 20 verifications) ──
@@ -227,9 +239,9 @@ export async function computeReputation(
       coherence: Math.round(coherence * 1000) / 1000,
       contribution: Math.round(contribution * 1000) / 1000,
       uptime: Math.round(uptime * 1000) / 1000,
-      skill_trust: Math.round(skillTrust * 1000) / 1000,
+      cap_confirmation_rate: Math.round(capConfirmationRate * 1000) / 1000,
     },
-    weights: { pass_rate: 0.30, coherence: 0.20, contribution: 0.15, uptime: 0.15, skill_trust: 0.15, penalty: 0.20 },
+    weights: { pass_rate: 0.35, coherence: 0.20, contribution: 0.15, uptime: 0.15, cap_confirmation_rate: 0.15, penalty: 0.20 },
     verifications_received: n,
     verifications_given: given,
     safety_flags: safetyFlags,

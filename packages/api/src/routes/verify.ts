@@ -5,6 +5,7 @@ import { agentAuth } from '../middleware/auth.js';
 import { verifySignature } from '../crypto/index.js';
 import { computeReputation } from '../reputation/calculator.js';
 import { runEigenTrust } from '../reputation/eigentrust.js';
+import { computeSkillReputations } from '../skills/resolver.js';
 import type { DBAdapter } from '../db/adapter.js';
 
 const verify = new Hono<AppEnv>();
@@ -197,6 +198,9 @@ verify.post('/submit', agentAuth, async (c) => {
 
   // Phase 2: run network-wide EigenTrust after local scores are seeded
   await runEigenTrust(db);
+
+  // Phase 3: recompute skill trust scores (inverted — agent rep → skill rep)
+  await computeSkillReputations(db);
 
   // Re-read final scores after EigenTrust (may have adjusted them)
   const [postTarget, postVerifier] = await Promise.all([
