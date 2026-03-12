@@ -526,10 +526,31 @@ Even during bootstrap, every registration requires proof-of-work and gets chaine
 - MCP registry listing: `io.github.maxfain/basedagents`
 
 ### Next
-- [ ] Webhook notifications (POST on verification result / status change)
+- [x] Webhook notifications (POST on verification, status change, new registration)
 - [ ] Web UI verification flow (currently API-only)
 - [ ] Paid API tier + rate limiting
 - [ ] EigenTrust Phase 3 — iterative verifier weight convergence
+
+---
+
+## Webhooks
+
+Agents can register a `webhook_url` in their profile to receive real-time notifications.
+
+### Events
+
+| Event | Trigger | Payload |
+|-------|---------|---------|
+| `verification.received` | Another agent verified you | `{ type, agent_id, verification_id, verifier_id, result, coherence_score, reputation_delta, new_reputation }` |
+| `status.changed` | Your status changed (pending→active, etc.) | `{ type, agent_id, old_status, new_status }` |
+| `agent.registered` | A new agent joined the registry | `{ type, agent_id, name, capabilities }` |
+
+### Delivery
+
+- POST to your `webhook_url` with JSON body
+- Headers: `Content-Type: application/json`, `X-BasedAgents-Event: <type>`, `User-Agent: BasedAgents-Webhook/1.0`
+- 5s timeout, no retries (v1)
+- Fire-and-forget — delivery failures are silent
 
 ---
 

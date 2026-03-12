@@ -8,13 +8,19 @@ import { computeReputation } from '../reputation/calculator.js';
 import { runEigenTrust } from '../reputation/eigentrust.js';
 import { computeSkillReputations } from '../skills/resolver.js';
 import type { DBAdapter } from '../db/adapter.js';
+import { fireWebhook } from '../lib/webhooks.js';
 
 const verify = new Hono<AppEnv>();
 
 /**
  * Update agent status based on reputation and verification history.
+ * Returns the new status if it changed, or null if unchanged.
  */
-async function updateAgentStatus(db: DBAdapter, agentId: string, _rep: number): Promise<void> {
+async function updateAgentStatus(db: DBAdapter, agentId: string, _rep: number): Promise<{ oldStatus: string; newStatus: string } | null> {
+  // Snapshot status before any updates
+  const before = await db.get<{ status: string }>('SELECT status FROM agents WHERE id = ?', agentId);
+  const oldStatus = before?.status ?? 'pending';
+
   // Atomic status transitions — conditional UPDATEs avoid TOCTOU races from concurrent verifications.
   // Each UPDATE only fires when the current status matches the expected source state.
 
@@ -44,6 +50,11 @@ async function updateAgentStatus(db: DBAdapter, agentId: string, _rep: number): 
        AND (SELECT result FROM verifications WHERE target_id = ? ORDER BY created_at DESC LIMIT 1) = 'pass'`,
     agentId, agentId
   );
+
+  // Check if status changed
+  const after = await db.get<{ status: string }>('SELECT status FROM agents WHERE id = ?', agentId);
+  const newStatus = after?.status ?? oldStatus;
+  return newStatus !== oldStatus ? { oldStatus, newStatus } : null;
 }
 
 /**
@@ -195,8 +206,8 @@ verify.post('/submit', agentAuth, async (c) => {
   await db.run('UPDATE agents SET reputation_score = ?, penalty_score = ? WHERE id = ?', targetRep.final_score, targetRep.penalty, target_id);
   await db.run('UPDATE agents SET reputation_score = ? WHERE id = ?', verifierRep.final_score, verifierId);
 
-  await updateAgentStatus(db, target_id, targetRep.final_score);
-  await updateAgentStatus(db, verifierId, verifierRep.final_score);
+  const targetStatusChange = await updateAgentStatus(db, target_id, targetRep.final_score);
+  const verifierStatusChange = await updateAgentStatus(db, verifierId, verifierRep.final_score);
 
   // Phase 2: run network-wide EigenTrust after local scores are seeded
   await runEigenTrust(db);
@@ -212,6 +223,45 @@ verify.post('/submit', agentAuth, async (c) => {
 
   const targetDelta = Math.round(((postTarget?.reputation_score ?? targetRep.final_score) - (prevTarget?.reputation_score ?? 0)) * 1000) / 1000;
   const verifierDelta = Math.round(((postVerifier?.reputation_score ?? verifierRep.final_score) - (prevVerifier?.reputation_score ?? 0)) * 1000) / 1000;
+
+  // ── Webhook: verification.received → target agent ──
+  const targetAgent = await db.get<{ webhook_url: string | null }>('SELECT webhook_url FROM agents WHERE id = ?', target_id);
+  if (targetAgent?.webhook_url) {
+    fireWebhook(targetAgent.webhook_url, {
+      type: 'verification.received',
+      agent_id: target_id,
+      verification_id: verificationId,
+      verifier_id: verifierId,
+      result,
+      coherence_score: coherence_score ?? null,
+      reputation_delta: targetDelta,
+      new_reputation: postTarget?.reputation_score ?? targetRep.final_score,
+    }); // intentionally not awaited
+  }
+
+  // ── Webhook: status.changed → affected agents ──
+  if (targetStatusChange) {
+    const tAgentWh = targetAgent ?? await db.get<{ webhook_url: string | null }>('SELECT webhook_url FROM agents WHERE id = ?', target_id);
+    if (tAgentWh?.webhook_url) {
+      fireWebhook(tAgentWh.webhook_url, {
+        type: 'status.changed',
+        agent_id: target_id,
+        old_status: targetStatusChange.oldStatus,
+        new_status: targetStatusChange.newStatus,
+      }); // intentionally not awaited
+    }
+  }
+  if (verifierStatusChange) {
+    const vAgentWh = await db.get<{ webhook_url: string | null }>('SELECT webhook_url FROM agents WHERE id = ?', verifierId);
+    if (vAgentWh?.webhook_url) {
+      fireWebhook(vAgentWh.webhook_url, {
+        type: 'status.changed',
+        agent_id: verifierId,
+        old_status: verifierStatusChange.oldStatus,
+        new_status: verifierStatusChange.newStatus,
+      }); // intentionally not awaited
+    }
+  }
 
   // Fire-and-forget tweet on first successful verification
   const wasFirstVerification = (target?.verification_count ?? 0) === 0;

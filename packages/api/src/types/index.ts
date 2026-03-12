@@ -29,6 +29,7 @@ export const ProfileSchema = z.object({
   contact_email: z.string().email().optional(),
   x_handle: z.string().max(50).regex(/^@?[A-Za-z0-9_]{1,50}$/).optional(),
   skills: z.array(SkillSchema).max(50).optional(),
+  webhook_url: z.string().url().max(500).optional(),
 });
 
 export type Profile = z.infer<typeof ProfileSchema>;
@@ -103,6 +104,7 @@ export interface Agent {
   contact_email: string | null;
   x_handle: string | null;
   skills: string | null; // JSON array of DeclaredSkill
+  webhook_url: string | null;
   registered_at: string;
   last_seen: string | null;
   status: 'pending' | 'active' | 'suspended';

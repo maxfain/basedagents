@@ -63,6 +63,7 @@ function formatAgent(agent: Agent) {
     contact_email: agent.contact_email ? obfuscateEmail(agent.contact_email) : null,
     x_handle: agent.x_handle ?? null,
     skills: agent.skills ? JSON.parse(agent.skills) : [],
+    webhook_url: agent.webhook_url ?? null,
     status: agent.status,
     reputation_score: agent.reputation_score,
     verification_count: agent.verification_count,
@@ -241,7 +242,7 @@ async function handleProfileUpdate(c: Context<AppEnv>): Promise<Response> {
   const jsonFields = ['capabilities', 'protocols', 'offers', 'needs', 'tags', 'skills'] as const;
   const textFields = ['name', 'description', 'homepage', 'contact_endpoint', 'comment',
                       'organization', 'organization_url', 'logo_url', 'version', 'contact_email',
-                      'x_handle'] as const;
+                      'x_handle', 'webhook_url'] as const;
 
   for (const field of textFields) {
     if (updates[field] !== undefined) {

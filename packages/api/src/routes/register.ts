@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { AppEnv, Challenge } from '../types/index.js';
 import { postTweet, registrationTweet } from '../lib/twitter.js';
 import { RegisterInitSchema, RegisterCompleteSchema } from '../types/index.js';
+import { fireWebhook } from '../lib/webhooks.js';
 import {
   base58Decode,
   publicKeyToAgentId,
@@ -212,8 +213,8 @@ register.post('/complete', async (c) => {
   // 7. Insert agent + chain entry + mark challenge completed
   // Run sequentially — both SQLite adapter and D1 handle this correctly.
   await db.run(
-    `INSERT INTO agents (id, public_key, name, description, capabilities, protocols, offers, needs, homepage, contact_endpoint, comment, organization, organization_url, logo_url, tags, version, contact_email, x_handle, skills, registered_at, status, reputation_score, verification_count)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0.0, 0)`,
+    `INSERT INTO agents (id, public_key, name, description, capabilities, protocols, offers, needs, homepage, contact_endpoint, comment, organization, organization_url, logo_url, tags, version, contact_email, x_handle, skills, webhook_url, registered_at, status, reputation_score, verification_count)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0.0, 0)`,
     agentId,
     publicKey,
     profile.name,
@@ -233,6 +234,7 @@ register.post('/complete', async (c) => {
     profile.contact_email ?? null,
     profile.x_handle ? (profile.x_handle.startsWith('@') ? profile.x_handle : `@${profile.x_handle}`) : null,
     profile.skills ? JSON.stringify(profile.skills) : null,
+    profile.webhook_url ?? null,
     timestamp
   );
 
@@ -317,6 +319,20 @@ register.post('/complete', async (c) => {
       consumerSecret: env.TWITTER_CONSUMER_SECRET,
       accessToken: env.TWITTER_ACCESS_TOKEN,
       accessSecret: env.TWITTER_ACCESS_SECRET,
+    }); // intentionally not awaited
+  }
+
+  // ── Webhook: agent.registered → all agents with a webhook_url ──
+  const webhookRecipients = await db.all<{ id: string; webhook_url: string }>(
+    'SELECT id, webhook_url FROM agents WHERE webhook_url IS NOT NULL AND id != ?',
+    agentId
+  );
+  for (const recipient of webhookRecipients) {
+    fireWebhook(recipient.webhook_url, {
+      type: 'agent.registered',
+      agent_id: agentId,
+      name: profile.name,
+      capabilities: profile.capabilities,
     }); // intentionally not awaited
   }
 
