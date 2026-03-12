@@ -24,6 +24,7 @@ export interface ApiAgent {
   tags: string[];
   version: string | null;
   contact_email: string | null;
+  x_handle: string | null;
   skills: ApiDeclaredSkill[];
   status: 'active' | 'pending' | 'suspended';
   reputation_score: number;

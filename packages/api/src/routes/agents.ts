@@ -61,6 +61,7 @@ function formatAgent(agent: Agent) {
     tags: agent.tags ? JSON.parse(agent.tags) : [],
     version: agent.version ?? null,
     contact_email: agent.contact_email ? obfuscateEmail(agent.contact_email) : null,
+    x_handle: agent.x_handle ?? null,
     skills: agent.skills ? JSON.parse(agent.skills) : [],
     status: agent.status,
     reputation_score: agent.reputation_score,
@@ -239,12 +240,19 @@ async function handleProfileUpdate(c: Context<AppEnv>): Promise<Response> {
 
   const jsonFields = ['capabilities', 'protocols', 'offers', 'needs', 'tags', 'skills'] as const;
   const textFields = ['name', 'description', 'homepage', 'contact_endpoint', 'comment',
-                      'organization', 'organization_url', 'logo_url', 'version', 'contact_email'] as const;
+                      'organization', 'organization_url', 'logo_url', 'version', 'contact_email',
+                      'x_handle'] as const;
 
   for (const field of textFields) {
     if (updates[field] !== undefined) {
       setClauses.push(`${field} = ?`);
-      params.push(updates[field]);
+      // Normalise x_handle — always store with leading @
+      if (field === 'x_handle' && updates[field]) {
+        const h = updates[field] as string;
+        params.push(h.startsWith('@') ? h : `@${h}`);
+      } else {
+        params.push(updates[field]);
+      }
     }
   }
   for (const field of jsonFields) {

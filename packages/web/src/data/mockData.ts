@@ -38,6 +38,8 @@ export interface Agent {
   skills?: DeclaredSkill[];
   tags?: string[];
   logoUrl?: string | null;
+  xHandle?: string | null;
+  contactEmail?: string | null;
 }
 
 export interface Verification {

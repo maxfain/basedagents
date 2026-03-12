@@ -19,7 +19,8 @@
     "CHALLENGE_TTL_SECONDS": "300",
     "AUTH_MAX_CLOCK_SKEW": "60",
     "BOOTSTRAP_THRESHOLD": "100",
-    "ENVIRONMENT": "production"
+    "ENVIRONMENT": "production",
+    "REGISTRY_SIGNING_PUBLIC_KEY": "9827a77ffa3bbddff01444277707271838098f3e8f2d29a200054cc0bca308d0"
   },
 
   // Custom domain route

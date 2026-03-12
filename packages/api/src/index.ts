@@ -11,6 +11,7 @@ import agentRoutes from './routes/agents.js';
 import verifyRoutes from './routes/verify.js';
 import chainRoutes from './routes/chain.js';
 import skillRoutes from './routes/skills.js';
+import { attestation as attestationRoutes } from './routes/attestation.js';
 
 const app = new Hono<AppEnv>();
 
@@ -242,6 +243,9 @@ app.route('/v1/agents', agentRoutes);
 app.route('/v1/verify', verifyRoutes);
 app.route('/v1/chain', chainRoutes);
 app.route('/v1/skills', skillRoutes);
+app.route('/v1/attestation', attestationRoutes);
+// Attestation also nested under agents for ergonomic URL: /v1/agents/:id/attestation
+app.route('/v1/agents', attestationRoutes);
 
 // ─── Admin: Manual Bootstrap Probe Trigger ───
 // Protected by ADMIN_SECRET env var. Set via: wrangler secret put ADMIN_SECRET

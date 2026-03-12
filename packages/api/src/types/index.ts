@@ -27,6 +27,7 @@ export const ProfileSchema = z.object({
   tags: z.array(z.string().max(50)).max(20).optional(),
   version: z.string().max(50).optional(),
   contact_email: z.string().email().optional(),
+  x_handle: z.string().max(50).regex(/^@?[A-Za-z0-9_]{1,50}$/).optional(),
   skills: z.array(SkillSchema).max(50).optional(),
 });
 
@@ -100,6 +101,7 @@ export interface Agent {
   tags: string | null; // JSON array
   version: string | null;
   contact_email: string | null;
+  x_handle: string | null;
   skills: string | null; // JSON array of DeclaredSkill
   registered_at: string;
   last_seen: string | null;
@@ -180,6 +182,8 @@ export type Bindings = {
   DB?: D1Database;
   BOOTSTRAP_THRESHOLD?: string;
   ADMIN_SECRET?: string;
+  REGISTRY_SIGNING_KEY?: string;
+  REGISTRY_SIGNING_PUBLIC_KEY?: string;
 };
 
 /** Hono env type combining Bindings and Variables */

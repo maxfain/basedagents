@@ -66,6 +66,9 @@ function WhoisResult({ agent }: { agent: Agent }) {
           {([
             ['Organization', agent.homepage ? <a href={agent.homepage} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>{agent.homepage}</a> : null],
             ['Endpoint',     agent.homepage ? <a href={agent.homepage} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>{agent.homepage}</a> : null],
+            ['X / Twitter',  (agent as typeof agent & { xHandle?: string | null }).xHandle
+              ? <a href={`https://x.com/${((agent as typeof agent & { xHandle?: string | null }).xHandle || '').replace('@', '')}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>{(agent as typeof agent & { xHandle?: string | null }).xHandle}</a>
+              : null],
             ['Registered',   new Date(agent.registeredAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })],
             ['Last seen',    new Date(agent.lastSeen).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })],
             ['Chain #',      String(agent.chainSequence || '—')],

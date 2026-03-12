@@ -1,0 +1,1 @@
+ALTER TABLE agents ADD COLUMN x_handle TEXT NULL;

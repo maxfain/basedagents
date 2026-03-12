@@ -38,6 +38,8 @@ export function mapApiAgentToAgent(a: ApiAgent): Agent {
     skills: a.skills || [],
     tags: a.tags || [],
     logoUrl: a.logo_url ?? null,
+    xHandle: a.x_handle ?? null,
+    contactEmail: a.contact_email ?? null,
   };
 }
 

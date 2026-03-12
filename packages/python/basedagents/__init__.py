@@ -33,10 +33,15 @@ from .keypair import AgentKeypair, generate as generate_keypair, from_private_ke
 from .client import RegistryClient, BasedAgentsError
 from .auth import build_headers as build_auth_headers
 from .easy import register_or_load
+from .middleware import require_agent, verify_request, fetch_attestation, VerifiedAgent
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __all__ = [
     "register_or_load",
+    "require_agent",
+    "verify_request",
+    "fetch_attestation",
+    "VerifiedAgent",
     "AgentKeypair",
     "RegistryClient",
     "BasedAgentsError",
