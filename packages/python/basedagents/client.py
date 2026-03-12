@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import uuid
 from typing import Any, Callable
 
@@ -14,7 +15,10 @@ from .auth import build_headers
 from .keypair import AgentKeypair
 from .pow import solve
 
-DEFAULT_API_URL = "https://api.basedagents.ai"
+_DEFAULT_BASE = "https://api.basedagents.ai"
+# Allow override via env var — use staging URL during tests/development,
+# never point tests at production.
+DEFAULT_API_URL = os.environ.get("BASEDAGENTS_API", _DEFAULT_BASE)
 
 
 class BasedAgentsError(Exception):

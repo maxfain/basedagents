@@ -13,7 +13,10 @@ export { sha256, bytesToHex };
 
 // ─── Constants ───
 
-export const DEFAULT_API_URL = 'https://api.basedagents.ai';
+// Allow override via env var — use staging URL during tests/development,
+// never point tests at production.
+export const DEFAULT_API_URL = (typeof process !== 'undefined' ? process.env?.BASEDAGENTS_API : undefined)
+  ?? 'https://api.basedagents.ai';
 
 // ─── Types ───
 

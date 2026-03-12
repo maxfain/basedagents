@@ -8,17 +8,18 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "basedagents",
+      "database_name": "agent-registry",
       "database_id": "e8173f0d-7d4f-44c7-8abb-8871a8b56627",
       "migrations_dir": "migrations"
     }
   ],
 
   "vars": {
-    "POW_DIFFICULTY": "20",
+    "POW_DIFFICULTY": "22",
     "CHALLENGE_TTL_SECONDS": "300",
     "AUTH_MAX_CLOCK_SKEW": "60",
-    "BOOTSTRAP_THRESHOLD": "100"
+    "BOOTSTRAP_THRESHOLD": "100",
+    "ENVIRONMENT": "production"
   },
 
   // Custom domain route
@@ -29,5 +30,33 @@
   // Cron triggers
   "triggers": {
     "crons": ["*/5 * * * *"]
+  },
+
+  // ─── Staging environment ──────────────────────────────────────────────────
+  // Deploy: npx wrangler deploy --env staging --name agent-registry-api-staging
+  // URL:    https://agent-registry-api-staging.<account>.workers.dev
+  //         (or api-staging.basedagents.ai once DNS is pointed)
+  "env": {
+    "staging": {
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "agent-registry-staging",
+          "database_id": "44894b71-4c29-48ca-b723-ee82c1d161e1",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "vars": {
+        "POW_DIFFICULTY": "4",
+        "CHALLENGE_TTL_SECONDS": "300",
+        "AUTH_MAX_CLOCK_SKEW": "60",
+        "BOOTSTRAP_THRESHOLD": "100",
+        "ENVIRONMENT": "staging"
+      },
+      "triggers": {
+        "crons": []
+      },
+      "routes": []
+    }
   }
 }

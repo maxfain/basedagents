@@ -315,10 +315,13 @@ async function handleProfileUpdate(c: Context<AppEnv>): Promise<Response> {
       : new Uint8Array(Object.values(pubKeyRaw as Record<string, number>));
     const entryHash = computeChainHash(previousHash, pubKeyBytes, '', profileHash, now);
 
+    const seqRowUpdate = await db.get<{ next_seq: number }>(
+      'SELECT COALESCE(MAX(sequence), -1) + 1 AS next_seq FROM chain'
+    );
     await db.run(
-      `INSERT INTO chain (entry_hash, previous_hash, agent_id, public_key, nonce, profile_hash, timestamp, entry_type)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'capability_update')`,
-      entryHash, previousHash, id, updatedAgent!.public_key, '', profileHash, now
+      `INSERT INTO chain (sequence, entry_hash, previous_hash, agent_id, public_key, nonce, profile_hash, timestamp, entry_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'capability_update')`,
+      seqRowUpdate!.next_seq, entryHash, previousHash, id, updatedAgent!.public_key, '', profileHash, now
     );
   }
 

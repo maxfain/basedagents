@@ -234,9 +234,17 @@ register.post('/complete', async (c) => {
     timestamp
   );
 
+  // Derive sequence as MAX(sequence)+1 rather than AUTOINCREMENT so deletions
+  // during cleanup never leave gaps in the chain display.
+  const seqRow = await db.get<{ next_seq: number }>(
+    'SELECT COALESCE(MAX(sequence), -1) + 1 AS next_seq FROM chain'
+  );
+  const nextSeq = seqRow!.next_seq;
+
   await db.run(
-    `INSERT INTO chain (entry_hash, previous_hash, agent_id, public_key, nonce, profile_hash, timestamp)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO chain (sequence, entry_hash, previous_hash, agent_id, public_key, nonce, profile_hash, timestamp)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    nextSeq,
     entryHash,
     previousHash,
     agentId,
