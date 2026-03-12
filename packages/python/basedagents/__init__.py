@@ -20,7 +20,7 @@ from .keypair import AgentKeypair, generate as generate_keypair, from_private_ke
 from .client import RegistryClient, BasedAgentsError
 from .auth import build_headers as build_auth_headers
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __all__ = [
     "AgentKeypair",
     "RegistryClient",

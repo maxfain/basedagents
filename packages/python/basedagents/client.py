@@ -109,6 +109,10 @@ class RegistryClient:
         challenge_id: str = init["challenge_id"]
 
         # Step 2: Solve PoW (difficulty from server — never hardcoded)
+        # Cap difficulty to prevent a malicious/MitM server from exhausting the nonce space
+        MAX_DIFFICULTY = 28
+        if difficulty > MAX_DIFFICULTY:
+            raise BasedAgentsError(0, f"Server requested PoW difficulty {difficulty} which exceeds client cap ({MAX_DIFFICULTY}). Aborting.")
         nonce = solve(keypair.public_key_bytes, difficulty, on_progress=on_progress)
 
         # Step 3: Sign challenge
@@ -171,16 +175,17 @@ class RegistryClient:
         return self._get(f"/v1/agents/search?{urlencode(params)}")
 
     def whois(self, name: str) -> dict[str, Any] | None:
-        """Look up an agent by name. Returns None if not found."""
-        result = self.search(q=name, limit=1)
+        """Look up an agent by exact name (case-insensitive). Returns None if not found.
+
+        Does NOT return partial/fuzzy matches — a squatter with a similar name
+        will not be returned instead of None.
+        """
+        result = self.search(q=name, limit=20)
         agents = result.get("agents", [])
-        if not agents:
-            return None
-        # Exact name match (case-insensitive)
         for agent in agents:
             if agent.get("name", "").lower() == name.lower():
                 return agent
-        return agents[0]
+        return None
 
     # ── Verification ──
 
@@ -214,7 +219,10 @@ class RegistryClient:
 
         nonce = str(uuid.uuid4())
 
-        # Build the signed payload (subset — no structured_report)
+        # Build the signed payload (subset — no structured_report).
+        # Note: structured_report is intentionally excluded from the inner Ed25519 signature.
+        # This mirrors the server's verification protocol (verify.ts line ~139).
+        # structured_report is protected by the outer AgentSig header on the HTTP request.
         signed_fields: dict[str, Any] = {
             "assignment_id": assignment_id,
             "target_id": target_id,

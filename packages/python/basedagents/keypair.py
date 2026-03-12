@@ -69,10 +69,22 @@ class AgentKeypair:
         }
 
     def save(self, path: Path) -> None:
-        """Save keypair to a JSON file with mode 600."""
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.to_dict(), indent=2))
-        os.chmod(path, 0o600)
+        """Save keypair to a JSON file.
+
+        The keys directory is created 0o700 (owner-only).
+        The file is opened with O_CREAT|O_TRUNC and mode 0o600 atomically —
+        no window where the plaintext key is world-readable.
+        """
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # Ensure the dir itself is 0o700 even if it pre-existed
+        os.chmod(path.parent, 0o700)
+        data = json.dumps(self.to_dict(), indent=2).encode()
+        # Atomic create with correct mode — no chmod-after-write race
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, data)
+        finally:
+            os.close(fd)
 
     @classmethod
     def load(cls, path: Path) -> "AgentKeypair":

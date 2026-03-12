@@ -36,7 +36,7 @@ def build_headers(
     Returns:
         Dict with 'Authorization' and 'X-Timestamp' headers.
     """
-    ts = timestamp or int(time.time())
+    ts = timestamp if timestamp is not None else int(time.time())
 
     if body is None:
         body_bytes = b""

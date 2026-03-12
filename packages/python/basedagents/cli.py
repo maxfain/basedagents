@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 API_URL = "https://api.basedagents.ai"
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 
 def _print_err(msg: str) -> None:
@@ -72,6 +72,9 @@ def cmd_register(args: list[str]) -> None:
     if "--api" in args:
         idx = args.index("--api")
         api_url = args[idx + 1]
+        if not api_url.startswith("https://"):
+            _print_err(f"--api must use https:// (got {api_url!r}). AgentSig credentials must not be sent over plaintext.")
+            sys.exit(1)
 
     dry_run = "--dry-run" in args
 
