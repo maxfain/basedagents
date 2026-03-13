@@ -4,24 +4,24 @@
  * GET /v1/agents/:id/badge?style=flat (default)
  * GET /v1/agents/:id/badge?style=for-the-badge
  *
- * Based on the shields.io badge specification:
- * https://github.com/badges/shields/blob/master/spec/SPECIFICATION.md
+ * Uses the basedagents diamond logo mark instead of text on the left side.
  */
 import { Hono } from 'hono';
 import type { AppEnv } from '../types/index.js';
 import type { DBAdapter } from '../db/adapter.js';
 
-// Shield logo as base64 data URI (16x16 SVG)
+// BasedAgents diamond/chevron logo as base64 SVG data URI
+// Diamond shape with <> chevron cutout, purple #7B6CF6
 const LOGO_URI = 'data:image/svg+xml;base64,' + btoa(
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">' +
-  '<path d="M8 1L14 3.5v4c0 3.9-2.5 7.5-6 8.5-3.5-1-6-4.6-6-8.5v-4L8 1z" fill="white"/>' +
-  '<path d="M7.1 10.3L5.2 8.4l-.9.9 2.8 2.8 5.6-5.6-.9-.9-4.7 4.7z" fill="#333"/>' +
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">' +
+  '<path d="M12 2L22 12L12 22L2 12Z" fill="#7B6CF6"/>' +
+  '<path d="M9.5 8.5L6.5 12L9.5 15.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>' +
+  '<path d="M14.5 8.5L17.5 12L14.5 15.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>' +
   '</svg>'
 );
 
 /**
  * Approximate text width in Verdana at a given font size.
- * Uses character-class widths derived from the shields.io specification.
  */
 function textWidth(text: string, fontSize: number): number {
   const scale = fontSize / 11;
@@ -32,23 +32,22 @@ function textWidth(text: string, fontSize: number): number {
     else if (ch >= '0' && ch <= '9') w += 6.5;
     else if (ch === '(' || ch === ')') w += 3.9;
     else if (ch === '.') w += 3.3;
-    else w += 6.1; // lowercase
+    else w += 6.1;
   }
   return w * scale;
 }
 
-function flatBadge(label: string, message: string, color: string): string {
-  const logoWidth = 14;
-  const logoPad = 5;
+function flatBadge(message: string, color: string): string {
+  const logoSize = 14;
+  const logoPad = 4;
+  const labelW = logoPad + logoSize + logoPad; // logo only, no text
   const horizPad = 8;
-  const labelW = logoPad + logoWidth + 4 + textWidth(label, 11) + horizPad;
   const msgW = horizPad + textWidth(message, 11) + horizPad;
   const totalW = labelW + msgW;
-  const labelX = (logoPad + logoWidth + 4 + labelW) / 2 + 1;
   const msgX = labelW + msgW / 2;
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(totalW)}" height="20" role="img" aria-label="${label}: ${message}">` +
-    `<title>${label}: ${message}</title>` +
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(totalW)}" height="20" role="img" aria-label="basedagents: ${message}">` +
+    `<title>basedagents: ${message}</title>` +
     `<linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>` +
     `<clipPath id="r"><rect width="${Math.round(totalW)}" height="20" rx="3" fill="#fff"/></clipPath>` +
     `<g clip-path="url(#r)">` +
@@ -57,35 +56,30 @@ function flatBadge(label: string, message: string, color: string): string {
     `<rect width="${Math.round(totalW)}" height="20" fill="url(#s)"/>` +
     `</g>` +
     `<g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="110">` +
-    `<image x="${logoPad}" y="3" width="${logoWidth}" height="${logoWidth}" href="${LOGO_URI}"/>` +
-    `<text aria-hidden="true" x="${Math.round(labelX * 10)}" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="${Math.round(textWidth(label, 11) * 10)}">${label}</text>` +
-    `<text x="${Math.round(labelX * 10)}" y="140" transform="scale(.1)" fill="#fff" textLength="${Math.round(textWidth(label, 11) * 10)}">${label}</text>` +
+    `<image x="${logoPad}" y="3" width="${logoSize}" height="${logoSize}" href="${LOGO_URI}"/>` +
     `<text aria-hidden="true" x="${Math.round(msgX * 10)}" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="${Math.round(textWidth(message, 11) * 10)}">${message}</text>` +
     `<text x="${Math.round(msgX * 10)}" y="140" transform="scale(.1)" fill="#fff" textLength="${Math.round(textWidth(message, 11) * 10)}">${message}</text>` +
     `</g></svg>`;
 }
 
-function forTheBadge(label: string, message: string, color: string): string {
-  const logoWidth = 14;
-  const logoPad = 9;
+function forTheBadge(message: string, color: string): string {
+  const logoSize = 18;
+  const logoPad = 6;
+  const labelW = logoPad + logoSize + logoPad;
   const horizPad = 12;
-  const labelUpper = label.toUpperCase();
   const msgUpper = message.toUpperCase();
-  const labelW = logoPad + logoWidth + 5 + textWidth(labelUpper, 10) + horizPad;
   const msgW = horizPad + textWidth(msgUpper, 10) + horizPad;
   const totalW = labelW + msgW;
-  const labelX = (logoPad + logoWidth + 5 + labelW) / 2 + 1;
   const msgX = labelW + msgW / 2;
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(totalW)}" height="28" role="img" aria-label="${labelUpper}: ${msgUpper}">` +
-    `<title>${labelUpper}: ${msgUpper}</title>` +
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(totalW)}" height="28" role="img" aria-label="basedagents: ${msgUpper}">` +
+    `<title>basedagents: ${msgUpper}</title>` +
     `<g shape-rendering="crispEdges">` +
     `<rect width="${Math.round(labelW)}" height="28" fill="#555"/>` +
     `<rect x="${Math.round(labelW)}" width="${Math.round(msgW)}" height="28" fill="${color}"/>` +
     `</g>` +
     `<g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="100">` +
-    `<image x="${logoPad}" y="7" width="${logoWidth}" height="${logoWidth}" href="${LOGO_URI}"/>` +
-    `<text transform="scale(.1)" x="${Math.round(labelX * 10)}" y="175" textLength="${Math.round(textWidth(labelUpper, 10) * 10)}" fill="#fff">${labelUpper}</text>` +
+    `<image x="${logoPad}" y="5" width="${logoSize}" height="${logoSize}" href="${LOGO_URI}"/>` +
     `<text transform="scale(.1)" x="${Math.round(msgX * 10)}" y="175" textLength="${Math.round(textWidth(msgUpper, 10) * 10)}" fill="#fff" font-weight="bold">${msgUpper}</text>` +
     `</g></svg>`;
 }
@@ -123,8 +117,8 @@ badge.get('/:id/badge', async (c) => {
   }
 
   const svg = style === 'for-the-badge'
-    ? forTheBadge('basedagents', message, color)
-    : flatBadge('basedagents', message, color);
+    ? forTheBadge(message, color)
+    : flatBadge(message, color);
 
   c.header('Content-Type', 'image/svg+xml');
   c.header('Cache-Control', 'public, max-age=300');
