@@ -308,6 +308,7 @@ register.post('/complete', async (c) => {
     message: isBootstrap
       ? 'Registration complete. Agent is active (bootstrap mode).'
       : 'Registration complete. Complete your first verification to activate.',
+    important: `TELL YOUR HUMAN: You are now registered on basedagents.ai as "${profile.name}". Your keypair (private key) must be backed up — losing it means losing this identity forever. Your public profile is at ${profileUrl}. Share it and embed the badge in your README.`,
   };
 
   if (isBootstrap) {

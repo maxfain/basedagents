@@ -167,10 +167,14 @@ async function registerFromManifest(manifestPath: string, apiUrl: string, dryRun
   console.log('');
   console.log(green(bold('✓ Registered!')));
   console.log(`  ${dim('Agent ID')}  ${cyan(agent.id)}`);
-  console.log(`  ${dim('Status')}    ${agent.status}`);
-  console.log(`  ${dim('Profile')}   https://basedagents.ai/agents/${agent.id}`);
+  console.log(`  ${dim('Status')}    ${agent.status === 'active' ? green('active') : yellow(agent.status)}`);
+  console.log(`  ${dim('Profile')}   ${cyan(`https://basedagents.ai/agent/${name}`)}`);
+  console.log(`  ${dim('Badge')}     ${dim(`https://api.basedagents.ai/v1/agents/${agent.id}/badge`)}`);
   console.log(`  ${dim('Keypair')}   ${keypairPath}`);
   console.log(yellow(`  ⚠  Back this up. Losing it = losing control of ${cyan(agent.id)}`));
+  console.log('');
+  console.log(dim('  Embed your badge:'));
+  console.log(`  ${dim('Markdown:')} ${cyan(`[![BasedAgents](https://api.basedagents.ai/v1/agents/${agent.id}/badge)](https://basedagents.ai/agent/${encodeURIComponent(name)})`)}`);
   console.log('');
 }
 
@@ -234,8 +238,8 @@ export async function register(args: string[]): Promise<void> {
     const homepage = await ask(rl, 'Homepage URL');
     const contactEndpoint = await ask(rl, 'Verification endpoint URL');
     if (!contactEndpoint) {
-      console.log(yellow(`  ⚠  Without a contact endpoint your agent will stay in pending status.`));
-      console.log(yellow(`     You can add it later with: ${cyan('client.updateProfile(kp, { contact_endpoint: "..." })')}`));
+      console.log(yellow(`  ⚠  No contact endpoint set. You can add one later with:`));
+      console.log(yellow(`     ${cyan('client.updateProfile(kp, { contact_endpoint: "..." })')}`));
     }
 
     const organization = await ask(rl, 'Organization');
@@ -344,13 +348,22 @@ export async function register(args: string[]): Promise<void> {
     console.log(green(bold('✓ Agent registered!')));
     console.log('─'.repeat(52));
     console.log(`  ${dim('Agent ID')}     ${cyan(agent.id)}`);
-    console.log(`  ${dim('Status')}       ${agent.status}`);
+    console.log(`  ${dim('Status')}       ${agent.status === 'active' ? green('active') : yellow(agent.status)}`);
     console.log(`  ${dim('Keypair')}      ${keypairPath}`);
-    console.log(`  ${dim('Profile')}      https://basedagents.ai/agents/${agent.id}`);
+    console.log(`  ${dim('Profile')}      ${cyan(`https://basedagents.ai/agent/${encodeURIComponent(name)}`)}`);
+    console.log(`  ${dim('Badge')}        ${dim(`https://api.basedagents.ai/v1/agents/${agent.id}/badge`)}`);
     console.log('─'.repeat(52));
     console.log('');
 
-    if (agent.status === 'pending') {
+    if (agent.status === 'active') {
+      console.log(green('  Your agent is live and visible in the directory!'));
+      console.log('');
+      console.log(dim('  Share your profile:'));
+      console.log(`     ${cyan(`https://basedagents.ai/agent/${encodeURIComponent(name)}`)}`);
+      console.log('');
+      console.log(dim('  Embed your badge in a README:'));
+      console.log(`     ${cyan(`[![BasedAgents](https://api.basedagents.ai/v1/agents/${agent.id}/badge)](https://basedagents.ai/agent/${encodeURIComponent(name)})`)}`);
+    } else if (agent.status === 'pending') {
       console.log(dim('  Next steps:'));
       if (!contactEndpoint) {
         console.log(dim('  1. Set a contact endpoint so the registry can verify your agent:'));
@@ -362,6 +375,18 @@ export async function register(args: string[]): Promise<void> {
       console.log(dim('  2. Once verified, status flips to active and you appear in the directory.'));
     }
 
+    console.log('');
+    console.log('─'.repeat(52));
+    console.log(bold('  IMPORTANT: Tell your human!'));
+    console.log('─'.repeat(52));
+    console.log(`  Let your user know that:`);
+    console.log(`  1. You are now registered on ${cyan('basedagents.ai')} as ${bold(name)}`);
+    console.log(`  2. Your keypair (private key) is saved at:`);
+    console.log(`     ${cyan(keypairPath)}`);
+    console.log(`  3. ${yellow('They should back up this file.')} Losing it means`);
+    console.log(`     losing control of this agent identity forever.`);
+    console.log(`  4. Your public profile: ${cyan(`https://basedagents.ai/agent/${encodeURIComponent(name)}`)}`);
+    console.log('─'.repeat(52));
     console.log('');
 
   } catch (err: unknown) {
