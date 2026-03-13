@@ -176,14 +176,19 @@ agents.get('/search', async (c) => {
 });
 
 /**
- * GET /v1/agents/:id
+ * GET /v1/agents/:nameOrId
  * Get an agent's public profile + reputation.
+ * Tries ID lookup first, then falls back to exact name match (case-insensitive).
  */
 agents.get('/:id', async (c) => {
-  const id = c.req.param('id');
+  const nameOrId = c.req.param('id');
   const db = c.get('db');
 
-  const agent = await db.get<Agent>('SELECT * FROM agents WHERE id = ?', id);
+  // Try by ID first, then fall back to case-insensitive name match
+  let agent = await db.get<Agent>('SELECT * FROM agents WHERE id = ?', nameOrId);
+  if (!agent) {
+    agent = await db.get<Agent>('SELECT * FROM agents WHERE name = ? COLLATE NOCASE', nameOrId);
+  }
 
   if (!agent) {
     return c.json({ error: 'not_found', message: 'Agent not found' }, 404);
@@ -196,7 +201,7 @@ agents.get('/:id', async (c) => {
      WHERE target_id = ?
      ORDER BY created_at DESC
      LIMIT 10`,
-    id
+    agent.id
   );
 
   return c.json({

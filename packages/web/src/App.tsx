@@ -23,6 +23,7 @@ export default function App(): React.ReactElement {
           <Route path="/" element={<Directory />} />
           <Route path="/agents" element={<Directory />} />
           <Route path="/agents/:id" element={<AgentProfile />} />
+          <Route path="/agent/:name" element={<AgentProfile />} />
           <Route path="/chain" element={<ChainExplorer />} />
           <Route path="/docs/getting-started" element={<GettingStarted />} />
           <Route path="/status" element={<Status />} />

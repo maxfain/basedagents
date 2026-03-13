@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAgent, useReputation } from '../hooks';
 import { truncateHash, formatTimeAgo } from '../data/mockData';
@@ -13,12 +13,121 @@ import DemoBanner from '../components/DemoBanner';
 import VerifyAgentForm from '../components/VerifyAgentForm';
 import { useAgentAuth } from '../hooks/useAgentAuth';
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => {
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }}
+      style={{
+        background: 'var(--bg-tertiary)',
+        border: '1px solid var(--border)',
+        borderRadius: 4,
+        padding: '4px 10px',
+        fontSize: 12,
+        color: copied ? 'var(--status-active)' : 'var(--text-secondary)',
+        cursor: 'pointer',
+        flexShrink: 0,
+      }}
+    >
+      {copied ? 'Copied!' : 'Copy'}
+    </button>
+  );
+}
+
+function EmbedBadgeSection({ agentId, agentName }: { agentId: string; agentName: string }) {
+  const badgeUrl = `https://api.basedagents.ai/v1/agents/${agentId}/badge`;
+  const profileUrl = `https://basedagents.ai/agent/${encodeURIComponent(agentName)}`;
+  const markdown = `[![BasedAgents](${badgeUrl})](${profileUrl})`;
+  const html = `<a href='${profileUrl}'><img src='${badgeUrl}' alt='BasedAgents' /></a>`;
+
+  return (
+    <div
+      style={{
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border)',
+        borderRadius: 8,
+        padding: 24,
+        marginBottom: 48,
+      }}
+    >
+      <h2 style={{ fontSize: 18, marginBottom: 16 }}>Embed</h2>
+
+      {/* Live badge preview */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+          Preview
+        </div>
+        <a href={profileUrl} target="_blank" rel="noopener noreferrer">
+          <img src={badgeUrl} alt="BasedAgents" />
+        </a>
+      </div>
+
+      {/* Markdown snippet */}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+          Markdown
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <code
+            style={{
+              flex: 1,
+              fontFamily: 'var(--font-mono)',
+              fontSize: 12,
+              color: 'var(--text-tertiary)',
+              background: 'var(--bg-tertiary)',
+              border: '1px solid var(--border)',
+              borderRadius: 4,
+              padding: '8px 12px',
+              overflow: 'auto',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {markdown}
+          </code>
+          <CopyButton text={markdown} />
+        </div>
+      </div>
+
+      {/* HTML snippet */}
+      <div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+          HTML
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <code
+            style={{
+              flex: 1,
+              fontFamily: 'var(--font-mono)',
+              fontSize: 12,
+              color: 'var(--text-tertiary)',
+              background: 'var(--bg-tertiary)',
+              border: '1px solid var(--border)',
+              borderRadius: 4,
+              padding: '8px 12px',
+              overflow: 'auto',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {html}
+          </code>
+          <CopyButton text={html} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AgentProfile(): React.ReactElement {
-  const { id } = useParams<{ id: string }>();
-  const { agent, verifications, loading, error, usingMock } = useAgent(id);
-  const { data: repData } = useReputation(id);
+  const { id, name } = useParams<{ id?: string; name?: string }>();
+  const nameOrId = id || name;
+  const { agent, verifications, loading, error, usingMock } = useAgent(nameOrId);
+  const { data: repData } = useReputation(nameOrId);
   const { isAuthenticated, keypair } = useAgentAuth();
-  const isSelf = keypair?.agent_id === id;
+  const isSelf = keypair?.agent_id === agent?.id;
 
   if (loading) {
     return (
@@ -312,7 +421,11 @@ export default function AgentProfile(): React.ReactElement {
           </div>
         )}
 
+        {/* Embed Badge */}
+        <EmbedBadgeSection agentId={agent.id} agentName={agent.name} />
+
         {/* Verification History */}
+
         <div id="verifications">
           <h2 style={{ fontSize: 18, marginBottom: 16 }}>Verification History</h2>
           {verifications.length > 0 ? (

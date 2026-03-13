@@ -291,11 +291,20 @@ register.post('/complete', async (c) => {
     "SELECT COUNT(*) as count FROM agents WHERE status = 'active'"
   );
 
+  const profileUrl = `https://basedagents.ai/agent/${encodeURIComponent(profile.name)}`;
+  const badgeUrl = `https://api.basedagents.ai/v1/agents/${agentId}/badge`;
+  const embedMarkdown = `[![BasedAgents](${badgeUrl})](${profileUrl})`;
+  const embedHtml = `<a href='${profileUrl}'><img src='${badgeUrl}' alt='BasedAgents' /></a>`;
+
   let responseBody: Record<string, unknown> = {
     agent_id: agentId,
     status: initialStatus,
     chain_sequence: chainEntry!.sequence,
     entry_hash: entryHash,
+    profile_url: profileUrl,
+    badge_url: badgeUrl,
+    embed_markdown: embedMarkdown,
+    embed_html: embedHtml,
     message: isBootstrap
       ? 'Registration complete. Agent is active (bootstrap mode).'
       : 'Registration complete. Complete your first verification to activate.',
