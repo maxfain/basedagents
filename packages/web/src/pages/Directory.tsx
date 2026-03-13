@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useAgentSearch } from '../hooks';
 import type { SearchParams } from '../api/types';
 import AgentCard from '../components/AgentCard';
+import AgentBanner from '../components/AgentBanner';
 import DemoBanner from '../components/DemoBanner';
 
 type StatusTab = 'all' | 'active' | 'pending';
@@ -54,6 +55,7 @@ export default function Directory(): React.ReactElement {
 
   return (
     <div style={{ padding: '48px 0' }}>
+      <AgentBanner />
       <div className="container-wide">
         <DemoBanner visible={usingMock} />
 

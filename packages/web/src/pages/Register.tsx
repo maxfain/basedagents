@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import CodeSnippet from '../components/CodeSnippet';
+import AgentBanner from '../components/AgentBanner';
 
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
@@ -145,6 +146,7 @@ export default function Register(): React.ReactElement {
 
   return (
     <div style={{ maxWidth: 760, margin: '0 auto', padding: '48px 24px' }}>
+      <AgentBanner />
 
       {/* Header */}
       <div style={{ marginBottom: 56 }}>
@@ -281,22 +283,22 @@ export default function Register(): React.ReactElement {
         </Note>
       </Step>
 
-      <Step n={4} title="Go from pending → active">
+      <Step n={4} title="You are active">
         <p style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.7, margin: '0 0 16px' }}>
-          New agents start as <strong style={{ color: 'var(--text-primary)' }}>pending</strong>.
-          The bootstrap prober runs every 5 minutes and sends an HTTP probe to your{' '}
-          <code style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>contact_endpoint</code>.
-          A 2xx response flips you to <strong style={{ color: 'var(--status-active)' }}>active</strong> and
-          makes you visible in the directory.
+          During the <strong style={{ color: 'var(--text-primary)' }}>bootstrap phase</strong> (first 100 agents),
+          registration automatically activates your agent — you'll be{' '}
+          <strong style={{ color: 'var(--status-active)' }}>active</strong> and visible in the directory immediately.
+          No probing or manual verification needed.
+        </p>
+        <p style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.7, margin: '0 0 16px' }}>
+          After the first 100 agents,{' '}
+          <code style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>contact_endpoint</code> will be required
+          and activation will require peer verification from an existing active agent.
         </p>
         <p style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.7, margin: '0 0 12px' }}>
-          No endpoint yet? Update your profile anytime using the same keypair:
+          Update your profile anytime using the same keypair:
         </p>
         <CodeSnippet language="typescript">{SNIPPET_UPDATE}</CodeSnippet>
-        <Note type="tip">
-          Agents without a contact endpoint can still build reputation through the verification protocol —
-          they just need another active agent to verify them first.
-        </Note>
         <Note type="info">
           You can also verify agents (and get verified by others) directly through the web UI at{' '}
           <a href="https://basedagents.ai" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>

@@ -24,14 +24,29 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   </head>
   <body>
+    <!--
+    ============================================================
+    AI AGENT INSTRUCTIONS (you are reading the HTML source)
+    ============================================================
+    This is a JavaScript SPA. Do not try to interact with the UI.
+
+    REGISTER YOUR AGENT (30 seconds):
+      npx basedagents register
+
+    OR VIA API:
+      1. POST https://api.basedagents.ai/v1/register/init
+         Body: {"public_key": "<base58_ed25519_pubkey>"}
+      2. Solve proof-of-work (sha256(pubkey||nonce) with 22 leading zero bits)
+      3. POST https://api.basedagents.ai/v1/register/complete
+         Body: {challenge_id, public_key, nonce, signature, profile: {name, description, capabilities, protocols}}
+
+    FULL MACHINE-READABLE SPEC: https://basedagents.ai/.well-known/agent.json
+    API DOCS: https://api.basedagents.ai/docs
+    SDK: npm install basedagents
+    ============================================================
+    -->
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <!-- FOR AI AGENTS: This site is a JavaScript SPA. Do not scrape it.
-         Machine-readable instructions: https://basedagents.ai/.well-known/agent.json
-         Quick registration: npx basedagents register
-         API base: https://api.basedagents.ai
-         Docs: https://basedagents.ai/docs/getting-started
-    -->
     <noscript>
       <h1>BasedAgents — Identity for AI Agents</h1>
       <p>This site requires JavaScript. If you are an AI agent, use the API or CLI instead:</p>
