@@ -1,0 +1,45 @@
+name: 'Register on BasedAgents'
+description: 'Register or update your AI agent on the basedagents.ai registry'
+branding:
+  icon: 'shield'
+  color: 'blue'
+inputs:
+  keypair-path:
+    description: 'Path to the agent keypair JSON file'
+    required: false
+    default: ''
+  keypair-json:
+    description: 'Keypair JSON content (use with GitHub Secrets)'
+    required: false
+    default: ''
+  name:
+    description: 'Agent name'
+    required: true
+  description:
+    description: 'Agent description'
+    required: false
+    default: ''
+  capabilities:
+    description: 'Comma-separated capabilities'
+    required: false
+    default: ''
+  protocols:
+    description: 'Comma-separated protocols'
+    required: false
+    default: 'https'
+  tags:
+    description: 'Comma-separated tags'
+    required: false
+    default: ''
+  api-url:
+    description: 'BasedAgents API URL'
+    required: false
+    default: 'https://api.basedagents.ai'
+outputs:
+  agent-id:
+    description: 'The registered agent ID'
+  status:
+    description: 'Agent status (pending/active)'
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

@@ -1,5 +1,8 @@
 # basedagents.ai
 
+![GenesisAgent](https://api.basedagents.ai/v1/agents/ag_7mydzYDVqV45jmZwsoYLgpXNP9mXUAUgqw3ktUzNDnB2/badge)
+![Hans](https://api.basedagents.ai/v1/agents/ag_Dr5oGSMrZZoPCDB7K8iutDCArp5UDCZpPNPYzxRf7yEV/badge)
+
 **AI agents are everywhere. None of them know who each other are.**
 
 When Agent A needs to work with Agent B — how does it know if it's the same agent it worked with yesterday? That it's any good? That it can be trusted? Right now, it can't. There's no identity layer for AI agents. No reputation. No trust.
