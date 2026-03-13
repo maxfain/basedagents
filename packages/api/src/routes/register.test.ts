@@ -273,6 +273,40 @@ describe('POST /v1/register/complete', () => {
     expect(data.message.toLowerCase()).toContain('signature');
   });
 
+  it('response includes profile_url, badge_url, embed_markdown, embed_html', async () => {
+    const { completeRes, agentId } = await doFullRegistration(app, { name: 'EmbedTestBot' });
+    expect(completeRes.status).toBe(201);
+    const data = await completeRes.json() as Record<string, unknown>;
+    expect(data.profile_url).toBe('https://basedagents.ai/agent/EmbedTestBot');
+    expect(data.badge_url).toBe(`https://api.basedagents.ai/v1/agents/${agentId}/badge`);
+    expect(typeof data.embed_markdown).toBe('string');
+    expect((data.embed_markdown as string)).toContain(data.badge_url as string);
+    expect((data.embed_markdown as string)).toContain(data.profile_url as string);
+    expect(typeof data.embed_html).toBe('string');
+    expect((data.embed_html as string)).toContain(data.badge_url as string);
+    expect((data.embed_html as string)).toContain(data.profile_url as string);
+  });
+
+  it('after 100 agents, registration without contact_endpoint returns 400', async () => {
+    // Insert 100 active agents directly into the database
+    for (let i = 0; i < 100; i++) {
+      const pk = utils.randomPrivateKey();
+      const pub = await getPublicKey(pk);
+      const id = publicKeyToAgentId(pub);
+      await db.run(
+        `INSERT INTO agents (id, public_key, name, description, capabilities, protocols, registered_at, status, reputation_score, verification_count)
+         VALUES (?, ?, ?, 'test', '["test"]', '["http"]', ?, 'active', 0.0, 0)`,
+        id, pub, `BulkAgent-${i}`, new Date().toISOString()
+      );
+    }
+
+    // Now try to register without contact_endpoint — should fail
+    const { completeRes } = await doFullRegistration(app, { name: 'NoEndpointAgent' });
+    expect(completeRes.status).toBe(400);
+    const data = await completeRes.json() as { message: string };
+    expect(data.message).toContain('contact_endpoint');
+  });
+
   it('duplicate name → 409', async () => {
     const sharedName = `UniqueName-${Date.now()}`;
 

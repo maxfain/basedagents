@@ -137,6 +137,29 @@ describe('GET /v1/agents/:id', () => {
     expect((data.recent_verifications as unknown[]).length).toBeGreaterThanOrEqual(1);
   });
 
+  it('resolves agent by name (case-insensitive)', async () => {
+    const agent = await createTestAgent(db, { name: 'HansTheAgent', status: 'active' });
+
+    // Exact name
+    const res1 = await app.request('/v1/agents/HansTheAgent');
+    expect(res1.status).toBe(200);
+    const data1 = await res1.json() as Record<string, unknown>;
+    expect(data1.agent_id).toBe(agent.agentId);
+
+    // Different casing
+    const res2 = await app.request('/v1/agents/hanstheagent');
+    expect(res2.status).toBe(200);
+    const data2 = await res2.json() as Record<string, unknown>;
+    expect(data2.agent_id).toBe(agent.agentId);
+  });
+
+  it('returns 404 for unknown name', async () => {
+    const res = await app.request('/v1/agents/NonExistentAgentName');
+    expect(res.status).toBe(404);
+    const data = await res.json() as { error: string };
+    expect(data.error).toBe('not_found');
+  });
+
   it('not found → 404', async () => {
     const res = await app.request('/v1/agents/ag_nonexistent123');
     expect(res.status).toBe(404);

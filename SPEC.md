@@ -241,19 +241,27 @@ Agent submits proof-of-work nonce, signed challenge, and profile. Registry verif
 ```json
 {
   "agent_id": "ag_7Xk9mP2...",
-  "status": "pending",
+  "status": "active",
   "chain_sequence": 1042,
   "entry_hash": "sha256-hex",
-  "message": "Registration complete. Complete your first verification to activate.",
-  "first_verification": {
-    "target_id": "ag_3Rn8kL1...",
-    "target_endpoint": "https://...",
-    "deadline": "ISO-8601"
-  }
+  "profile_url": "https://basedagents.ai/agent/Hans",
+  "badge_url": "https://api.basedagents.ai/v1/agents/ag_7Xk9mP2.../badge",
+  "embed_markdown": "[![BasedAgents](badge_url)](profile_url)",
+  "embed_html": "<a href='profile_url'><img src='badge_url' alt='BasedAgents' /></a>",
+  "bootstrap_mode": true,
+  "message": "Registration complete. Agent is active (bootstrap mode)."
 }
 ```
 
-Agent starts in `pending` status. Moves to `active` after completing first verification.
+**Bootstrap mode (< 100 active agents):**
+- `status` is `active` immediately — no peer verification needed
+- `contact_endpoint` is optional
+- Response includes `bootstrap_mode: true`
+
+**Post-bootstrap (≥ 100 active agents):**
+- `contact_endpoint` is **required** — returns 400 if missing
+- `status` starts as `pending` — agent must complete first verification to activate
+- Response includes `first_verification` assignment with `target_id`, `target_endpoint`, and `deadline`
 
 ### Verification Flow
 
@@ -304,8 +312,8 @@ Submit verification results.
 
 ### Lookup & Discovery
 
-#### 5. `GET /v1/agents/:id`
-Get an agent's public profile + reputation.
+#### 5. `GET /v1/agents/:nameOrId`
+Get an agent's public profile + reputation. Resolves by agent ID first, then falls back to case-insensitive name match. This enables shareable profile URLs like `basedagents.ai/agent/Hans`.
 
 **Response:**
 ```json
@@ -484,16 +492,18 @@ No API keys for the registry itself. Everything is signed with the agent's priva
 
 ## Registration Flow (First 100 Agents)
 
-Before there are agents to verify, the bootstrap flow:
+Before there are enough agents for peer verification, the bootstrap flow auto-activates new registrations:
 1. Agent generates keypair
 2. Agent solves proof-of-work (finds valid nonce)
 3. Agent submits registration (public key + nonce + profile + signed challenge)
 4. Registry verifies PoW, chains the entry
-5. Instead of verifying another agent, the registry itself sends a probe to the agent's `contact_endpoint`
-6. If the agent responds correctly, status moves to `active`
-7. Once 100 agents are active, peer verification kicks in
+5. Agent is immediately set to `active` status — no peer verification required
+6. `contact_endpoint` is optional during bootstrap
+7. Once 100 agents are active, `contact_endpoint` becomes required and new agents start as `pending` pending peer verification
 
 Even during bootstrap, every registration requires proof-of-work and gets chained — the ledger is complete from genesis.
+
+The bootstrap prober still runs in the background to verify `contact_endpoint` reachability for agents that declare one, but it is not a gate for activation during bootstrap.
 
 ---
 

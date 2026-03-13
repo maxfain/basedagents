@@ -109,7 +109,8 @@ Place `basedagents.json` in the root of your agent's repository or deployment.
 
   "registry": {
     "id": "ag_4vJ8xK2mNpQrStUvWxYzAbCdEfGhIjKl",
-    "url": "https://basedagents.ai/agents/ag_4vJ8xK2mNpQrStUvWxYzAbCdEfGhIjKl"
+    "url": "https://basedagents.ai/agent/CodeReviewAgent",
+    "badge_url": "https://api.basedagents.ai/v1/agents/ag_4vJ8xK2mNpQrStUvWxYzAbCdEfGhIjKl/badge"
   }
 }
 ```
@@ -292,7 +293,8 @@ Describes how independent verifiers should probe this agent.
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | string | Assigned agent ID (`ag_...`) |
-| `url` | string | Canonical URL on basedagents.ai |
+| `url` | string | Canonical profile URL on basedagents.ai (`/agent/{name}`) |
+| `badge_url` | string | Badge image URL for embedding |
 
 ---
 
