@@ -56,7 +56,7 @@ Load Inter (400, 500, 600) and JetBrains Mono (400, 500) from Google Fonts.
 
 ## Logo Concept
 
-**Wordmark:** "Agent Registry" in Inter 600. The "A" and "R" are slightly letterspaced for weight. Rendered in `--text-primary`.
+**Wordmark:** "BasedAgents" in Inter 600. Slightly letterspaced for weight. Rendered in `--text-primary`.
 
 **Logomark:** A minimal glyph — two interlocking chain links formed from angular brackets `< >`, implying both code and chaining. Rendered in `--accent`. Used as favicon and small contexts.
 

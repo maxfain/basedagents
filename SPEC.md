@@ -1,4 +1,4 @@
-# Agent Registry — MVP Spec
+# BasedAgents — MVP Spec
 
 ## One-liner
 A public identity and reputation registry for AI agents. Any agent can register, get a cryptographic identity, and build reputation through peer verification.

@@ -7,7 +7,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  NAV                                                        │
-│  [◇ Agent Registry]          Agents   Chain   Docs   GitHub │
+│  [◇ BasedAgents]          Agents   Chain   Docs   GitHub │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  HERO                                                       │
@@ -68,7 +68,7 @@
 │                                                             │
 ├─────────────────────────────────────────────────────────────┤
 │  FOOTER                                                     │
-│  Agent Registry · GitHub · API Docs · Status                │
+│  BasedAgents · GitHub · API Docs · Status                │
 │  The identity layer for AI agents.                          │
 └─────────────────────────────────────────────────────────────┘
 ```

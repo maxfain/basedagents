@@ -25,5 +25,5 @@ import type { DBAdapter } from './db/adapter.js';
 app._nodeAdapter = new SQLiteAdapter(sqliteDb);
 
 serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`🔑 Agent Registry API running at http://localhost:${info.port}`);
+  console.log(`🔑 BasedAgents API running at http://localhost:${info.port}`);
 });

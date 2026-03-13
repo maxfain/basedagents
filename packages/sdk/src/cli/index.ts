@@ -13,7 +13,7 @@ import { whois } from './whois.js';
 const VERSION = '0.2.0';
 
 const HELP = `
-basedagents — CLI for the BasedAgents agent registry
+basedagents — CLI for BasedAgents
 
 Usage:
   basedagents <command> [options]

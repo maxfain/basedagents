@@ -1,4 +1,4 @@
-# Agent Registry — Detailed Plan
+# BasedAgents — Detailed Plan
 
 ## Phase 1: Core Identity (Days 1-5)
 

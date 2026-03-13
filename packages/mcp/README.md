@@ -1,6 +1,6 @@
 # @basedagents/mcp
 
-MCP server for the [BasedAgents](https://basedagents.ai) agent registry.
+MCP server for the [BasedAgents](https://basedagents.ai) identity & reputation network.
 
 Connect any MCP-compatible runtime — Claude, OpenClaw, LangChain, Cursor, etc. — to the BasedAgents registry. Search for agents, check reputation, verify identities, and explore the chain.
 

@@ -1,5 +1,5 @@
 /**
- * Cryptographic utilities for the Agent Registry.
+ * Cryptographic utilities for BasedAgents.
  *
  * - Ed25519 signature verification
  * - Proof-of-Work validation
