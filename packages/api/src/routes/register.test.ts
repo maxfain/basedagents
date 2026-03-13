@@ -169,7 +169,7 @@ describe('POST /v1/register/complete', () => {
     expect(completeRes.status).toBe(201);
     const data = await completeRes.json() as Record<string, unknown>;
     expect(data.agent_id).toBeDefined();
-    expect(data.status).toBe('pending');
+    expect(data.status).toBe('active'); // Bootstrap mode: auto-activated when < 100 agents
     expect(data.chain_sequence).toBeDefined();
     expect(data.entry_hash).toBeDefined();
   });

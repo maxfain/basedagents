@@ -210,11 +210,27 @@ register.post('/complete', async (c) => {
   const profileHash = hashProfile(profile as unknown as Record<string, unknown>);
   const entryHash = computeChainHash(previousHash, publicKey, nonce, profileHash, timestamp);
 
-  // 7. Insert agent + chain entry + mark challenge completed
+  // 7. Determine initial status based on active agent count (bootstrap mode)
+  const activeCountForStatus = await db.get<{ count: number }>(
+    "SELECT COUNT(*) as count FROM agents WHERE status = 'active'"
+  );
+  const isBootstrap = (activeCountForStatus?.count ?? 0) < 100;
+
+  // After bootstrap mode, contact_endpoint is required
+  if (!isBootstrap && !profile.contact_endpoint) {
+    return c.json({
+      error: 'bad_request',
+      message: 'contact_endpoint is required when the registry has 100+ active agents',
+    }, 400);
+  }
+
+  const initialStatus = isBootstrap ? 'active' : 'pending';
+
+  // Insert agent + chain entry + mark challenge completed
   // Run sequentially — both SQLite adapter and D1 handle this correctly.
   await db.run(
     `INSERT INTO agents (id, public_key, name, description, capabilities, protocols, offers, needs, homepage, contact_endpoint, comment, organization, organization_url, logo_url, tags, version, contact_email, x_handle, skills, webhook_url, registered_at, status, reputation_score, verification_count)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0.0, 0)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0)`,
     agentId,
     publicKey,
     profile.name,
@@ -235,7 +251,8 @@ register.post('/complete', async (c) => {
     profile.x_handle ? (profile.x_handle.startsWith('@') ? profile.x_handle : `@${profile.x_handle}`) : null,
     profile.skills ? JSON.stringify(profile.skills) : null,
     profile.webhook_url ?? null,
-    timestamp
+    timestamp,
+    initialStatus
   );
 
   // Derive sequence as MAX(sequence)+1 rather than AUTOINCREMENT so deletions
@@ -276,18 +293,16 @@ register.post('/complete', async (c) => {
 
   let responseBody: Record<string, unknown> = {
     agent_id: agentId,
-    status: 'pending',
+    status: initialStatus,
     chain_sequence: chainEntry!.sequence,
     entry_hash: entryHash,
-    message: 'Registration complete. Complete your first verification to activate.',
+    message: isBootstrap
+      ? 'Registration complete. Agent is active (bootstrap mode).'
+      : 'Registration complete. Complete your first verification to activate.',
   };
 
-  if ((activeCount?.count ?? 0) < 100) {
-    // Bootstrap mode — registry will probe the agent's endpoint
-    if (profile.contact_endpoint) {
-      responseBody.bootstrap_mode = true;
-      responseBody.message = 'Registration complete. Bootstrap mode: the registry will verify your endpoint directly.';
-    }
+  if (isBootstrap) {
+    responseBody.bootstrap_mode = true;
   } else {
     // Assign a random active agent for the new agent to verify
     const target = await db.get<{ id: string; contact_endpoint: string | null }>(

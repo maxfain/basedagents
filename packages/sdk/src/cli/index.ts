@@ -9,6 +9,7 @@
 import { validate } from './validate.js';
 import { register } from './register.js';
 import { whois } from './whois.js';
+import { check } from './check.js';
 
 const VERSION = '0.2.0';
 
