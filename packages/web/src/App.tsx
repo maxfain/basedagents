@@ -11,6 +11,7 @@ import Whois from './pages/Whois';
 import Terms from './pages/Terms';
 import Privacy from './pages/Privacy';
 import Register from './pages/Register';
+import Integrations from './pages/Integrations';
 import { AgentAuthProvider } from './hooks/useAgentAuth';
 
 export default function App(): React.ReactElement {
@@ -27,6 +28,7 @@ export default function App(): React.ReactElement {
           <Route path="/status" element={<Status />} />
           <Route path="/whois" element={<Whois />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/integrations" element={<Integrations />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/privacy" element={<Privacy />} />
         </Routes>

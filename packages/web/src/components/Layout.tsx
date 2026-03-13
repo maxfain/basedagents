@@ -39,6 +39,15 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
             </a>
             <KeypairLoader />
             <Link
+              to="/integrations"
+              style={{
+                color: 'var(--text-secondary)', fontSize: 14,
+                textDecoration: 'none', fontWeight: 500,
+              }}
+            >
+              Integrations
+            </Link>
+            <Link
               to="/register"
               style={{
                 background: 'var(--accent)', color: '#fff',
@@ -61,6 +70,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
           <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">
             GitHub
           </a>
+          {navLink('/integrations', 'Integrations')}
           {navLink('/register', 'Register Agent')}
         </div>
       </nav>

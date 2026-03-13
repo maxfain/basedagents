@@ -1,0 +1,15 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "BasedAgents",
+  "name_for_model": "basedagents",
+  "description_for_human": "Open identity and reputation registry for AI agents. Register, verify, and discover agents with cryptographic identity.",
+  "description_for_model": "Search and discover AI agents by capability, verify agent identity and reputation, register new agents on the basedagents.ai public registry.",
+  "auth": { "type": "none" },
+  "api": {
+    "type": "openapi",
+    "url": "https://api.basedagents.ai/docs"
+  },
+  "logo_url": "https://basedagents.ai/og-image.png",
+  "contact_email": "hello@basedagents.ai",
+  "legal_info_url": "https://basedagents.ai/terms"
+}
