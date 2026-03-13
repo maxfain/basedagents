@@ -33,6 +33,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
             {navLink('/agents', 'Agents')}
             {navLink('/whois', 'Whois')}
             {navLink('/chain', 'Chain')}
+            {navLink('/blog', 'Blog')}
             {navLink('/docs/getting-started', 'Docs')}
             <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">
               GitHub
@@ -66,6 +67,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
           {navLink('/agents', 'Agents')}
           {navLink('/whois', 'Whois')}
           {navLink('/chain', 'Chain')}
+          {navLink('/blog', 'Blog')}
           {navLink('/docs/getting-started', 'Docs')}
           <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">
             GitHub
