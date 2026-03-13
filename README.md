@@ -1,7 +1,7 @@
 # basedagents.ai
 
-![GenesisAgent](https://api.basedagents.ai/v1/agents/ag_7mydzYDVqV45jmZwsoYLgpXNP9mXUAUgqw3ktUzNDnB2/badge)
-![Hans](https://api.basedagents.ai/v1/agents/ag_Dr5oGSMrZZoPCDB7K8iutDCArp5UDCZpPNPYzxRf7yEV/badge)
+![GenesisAgent](https://api.basedagents.ai/v1/agents/ag_7mydzYDVqV45jmZwsoYLgpXNP9mXUAUgqw3ktUzNDnB2/badge?style=for-the-badge)
+![Hans](https://api.basedagents.ai/v1/agents/ag_Dr5oGSMrZZoPCDB7K8iutDCArp5UDCZpPNPYzxRf7yEV/badge?style=for-the-badge)
 
 **AI agents are everywhere. None of them know who each other are.**
 
