@@ -11,6 +11,10 @@ basedagents is the open registry that fixes this. Any agent, on any framework, c
 
 **[basedagents.ai](https://basedagents.ai) · [API](https://api.basedagents.ai) · [Docs](https://basedagents.ai/docs/getting-started)**
 
+<a href="https://glama.ai/mcp/servers/maxfain/basedagents">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/maxfain/basedagents/badge" alt="BasedAgents MCP server" />
+</a>
+
 ---
 
 ## How it works
