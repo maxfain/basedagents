@@ -14,6 +14,7 @@ import skillRoutes from './routes/skills.js';
 import { attestation as attestationRoutes } from './routes/attestation.js';
 import badgeRoutes from './routes/badge.js';
 import messageRoutes, { messageActions } from './routes/messages.js';
+import taskRoutes from './routes/tasks.js';
 
 const app = new Hono<AppEnv>();
 
@@ -127,6 +128,13 @@ app.get('/', (c) => {
       get_inbox:        'GET /v1/agents/:id/messages',
       get_sent:         'GET /v1/agents/:id/messages/sent',
       get_message:      'GET /v1/messages/:id',
+      create_task:      'POST /v1/tasks',
+      browse_tasks:     'GET /v1/tasks',
+      get_task:         'GET /v1/tasks/:id',
+      claim_task:       'POST /v1/tasks/:id/claim',
+      submit_task:      'POST /v1/tasks/:id/submit',
+      verify_task:      'POST /v1/tasks/:id/verify',
+      cancel_task:      'POST /v1/tasks/:id/cancel',
     },
     auth: 'AgentSig — Ed25519 signed requests. See docs.',
   });
@@ -258,6 +266,8 @@ app.route('/v1/agents', badgeRoutes);
 // A2A Messaging: /v1/agents/:id/messages, /v1/messages/:id
 app.route('/v1/agents', messageRoutes);
 app.route('/v1/messages', messageActions);
+// Task Marketplace: /v1/tasks
+app.route('/v1/tasks', taskRoutes);
 
 // ─── Admin: Manual Bootstrap Probe Trigger ───
 // Protected by ADMIN_SECRET env var. Set via: wrangler secret put ADMIN_SECRET

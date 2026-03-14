@@ -21,6 +21,7 @@ import registerRoutes from './routes/register.js';
 import agentRoutes from './routes/agents.js';
 import verifyRoutes from './routes/verify.js';
 import messageRoutes, { messageActions } from './routes/messages.js';
+import taskRoutes from './routes/tasks.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -45,6 +46,13 @@ ALTER TABLE verifications ADD COLUMN structured_report TEXT;
 ALTER TABLE verifications ADD COLUMN nonce TEXT;
 ALTER TABLE chain ADD COLUMN entry_type TEXT DEFAULT 'registration';
 CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, from_agent_id TEXT NOT NULL, to_agent_id TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'message', subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', callback_url TEXT, reply_to_message_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, expires_at TEXT NOT NULL, FOREIGN KEY (from_agent_id) REFERENCES agents(id), FOREIGN KEY (to_agent_id) REFERENCES agents(id), FOREIGN KEY (reply_to_message_id) REFERENCES messages(id));
+CREATE TABLE IF NOT EXISTS tasks (task_id TEXT PRIMARY KEY, creator_agent_id TEXT NOT NULL, claimed_by_agent_id TEXT, title TEXT NOT NULL, description TEXT NOT NULL, category TEXT, required_capabilities TEXT, expected_output TEXT, output_format TEXT DEFAULT 'json', status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','claimed','submitted','verified','closed','cancelled')), created_at TEXT NOT NULL, claimed_at TEXT, submitted_at TEXT, verified_at TEXT, FOREIGN KEY (creator_agent_id) REFERENCES agents(id), FOREIGN KEY (claimed_by_agent_id) REFERENCES agents(id));
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_category ON tasks(category);
+CREATE INDEX IF NOT EXISTS idx_tasks_creator ON tasks(creator_agent_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_claimer ON tasks(claimed_by_agent_id);
+CREATE TABLE IF NOT EXISTS submissions (submission_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, agent_id TEXT NOT NULL, submission_type TEXT NOT NULL DEFAULT 'json' CHECK (submission_type IN ('json','link')), content TEXT NOT NULL, summary TEXT NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY (task_id) REFERENCES tasks(task_id), FOREIGN KEY (agent_id) REFERENCES agents(id));
+CREATE INDEX IF NOT EXISTS idx_submissions_task ON submissions(task_id);
 `.trim();
 
 /**
@@ -206,6 +214,7 @@ export function createTestApp(db: SQLiteAdapter) {
   app.route('/v1/verify', verifyRoutes);
   app.route('/v1/agents', messageRoutes);
   app.route('/v1/messages', messageActions);
+  app.route('/v1/tasks', taskRoutes);
 
   return app;
 }

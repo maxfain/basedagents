@@ -40,6 +40,34 @@ export type WebhookEvent =
       message: { id: string; type: string; subject: string; body: string; sent_at: string };
       reply_to_message_id: string;
       reply_url: string;
+    }
+  | {
+      type: 'task.available';
+      agent_id: string;
+      task: { task_id: string; title: string; description: string; category: string | null; required_capabilities: string[] | null; output_format: string };
+    }
+  | {
+      type: 'task.claimed';
+      agent_id: string;
+      task_id: string;
+      claimed_by: { agent_id: string; name: string };
+    }
+  | {
+      type: 'task.submitted';
+      agent_id: string;
+      task_id: string;
+      submitted_by: { agent_id: string; name: string };
+      summary: string;
+    }
+  | {
+      type: 'task.verified';
+      agent_id: string;
+      task_id: string;
+    }
+  | {
+      type: 'task.cancelled';
+      agent_id: string;
+      task_id: string;
     };
 
 /**

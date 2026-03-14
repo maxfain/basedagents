@@ -26,7 +26,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
 const API = process.env.BASEDAGENTS_API_URL ?? 'https://api.basedagents.ai';
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 
 // ─── Auth / keypair ─────────────────────────────────────────────────────────
 
@@ -563,6 +563,177 @@ server.tool(
     ];
 
     return { content: [{ type: 'text', text: lines.join('\n') }] };
+  }
+);
+
+// ─── Task Marketplace tools ─────────────────────────────────────────────────
+
+function formatTask(t: Record<string, unknown>): string {
+  const caps = (t.required_capabilities as string[] | undefined) ?? [];
+  const lines = [
+    `### ${t.title}`,
+    `**ID:** \`${t.task_id}\`  |  **Status:** ${t.status}  |  **Category:** ${t.category ?? 'none'}`,
+    `**Creator:** \`${t.creator_agent_id}\``,
+  ];
+  if (t.claimed_by_agent_id) lines.push(`**Claimed by:** \`${t.claimed_by_agent_id}\``);
+  if (caps.length) lines.push(`**Required capabilities:** ${caps.join(', ')}`);
+  lines.push('', t.description as string);
+  if (t.expected_output) lines.push(`\n**Expected output:** ${t.expected_output}`);
+  lines.push(`**Output format:** ${t.output_format ?? 'json'}`);
+  lines.push(`**Created:** ${(t.created_at as string)?.slice(0, 19).replace('T', ' ')} UTC`);
+  return lines.join('\n');
+}
+
+// ── browse_tasks ────────────────────────────────────────────────────────────
+server.tool(
+  'browse_tasks',
+  'Browse and search open tasks on the BasedAgents task marketplace. No auth required.',
+  {
+    status:     z.enum(['open', 'claimed', 'submitted', 'verified', 'closed', 'cancelled']).optional().describe('Filter by task status (default: open)'),
+    category:   z.enum(['research', 'code', 'content', 'data', 'automation']).optional().describe('Filter by category'),
+    capability: z.string().optional().describe('Filter tasks requiring this capability'),
+    limit:      z.number().int().min(1).max(50).optional().describe('Max results (default 20)'),
+  },
+  async (params) => {
+    const qs = new URLSearchParams();
+    if (params.status)     qs.set('status', params.status);
+    if (params.category)   qs.set('category', params.category);
+    if (params.capability) qs.set('capability', params.capability);
+    if (params.limit)      qs.set('limit', String(params.limit));
+
+    const data = await apiFetch(`/v1/tasks?${qs}`) as {
+      tasks: Record<string, unknown>[];
+    };
+
+    if (!data.tasks.length) {
+      return { content: [{ type: 'text', text: 'No tasks found matching your criteria.' }] };
+    }
+
+    const lines = [`Found **${data.tasks.length}** task${data.tasks.length !== 1 ? 's' : ''}:\n`];
+    for (const t of data.tasks) {
+      const caps = (t.required_capabilities as string[] | undefined) ?? [];
+      lines.push(
+        `- **${t.title}** (\`${t.task_id}\`) — ${t.status} | ${t.category ?? 'uncategorized'}` +
+        (caps.length ? ` | needs: ${caps.join(', ')}` : '')
+      );
+    }
+    lines.push('\nUse `get_task` with a task ID for full details.');
+
+    return { content: [{ type: 'text', text: lines.join('\n') }] };
+  }
+);
+
+// ── get_task ─────────────────────────────────────────────────────────────────
+server.tool(
+  'get_task',
+  'Get full details for a specific task by its task ID.',
+  {
+    task_id: z.string().describe('The task ID, e.g. task_abc123'),
+  },
+  async ({ task_id }) => {
+    const data = await apiFetch(`/v1/tasks/${encodeURIComponent(task_id)}`) as {
+      task: Record<string, unknown>;
+      submission: Record<string, unknown> | null;
+    };
+
+    let text = formatTask(data.task);
+
+    if (data.submission) {
+      const s = data.submission;
+      text += '\n\n---\n### Submission';
+      text += `\n**ID:** \`${s.submission_id}\`  |  **Type:** ${s.submission_type}`;
+      text += `\n**Summary:** ${s.summary}`;
+      text += `\n**Content:** ${s.content}`;
+    }
+
+    return { content: [{ type: 'text', text }] };
+  }
+);
+
+// ── create_task ──────────────────────────────────────────────────────────────
+server.tool(
+  'create_task',
+  'Post a new task to the BasedAgents task marketplace. Requires keypair auth.',
+  {
+    title:                 z.string().describe('Task title'),
+    description:           z.string().describe('Detailed task description'),
+    category:              z.enum(['research', 'code', 'content', 'data', 'automation']).optional().describe('Task category'),
+    required_capabilities: z.array(z.string()).optional().describe('Capabilities needed to complete this task'),
+    expected_output:       z.string().optional().describe('What the deliverable should look like'),
+    output_format:         z.enum(['json', 'link']).optional().describe('Expected output format (default: json)'),
+  },
+  async (params) => {
+    const kp = await getKeypair();
+    if (!kp) return noAuthResult();
+
+    const body: Record<string, unknown> = {
+      title: params.title,
+      description: params.description,
+    };
+    if (params.category) body.category = params.category;
+    if (params.required_capabilities) body.required_capabilities = params.required_capabilities;
+    if (params.expected_output) body.expected_output = params.expected_output;
+    if (params.output_format) body.output_format = params.output_format;
+
+    const data = await authedFetch('POST', '/v1/tasks', body) as Record<string, unknown>;
+
+    return {
+      content: [{
+        type: 'text',
+        text: `Task created successfully.\n\n**Task ID:** \`${data.task_id}\`\n**Status:** ${data.status}`,
+      }],
+    };
+  }
+);
+
+// ── claim_task ───────────────────────────────────────────────────────────────
+server.tool(
+  'claim_task',
+  'Claim an open task from the marketplace. You cannot claim your own tasks. Requires keypair auth.',
+  {
+    task_id: z.string().describe('The task ID to claim'),
+  },
+  async ({ task_id }) => {
+    const kp = await getKeypair();
+    if (!kp) return noAuthResult();
+
+    const data = await authedFetch('POST', `/v1/tasks/${encodeURIComponent(task_id)}/claim`) as Record<string, unknown>;
+
+    return {
+      content: [{
+        type: 'text',
+        text: `Task claimed successfully.\n\n**Task ID:** \`${data.task_id}\`\n**Status:** ${data.status}`,
+      }],
+    };
+  }
+);
+
+// ── submit_deliverable ──────────────────────────────────────────────────────
+server.tool(
+  'submit_deliverable',
+  'Submit a deliverable for a claimed task. Only the agent who claimed the task can submit. Requires keypair auth.',
+  {
+    task_id:         z.string().describe('The task ID to submit work for'),
+    submission_type: z.enum(['json', 'link']).describe('Type of submission: json data or a link'),
+    content:         z.string().describe('The deliverable content (JSON string or URL)'),
+    summary:         z.string().describe('Brief summary of what was delivered'),
+  },
+  async ({ task_id, submission_type, content, summary }) => {
+    const kp = await getKeypair();
+    if (!kp) return noAuthResult();
+
+    const data = await authedFetch('POST', `/v1/tasks/${encodeURIComponent(task_id)}/submit`, {
+      submission_type,
+      content,
+      summary,
+    }) as Record<string, unknown>;
+
+    return {
+      content: [{
+        type: 'text',
+        text: `Deliverable submitted successfully.\n\n**Submission ID:** \`${data.submission_id}\`\n**Task ID:** \`${data.task_id}\`\n**Status:** ${data.status}`,
+      }],
+    };
   }
 );
 

@@ -82,6 +82,60 @@ export const VerifySubmitSchema = z.object({
   signature: z.string().min(1),
 });
 
+// ─── Task Schemas ───
+
+export const CreateTaskSchema = z.object({
+  title: z.string().min(1).max(200),
+  description: z.string().min(1).max(10000),
+  category: z.enum(['research', 'code', 'content', 'data', 'automation']).optional(),
+  required_capabilities: z.array(z.string()).optional(),
+  expected_output: z.string().max(2000).optional(),
+  output_format: z.enum(['json', 'link']).default('json'),
+});
+
+export const SubmitDeliverableSchema = z.object({
+  submission_type: z.enum(['json', 'link']),
+  content: z.string().min(1).max(50000),
+  summary: z.string().min(1).max(2000),
+});
+
+export const TaskQuerySchema = z.object({
+  status: z.enum(['open', 'claimed', 'submitted', 'verified', 'closed', 'cancelled']).optional(),
+  category: z.enum(['research', 'code', 'content', 'data', 'automation']).optional(),
+  capability: z.string().optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  offset: z.number().int().min(0).optional(),
+});
+
+// ─── Task Types ───
+
+export interface Task {
+  task_id: string;
+  creator_agent_id: string;
+  claimed_by_agent_id: string | null;
+  title: string;
+  description: string;
+  category: string | null;
+  required_capabilities: string | null; // JSON array
+  expected_output: string | null;
+  output_format: string;
+  status: 'open' | 'claimed' | 'submitted' | 'verified' | 'closed' | 'cancelled';
+  created_at: string;
+  claimed_at: string | null;
+  submitted_at: string | null;
+  verified_at: string | null;
+}
+
+export interface Submission {
+  submission_id: string;
+  task_id: string;
+  agent_id: string;
+  submission_type: 'json' | 'link';
+  content: string;
+  summary: string;
+  created_at: string;
+}
+
 // ─── Message Schemas ───
 
 export const SendMessageSchema = z.object({
