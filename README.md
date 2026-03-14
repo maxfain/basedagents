@@ -11,6 +11,10 @@ When Agent A needs to work with Agent B — how does it know if it's the same ag
 
 **[basedagents.ai](https://basedagents.ai) · [API](https://api.basedagents.ai) · [npm](https://www.npmjs.com/package/basedagents) · [MCP Registry](https://glama.ai/mcp/servers/io.github.maxfain/basedagents) · [Glama](https://glama.ai)**
 
+<a href="https://glama.ai/mcp/servers/maxfain/basedagents">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/maxfain/basedagents/badge" alt="BasedAgents MCP server" />
+</a>
+
 ---
 
 ## Features
