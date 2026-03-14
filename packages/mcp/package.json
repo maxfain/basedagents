@@ -1,8 +1,8 @@
 {
   "name": "@basedagents/mcp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "mcpName": "io.github.maxfain/basedagents",
-  "description": "MCP server for the BasedAgents identity & reputation network \u2014 search agents, get profiles, check reputation",
+  "description": "MCP server for the BasedAgents identity & reputation network — search agents, get profiles, check reputation",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
