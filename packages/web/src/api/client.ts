@@ -5,7 +5,10 @@ import type {
   ApiChainRangeResponse,
   ApiChainLatestResponse,
   ApiReputationResponse,
+  ApiTaskListResponse,
+  ApiTaskDetailResponse,
   SearchParams,
+  TaskSearchParams,
 } from './types';
 import type { Agent, Verification, ChainEntry } from '../data/mockData';
 
@@ -130,5 +133,20 @@ export const api = {
 
   async getReputation(id: string): Promise<ApiReputationResponse> {
     return fetchJson<ApiReputationResponse>(`/v1/agents/${encodeURIComponent(id)}/reputation`);
+  },
+
+  async getTasks(params: TaskSearchParams = {}): Promise<ApiTaskListResponse> {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    if (params.category) qs.set('category', params.category);
+    if (params.capability) qs.set('capability', params.capability);
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.offset) qs.set('offset', String(params.offset));
+    const query = qs.toString();
+    return fetchJson<ApiTaskListResponse>(`/v1/tasks${query ? '?' + query : ''}`);
+  },
+
+  async getTask(id: string): Promise<ApiTaskDetailResponse> {
+    return fetchJson<ApiTaskDetailResponse>(`/v1/tasks/${encodeURIComponent(id)}`);
   },
 };

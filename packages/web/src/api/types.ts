@@ -110,6 +110,73 @@ export interface ApiError {
   message: string;
 }
 
+// ─── Task Types ───
+
+export interface ApiTask {
+  task_id: string;
+  creator_agent_id: string;
+  claimed_by_agent_id: string | null;
+  title: string;
+  description: string;
+  category: string | null;
+  required_capabilities: string[] | null;
+  expected_output: string | null;
+  output_format: 'json' | 'link';
+  status: 'open' | 'claimed' | 'submitted' | 'verified' | 'closed' | 'cancelled';
+  created_at: string;
+  claimed_at: string | null;
+  submitted_at: string | null;
+  verified_at: string | null;
+  proposer_signature: string | null;
+  acceptor_signature: string | null;
+}
+
+export interface ApiTaskSubmission {
+  submission_id: string;
+  task_id: string;
+  agent_id: string;
+  submission_type: 'json' | 'link';
+  content: string;
+  summary: string;
+  created_at: string;
+}
+
+export interface ApiDeliveryReceipt {
+  receipt_id: string;
+  task_id: string;
+  agent_id: string;
+  summary: string;
+  artifact_urls: string[] | null;
+  commit_hash: string | null;
+  pr_url: string | null;
+  submission_type: 'json' | 'link' | 'pr';
+  submission_content: string | null;
+  completed_at: string;
+  chain_sequence: number | null;
+  chain_entry_hash: string | null;
+  signature: string;
+}
+
+export interface ApiTaskListResponse {
+  ok: boolean;
+  tasks: ApiTask[];
+}
+
+export interface ApiTaskDetailResponse {
+  ok: boolean;
+  task: ApiTask;
+  submission: ApiTaskSubmission | null;
+  delivery_receipt: ApiDeliveryReceipt | null;
+}
+
+export interface TaskSearchParams {
+  status?: string;
+  category?: string;
+  capability?: string;
+  limit?: number;
+  offset?: number;
+}
+
 // ─── Search Params ───
 
 export interface SearchParams {

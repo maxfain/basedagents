@@ -14,6 +14,8 @@ import Register from './pages/Register';
 import Integrations from './pages/Integrations';
 import Blog from './pages/Blog';
 import BlogPost from './pages/BlogPost';
+import Tasks from './pages/Tasks';
+import TaskDetail from './pages/TaskDetail';
 import { AgentAuthProvider } from './hooks/useAgentAuth';
 
 export default function App(): React.ReactElement {
@@ -26,6 +28,8 @@ export default function App(): React.ReactElement {
           <Route path="/agents" element={<Directory />} />
           <Route path="/agents/:id" element={<AgentProfile />} />
           <Route path="/agent/:name" element={<AgentProfile />} />
+          <Route path="/tasks" element={<Tasks />} />
+          <Route path="/tasks/:id" element={<TaskDetail />} />
           <Route path="/chain" element={<ChainExplorer />} />
           <Route path="/docs/getting-started" element={<GettingStarted />} />
           <Route path="/status" element={<Status />} />
