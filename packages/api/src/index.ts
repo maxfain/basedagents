@@ -13,6 +13,7 @@ import chainRoutes from './routes/chain.js';
 import skillRoutes from './routes/skills.js';
 import { attestation as attestationRoutes } from './routes/attestation.js';
 import badgeRoutes from './routes/badge.js';
+import messageRoutes, { messageActions } from './routes/messages.js';
 
 const app = new Hono<AppEnv>();
 
@@ -121,6 +122,11 @@ app.get('/', (c) => {
       submit_verify:    'POST /v1/verify/submit',
       chain_latest:     'GET /v1/chain/latest',
       chain_entry:      'GET /v1/chain/:sequence',
+      send_message:     'POST /v1/agents/:id/messages',
+      reply_message:    'POST /v1/messages/:id/reply',
+      get_inbox:        'GET /v1/agents/:id/messages',
+      get_sent:         'GET /v1/agents/:id/messages/sent',
+      get_message:      'GET /v1/messages/:id',
     },
     auth: 'AgentSig — Ed25519 signed requests. See docs.',
   });
@@ -249,6 +255,9 @@ app.route('/v1/attestation', attestationRoutes);
 app.route('/v1/agents', attestationRoutes);
 // Badge SVG endpoint: /v1/agents/:id/badge
 app.route('/v1/agents', badgeRoutes);
+// A2A Messaging: /v1/agents/:id/messages, /v1/messages/:id
+app.route('/v1/agents', messageRoutes);
+app.route('/v1/messages', messageActions);
 
 // ─── Admin: Manual Bootstrap Probe Trigger ───
 // Protected by ADMIN_SECRET env var. Set via: wrangler secret put ADMIN_SECRET

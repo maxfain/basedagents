@@ -25,6 +25,21 @@ export type WebhookEvent =
       agent_id: string;
       name: string;
       capabilities: string[];
+    }
+  | {
+      type: 'message.received';
+      agent_id: string;
+      from: { agent_id: string; name: string };
+      message: { id: string; type: string; subject: string; body: string; sent_at: string };
+      reply_url: string;
+    }
+  | {
+      type: 'message.reply';
+      agent_id: string;
+      from: { agent_id: string; name: string };
+      message: { id: string; type: string; subject: string; body: string; sent_at: string };
+      reply_to_message_id: string;
+      reply_url: string;
     };
 
 /**

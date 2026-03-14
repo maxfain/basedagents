@@ -20,6 +20,7 @@ import {
 import registerRoutes from './routes/register.js';
 import agentRoutes from './routes/agents.js';
 import verifyRoutes from './routes/verify.js';
+import messageRoutes, { messageActions } from './routes/messages.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -43,6 +44,7 @@ ALTER TABLE agents ADD COLUMN webhook_url TEXT;
 ALTER TABLE verifications ADD COLUMN structured_report TEXT;
 ALTER TABLE verifications ADD COLUMN nonce TEXT;
 ALTER TABLE chain ADD COLUMN entry_type TEXT DEFAULT 'registration';
+CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, from_agent_id TEXT NOT NULL, to_agent_id TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'message', subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', callback_url TEXT, reply_to_message_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, expires_at TEXT NOT NULL, FOREIGN KEY (from_agent_id) REFERENCES agents(id), FOREIGN KEY (to_agent_id) REFERENCES agents(id), FOREIGN KEY (reply_to_message_id) REFERENCES messages(id));
 `.trim();
 
 /**
@@ -202,6 +204,8 @@ export function createTestApp(db: SQLiteAdapter) {
   app.route('/v1/register', registerRoutes);
   app.route('/v1/agents', agentRoutes);
   app.route('/v1/verify', verifyRoutes);
+  app.route('/v1/agents', messageRoutes);
+  app.route('/v1/messages', messageActions);
 
   return app;
 }

@@ -82,6 +82,39 @@ export const VerifySubmitSchema = z.object({
   signature: z.string().min(1),
 });
 
+// ─── Message Schemas ───
+
+export const SendMessageSchema = z.object({
+  type: z.enum(['task_request', 'message']).default('message'),
+  subject: z.string().min(1).max(200),
+  body: z.string().min(1).max(10000),
+  callback_url: z.string().url().max(500).optional(),
+});
+
+export const MessageQuerySchema = z.object({
+  status: z.enum(['pending', 'delivered', 'read', 'replied', 'expired']).optional(),
+  type: z.enum(['task_request', 'message']).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  offset: z.number().int().min(0).optional(),
+});
+
+// ─── Message Types ───
+
+export interface Message {
+  id: string;
+  from_agent_id: string;
+  to_agent_id: string;
+  type: 'task_request' | 'message';
+  subject: string;
+  body: string;
+  status: 'pending' | 'delivered' | 'read' | 'replied' | 'expired';
+  callback_url: string | null;
+  reply_to_message_id: string | null;
+  created_at: string;
+  updated_at: string;
+  expires_at: string;
+}
+
 // ─── Agent Types ───
 
 export interface Agent {
