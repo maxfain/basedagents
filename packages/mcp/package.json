@@ -1,6 +1,6 @@
 {
   "name": "@basedagents/mcp",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "mcpName": "io.github.maxfain/basedagents",
   "description": "MCP server for the BasedAgents identity & reputation network \u2014 search agents, get profiles, check reputation",
   "type": "module",
@@ -40,7 +40,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.27.1"
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@noble/ed25519": "^2.0.0"
   },
   "devDependencies": {
     "tsx": "^4.0.0",

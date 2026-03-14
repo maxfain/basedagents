@@ -11,14 +11,109 @@
  *   get_reputation      — detailed reputation breakdown for an agent
  *   get_chain_status    — current chain height + latest entry
  *   get_chain_entry     — look up a specific chain entry by sequence number
+ *   check_messages      — check the agent's inbox for new messages
+ *   check_sent_messages — check messages the agent has sent
+ *   read_message        — read a specific message by ID
+ *   send_message        — send a message to another agent
+ *   reply_message       — reply to a received message
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import * as ed from '@noble/ed25519';
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 
 const API = process.env.BASEDAGENTS_API_URL ?? 'https://api.basedagents.ai';
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
+
+// ─── Auth / keypair ─────────────────────────────────────────────────────────
+
+interface AgentKeypair {
+  agent_id: string;
+  public_key_b58: string;
+  private_key_hex: string;
+}
+
+const AUTH_HELP =
+  'Messaging requires a keypair. Set BASEDAGENTS_KEYPAIR_PATH to a JSON file ' +
+  'containing { agent_id, public_key_b58, private_key_hex }, or set ' +
+  'BASEDAGENTS_AGENT_ID + BASEDAGENTS_PRIVATE_KEY_HEX + BASEDAGENTS_PUBLIC_KEY_B58.';
+
+let _keypair: AgentKeypair | null | undefined; // undefined = not loaded yet
+
+async function getKeypair(): Promise<AgentKeypair | null> {
+  if (_keypair !== undefined) return _keypair;
+
+  if (process.env.BASEDAGENTS_KEYPAIR_PATH) {
+    try {
+      const raw = await readFile(process.env.BASEDAGENTS_KEYPAIR_PATH, 'utf-8');
+      const kp = JSON.parse(raw) as AgentKeypair;
+      if (kp.agent_id && kp.public_key_b58 && kp.private_key_hex) {
+        _keypair = kp;
+        return _keypair;
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  const id = process.env.BASEDAGENTS_AGENT_ID;
+  const priv = process.env.BASEDAGENTS_PRIVATE_KEY_HEX;
+  const pub = process.env.BASEDAGENTS_PUBLIC_KEY_B58;
+  if (id && priv && pub) {
+    _keypair = { agent_id: id, private_key_hex: priv, public_key_b58: pub };
+    return _keypair;
+  }
+
+  _keypair = null;
+  return null;
+}
+
+function sha256hex(data: string): string {
+  return createHash('sha256').update(data).digest('hex');
+}
+
+// Base58 alphabet (Bitcoin)
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+function base58Decode(str: string): Uint8Array {
+  let num = 0n;
+  for (const c of str) {
+    const idx = B58.indexOf(c);
+    if (idx === -1) throw new Error(`Invalid base58 character: ${c}`);
+    num = num * 58n + BigInt(idx);
+  }
+  let hex = num.toString(16);
+  if (hex.length % 2) hex = '0' + hex;
+  let leadingZeros = 0;
+  for (const c of str) { if (c === '1') leadingZeros++; else break; }
+  const bytes = new Uint8Array(leadingZeros + hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[leadingZeros + i / 2] = parseInt(hex.slice(i, i + 2), 16);
+  }
+  return bytes;
+}
+
+async function signRequest(
+  kp: AgentKeypair,
+  method: string,
+  path: string,
+  body: string,
+): Promise<{ authorization: string; timestamp: string }> {
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const bodyHash = sha256hex(body);
+  const message = `${method}:${path}:${timestamp}:${bodyHash}`;
+  const msgBytes = new TextEncoder().encode(message);
+  const privKey = Uint8Array.from(Buffer.from(kp.private_key_hex, 'hex'));
+  const sig = await ed.signAsync(msgBytes, privKey);
+  const base64Sig = Buffer.from(sig).toString('base64');
+  return {
+    authorization: `AgentSig ${kp.public_key_b58}:${base64Sig}`,
+    timestamp,
+  };
+}
 
 // ─── API helpers ────────────────────────────────────────────────────────────
 
@@ -27,9 +122,35 @@ async function apiFetch(path: string): Promise<unknown> {
     headers: { 'User-Agent': `basedagents-mcp/${VERSION}` },
   });
   if (!res.ok) {
-    // Consume body without leaking server internals to callers
     await res.text().catch(() => {});
     throw new Error(`BasedAgents API returned ${res.status} for ${path}`);
+  }
+  return res.json();
+}
+
+async function authedFetch(
+  method: string,
+  path: string,
+  body?: Record<string, unknown>,
+): Promise<unknown> {
+  const kp = await getKeypair();
+  if (!kp) throw new Error(AUTH_HELP);
+  const bodyStr = body ? JSON.stringify(body) : '';
+  const { authorization, timestamp } = await signRequest(kp, method, path, bodyStr);
+  const headers: Record<string, string> = {
+    'User-Agent': `basedagents-mcp/${VERSION}`,
+    'Authorization': authorization,
+    'X-Timestamp': timestamp,
+  };
+  if (body) headers['Content-Type'] = 'application/json';
+  const res = await fetch(`${API}${path}`, {
+    method,
+    headers,
+    ...(body ? { body: bodyStr } : {}),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`BasedAgents API returned ${res.status} for ${method} ${path}: ${text}`);
   }
   return res.json();
 }
@@ -254,6 +375,192 @@ server.tool(
       `**Timestamp:** ${e.timestamp}`,
       e.entry_type ? `**Type:** ${e.entry_type}` : '',
     ].filter(Boolean);
+
+    return { content: [{ type: 'text', text: lines.join('\n') }] };
+  }
+);
+
+// ─── Messaging helpers ───────────────────────────────────────────────────────
+
+function noAuthResult() {
+  return {
+    content: [{ type: 'text' as const, text: `**Auth not configured.**\n\n${AUTH_HELP}` }],
+    isError: true,
+  };
+}
+
+function formatMessage(m: Record<string, unknown>): string {
+  const lines = [
+    `### ${m.subject ?? '(no subject)'}`,
+    `**ID:** \`${m.id}\`  |  **Type:** ${m.type}  |  **Status:** ${m.status}`,
+    `**From:** \`${m.from_agent_id}\`  →  **To:** \`${m.to_agent_id}\``,
+    `**Date:** ${(m.created_at as string)?.slice(0, 19).replace('T', ' ')} UTC`,
+  ];
+  if (m.reply_to_message_id) lines.push(`**Reply to:** \`${m.reply_to_message_id}\``);
+  lines.push('', m.body as string);
+  return lines.join('\n');
+}
+
+function formatMessageSummary(m: Record<string, unknown>): string {
+  const status = m.status === 'pending' ? '● ' : m.status === 'delivered' ? '◉ ' : '';
+  const date = (m.created_at as string)?.slice(0, 10) ?? '';
+  return (
+    `${status}**${m.subject ?? '(no subject)'}** — \`${m.id}\`\n` +
+    `  ${m.type}  |  ${m.status}  |  from \`${m.from_agent_id}\`  |  ${date}`
+  );
+}
+
+// ── check_messages ──────────────────────────────────────────────────────────
+server.tool(
+  'check_messages',
+  'Check your agent inbox for received messages. Requires keypair auth.',
+  {
+    status: z.enum(['pending', 'delivered', 'read']).optional().describe('Filter by message status'),
+    limit:  z.number().int().min(1).max(50).optional().describe('Max messages to return (default 10)'),
+  },
+  async (params) => {
+    const kp = await getKeypair();
+    if (!kp) return noAuthResult();
+
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    if (params.limit)  qs.set('limit', String(params.limit));
+
+    const path = `/v1/agents/${encodeURIComponent(kp.agent_id)}/messages${qs.toString() ? `?${qs}` : ''}`;
+    const data = await authedFetch('GET', path) as {
+      messages: Record<string, unknown>[];
+      pagination?: { total: number };
+    };
+
+    if (!data.messages.length) {
+      return { content: [{ type: 'text', text: 'No messages found.' }] };
+    }
+
+    const total = data.pagination?.total ?? data.messages.length;
+    const lines = [
+      `## Inbox (${total} message${total !== 1 ? 's' : ''})\n`,
+      ...data.messages.map(formatMessageSummary),
+      '',
+      'Use `read_message` with a message ID to read the full message.',
+    ];
+
+    return { content: [{ type: 'text', text: lines.join('\n') }] };
+  }
+);
+
+// ── check_sent_messages ─────────────────────────────────────────────────────
+server.tool(
+  'check_sent_messages',
+  'Check messages your agent has sent. Requires keypair auth.',
+  {
+    limit: z.number().int().min(1).max(50).optional().describe('Max messages to return (default 10)'),
+  },
+  async (params) => {
+    const kp = await getKeypair();
+    if (!kp) return noAuthResult();
+
+    const qs = new URLSearchParams();
+    if (params.limit) qs.set('limit', String(params.limit));
+
+    const path = `/v1/agents/${encodeURIComponent(kp.agent_id)}/messages/sent${qs.toString() ? `?${qs}` : ''}`;
+    const data = await authedFetch('GET', path) as {
+      messages: Record<string, unknown>[];
+      pagination?: { total: number };
+    };
+
+    if (!data.messages.length) {
+      return { content: [{ type: 'text', text: 'No sent messages found.' }] };
+    }
+
+    const total = data.pagination?.total ?? data.messages.length;
+    const lines = [
+      `## Sent Messages (${total})\n`,
+      ...data.messages.map((m: Record<string, unknown>) => {
+        const date = (m.created_at as string)?.slice(0, 10) ?? '';
+        return (
+          `**${m.subject ?? '(no subject)'}** — \`${m.id}\`\n` +
+          `  ${m.type}  |  ${m.status}  |  to \`${m.to_agent_id}\`  |  ${date}`
+        );
+      }),
+      '',
+      'Use `read_message` with a message ID for full details.',
+    ];
+
+    return { content: [{ type: 'text', text: lines.join('\n') }] };
+  }
+);
+
+// ── read_message ────────────────────────────────────────────────────────────
+server.tool(
+  'read_message',
+  'Read a specific message by its ID. Auto-marks the message as read if you are the recipient. Requires keypair auth.',
+  {
+    message_id: z.string().describe('The message ID, e.g. msg_abc123'),
+  },
+  async ({ message_id }) => {
+    const kp = await getKeypair();
+    if (!kp) return noAuthResult();
+
+    const path = `/v1/messages/${encodeURIComponent(message_id)}`;
+    const data = await authedFetch('GET', path) as Record<string, unknown>;
+
+    return { content: [{ type: 'text', text: formatMessage(data) }] };
+  }
+);
+
+// ── send_message ────────────────────────────────────────────────────────────
+server.tool(
+  'send_message',
+  'Send a message to another agent. Requires keypair auth.',
+  {
+    to_agent_id: z.string().describe('The recipient agent ID, e.g. ag_7Xk9mP2qR8nK4vL3'),
+    type:        z.enum(['message', 'task_request']).describe('Message type'),
+    subject:     z.string().describe('Message subject line'),
+    body:        z.string().describe('Message body text'),
+  },
+  async ({ to_agent_id, type, subject, body }) => {
+    const kp = await getKeypair();
+    if (!kp) return noAuthResult();
+
+    const path = `/v1/agents/${encodeURIComponent(to_agent_id)}/messages`;
+    const data = await authedFetch('POST', path, { type, subject, body }) as Record<string, unknown>;
+
+    const lines = [
+      `Message sent successfully.`,
+      '',
+      `**ID:** \`${data.id}\``,
+      `**To:** \`${to_agent_id}\``,
+      `**Subject:** ${subject}`,
+      `**Status:** ${data.status ?? 'pending'}`,
+    ];
+    if (data.webhook_delivered) lines.push(`**Webhook:** delivered`);
+
+    return { content: [{ type: 'text', text: lines.join('\n') }] };
+  }
+);
+
+// ── reply_message ───────────────────────────────────────────────────────────
+server.tool(
+  'reply_message',
+  'Reply to a received message. Only the original recipient can reply. Requires keypair auth.',
+  {
+    message_id: z.string().describe('The message ID to reply to'),
+    body:       z.string().describe('Reply body text'),
+  },
+  async ({ message_id, body }) => {
+    const kp = await getKeypair();
+    if (!kp) return noAuthResult();
+
+    const path = `/v1/messages/${encodeURIComponent(message_id)}/reply`;
+    const data = await authedFetch('POST', path, { body }) as Record<string, unknown>;
+
+    const lines = [
+      `Reply sent successfully.`,
+      '',
+      `**Reply ID:** \`${data.id}\``,
+      `**In reply to:** \`${message_id}\``,
+      `**Status:** ${data.status ?? 'pending'}`,
+    ];
 
     return { content: [{ type: 'text', text: lines.join('\n') }] };
   }
