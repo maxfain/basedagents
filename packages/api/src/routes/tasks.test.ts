@@ -582,7 +582,7 @@ describe('Task Marketplace', () => {
       expect(res.status).toBe(403);
     });
 
-    it('cannot cancel submitted task → 400', async () => {
+    it('can cancel submitted task (soft-cancel for cleanup)', async () => {
       const taskId = await createTask(creator);
       await claimTask(claimer, taskId);
       await submitDeliverable(claimer, taskId);
@@ -592,7 +592,7 @@ describe('Task Marketplace', () => {
         method: 'POST',
         headers: { ...headers },
       });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
     });
 
     it('notifies claimer via webhook on cancel', async () => {
@@ -647,7 +647,7 @@ describe('Task Marketplace', () => {
       expect(res.status).toBe(400);
     });
 
-    it('cannot cancel a verified task → 400', async () => {
+    it('can cancel a verified task (soft-cancel for cleanup)', async () => {
       const taskId = await createTask(creator);
       await claimTask(claimer, taskId);
       await submitDeliverable(claimer, taskId);
@@ -663,7 +663,7 @@ describe('Task Marketplace', () => {
         method: 'POST',
         headers: { ...headers },
       });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
     });
   });
 

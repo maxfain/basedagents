@@ -961,9 +961,13 @@ tasks.post('/:id/cancel', agentAuth, async (c) => {
     return c.json({ error: 'forbidden', message: 'Only the task creator can cancel tasks' }, 403);
   }
 
-  // Task must be open or claimed
-  if (task.status !== 'open' && task.status !== 'claimed') {
-    return c.json({ error: 'bad_request', message: 'Task can only be cancelled when open or claimed' }, 400);
+  // Task must be open, claimed, or verified/closed (soft-cancel for cleanup)
+  if (!['open', 'claimed', 'submitted', 'verified', 'closed'].includes(task.status)) {
+    return c.json({ error: 'bad_request', message: 'Task cannot be cancelled in its current state' }, 400);
+  }
+  // Cannot cancel a task with a settled payment (money already moved)
+  if (task.payment_status === 'settled') {
+    return c.json({ error: 'bad_request', message: 'Cannot cancel a task with settled payment' }, 400);
   }
 
   await db.run(
