@@ -190,23 +190,26 @@ export async function makeEligibleVerifier(db: SQLiteAdapter, agentId: string): 
 
 /**
  * Create a properly signed AgentSig request.
- * Returns headers { Authorization, 'X-Timestamp' }.
+ * Returns headers { Authorization, 'X-Timestamp', 'X-Nonce' }.
+ * Includes a random nonce to make signatures non-deterministic (L1).
  */
 export async function signRequest(
   keypair: TestKeypair,
   method: string,
   path: string,
   body: string = ''
-): Promise<{ Authorization: string; 'X-Timestamp': string }> {
+): Promise<{ Authorization: string; 'X-Timestamp': string; 'X-Nonce': string }> {
   const timestamp = Math.floor(Date.now() / 1000).toString();
+  const nonce = crypto.randomUUID();
   const bodyHash = bytesToHex(sha256(new TextEncoder().encode(body)));
-  const message = `${method}:${path}:${timestamp}:${bodyHash}`;
+  const message = `${method}:${path}:${timestamp}:${bodyHash}:${nonce}`;
   const messageBytes = new TextEncoder().encode(message);
   const sigBytes = await sign(messageBytes, keypair.privateKey);
   const base64Sig = btoa(String.fromCharCode(...sigBytes));
   return {
     Authorization: `AgentSig ${keypair.publicKeyB58}:${base64Sig}`,
     'X-Timestamp': timestamp,
+    'X-Nonce': nonce,
   };
 }
 

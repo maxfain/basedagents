@@ -7,9 +7,11 @@ import type { DBAdapter } from '../db/adapter.js';
  *
  * Expects header: Authorization: AgentSig <base58_pubkey>:<base64_signature>
  * Also requires header: X-Timestamp: <unix_timestamp_seconds>
+ * Optional header: X-Nonce: <random_string> (makes signatures non-deterministic)
  *
- * Signature is over: "<method>:<path>:<timestamp>:<body_hash>"
+ * Signature is over: "<method>:<path>:<timestamp>:<body_hash>:<nonce>"
  * where body_hash = sha256(body) or sha256("") for GET requests.
+ * If X-Nonce is absent, falls back to legacy format without the nonce suffix.
  *
  * Sets c.set('agentId', ...) and c.set('publicKey', ...) on success.
  */
@@ -72,10 +74,15 @@ export async function agentAuth(c: Context, next: Next): Promise<Response | void
   const body = await c.req.text();
   const bodyHash = bytesToHex(sha256(new TextEncoder().encode(body)));
 
-  // Reconstruct the signed message: "<method>:<path>:<timestamp>:<body_hash>"
+  // Reconstruct the signed message.
+  // New format: "<method>:<path>:<timestamp>:<body_hash>:<nonce>"
+  // Legacy (no X-Nonce header): "<method>:<path>:<timestamp>:<body_hash>"
   const method = c.req.method;
   const path = new URL(c.req.url).pathname;
-  const message = `${method}:${path}:${timestamp}:${bodyHash}`;
+  const nonce = c.req.header('X-Nonce');
+  const message = nonce
+    ? `${method}:${path}:${timestamp}:${bodyHash}:${nonce}`
+    : `${method}:${path}:${timestamp}:${bodyHash}`;
   const messageBytes = new TextEncoder().encode(message);
 
   // Verify signature
@@ -155,7 +162,10 @@ export async function optionalAuth(c: Context, next: Next): Promise<void> {
       const bodyHash = bytesToHex(sha256(new TextEncoder().encode(body)));
       const method = c.req.method;
       const path = new URL(c.req.url).pathname;
-      const message = `${method}:${path}:${timestamp}:${bodyHash}`;
+      const nonce = c.req.header('X-Nonce');
+      const message = nonce
+        ? `${method}:${path}:${timestamp}:${bodyHash}:${nonce}`
+        : `${method}:${path}:${timestamp}:${bodyHash}`;
       const valid = await verifySignature(new TextEncoder().encode(message), signature, publicKey);
       if (!valid) { await next(); return; }
 

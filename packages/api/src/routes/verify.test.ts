@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { sign } from '@noble/ed25519';
+import { canonicalJsonStringify } from '../crypto/index.js';
 import {
   setupTestDb,
   createTestApp,
@@ -67,31 +68,29 @@ async function buildVerificationBody(
     ? undefined
     : options.structuredReport;
 
-  // Build the report data that needs to be signed
-  const reportData = JSON.stringify({
+  // Build the signed fields — must match the server's reconstruction order.
+  // All fields including structured_report are covered by the inner signature (M4).
+  const signedFields: Record<string, unknown> = {
     assignment_id: assignmentId,
     target_id: targetId,
     result,
-    response_time_ms: 150,
-    coherence_score: coherenceScore,
-    notes: 'test verification',
     nonce,
-  });
+  };
+  signedFields.coherence_score = coherenceScore;
+  signedFields.notes = 'test verification';
+  signedFields.response_time_ms = 150;
+  if (structuredReport !== undefined && structuredReport !== null) {
+    signedFields.structured_report = structuredReport;
+  }
+  const reportData = canonicalJsonStringify(signedFields);
 
   const reportBytes = new TextEncoder().encode(reportData);
   const sigBytes = await sign(reportBytes, verifierKeypair.privateKey);
   const signature = btoa(String.fromCharCode(...sigBytes));
 
   return {
-    assignment_id: assignmentId,
-    target_id: targetId,
-    result,
-    response_time_ms: 150,
-    coherence_score: coherenceScore,
-    notes: 'test verification',
+    ...signedFields,
     signature,
-    structured_report: structuredReport,
-    nonce,
   };
 }
 

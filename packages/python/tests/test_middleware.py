@@ -205,11 +205,12 @@ class TestVerifyRequest:
         ts = int(time.time())
         base = build_headers(kp, "GET", "/v1/test", timestamp=ts)
 
-        # Use mixed-case header names
+        # Use mixed-case header names (including X-Nonce for L1 nonce support)
         headers = {
             "x-agent-id": kp.agent_id,          # lowercase
             "AUTHORIZATION": base["Authorization"],  # uppercase
             "x-timestamp": base["X-Timestamp"],  # lowercase
+            "x-nonce": base["X-Nonce"],          # lowercase
         }
 
         with patch("basedagents.middleware.fetch_attestation", return_value=attestation):

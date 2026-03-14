@@ -19,6 +19,7 @@ export interface AgentAuth {
   ) => Promise<{
     Authorization: string;
     'X-Timestamp': string;
+    'X-Nonce': string;
     'Content-Type': string;
   }>;
 }
@@ -63,8 +64,9 @@ export function AgentAuthProvider({ children }: { children: React.ReactNode }): 
       if (!keypair) throw new Error('Not authenticated — load a keypair first');
 
       const timestamp = String(Math.floor(Date.now() / 1000));
+      const nonce = crypto.randomUUID();
       const bodyHash = await sha256Hex(body);
-      const message = `${method}:${path}:${timestamp}:${bodyHash}`;
+      const message = `${method}:${path}:${timestamp}:${bodyHash}:${nonce}`;
       const messageBytes = new TextEncoder().encode(message);
       const sigBytes = await signMessage(keypair.private_key_hex, messageBytes);
       const sigBase64 = bytesToBase64(sigBytes);
@@ -72,6 +74,7 @@ export function AgentAuthProvider({ children }: { children: React.ReactNode }): 
       return {
         Authorization: `AgentSig ${keypair.public_key_b58}:${sigBase64}`,
         'X-Timestamp': timestamp,
+        'X-Nonce': nonce,
         'Content-Type': 'application/json',
       };
     },

@@ -117,17 +117,21 @@ function countLeadingZeroBits(hash: Uint8Array): number {
 
 /**
  * Verify that a proof-of-work nonce satisfies the difficulty requirement.
- * sha256(public_key || nonce) must have at least `difficulty` leading zero bits.
+ * sha256(public_key || challenge || nonce) must have at least `difficulty` leading zero bits.
+ * The challenge binds the PoW to a specific registration attempt (L3).
  */
 export function verifyProofOfWork(
   publicKey: Uint8Array,
   nonce: string,
-  difficulty: number
+  difficulty: number,
+  challenge?: string
 ): boolean {
   const nonceBytes = hexToBytes(nonce);
-  const data = new Uint8Array(publicKey.length + nonceBytes.length);
+  const challengeBytes = challenge ? new TextEncoder().encode(challenge) : new Uint8Array(0);
+  const data = new Uint8Array(publicKey.length + challengeBytes.length + nonceBytes.length);
   data.set(publicKey);
-  data.set(nonceBytes, publicKey.length);
+  data.set(challengeBytes, publicKey.length);
+  data.set(nonceBytes, publicKey.length + challengeBytes.length);
   const hash = sha256(data);
   return countLeadingZeroBits(hash) >= difficulty;
 }

@@ -155,9 +155,12 @@ def cmd_register(args: list[str]) -> None:
     print("  \033[32m✓\033[0m Registered!")
 
     # Save keypair after successful registration
+    import os as _os
     slug = name.lower().replace(" ", "-")
     keys_dir = Path.home() / ".basedagents" / "keys"
     keys_dir.mkdir(parents=True, exist_ok=True)
+    # Restrict directory permissions before any key files are written (NEW-4)
+    _os.chmod(keys_dir, 0o700)
     keypair_path = keys_dir / f"{slug}-keypair.json"
     i = 2
     while keypair_path.exists():

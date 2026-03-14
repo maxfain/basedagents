@@ -3,7 +3,7 @@ import type { AppEnv, Agent } from '../types/index.js';
 import { postTweet, firstVerificationTweet } from '../lib/twitter.js';
 import { VerifySubmitSchema } from '../types/index.js';
 import { agentAuth } from '../middleware/auth.js';
-import { verifySignature } from '../crypto/index.js';
+import { verifySignature, canonicalJsonStringify } from '../crypto/index.js';
 import { computeReputation } from '../reputation/calculator.js';
 import { runEigenTrust } from '../reputation/eigentrust.js';
 import { computeSkillReputations } from '../skills/resolver.js';
@@ -218,7 +218,14 @@ verify.post('/submit', agentAuth, async (c) => {
   }
 
   // ── Verify report signature (nonce is bound into signed payload — prevents replay) ──
-  const reportData = JSON.stringify({ assignment_id, target_id, result, response_time_ms, coherence_score, notes, nonce });
+  // All fields including structured_report are covered by the inner Ed25519 signature,
+  // so chain auditors can verify the full report without relying on transport-layer AgentSig.
+  const signedFields: Record<string, unknown> = { assignment_id, target_id, result, nonce };
+  if (coherence_score !== undefined && coherence_score !== null) signedFields.coherence_score = coherence_score;
+  if (notes !== undefined && notes !== null) signedFields.notes = notes;
+  if (response_time_ms !== undefined && response_time_ms !== null) signedFields.response_time_ms = response_time_ms;
+  if (structured_report !== undefined && structured_report !== null) signedFields.structured_report = structured_report;
+  const reportData = canonicalJsonStringify(signedFields);
   let sigBytes: Uint8Array;
   try {
     const bin = atob(signature);

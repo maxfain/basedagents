@@ -82,7 +82,7 @@ def test_signature_is_64_bytes():
 
 
 def test_signature_verifies_correctly():
-    """The signature should verify against the constructed message."""
+    """The signature should verify against the constructed message (including nonce)."""
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
     kp = generate_keypair()
@@ -96,9 +96,10 @@ def test_signature_verifies_correctly():
     auth = headers["Authorization"]
     sig_b64 = auth[len("AgentSig "):].rsplit(":", 1)[1]
     sig_bytes = base64.b64decode(sig_b64)
+    nonce = headers["X-Nonce"]
 
     body_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
-    message = f"{method.upper()}:{path}:{ts}:{body_hash}".encode("utf-8")
+    message = f"{method.upper()}:{path}:{ts}:{body_hash}:{nonce}".encode("utf-8")
 
     # Should not raise InvalidSignature
     kp.public_key.verify(sig_bytes, message)
@@ -129,9 +130,21 @@ def test_body_as_bytes():
 
 
 def test_none_body_same_as_empty_string():
-    """None body should behave same as empty string body."""
+    """None body and empty string body should produce the same body hash in the signed message."""
     kp = generate_keypair()
+    # Both should hash the same empty body — verify by checking the signature
+    # verifies correctly for both cases. The nonce differs per call so we can't
+    # compare Authorization headers directly.
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
     ts = 1700000000
-    h_none = build_headers(kp, "GET", "/v1/test", body=None, timestamp=ts)
-    h_empty = build_headers(kp, "GET", "/v1/test", body="", timestamp=ts)
-    assert h_none["Authorization"] == h_empty["Authorization"]
+
+    for body in [None, "", b""]:
+        headers = build_headers(kp, "GET", "/v1/test", body=body, timestamp=ts)
+        auth = headers["Authorization"]
+        sig_b64 = auth[len("AgentSig "):].rsplit(":", 1)[1]
+        sig_bytes = base64.b64decode(sig_b64)
+        nonce = headers["X-Nonce"]
+        body_hash = hashlib.sha256(b"").hexdigest()
+        message = f"GET:/v1/test:{ts}:{body_hash}:{nonce}".encode("utf-8")
+        # Should not raise — proves the body was hashed as empty
+        kp.public_key.verify(sig_bytes, message)

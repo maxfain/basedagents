@@ -15,6 +15,12 @@ from .auth import build_headers
 from .keypair import AgentKeypair
 from .pow import solve
 
+def canonical_json(obj: Any) -> str:
+    """Canonical JSON serialization for signature payloads.
+    Uses sort_keys=True and compact separators for deterministic output."""
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
 _DEFAULT_BASE = "https://api.basedagents.ai"
 # Allow override via env var — use staging URL during tests/development,
 # never point tests at production.
@@ -114,10 +120,16 @@ class RegistryClient:
 
         # Step 2: Solve PoW (difficulty from server — never hardcoded)
         # Cap difficulty to prevent a malicious/MitM server from exhausting the nonce space
+        # MAX_DIFFICULTY caps proof-of-work at 28 leading zero bits.
+        # At difficulty 28, expected attempts = 2^28 = ~268M hashes.
+        # The nonce is 32-bit (4 bytes), giving 2^32 = ~4B possible values.
+        # Difficulty >= 32 would exhaust the nonce space deterministically.
+        # We cap at 28 to leave comfortable headroom.
         MAX_DIFFICULTY = 28
         if difficulty > MAX_DIFFICULTY:
             raise BasedAgentsError(0, f"Server requested PoW difficulty {difficulty} which exceeds client cap ({MAX_DIFFICULTY}). Aborting.")
-        nonce = solve(keypair.public_key_bytes, difficulty, on_progress=on_progress)
+        # Challenge-bound PoW: includes challenge in hash to prevent nonce reuse (L3)
+        nonce = solve(keypair.public_key_bytes, difficulty, on_progress=on_progress, challenge=challenge)
 
         # Step 3: Sign challenge
         # Server verifies: TextEncoder.encode(challenge) i.e. the base64 string as raw UTF-8
@@ -251,7 +263,7 @@ class RegistryClient:
         if structured_report_obj is not None:
             signed_fields["structured_report"] = structured_report_obj
 
-        report_data = json.dumps(signed_fields, separators=(",", ":"), sort_keys=False)
+        report_data = canonical_json(signed_fields)
         report_sig = keypair.sign(report_data.encode("utf-8"))
         sig_b64 = base64.b64encode(report_sig).decode("ascii")
 

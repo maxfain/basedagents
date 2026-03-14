@@ -11,6 +11,27 @@ import { bytesToHex } from '@noble/hashes/utils';
 
 export { sha256, bytesToHex };
 
+// ─── Canonical JSON ───
+
+/**
+ * Canonical JSON serialization — recursively sorts object keys, compact separators.
+ * Ensures deterministic output for signature payloads across implementations.
+ */
+function canonicalJsonStringify(value: unknown): string {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'boolean' || typeof value === 'number') return JSON.stringify(value);
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return '[' + value.map(canonicalJsonStringify).join(',') + ']';
+  }
+  if (typeof value === 'object') {
+    const keys = Object.keys(value as Record<string, unknown>).sort();
+    const pairs = keys.map(k => JSON.stringify(k) + ':' + canonicalJsonStringify((value as Record<string, unknown>)[k]));
+    return '{' + pairs.join(',') + '}';
+  }
+  return JSON.stringify(value);
+}
+
 // ─── Constants ───
 
 // Allow override via env var — use staging URL during tests/development,
@@ -231,8 +252,9 @@ function countLeadingZeroBits(hash: Uint8Array): number {
 
 /**
  * Solve a proof-of-work challenge synchronously.
- * Finds a 4-byte big-endian nonce (hex) such that sha256(publicKey || nonce)
+ * Finds a 4-byte big-endian nonce (hex) such that sha256(publicKey || challenge || nonce)
  * has at least `difficulty` leading zero bits.
+ * The challenge binds the PoW to a specific registration attempt (L3).
  *
  * ⚠️  Blocks the event loop. At difficulty 22 this takes ~1-3s.
  * Use `solveProofOfWorkAsync` in Node.js environments to avoid blocking.
@@ -240,16 +262,21 @@ function countLeadingZeroBits(hash: Uint8Array): number {
 export function solveProofOfWork(
   publicKey: Uint8Array,
   difficulty: number,
-  onProgress?: (attempts: number) => void
+  onProgress?: (attempts: number) => void,
+  challenge?: string
 ): { nonce: string; hash: string } {
-  const buf = new Uint8Array(publicKey.length + 4);
-  buf.set(publicKey, 0);
+  const challengeBytes = challenge ? new TextEncoder().encode(challenge) : new Uint8Array(0);
+  const prefix = new Uint8Array(publicKey.length + challengeBytes.length);
+  prefix.set(publicKey, 0);
+  prefix.set(challengeBytes, publicKey.length);
+  const buf = new Uint8Array(prefix.length + 4);
+  buf.set(prefix, 0);
   for (let nonce = 0; nonce <= 0xFFFFFFFF; nonce++) {
     if (onProgress && nonce % 50_000 === 0) onProgress(nonce);
-    buf[publicKey.length]     = (nonce >>> 24) & 0xff;
-    buf[publicKey.length + 1] = (nonce >>> 16) & 0xff;
-    buf[publicKey.length + 2] = (nonce >>>  8) & 0xff;
-    buf[publicKey.length + 3] =  nonce         & 0xff;
+    buf[prefix.length]     = (nonce >>> 24) & 0xff;
+    buf[prefix.length + 1] = (nonce >>> 16) & 0xff;
+    buf[prefix.length + 2] = (nonce >>>  8) & 0xff;
+    buf[prefix.length + 3] =  nonce         & 0xff;
     const hash = sha256(buf);
     if (countLeadingZeroBits(hash) >= difficulty) {
       const nonceHex = nonce.toString(16).padStart(8, '0');
@@ -262,34 +289,40 @@ export function solveProofOfWork(
 /**
  * Async proof-of-work solver — yields to the event loop every `chunkSize` iterations
  * so it doesn't block Node.js or browser tabs.
+ * sha256(publicKey || challenge || nonce) — challenge binds to registration attempt (L3).
  *
  * Preferred over `solveProofOfWork` for any interactive or server context.
  *
  * @example
  * const { nonce } = await solveProofOfWorkAsync(pubkey, 22, {
  *   onProgress: (n) => console.log(`PoW: ${n} attempts`),
+ *   challenge: 'base64-challenge-string',
  * });
  */
 export function solveProofOfWorkAsync(
   publicKey: Uint8Array,
   difficulty: number,
-  options?: { chunkSize?: number; onProgress?: (attempts: number) => void }
+  options?: { chunkSize?: number; onProgress?: (attempts: number) => void; challenge?: string }
 ): Promise<{ nonce: string; hash: string }> {
   const chunkSize = options?.chunkSize ?? 50_000;
   const onProgress = options?.onProgress;
+  const challengeBytes = options?.challenge ? new TextEncoder().encode(options.challenge) : new Uint8Array(0);
+  const prefix = new Uint8Array(publicKey.length + challengeBytes.length);
+  prefix.set(publicKey, 0);
+  prefix.set(challengeBytes, publicKey.length);
 
   return new Promise((resolve, reject) => {
-    const buf = new Uint8Array(publicKey.length + 4);
-    buf.set(publicKey, 0);
+    const buf = new Uint8Array(prefix.length + 4);
+    buf.set(prefix, 0);
     let nonce = 0;
 
     function step() {
       const end = Math.min(nonce + chunkSize, 0xFFFFFFFF + 1);
       for (; nonce < end; nonce++) {
-        buf[publicKey.length]     = (nonce >>> 24) & 0xff;
-        buf[publicKey.length + 1] = (nonce >>> 16) & 0xff;
-        buf[publicKey.length + 2] = (nonce >>>  8) & 0xff;
-        buf[publicKey.length + 3] =  nonce         & 0xff;
+        buf[prefix.length]     = (nonce >>> 24) & 0xff;
+        buf[prefix.length + 1] = (nonce >>> 16) & 0xff;
+        buf[prefix.length + 2] = (nonce >>>  8) & 0xff;
+        buf[prefix.length + 3] =  nonce         & 0xff;
         const hash = sha256(buf);
         if (countLeadingZeroBits(hash) >= difficulty) {
           const nonceHex = nonce.toString(16).padStart(8, '0');
@@ -315,17 +348,19 @@ export function solveProofOfWorkAsync(
  * Sign a request for AgentSig authentication.
  * Returns headers to include in the request.
  *
- * Signature covers: "<method>:<path>:<timestamp>:<sha256(body)>"
+ * Signature covers: "<method>:<path>:<timestamp>:<sha256(body)>:<nonce>"
+ * A random nonce makes signatures non-deterministic even within the same second (L1).
  */
 export async function signRequest(
   keypair: AgentKeypair,
   method: string,
   path: string,
   body = ''
-): Promise<{ Authorization: string; 'X-Timestamp': string }> {
+): Promise<{ Authorization: string; 'X-Timestamp': string; 'X-Nonce': string }> {
   const timestamp = Math.floor(Date.now() / 1000).toString();
+  const nonce = crypto.randomUUID();
   const bodyHash = bytesToHex(sha256(new TextEncoder().encode(body)));
-  const message = `${method.toUpperCase()}:${path}:${timestamp}:${bodyHash}`;
+  const message = `${method.toUpperCase()}:${path}:${timestamp}:${bodyHash}:${nonce}`;
   const messageBytes = new TextEncoder().encode(message);
   const signature = await ed.signAsync(messageBytes, keypair.privateKey);
   const b64sig = btoa(String.fromCharCode(...signature));
@@ -333,6 +368,7 @@ export async function signRequest(
   return {
     Authorization: `AgentSig ${b58pubkey}:${b64sig}`,
     'X-Timestamp': timestamp,
+    'X-Nonce': nonce,
   };
 }
 
@@ -412,8 +448,8 @@ export class RegistryClient {
       body: JSON.stringify({ public_key: b58pubkey }),
     });
 
-    // 2. Solve PoW (async — doesn't block event loop)
-    const { nonce } = await solveProofOfWorkAsync(keypair.publicKey, init.difficulty, { onProgress: options?.onProgress });
+    // 2. Solve PoW (async — doesn't block event loop, challenge-bound L3)
+    const { nonce } = await solveProofOfWorkAsync(keypair.publicKey, init.difficulty, { onProgress: options?.onProgress, challenge: init.challenge });
 
     // 3. Sign challenge — server verifies TextEncoder.encode(challenge_bytes) i.e. the base64 string as UTF-8
     const challengeBytes = new TextEncoder().encode(init.challenge);
@@ -490,13 +526,19 @@ export class RegistryClient {
     // Generate unique nonce to prevent replay attacks
     const nonce = crypto.randomUUID();
 
-    // Sign the report body (nonce is bound into the signature)
-    const reportData = JSON.stringify({ assignment_id, target_id, result, response_time_ms, coherence_score, notes, nonce });
+    // Sign the report body — includes structured_report so it's covered
+    // by the agent's Ed25519 signature (M4: inner signature coverage).
+    const signedFields: Record<string, unknown> = { assignment_id, target_id, result, nonce };
+    if (coherence_score !== undefined && coherence_score !== null) signedFields.coherence_score = coherence_score;
+    if (notes !== undefined && notes !== null) signedFields.notes = notes;
+    if (response_time_ms !== undefined && response_time_ms !== null) signedFields.response_time_ms = response_time_ms;
+    if (structured_report !== undefined && structured_report !== null) signedFields.structured_report = structured_report;
+    const reportData = canonicalJsonStringify(signedFields);
     const reportBytes = new TextEncoder().encode(reportData);
     const signature = await ed.signAsync(reportBytes, keypair.privateKey);
     const b64sig = btoa(String.fromCharCode(...signature));
 
-    const body = { assignment_id, target_id, result, response_time_ms, coherence_score, notes, structured_report, nonce, signature: b64sig };
+    const body = { ...signedFields, signature: b64sig };
     return this.fetchAuth(keypair, 'POST', '/v1/verify/submit', body);
   }
 

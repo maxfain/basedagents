@@ -9,7 +9,7 @@
  */
 
 import * as ed from '@noble/ed25519';
-import { sha256, bytesToHex } from '../src/crypto/index.js';
+import { sha256, bytesToHex, canonicalJsonStringify } from '../src/crypto/index.js';
 import { readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -64,27 +64,23 @@ async function submitVerification(
   const nonce = crypto.randomUUID();
   const responseTimeMs = Math.floor(Math.random() * 300 + 150);
 
-  const reportData = JSON.stringify({
+  // Signed fields must match server's expected order (M4: inner signature coverage)
+  const signedFields: Record<string, unknown> = {
     assignment_id: assignmentId,
     target_id: targetId,
     result: 'pass',
-    response_time_ms: responseTimeMs,
+    nonce,
     coherence_score: coherenceScore,
     notes,
-    nonce,
-  });
+    response_time_ms: responseTimeMs,
+  };
+  const reportData = canonicalJsonStringify(signedFields);
 
   const sig = await ed.signAsync(new TextEncoder().encode(reportData), privateKey);
   const b64sig = Buffer.from(sig).toString('base64');
 
   const body = JSON.stringify({
-    assignment_id: assignmentId,
-    target_id: targetId,
-    result: 'pass',
-    response_time_ms: responseTimeMs,
-    coherence_score: coherenceScore,
-    notes,
-    nonce,
+    ...signedFields,
     signature: b64sig,
   });
 

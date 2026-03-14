@@ -195,8 +195,9 @@ describe('signRequest', () => {
     const headers = await signRequest(kp, method, path, body);
 
     const ts = headers['X-Timestamp'];
+    const nonce = headers['X-Nonce'];
     const bodyHash = bytesToHex(sha256(new TextEncoder().encode(body)));
-    const message = `${method.toUpperCase()}:${path}:${ts}:${bodyHash}`;
+    const message = `${method.toUpperCase()}:${path}:${ts}:${bodyHash}:${nonce}`;
     const msgBytes = new TextEncoder().encode(message);
 
     const sig_part = headers.Authorization.slice('AgentSig '.length);

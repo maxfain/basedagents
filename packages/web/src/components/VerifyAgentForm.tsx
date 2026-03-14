@@ -4,6 +4,19 @@ import { bytesToBase64 } from '../lib/crypto';
 import { signMessage } from '../lib/crypto';
 import { API_BASE } from '../api/client';
 
+/** Canonical JSON — sorted keys, compact separators, deterministic for signatures. */
+function canonicalJsonStringify(value: unknown): string {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'boolean' || typeof value === 'number') return JSON.stringify(value);
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map(canonicalJsonStringify).join(',') + ']';
+  if (typeof value === 'object') {
+    const keys = Object.keys(value as Record<string, unknown>).sort();
+    return '{' + keys.map(k => JSON.stringify(k) + ':' + canonicalJsonStringify((value as Record<string, unknown>)[k])).join(',') + '}';
+  }
+  return JSON.stringify(value);
+}
+
 interface StructuredReport {
   capability_match: number;
   tool_honesty: boolean;
@@ -51,10 +64,20 @@ export default function VerifyAgentForm({ targetId }: VerifyAgentFormProps): Rea
         const assignment_id = crypto.randomUUID();
         const nonce = crypto.randomUUID();
 
-        // Build the report payload that will be signed.
-        // The server reconstructs JSON.stringify({...}) with the same key order — no spaces.
-        const reportCore = { assignment_id, target_id: targetId, result, response_time_ms: 0, coherence_score: coherenceScore, notes, nonce };
-        const reportData = JSON.stringify(reportCore);
+        // Build the signed payload — includes structured_report so it's covered
+        // by the agent's Ed25519 signature (M4: inner signature coverage).
+        // Field order must match what the server reconstructs for verification.
+        const signedFields: Record<string, unknown> = {
+          assignment_id,
+          target_id: targetId,
+          result,
+          nonce,
+        };
+        if (coherenceScore !== undefined && coherenceScore !== null) signedFields.coherence_score = coherenceScore;
+        if (notes) signedFields.notes = notes;
+        signedFields.response_time_ms = 0;
+        if (structured) signedFields.structured_report = structured;
+        const reportData = canonicalJsonStringify(signedFields);
 
         // Sign the report data
         const reportBytes = new TextEncoder().encode(reportData);

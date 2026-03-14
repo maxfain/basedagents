@@ -28,12 +28,16 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import os
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 from .keypair import _base58_decode as b58decode_key
 
@@ -69,24 +73,27 @@ class AttestationError(Exception):
     pass
 
 
-# ── In-process attestation cache ────────────────────────────────────────────
+# ── In-process attestation cache (thread-safe) ────────────────────────────
 _cache: dict[str, tuple[dict[str, Any], float]] = {}  # agent_id → (attestation, fetched_at)
+_cache_lock = threading.Lock()
 
 
 def _cache_get(agent_id: str) -> dict[str, Any] | None:
-    entry = _cache.get(agent_id)
-    if entry is None:
-        return None
-    attestation, _ = entry
-    # Use until expires_at minus skew tolerance
-    if time.time() > attestation["expires_at"] - CLOCK_SKEW_TOLERANCE:
-        del _cache[agent_id]
-        return None
-    return attestation
+    with _cache_lock:
+        entry = _cache.get(agent_id)
+        if entry is None:
+            return None
+        attestation, _ = entry
+        # Use until expires_at minus skew tolerance
+        if time.time() > attestation["expires_at"] - CLOCK_SKEW_TOLERANCE:
+            del _cache[agent_id]
+            return None
+        return attestation
 
 
 def _cache_set(agent_id: str, attestation: dict[str, Any]) -> None:
-    _cache[agent_id] = (attestation, time.time())
+    with _cache_lock:
+        _cache[agent_id] = (attestation, time.time())
 
 
 # ── Attestation fetch & verify ───────────────────────────────────────────────
@@ -114,7 +121,10 @@ def _verify_attestation_signature(attestation: dict[str, Any]) -> bool:
         pub_key = Ed25519PublicKey.from_public_bytes(pub_key_bytes)
         pub_key.verify(sig_bytes, msg_bytes)
         return True
-    except (InvalidSignature, Exception):
+    except (InvalidSignature, ValueError, KeyError, TypeError):
+        return False
+    except Exception:
+        logger.exception("Unexpected error verifying attestation signature")
         return False
 
 
@@ -197,17 +207,26 @@ def verify_request(
         return None
 
     # Verify request signature
-    # Signed message: "<METHOD>:<path>:<timestamp>:<sha256_hex_of_body>"
+    # New format: "<METHOD>:<path>:<timestamp>:<sha256_hex_of_body>:<nonce>"
+    # Legacy (no X-Nonce header): "<METHOD>:<path>:<timestamp>:<sha256_hex_of_body>"
     body_bytes = body.encode() if isinstance(body, str) else body
     body_hash = hashlib.sha256(body_bytes).hexdigest()
-    message = f"{method.upper()}:{path}:{timestamp}:{body_hash}"
+    req_nonce = headers_lower.get("x-nonce", "").strip()
+    message = (
+        f"{method.upper()}:{path}:{timestamp}:{body_hash}:{req_nonce}"
+        if req_nonce
+        else f"{method.upper()}:{path}:{timestamp}:{body_hash}"
+    )
 
     try:
         pub_key_bytes = b58decode_key(pubkey_b58)
         sig_bytes = base64.b64decode(sig_b64)
         pub_key = Ed25519PublicKey.from_public_bytes(pub_key_bytes)
         pub_key.verify(sig_bytes, message.encode("utf-8"))
-    except (InvalidSignature, Exception):
+    except (InvalidSignature, ValueError, KeyError, TypeError):
+        return None
+    except Exception:
+        logger.exception("Unexpected error verifying request signature")
         return None
 
     # Fetch attestation and verify registry signature

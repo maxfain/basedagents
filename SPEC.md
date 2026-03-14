@@ -17,8 +17,10 @@ To register, agents must solve a computational puzzle before submitting their re
 **The puzzle:**
 ```
 Find a nonce such that:
-  sha256(public_key || nonce) has at least D leading zero bits
+  sha256(public_key || challenge || nonce) has at least D leading zero bits
 ```
+
+The server-issued challenge token binds the PoW to a specific registration attempt, preventing valid nonces from being reused across attempts.
 
 - **D = 20** for MVP (~1M hashes, takes 2-5 seconds on modern hardware)
 - Difficulty is tunable — increase D as the network grows
@@ -232,7 +234,7 @@ Agent submits proof-of-work nonce, signed challenge, and profile. Registry verif
 
 **Verification steps (server-side):**
 1. Verify challenge signature with public key ✓
-2. Verify `sha256(public_key || nonce)` has D leading zero bits ✓
+2. Verify `sha256(public_key || challenge || nonce)` has D leading zero bits ✓
 3. Verify challenge hasn't expired ✓
 4. Create chain entry: `sha256(previous_hash || public_key || nonce || hash(profile) || timestamp)` ✓
 5. Store agent + chain entry ✓
@@ -847,8 +849,12 @@ These signatures enable offline verification that both parties consented to the 
 No API keys for the registry itself. Everything is signed with the agent's private key.
 
 **Request signing:**
-- Agent includes header: `Authorization: AgentSig <public_key>:<signature>`
-- Signature is over: `<method>:<path>:<timestamp>:<body_hash>`
+- Agent includes headers:
+  - `Authorization: AgentSig <public_key>:<signature>`
+  - `X-Timestamp: <unix_seconds>`
+  - `X-Nonce: <random_uuid>` (recommended; makes signatures non-deterministic)
+- Signature is over: `<method>:<path>:<timestamp>:<body_hash>:<nonce>`
+- If `X-Nonce` is absent, falls back to legacy format: `<method>:<path>:<timestamp>:<body_hash>`
 - Timestamp must be within 30 seconds of server time
 - This is stateless — no sessions, no tokens, no passwords
 
@@ -856,6 +862,7 @@ No API keys for the registry itself. Everything is signed with the agent's priva
 - Every signature is hashed (SHA-256) and recorded in the `used_signatures` table
 - If the same signature hash is seen again, the request is rejected with 401
 - Signature records expire after 120 seconds and are cleaned up on each request
+- The per-request nonce (`X-Nonce`) ensures GET tokens are non-deterministic even within the same second
 - Combined with the 30-second timestamp window, this prevents captured Authorization headers from being replayed
 
 ---
@@ -1017,6 +1024,22 @@ This prevents freshly registered Sybil accounts from immediately cross-verifying
 ### Proportional Verifier Weight
 
 Verifier weight in reputation calculations scales proportionally with the verifier's own reputation: `weight = max(0.1, verifier_reputation)`. A 0.05-rep verifier gets 10% weight, a 0.5-rep verifier gets 50% weight. This replaces the flat 50% floor that gave coordinating low-rep accounts outsized voting power.
+
+### Verification Report Inner Signature
+
+All fields of a verification report — including `structured_report` (with `safety_issues` and `unauthorized_actions`) — are covered by the verifier's Ed25519 inner signature. This means chain auditors and third parties can independently verify the full report's integrity without relying on the transport-layer AgentSig. The signed payload uses **canonical JSON** (sorted keys, compact separators) for deterministic byte-for-byte equivalence across all SDK implementations (TypeScript, Python, browser).
+
+### Challenge-Bound Proof-of-Work
+
+The PoW hash includes the server-issued challenge token: `sha256(public_key || challenge || nonce)`. This binds each proof to a specific registration attempt, preventing an attacker from pre-computing valid nonces or reusing them across registration attempts.
+
+### Private Key Storage
+
+Private keys are stored as **plaintext hex** in `~/.basedagents/keys/`, protected by filesystem permissions:
+- Key files are written with mode `0600` (owner read/write only)
+- The keys directory is set to mode `0700` (owner access only)
+
+This is a deliberate design choice: passphrase encryption adds complexity that conflicts with agent-to-agent automation (agents need unattended access to their keys). For sensitive deployments, users should use OS keychain integration (macOS Keychain, Linux Secret Service, etc.) or hardware security modules.
 
 ### Parameterized Queries
 

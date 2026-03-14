@@ -2,7 +2,10 @@
 Proof-of-work solver.
 
 Find a 4-byte nonce N such that:
-  SHA256(pubkey_bytes || N_big_endian) has >= difficulty leading zero bits
+  SHA256(pubkey_bytes || challenge_bytes || N_big_endian) has >= difficulty leading zero bits
+
+The challenge binds the PoW to a specific registration attempt,
+preventing nonce reuse across attempts (L3).
 
 Nonce is submitted as an 8-character zero-padded hex string.
 """
@@ -32,6 +35,7 @@ def solve(
     difficulty: int,
     on_progress: Callable[[int], None] | None = None,
     progress_interval: int = 100_000,
+    challenge: str | None = None,
 ) -> str:
     """
     Solve proof-of-work. Returns nonce as 8-char zero-padded hex string.
@@ -41,11 +45,14 @@ def solve(
         difficulty: Required leading zero bits
         on_progress: Optional callback(attempts) called every progress_interval iterations
         progress_interval: How often to call on_progress
+        challenge: Server challenge string (binds PoW to registration attempt)
     """
+    challenge_bytes = challenge.encode("utf-8") if challenge else b""
+    prefix = public_key_bytes + challenge_bytes
     nonce = 0
     while True:
         nonce_bytes = struct.pack(">I", nonce)  # 4-byte big-endian
-        digest = hashlib.sha256(public_key_bytes + nonce_bytes).digest()
+        digest = hashlib.sha256(prefix + nonce_bytes).digest()
         if _count_leading_zero_bits(digest) >= difficulty:
             return format(nonce, "08x")
         nonce += 1

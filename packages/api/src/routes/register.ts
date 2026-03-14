@@ -186,8 +186,8 @@ register.post('/complete', async (c) => {
     return c.json({ error: 'bad_request', message: 'Invalid signature — challenge verification failed' }, 400);
   }
 
-  // 5. Verify proof-of-work
-  if (!verifyProofOfWork(publicKey, nonce, DEFAULT_DIFFICULTY)) {
+  // 5. Verify proof-of-work (challenge-bound — prevents nonce reuse across attempts, L3)
+  if (!verifyProofOfWork(publicKey, nonce, DEFAULT_DIFFICULTY, challenge.challenge_bytes)) {
     return c.json({ error: 'bad_request', message: 'Proof-of-work verification failed' }, 400);
   }
 

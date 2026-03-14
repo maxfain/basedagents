@@ -3,15 +3,20 @@ AgentSig authentication headers.
 
 Authorization: AgentSig <base58_pubkey>:<base64_signature>
 X-Timestamp: <unix_seconds>
+X-Nonce: <random_string>
 
 Signed message (UTF-8 encoded, then Ed25519-signed):
-  "<METHOD>:<path>:<timestamp_sec>:<sha256_hex_of_body>"
+  "<METHOD>:<path>:<timestamp_sec>:<sha256_hex_of_body>:<nonce>"
+
+The random nonce makes signatures non-deterministic even within the same
+second, preventing replay of deterministic GET tokens (L1).
 """
 from __future__ import annotations
 
 import base64
 import hashlib
 import time
+import uuid
 
 from .keypair import AgentKeypair
 
@@ -34,9 +39,10 @@ def build_headers(
         timestamp: Unix timestamp in seconds (defaults to now)
 
     Returns:
-        Dict with 'Authorization' and 'X-Timestamp' headers.
+        Dict with 'Authorization', 'X-Timestamp', and 'X-Nonce' headers.
     """
     ts = timestamp if timestamp is not None else int(time.time())
+    nonce = str(uuid.uuid4())
 
     if body is None:
         body_bytes = b""
@@ -46,11 +52,12 @@ def build_headers(
         body_bytes = body
 
     body_hash = hashlib.sha256(body_bytes).hexdigest()
-    message = f"{method.upper()}:{path}:{ts}:{body_hash}".encode("utf-8")
+    message = f"{method.upper()}:{path}:{ts}:{body_hash}:{nonce}".encode("utf-8")
     signature = keypair.sign(message)
     sig_b64 = base64.b64encode(signature).decode("ascii")
 
     return {
         "Authorization": f"AgentSig {keypair.public_key_b58}:{sig_b64}",
         "X-Timestamp": str(ts),
+        "X-Nonce": nonce,
     }
