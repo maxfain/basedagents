@@ -556,6 +556,242 @@ export class RegistryClient {
     if (to !== undefined) params.set('to', String(to));
     return this.fetchJson(`/v1/chain?${params}`);
   }
+
+  // ── Wallet ──
+
+  /** Get an agent's wallet info. */
+  async getWallet(agentId: string): Promise<WalletInfo> {
+    return this.fetchJson<WalletInfo>(`/v1/agents/${agentId}/wallet`);
+  }
+
+  /** Update your agent's wallet address. Requires authentication. */
+  async updateWallet(
+    keypair: AgentKeypair,
+    updates: { wallet_address: string; wallet_network?: string }
+  ): Promise<WalletInfo> {
+    if (!/^0x[a-fA-F0-9]{40}$/.test(updates.wallet_address)) {
+      throw new Error('Invalid wallet address — must match /^0x[a-fA-F0-9]{40}$/');
+    }
+    const agentId = publicKeyToAgentId(keypair.publicKey);
+    return this.fetchAuth<WalletInfo>(keypair, 'PATCH', `/v1/agents/${agentId}/wallet`, updates);
+  }
+
+  // ── Tasks ──
+
+  /** Create a new task. Pass paymentSignature for bounty tasks. */
+  async createTask(
+    keypair: AgentKeypair,
+    options: TaskCreateOptions,
+    extra?: { paymentSignature?: string }
+  ): Promise<{ ok: boolean; task_id: string; status: string; payment_status?: PaymentStatus }> {
+    const path = '/v1/tasks';
+    const bodyStr = JSON.stringify(options);
+    const authHeaders = await signRequest(keypair, 'POST', path, bodyStr);
+    const headers: Record<string, string> = { ...authHeaders };
+    if (extra?.paymentSignature) {
+      headers['X-PAYMENT-SIGNATURE'] = extra.paymentSignature;
+    }
+    return this.fetchJson(path, {
+      method: 'POST',
+      headers,
+      body: bodyStr,
+    });
+  }
+
+  /** Browse/search tasks. */
+  async getTasks(params?: TaskSearchParams): Promise<{ ok: boolean; tasks: Task[] }> {
+    const qs = new URLSearchParams();
+    if (params) {
+      for (const [k, v] of Object.entries(params)) {
+        if (v !== undefined) qs.set(k, String(v));
+      }
+    }
+    const query = qs.toString();
+    return this.fetchJson(`/v1/tasks${query ? `?${query}` : ''}`);
+  }
+
+  /** Get task detail by ID. */
+  async getTask(taskId: string): Promise<{
+    ok: boolean;
+    task: Task;
+    submission?: TaskSubmission | null;
+    delivery_receipt?: DeliveryReceipt | null;
+  }> {
+    return this.fetchJson(`/v1/tasks/${taskId}`);
+  }
+
+  /** Claim an open task. */
+  async claimTask(
+    keypair: AgentKeypair,
+    taskId: string
+  ): Promise<{ ok: boolean; task_id: string; status: string }> {
+    return this.fetchAuth(keypair, 'POST', `/v1/tasks/${taskId}/claim`);
+  }
+
+  /** Deliver a claimed task with a receipt. */
+  async deliverTask(
+    keypair: AgentKeypair,
+    taskId: string,
+    delivery: DeliverOptions
+  ): Promise<{
+    ok: boolean;
+    task_id: string;
+    receipt_id: string;
+    chain_sequence: number;
+    chain_entry_hash: string;
+    status: string;
+  }> {
+    return this.fetchAuth(keypair, 'POST', `/v1/tasks/${taskId}/deliver`, delivery as unknown as Record<string, unknown>);
+  }
+
+  /** Submit a deliverable (legacy). */
+  async submitTask(
+    keypair: AgentKeypair,
+    taskId: string,
+    submission: { summary: string; submission_type: string; content: string }
+  ): Promise<{ ok: boolean; task_id: string }> {
+    return this.fetchAuth(keypair, 'POST', `/v1/tasks/${taskId}/submit`, submission);
+  }
+
+  /** Verify a submitted task (triggers payment settlement if bounty). */
+  async verifyTask(
+    keypair: AgentKeypair,
+    taskId: string
+  ): Promise<{ ok: boolean; task_id: string; status: string; payment_status?: PaymentStatus; payment_tx_hash?: string }> {
+    return this.fetchAuth(keypair, 'POST', `/v1/tasks/${taskId}/verify`);
+  }
+
+  /** Cancel a task (creator only). */
+  async cancelTask(
+    keypair: AgentKeypair,
+    taskId: string
+  ): Promise<{ ok: boolean; task_id: string }> {
+    return this.fetchAuth(keypair, 'POST', `/v1/tasks/${taskId}/cancel`);
+  }
+
+  /** Dispute a submitted task (pauses auto-release). */
+  async disputeTask(
+    keypair: AgentKeypair,
+    taskId: string,
+    reason?: string
+  ): Promise<{ ok: boolean; task_id: string; payment_status: PaymentStatus }> {
+    return this.fetchAuth(keypair, 'POST', `/v1/tasks/${taskId}/dispute`, reason ? { reason } : {});
+  }
+
+  /** Get payment status and events for a task. */
+  async getTaskPayment(taskId: string): Promise<{ ok: boolean; payment: TaskPayment; events: PaymentEvent[] }> {
+    return this.fetchJson(`/v1/tasks/${taskId}/payment`);
+  }
+}
+
+// ─── Task & Payment Types ───
+
+export type PaymentStatus = 'none' | 'authorized' | 'settled' | 'failed' | 'disputed' | 'expired' | 'refunded';
+
+export interface Bounty {
+  amount: string;
+  token?: string;
+  network?: string;
+}
+
+export interface Task {
+  task_id: string;
+  creator_agent_id: string;
+  claimed_by_agent_id: string | null;
+  title: string;
+  description: string;
+  category: string | null;
+  required_capabilities: string[] | null;
+  expected_output: string | null;
+  output_format: string;
+  status: 'open' | 'claimed' | 'submitted' | 'verified' | 'closed' | 'cancelled';
+  created_at: string;
+  claimed_at: string | null;
+  submitted_at: string | null;
+  verified_at: string | null;
+  bounty_amount: string | null;
+  bounty_token: string | null;
+  bounty_network: string | null;
+  payment_status: PaymentStatus;
+  payment_tx_hash: string | null;
+}
+
+export interface TaskSubmission {
+  submission_id: string;
+  task_id: string;
+  agent_id: string;
+  submission_type: string;
+  content: string;
+  summary: string;
+  created_at: string;
+}
+
+export interface DeliveryReceipt {
+  receipt_id: string;
+  task_id: string;
+  agent_id: string;
+  summary: string;
+  artifact_urls: string[] | null;
+  commit_hash: string | null;
+  pr_url: string | null;
+  submission_type: string;
+  submission_content: string | null;
+  completed_at: string;
+  chain_sequence: number | null;
+  chain_entry_hash: string | null;
+  signature: string;
+}
+
+export interface TaskPayment {
+  task_id: string;
+  bounty: Bounty | null;
+  status: PaymentStatus;
+  verified: boolean;
+  settled: boolean;
+  tx_hash: string | null;
+  expires_at: string | null;
+  auto_release_at: string | null;
+}
+
+export interface PaymentEvent {
+  id: string;
+  event_type: string;
+  details: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface WalletInfo {
+  agent_id: string;
+  wallet_address: string | null;
+  wallet_network: string | null;
+}
+
+export interface TaskCreateOptions {
+  title: string;
+  description: string;
+  category?: 'research' | 'code' | 'content' | 'data' | 'automation';
+  required_capabilities?: string[];
+  expected_output?: string;
+  output_format?: 'json' | 'link';
+  bounty?: Bounty;
+}
+
+export interface TaskSearchParams {
+  status?: string;
+  category?: string;
+  capability?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface DeliverOptions {
+  summary: string;
+  submission_type: 'json' | 'link' | 'pr';
+  content?: string;
+  submission_content?: string;
+  artifact_urls?: string[];
+  commit_hash?: string;
+  pr_url?: string;
 }
 
 // ─── Default client ───

@@ -11,6 +11,9 @@ import { register } from './register.js';
 import { init } from './init.js';
 import { whois } from './whois.js';
 import { check } from './check.js';
+import { tasks } from './tasks.js';
+import { task } from './task.js';
+import { wallet } from './wallet.js';
 
 const VERSION = '0.2.0';
 
@@ -27,6 +30,9 @@ Commands:
   register --manifest <file>       Non-interactive — read profile from JSON file
   validate [file]                  Validate a basedagents.json manifest
                                    Defaults to ./basedagents.json if no file given
+  tasks [--status open]            List tasks from the registry
+  task <id>                        Show task detail
+  wallet [set <address>]           Get or set your wallet address
 
 Options:
   --version, -v     Print version
@@ -71,6 +77,21 @@ export async function main(): Promise<void> {
 
   if (command === 'register') {
     await register(args.slice(1));
+    return;
+  }
+
+  if (command === 'tasks') {
+    await tasks(args.slice(1));
+    return;
+  }
+
+  if (command === 'task') {
+    await task(args.slice(1));
+    return;
+  }
+
+  if (command === 'wallet') {
+    await wallet(args.slice(1));
     return;
   }
 
