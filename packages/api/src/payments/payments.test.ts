@@ -200,7 +200,7 @@ describe('x402 Payment Integration', () => {
       expect(task!.payment_verified).toBe(1);
     });
 
-    it('rejects bounty without X-PAYMENT-SIGNATURE header → 400', async () => {
+    it('rejects bounty without X-PAYMENT-SIGNATURE header → 402', async () => {
       const body = JSON.stringify({
         title: 'Missing Payment',
         description: 'Has bounty but no signature',
@@ -214,9 +214,11 @@ describe('x402 Payment Integration', () => {
         body,
       });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(402);
       const data = await res.json() as Record<string, unknown>;
-      expect(data.error).toBe('bad_request');
+      expect(data.error).toBe('payment_required');
+      expect(data.payment_docs).toBeDefined();
+      expect(data.help).toBeDefined();
     });
 
     it('creates task without bounty normally (backward compat)', async () => {

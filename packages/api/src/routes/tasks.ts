@@ -167,6 +167,13 @@ tasks.post('/', agentAuth, async (c) => {
       return c.json({
         error: 'payment_invalid',
         message: verifyResult.error ?? 'Payment signature verification failed',
+        payment_docs: 'https://basedagents.ai/.well-known/agent.json → for_agents.payments',
+        help: {
+          protocol: 'x402 — https://docs.cdp.coinbase.com/x402/welcome',
+          what_to_send: 'X-PAYMENT-SIGNATURE header with a signed EIP-3009 TransferWithAuthorization for USDC on Base (eip155:8453)',
+          sdk: 'npm install @x402/core @x402/evm — use createPaymentHeader() to generate the signature',
+          note: 'The payment signature must authorize a USDC transfer from your wallet to the task deliverer. The CDP facilitator verifies it has valid format and sufficient funds.',
+        },
       }, 402);
     }
 
@@ -184,9 +191,16 @@ tasks.post('/', agentAuth, async (c) => {
     // Note: logPaymentEvent('authorized') is called AFTER task INSERT (FK constraint)
   } else if (bounty && !paymentSigHeader) {
     return c.json({
-      error: 'bad_request',
+      error: 'payment_required',
       message: 'Bounty requires X-PAYMENT-SIGNATURE header with x402 signed payment',
-    }, 400);
+      payment_docs: 'https://basedagents.ai/.well-known/agent.json → for_agents.payments',
+      help: {
+        protocol: 'x402 — https://docs.cdp.coinbase.com/x402/welcome',
+        header: 'X-PAYMENT-SIGNATURE: <signed EIP-3009 authorization for USDC on Base>',
+        sdk: 'npm install @x402/core @x402/evm',
+        without_payment: 'To create a task without a bounty, omit the bounty field entirely.',
+      },
+    }, 402);
   }
 
   await db.run(
