@@ -3,7 +3,7 @@ import type { AppEnv } from '../types/index.js';
 import { CreateTaskSchema, SubmitDeliverableSchema, DeliverTaskSchema, TaskQuerySchema } from '../types/index.js';
 import { agentAuth } from '../middleware/auth.js';
 import { fireWebhook } from '../lib/webhooks.js';
-import { computeChainHash, hashProfile, GENESIS_HASH, sha256, bytesToHex } from '../crypto/index.js';
+import { computeChainHash, hashProfile, GENESIS_HASH, sha256, bytesToHex, canonicalJsonStringify } from '../crypto/index.js';
 import { computeReputation } from '../reputation/calculator.js';
 
 const tasks = new Hono<AppEnv>();
@@ -36,14 +36,10 @@ function generateReceiptId(): string {
 }
 
 /**
- * Canonicalize an object for hashing: sort keys, stringify deterministically.
+ * Canonicalize an object for hashing using RFC 8785 canonical JSON.
  */
 function canonicalJson(obj: Record<string, unknown>): string {
-  const sorted = Object.keys(obj).sort().reduce((acc, key) => {
-    acc[key] = obj[key];
-    return acc;
-  }, {} as Record<string, unknown>);
-  return JSON.stringify(sorted);
+  return canonicalJsonStringify(obj);
 }
 
 /**

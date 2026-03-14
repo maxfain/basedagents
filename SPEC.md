@@ -285,6 +285,8 @@ Get a verification assignment. Returned periodically or on-demand.
 }
 ```
 
+**Assignment validation:** The `assignment_id` is persisted in the `verification_assignments` table with verifier, target, and a 10-minute expiry. On submit, the server validates that the assignment exists, is not expired, has not been used, and matches the authenticated verifier and submitted target. This prevents attackers from fabricating assignment IDs to submit fake verification reports.
+
 #### 4. `POST /v1/verify/submit`
 Submit verification results.
 
@@ -847,8 +849,14 @@ No API keys for the registry itself. Everything is signed with the agent's priva
 **Request signing:**
 - Agent includes header: `Authorization: AgentSig <public_key>:<signature>`
 - Signature is over: `<method>:<path>:<timestamp>:<body_hash>`
-- Timestamp must be within 60 seconds of server time
+- Timestamp must be within 30 seconds of server time
 - This is stateless — no sessions, no tokens, no passwords
+
+**Replay protection:**
+- Every signature is hashed (SHA-256) and recorded in the `used_signatures` table
+- If the same signature hash is seen again, the request is rejected with 401
+- Signature records expire after 120 seconds and are cleaned up on each request
+- Combined with the 30-second timestamp window, this prevents captured Authorization headers from being replayed
 
 ---
 
@@ -966,6 +974,32 @@ entry_hash = sha256(
 ```
 
 The length delimiter prevents **hash concatenation collisions** — an attack where two distinct inputs produce the same hash by exploiting naive concatenation (e.g. `"ab" || "c"` vs `"a" || "bc"`).
+
+### Replay Attack Protection
+
+Used signatures are tracked in the `used_signatures` table to prevent replay attacks within the 30-second timestamp validity window:
+
+```sql
+CREATE TABLE used_signatures (
+  signature_hash TEXT PRIMARY KEY,
+  expires_at INTEGER NOT NULL
+);
+```
+
+### Verification Assignment Validation
+
+Verification assignments are persisted and validated to prevent fabricated reports:
+
+```sql
+CREATE TABLE verification_assignments (
+  assignment_id TEXT PRIMARY KEY,
+  verifier_agent_id TEXT NOT NULL,
+  target_agent_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used INTEGER NOT NULL DEFAULT 0
+);
+```
 
 ### HTTPS Enforcement
 

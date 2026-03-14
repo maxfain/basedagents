@@ -82,8 +82,25 @@ verify.get('/assignment', agentAuth, async (c) => {
     return c.json({ error: 'no_assignment', message: 'No agents available for verification' }, 404);
   }
 
+  const assignmentId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes
+
+  // Persist assignment for validation on submit
+  await db.run(
+    `INSERT INTO verification_assignments (assignment_id, verifier_agent_id, target_agent_id, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    assignmentId, agentId, target.id, now, expiresAt
+  );
+
+  // Cleanup expired assignments
+  await db.run(
+    'DELETE FROM verification_assignments WHERE expires_at < ? AND used = 0',
+    now
+  );
+
   return c.json({
-    assignment_id: crypto.randomUUID(),
+    assignment_id: assignmentId,
     target: {
       agent_id: target.id,
       name: target.name,
@@ -125,6 +142,37 @@ verify.post('/submit', agentAuth, async (c) => {
   if (verifierId === target_id) {
     return c.json({ error: 'bad_request', message: 'Cannot verify yourself' }, 400);
   }
+
+  // ── Assignment validation ──
+  const assignment = await db.get<{
+    assignment_id: string;
+    verifier_agent_id: string;
+    target_agent_id: string;
+    expires_at: string;
+    used: number;
+  }>(
+    'SELECT assignment_id, verifier_agent_id, target_agent_id, expires_at, used FROM verification_assignments WHERE assignment_id = ?',
+    assignment_id
+  );
+
+  if (!assignment) {
+    return c.json({ error: 'bad_request', message: 'Invalid assignment ID — assignment not found' }, 400);
+  }
+  if (assignment.used === 1) {
+    return c.json({ error: 'bad_request', message: 'Assignment already used' }, 400);
+  }
+  if (new Date(assignment.expires_at) < new Date()) {
+    return c.json({ error: 'bad_request', message: 'Assignment expired' }, 400);
+  }
+  if (assignment.verifier_agent_id !== verifierId) {
+    return c.json({ error: 'bad_request', message: 'Assignment was not issued to this verifier' }, 400);
+  }
+  if (assignment.target_agent_id !== target_id) {
+    return c.json({ error: 'bad_request', message: 'Assignment target does not match submission target' }, 400);
+  }
+
+  // Mark assignment as used
+  await db.run('UPDATE verification_assignments SET used = 1 WHERE assignment_id = ?', assignment_id);
 
   // ── Replay check — nonce must be globally unique ──
   const nonceExists = await db.get<{ id: string }>(

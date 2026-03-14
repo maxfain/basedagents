@@ -61,11 +61,11 @@ export async function agentAuth(c: Context, next: Next): Promise<Response | void
     return c.json({ error: 'unauthorized', message: 'Missing X-Timestamp header' }, 401);
   }
 
-  // Verify timestamp is within 60 seconds
+  // Verify timestamp is within 30 seconds
   const now = Math.floor(Date.now() / 1000);
   const ts = parseInt(timestamp, 10);
-  if (isNaN(ts) || Math.abs(now - ts) > 60) {
-    return c.json({ error: 'unauthorized', message: 'Timestamp out of range (must be within 60 seconds)' }, 401);
+  if (isNaN(ts) || Math.abs(now - ts) > 30) {
+    return c.json({ error: 'unauthorized', message: 'Timestamp out of range (must be within 30 seconds)' }, 401);
   }
 
   // Compute body hash
@@ -84,9 +84,28 @@ export async function agentAuth(c: Context, next: Next): Promise<Response | void
     return c.json({ error: 'unauthorized', message: 'Invalid signature' }, 401);
   }
 
+  // Replay protection: check if this signature has been used before
+  const db = c.get('db') as DBAdapter;
+  const sigHash = bytesToHex(sha256(signature));
+
+  // Cleanup expired signatures
+  await db.run('DELETE FROM used_signatures WHERE expires_at < ?', now);
+
+  const existing = await db.get<{ signature_hash: string }>(
+    'SELECT signature_hash FROM used_signatures WHERE signature_hash = ?', sigHash
+  );
+  if (existing) {
+    return c.json({ error: 'unauthorized', message: 'Signature already used (replay protection)' }, 401);
+  }
+
+  // Store signature with 120-second expiry
+  await db.run(
+    'INSERT INTO used_signatures (signature_hash, expires_at) VALUES (?, ?)',
+    sigHash, now + 120
+  );
+
   // Check agent exists in database
   const agentId = publicKeyToAgentId(publicKey);
-  const db = c.get('db') as DBAdapter;
   const agent = await db.get<{ id: string; status: string }>('SELECT id, status FROM agents WHERE id = ?', agentId);
 
   if (!agent) {
@@ -130,7 +149,7 @@ export async function optionalAuth(c: Context, next: Next): Promise<void> {
       if (!timestamp) { await next(); return; }
       const ts = parseInt(timestamp, 10);
       const now = Math.floor(Date.now() / 1000);
-      if (isNaN(ts) || Math.abs(now - ts) > 60) { await next(); return; }
+      if (isNaN(ts) || Math.abs(now - ts) > 30) { await next(); return; }
 
       const body = await c.req.text();
       const bodyHash = bytesToHex(sha256(new TextEncoder().encode(body)));

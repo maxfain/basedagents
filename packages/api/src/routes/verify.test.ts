@@ -25,6 +25,27 @@ vi.mock('../skills/resolver.js', () => ({
 }));
 
 /**
+ * Insert a valid verification assignment into the database.
+ */
+async function insertAssignment(
+  db: SQLiteAdapter,
+  assignmentId: string,
+  verifierId: string,
+  targetId: string,
+  options: { expired?: boolean; used?: boolean } = {}
+): Promise<void> {
+  const now = new Date();
+  const expiresAt = options.expired
+    ? new Date(now.getTime() - 60_000).toISOString()  // expired 1 min ago
+    : new Date(now.getTime() + 10 * 60_000).toISOString(); // 10 min from now
+  await db.run(
+    `INSERT INTO verification_assignments (assignment_id, verifier_agent_id, target_agent_id, created_at, expires_at, used)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    assignmentId, verifierId, targetId, now.toISOString(), expiresAt, options.used ? 1 : 0
+  );
+}
+
+/**
  * Build the JSON body and signature for a verification submission.
  */
 async function buildVerificationBody(
@@ -96,6 +117,7 @@ describe('POST /v1/verify/submit', () => {
 
   it('full verification flow returns ok with reputation delta', async () => {
     const body = await buildVerificationBody(verifier, target.agentId, 'pass');
+    await insertAssignment(db, body.assignment_id, verifier.agentId, target.agentId);
     const bodyStr = JSON.stringify(body);
     const authHeaders = await signRequest(verifier, 'POST', '/v1/verify/submit', bodyStr);
 
@@ -115,6 +137,7 @@ describe('POST /v1/verify/submit', () => {
 
   it('self-verification → 400', async () => {
     const body = await buildVerificationBody(verifier, verifier.agentId, 'pass');
+    await insertAssignment(db, body.assignment_id, verifier.agentId, verifier.agentId);
     const bodyStr = JSON.stringify(body);
     const authHeaders = await signRequest(verifier, 'POST', '/v1/verify/submit', bodyStr);
 
@@ -132,6 +155,7 @@ describe('POST /v1/verify/submit', () => {
   it('duplicate nonce → 400', async () => {
     const sharedNonce = crypto.randomUUID();
     const body1 = await buildVerificationBody(verifier, target.agentId, 'pass', { nonce: sharedNonce });
+    await insertAssignment(db, body1.assignment_id, verifier.agentId, target.agentId);
     const bodyStr1 = JSON.stringify(body1);
     const authHeaders1 = await signRequest(verifier, 'POST', '/v1/verify/submit', bodyStr1);
 
@@ -147,6 +171,7 @@ describe('POST /v1/verify/submit', () => {
     const target2 = await createTestAgent(db, { reputationScore: 0, status: 'pending' });
     // Re-sign with same nonce but different target — nonce collision should still fail
     const body2 = await buildVerificationBody(verifier, target2.agentId, 'pass', { nonce: sharedNonce });
+    await insertAssignment(db, body2.assignment_id, verifier.agentId, target2.agentId);
     const bodyStr2 = JSON.stringify(body2);
     const authHeaders2 = await signRequest(verifier, 'POST', '/v1/verify/submit', bodyStr2);
 
@@ -162,6 +187,7 @@ describe('POST /v1/verify/submit', () => {
 
   it('invalid report signature → 400', async () => {
     const body = await buildVerificationBody(verifier, target.agentId, 'pass');
+    await insertAssignment(db, body.assignment_id, verifier.agentId, target.agentId);
 
     // Corrupt the signature
     body.signature = btoa('invalidsignature'.repeat(4));
@@ -183,6 +209,15 @@ describe('POST /v1/verify/submit', () => {
   it('target not found → 404', async () => {
     const fakeTargetId = 'ag_nonexistentXYZ123';
     const body = await buildVerificationBody(verifier, fakeTargetId, 'pass');
+    // Temporarily disable FK constraints to insert assignment with nonexistent target
+    await db.exec('PRAGMA foreign_keys = OFF');
+    await db.run(
+      `INSERT INTO verification_assignments (assignment_id, verifier_agent_id, target_agent_id, created_at, expires_at, used)
+       VALUES (?, ?, ?, ?, ?, 0)`,
+      body.assignment_id, verifier.agentId, fakeTargetId, new Date().toISOString(),
+      new Date(Date.now() + 600000).toISOString()
+    );
+    await db.exec('PRAGMA foreign_keys = ON');
     const bodyStr = JSON.stringify(body);
     const authHeaders = await signRequest(verifier, 'POST', '/v1/verify/submit', bodyStr);
 
@@ -203,6 +238,7 @@ describe('POST /v1/verify/submit', () => {
     expect(before!.status).toBe('pending');
 
     const body = await buildVerificationBody(verifier, target.agentId, 'pass');
+    await insertAssignment(db, body.assignment_id, verifier.agentId, target.agentId);
     const bodyStr = JSON.stringify(body);
     const authHeaders = await signRequest(verifier, 'POST', '/v1/verify/submit', bodyStr);
 
@@ -221,6 +257,7 @@ describe('POST /v1/verify/submit', () => {
 
   it('reputation delta is returned in response', async () => {
     const body = await buildVerificationBody(verifier, target.agentId, 'pass');
+    await insertAssignment(db, body.assignment_id, verifier.agentId, target.agentId);
     const bodyStr = JSON.stringify(body);
     const authHeaders = await signRequest(verifier, 'POST', '/v1/verify/submit', bodyStr);
 
@@ -243,6 +280,7 @@ describe('POST /v1/verify/submit', () => {
     });
 
     const body = await buildVerificationBody(verifier, webhookTarget.agentId, 'pass');
+    await insertAssignment(db, body.assignment_id, verifier.agentId, webhookTarget.agentId);
     const bodyStr = JSON.stringify(body);
     const authHeaders = await signRequest(verifier, 'POST', '/v1/verify/submit', bodyStr);
 
@@ -273,5 +311,151 @@ describe('POST /v1/verify/submit', () => {
       body: bodyStr,
     });
     expect(res.status).toBe(401);
+  });
+
+  // ── H1: Replay attack protection ──
+
+  it('replay attack rejected — same signature used twice → 401', async () => {
+    const body = await buildVerificationBody(verifier, target.agentId, 'pass');
+    await insertAssignment(db, body.assignment_id, verifier.agentId, target.agentId);
+    const bodyStr = JSON.stringify(body);
+    const authHeaders = await signRequest(verifier, 'POST', '/v1/verify/submit', bodyStr);
+
+    // First request succeeds
+    const res1 = await app.request('/v1/verify/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: bodyStr,
+    });
+    expect(res1.status).toBe(200);
+
+    // Replay the exact same request (same auth headers = same signature)
+    // Need a new assignment for the body's assignment_id (old one is used), but the auth replay
+    // should be caught before we even get to assignment validation
+    const res2 = await app.request('/v1/verify/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: bodyStr,
+    });
+    expect(res2.status).toBe(401);
+    const data = await res2.json() as { message: string };
+    expect(data.message).toContain('replay');
+  });
+
+  // ── H2: Assignment validation ──
+
+  it('fabricated assignment ID rejected → 400', async () => {
+    const fakeAssignmentId = crypto.randomUUID();
+    const body = await buildVerificationBody(verifier, target.agentId, 'pass', {
+      assignmentId: fakeAssignmentId,
+    });
+    // Do NOT insert assignment — it's fabricated
+    const bodyStr = JSON.stringify(body);
+    const authHeaders = await signRequest(verifier, 'POST', '/v1/verify/submit', bodyStr);
+
+    const res = await app.request('/v1/verify/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: bodyStr,
+    });
+    expect(res.status).toBe(400);
+    const data = await res.json() as { message: string };
+    expect(data.message).toContain('assignment');
+  });
+
+  it('expired assignment rejected → 400', async () => {
+    const body = await buildVerificationBody(verifier, target.agentId, 'pass');
+    await insertAssignment(db, body.assignment_id, verifier.agentId, target.agentId, { expired: true });
+    const bodyStr = JSON.stringify(body);
+    const authHeaders = await signRequest(verifier, 'POST', '/v1/verify/submit', bodyStr);
+
+    const res = await app.request('/v1/verify/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: bodyStr,
+    });
+    expect(res.status).toBe(400);
+    const data = await res.json() as { message: string };
+    expect(data.message.toLowerCase()).toContain('expired');
+  });
+
+  it('assignment with wrong verifier rejected → 400', async () => {
+    const otherAgent = await createTestAgent(db, { reputationScore: 0.5, status: 'active' });
+    const body = await buildVerificationBody(verifier, target.agentId, 'pass');
+    // Assignment was issued to a different agent
+    await insertAssignment(db, body.assignment_id, otherAgent.agentId, target.agentId);
+    const bodyStr = JSON.stringify(body);
+    const authHeaders = await signRequest(verifier, 'POST', '/v1/verify/submit', bodyStr);
+
+    const res = await app.request('/v1/verify/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: bodyStr,
+    });
+    expect(res.status).toBe(400);
+    const data = await res.json() as { message: string };
+    expect(data.message).toContain('verifier');
+  });
+
+  it('assignment with wrong target rejected → 400', async () => {
+    const otherTarget = await createTestAgent(db, { reputationScore: 0, status: 'pending' });
+    const body = await buildVerificationBody(verifier, target.agentId, 'pass');
+    // Assignment was issued for a different target
+    await insertAssignment(db, body.assignment_id, verifier.agentId, otherTarget.agentId);
+    const bodyStr = JSON.stringify(body);
+    const authHeaders = await signRequest(verifier, 'POST', '/v1/verify/submit', bodyStr);
+
+    const res = await app.request('/v1/verify/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: bodyStr,
+    });
+    expect(res.status).toBe(400);
+    const data = await res.json() as { message: string };
+    expect(data.message).toContain('target');
+  });
+
+  it('already-used assignment rejected → 400', async () => {
+    const body = await buildVerificationBody(verifier, target.agentId, 'pass');
+    await insertAssignment(db, body.assignment_id, verifier.agentId, target.agentId, { used: true });
+    const bodyStr = JSON.stringify(body);
+    const authHeaders = await signRequest(verifier, 'POST', '/v1/verify/submit', bodyStr);
+
+    const res = await app.request('/v1/verify/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: bodyStr,
+    });
+    expect(res.status).toBe(400);
+    const data = await res.json() as { message: string };
+    expect(data.message.toLowerCase()).toContain('used');
+  });
+
+  it('valid assignment flow works end to end', async () => {
+    // Get assignment via the API
+    const assignmentHeaders = await signRequest(verifier, 'GET', '/v1/verify/assignment');
+    const assignRes = await app.request('/v1/verify/assignment', {
+      method: 'GET',
+      headers: assignmentHeaders,
+    });
+    expect(assignRes.status).toBe(200);
+    const assignData = await assignRes.json() as { assignment_id: string; target: { agent_id: string } };
+
+    // Submit verification using the assignment
+    const body = await buildVerificationBody(verifier, assignData.target.agent_id, 'pass', {
+      assignmentId: assignData.assignment_id,
+    });
+    const bodyStr = JSON.stringify(body);
+    const submitHeaders = await signRequest(verifier, 'POST', '/v1/verify/submit', bodyStr);
+
+    const submitRes = await app.request('/v1/verify/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...submitHeaders },
+      body: bodyStr,
+    });
+    expect(submitRes.status).toBe(200);
+    const submitData = await submitRes.json() as { ok: boolean; verification_id: string };
+    expect(submitData.ok).toBe(true);
+    expect(submitData.verification_id).toBeDefined();
   });
 });
