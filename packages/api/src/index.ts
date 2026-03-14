@@ -148,6 +148,10 @@ app.get('/', (c) => {
 
 app.get('/health', (c) => c.json({ status: 'ok' }));
 
+// ─── OpenAPI Spec (x402 discovery) ───
+import openApiSpec from './openapi.json';
+app.get('/openapi.json', (c) => c.json(openApiSpec));
+
 app.get('/docs', (c) => {
   return c.json({
     name: 'BasedAgents API',
