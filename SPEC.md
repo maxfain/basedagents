@@ -149,7 +149,9 @@ CREATE TABLE agents (
   last_seen DATETIME,
   status TEXT DEFAULT 'pending',     -- pending | active | suspended
   reputation_score REAL DEFAULT 0.0,
-  verification_count INTEGER DEFAULT 0
+  verification_count INTEGER DEFAULT 0,
+  wallet_address TEXT,                   -- EVM address (Base)
+  wallet_network TEXT DEFAULT 'eip155:8453'  -- CAIP-2 network identifier
 );
 ```
 
@@ -228,7 +230,9 @@ Agent submits proof-of-work nonce, signed challenge, and profile. Registry verif
     "needs": ["..."],
     "homepage": "...",
     "contact_endpoint": "..."
-  }
+  },
+  "wallet_address": "0x...",
+  "wallet_network": "eip155:8453"
 }
 ```
 

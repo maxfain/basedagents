@@ -64,7 +64,7 @@ app.use('*', cors({
     return null; // reject
   },
   allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Timestamp'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Timestamp', 'X-Nonce', 'X-PAYMENT-SIGNATURE'],
   exposeHeaders: ['X-RateLimit-Remaining'],
   maxAge: 86400,
 }));
@@ -135,6 +135,12 @@ app.get('/', (c) => {
       submit_task:      'POST /v1/tasks/:id/submit',
       verify_task:      'POST /v1/tasks/:id/verify',
       cancel_task:      'POST /v1/tasks/:id/cancel',
+      deliver_task:     'POST /v1/tasks/:id/deliver',
+      dispute_task:     'POST /v1/tasks/:id/dispute',
+      task_payment:     'GET /v1/tasks/:id/payment',
+      task_receipt:     'GET /v1/tasks/:id/receipt',
+      agent_wallet:     'GET /v1/agents/:id/wallet',
+      update_wallet:    'PATCH /v1/agents/:id/wallet',
     },
     auth: 'AgentSig — Ed25519 signed requests. See docs.',
   });
@@ -315,6 +321,65 @@ const scheduled = async (_event: unknown, env: any, _ctx: unknown) => {
   console.log('[cron] Computing skill reputations (inverted: agent rep → skill rep)...');
   await computeSkillReputations(db);
   console.log('[cron] Skill reputation computation done.');
+
+  // ─── Auto-release: settle payments for tasks past auto_release_at ───
+  console.log('[cron] Checking for auto-release payment settlements...');
+  const now = new Date().toISOString();
+  const expiredTasks = await db.all<{
+    task_id: string;
+    payment_signature: string;
+    payment_status: string;
+    creator_agent_id: string;
+  }>(
+    `SELECT task_id, payment_signature, payment_status, creator_agent_id
+     FROM tasks
+     WHERE payment_status = 'authorized'
+       AND auto_release_at IS NOT NULL
+       AND auto_release_at <= ?
+       AND status = 'submitted'`,
+    now
+  );
+  let autoSettled = 0;
+  if (expiredTasks.length > 0 && env.PAYMENT_ENCRYPTION_KEY) {
+    const { CdpPaymentProvider } = await import('./payments/cdp-provider.js');
+    const { decryptPaymentSignature } = await import('./payments/crypto.js');
+    const provider = new CdpPaymentProvider(env.CDP_API_KEY);
+
+    for (const task of expiredTasks) {
+      try {
+        const rawSig = await decryptPaymentSignature(task.payment_signature, env.PAYMENT_ENCRYPTION_KEY);
+        const result = await provider.settle(rawSig);
+        if (result.success) {
+          await db.run(
+            `UPDATE tasks SET payment_settled = 1, payment_tx_hash = ?, payment_status = 'settled', status = 'verified', verified_at = ? WHERE task_id = ?`,
+            result.tx_hash ?? null, now, task.task_id
+          );
+          await db.run(
+            `INSERT INTO payment_events (id, task_id, event_type, details, created_at)
+             VALUES (?, ?, 'auto_released', ?, ?)`,
+            crypto.randomUUID(), task.task_id,
+            JSON.stringify({ tx_hash: result.tx_hash }),
+            now
+          );
+          autoSettled++;
+        } else {
+          await db.run(
+            `UPDATE tasks SET payment_status = 'failed' WHERE task_id = ?`, task.task_id
+          );
+          await db.run(
+            `INSERT INTO payment_events (id, task_id, event_type, details, created_at)
+             VALUES (?, ?, 'settle_failed', ?, ?)`,
+            crypto.randomUUID(), task.task_id,
+            JSON.stringify({ error: result.error, trigger: 'auto_release' }),
+            now
+          );
+        }
+      } catch (err) {
+        console.error(`[cron] Auto-release failed for ${task.task_id}:`, err);
+      }
+    }
+  }
+  console.log(`[cron] Auto-release done: settled=${autoSettled} of ${expiredTasks.length} eligible`);
 };
 
 // Export for Cloudflare Workers

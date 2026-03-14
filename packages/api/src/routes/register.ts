@@ -135,7 +135,7 @@ register.post('/complete', async (c) => {
     }, 400);
   }
 
-  const { challenge_id, public_key: base58PubKey, signature, nonce, profile } = parsed.data;
+  const { challenge_id, public_key: base58PubKey, signature, nonce, profile, wallet_address, wallet_network } = parsed.data;
   const db = c.get('db');
 
   // 1. Decode public key
@@ -229,8 +229,8 @@ register.post('/complete', async (c) => {
   // Insert agent + chain entry + mark challenge completed
   // Run sequentially — both SQLite adapter and D1 handle this correctly.
   await db.run(
-    `INSERT INTO agents (id, public_key, name, description, capabilities, protocols, offers, needs, homepage, contact_endpoint, comment, organization, organization_url, logo_url, tags, version, contact_email, x_handle, skills, webhook_url, registered_at, status, reputation_score, verification_count)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0)`,
+    `INSERT INTO agents (id, public_key, name, description, capabilities, protocols, offers, needs, homepage, contact_endpoint, comment, organization, organization_url, logo_url, tags, version, contact_email, x_handle, skills, webhook_url, wallet_address, wallet_network, registered_at, status, reputation_score, verification_count)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0)`,
     agentId,
     publicKey,
     profile.name,
@@ -251,6 +251,8 @@ register.post('/complete', async (c) => {
     profile.x_handle ? (profile.x_handle.startsWith('@') ? profile.x_handle : `@${profile.x_handle}`) : null,
     profile.skills ? JSON.stringify(profile.skills) : null,
     profile.webhook_url ?? null,
+    wallet_address ?? null,
+    wallet_network ?? 'eip155:8453',
     timestamp,
     initialStatus
   );

@@ -46,6 +46,8 @@ export const RegisterCompleteSchema = z.object({
   signature: z.string().min(1),
   nonce: z.string().min(1),
   profile: ProfileSchema,
+  wallet_address: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  wallet_network: z.string().max(50).default('eip155:8453').optional(),
 });
 
 // ─── Structured Verification Report ───
@@ -84,6 +86,14 @@ export const VerifySubmitSchema = z.object({
 
 // ─── Task Schemas ───
 
+export const BountySchema = z.object({
+  amount: z.string().min(1).max(50),
+  token: z.string().default('USDC'),
+  network: z.string().default('eip155:8453'),
+});
+
+export type Bounty = z.infer<typeof BountySchema>;
+
 export const CreateTaskSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().min(1).max(10000),
@@ -91,6 +101,7 @@ export const CreateTaskSchema = z.object({
   required_capabilities: z.array(z.string()).optional(),
   expected_output: z.string().max(2000).optional(),
   output_format: z.enum(['json', 'link']).default('json'),
+  bounty: BountySchema.optional(),
 });
 
 export const SubmitDeliverableSchema = z.object({
@@ -118,6 +129,8 @@ export const TaskQuerySchema = z.object({
 
 // ─── Task Types ───
 
+export type PaymentStatus = 'none' | 'authorized' | 'settled' | 'failed' | 'disputed' | 'expired' | 'refunded';
+
 export interface Task {
   task_id: string;
   creator_agent_id: string;
@@ -133,7 +146,31 @@ export interface Task {
   claimed_at: string | null;
   submitted_at: string | null;
   verified_at: string | null;
+  // Payment fields
+  bounty_amount: string | null;
+  bounty_token: string | null;
+  bounty_network: string | null;
+  payment_signature: string | null;
+  payment_verified: number;
+  payment_settled: number;
+  payment_tx_hash: string | null;
+  payment_expires_at: string | null;
+  auto_release_at: string | null;
+  payment_status: PaymentStatus;
 }
+
+export interface PaymentEvent {
+  id: string;
+  task_id: string;
+  event_type: string;
+  details: string | null;
+  created_at: string;
+}
+
+export const WalletUpdateSchema = z.object({
+  wallet_address: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  wallet_network: z.string().max(50).optional(),
+});
 
 export interface Submission {
   submission_id: string;
@@ -217,6 +254,8 @@ export interface Agent {
   x_handle: string | null;
   skills: string | null; // JSON array of DeclaredSkill
   webhook_url: string | null;
+  wallet_address: string | null;
+  wallet_network: string | null;
   registered_at: string;
   last_seen: string | null;
   status: 'pending' | 'active' | 'suspended';
@@ -302,6 +341,9 @@ export type Bindings = {
   TWITTER_CONSUMER_SECRET?: string;
   TWITTER_ACCESS_TOKEN?: string;
   TWITTER_ACCESS_SECRET?: string;
+  // x402 payment integration
+  PAYMENT_ENCRYPTION_KEY?: string; // hex-encoded 32-byte AES-256 key
+  CDP_API_KEY?: string;            // CDP API key for facilitator calls
 };
 
 /** Hono env type combining Bindings and Variables */

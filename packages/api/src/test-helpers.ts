@@ -62,6 +62,20 @@ CREATE TABLE IF NOT EXISTS used_signatures (signature_hash TEXT PRIMARY KEY, exp
 CREATE INDEX IF NOT EXISTS idx_used_sigs_expires ON used_signatures(expires_at);
 CREATE TABLE IF NOT EXISTS verification_assignments (assignment_id TEXT PRIMARY KEY, verifier_agent_id TEXT NOT NULL, target_agent_id TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, used INTEGER NOT NULL DEFAULT 0, FOREIGN KEY (verifier_agent_id) REFERENCES agents(id), FOREIGN KEY (target_agent_id) REFERENCES agents(id));
 CREATE INDEX IF NOT EXISTS idx_assignments_expires ON verification_assignments(expires_at);
+ALTER TABLE agents ADD COLUMN wallet_address TEXT;
+ALTER TABLE agents ADD COLUMN wallet_network TEXT DEFAULT 'eip155:8453';
+ALTER TABLE tasks ADD COLUMN bounty_amount TEXT;
+ALTER TABLE tasks ADD COLUMN bounty_token TEXT;
+ALTER TABLE tasks ADD COLUMN bounty_network TEXT;
+ALTER TABLE tasks ADD COLUMN payment_signature TEXT;
+ALTER TABLE tasks ADD COLUMN payment_verified INTEGER DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN payment_settled INTEGER DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN payment_tx_hash TEXT;
+ALTER TABLE tasks ADD COLUMN payment_expires_at TEXT;
+ALTER TABLE tasks ADD COLUMN auto_release_at TEXT;
+ALTER TABLE tasks ADD COLUMN payment_status TEXT DEFAULT 'none';
+CREATE TABLE IF NOT EXISTS payment_events (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, event_type TEXT NOT NULL, details TEXT, created_at TEXT NOT NULL, FOREIGN KEY (task_id) REFERENCES tasks(task_id));
+CREATE INDEX IF NOT EXISTS idx_payment_events_task ON payment_events(task_id);
 `.trim();
 
 /**
@@ -234,11 +248,14 @@ export function solvePoW(publicKey: Uint8Array, difficulty: number): string {
 export function createTestApp(db: SQLiteAdapter) {
   const app = new Hono<AppEnv>();
 
-  // Inject DB + empty env bindings via middleware
+  // Inject DB + env bindings via middleware
   app.use('*', async (c, next) => {
     c.set('db', db);
-    // Provide empty env bindings so c.env.* doesn't crash
-    (c.env as Record<string, string>) = c.env ?? {};
+    // Provide env bindings so c.env.* doesn't crash
+    (c.env as Record<string, string>) = {
+      ...(c.env ?? {}),
+      PAYMENT_ENCRYPTION_KEY: 'a'.repeat(64), // test key for payment encryption
+    };
     await next();
   });
 

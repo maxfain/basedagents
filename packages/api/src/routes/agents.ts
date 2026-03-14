@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { AppEnv, Agent, Verification } from '../types/index.js';
-import { ProfileSchema } from '../types/index.js';
+import { ProfileSchema, WalletUpdateSchema } from '../types/index.js';
 import { agentAuth } from '../middleware/auth.js';
 import { computeReputation } from '../reputation/calculator.js';
 import { hashProfile, computeChainHash, GENESIS_HASH } from '../crypto/index.js';
@@ -64,6 +64,8 @@ function formatAgent(agent: Agent) {
     x_handle: agent.x_handle ?? null,
     skills: agent.skills ? JSON.parse(agent.skills) : [],
     webhook_url: agent.webhook_url ?? null,
+    wallet_address: agent.wallet_address ?? null,
+    wallet_network: agent.wallet_network ?? null,
     status: agent.status,
     reputation_score: agent.reputation_score,
     verification_count: agent.verification_count,
@@ -385,6 +387,79 @@ agents.get('/:id/reputation', async (c) => {
     confidence: rep.confidence,
     verifications_received: rep.verifications_received,
     verifications_given: rep.verifications_given,
+  });
+});
+
+/**
+ * GET /v1/agents/:id/wallet — Public wallet info
+ */
+agents.get('/:id/wallet', async (c) => {
+  const id = c.req.param('id');
+  const db = c.get('db');
+
+  const agent = await db.get<{ wallet_address: string | null; wallet_network: string | null }>(
+    'SELECT wallet_address, wallet_network FROM agents WHERE id = ?', id
+  );
+  if (!agent) {
+    return c.json({ error: 'not_found', message: 'Agent not found' }, 404);
+  }
+
+  return c.json({
+    agent_id: id,
+    wallet_address: agent.wallet_address,
+    wallet_network: agent.wallet_network,
+  });
+});
+
+/**
+ * PATCH /v1/agents/:id/wallet — Update wallet address (AgentSig auth, owner only)
+ */
+agents.patch('/:id/wallet', agentAuth, async (c) => {
+  const id = c.req.param('id');
+  const authenticatedAgentId = c.get('agentId') as string;
+
+  if (id !== authenticatedAgentId) {
+    return c.json({ error: 'forbidden', message: 'You can only update your own wallet' }, 403);
+  }
+
+  let body: unknown;
+  try { body = JSON.parse(await c.req.text()); }
+  catch { return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400); }
+
+  const parsed = WalletUpdateSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: 'bad_request', message: 'Validation failed', details: parsed.error.flatten() }, 400);
+  }
+
+  const db = c.get('db');
+  const updates = parsed.data;
+  const setClauses: string[] = [];
+  const params: unknown[] = [];
+
+  if (updates.wallet_address !== undefined) {
+    setClauses.push('wallet_address = ?');
+    params.push(updates.wallet_address);
+  }
+  if (updates.wallet_network !== undefined) {
+    setClauses.push('wallet_network = ?');
+    params.push(updates.wallet_network);
+  }
+
+  if (setClauses.length === 0) {
+    return c.json({ error: 'bad_request', message: 'No fields to update' }, 400);
+  }
+
+  params.push(id);
+  await db.run(`UPDATE agents SET ${setClauses.join(', ')} WHERE id = ?`, ...params);
+
+  const agent = await db.get<{ wallet_address: string | null; wallet_network: string | null }>(
+    'SELECT wallet_address, wallet_network FROM agents WHERE id = ?', id
+  );
+
+  return c.json({
+    agent_id: id,
+    wallet_address: agent!.wallet_address,
+    wallet_network: agent!.wallet_network,
   });
 });
 
