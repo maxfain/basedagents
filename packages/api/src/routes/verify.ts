@@ -187,14 +187,30 @@ verify.post('/submit', agentAuth, async (c) => {
     'SELECT id, name, status, verification_count, x_handle FROM agents WHERE id = ?', target_id);
   if (!target) return c.json({ error: 'not_found', message: 'Target agent not found' }, 404);
 
-  // ── Low-rep verifier guard ──
-  // New agents (0 verifications given) are exempt — they need to start somewhere.
-  // Agents with established rep < 0.10 get a warning but are not blocked yet (EigenTrust will handle weighting).
-  const verifierRow = await db.get<{ reputation_score: number; verification_count: number }>(
-    'SELECT reputation_score, verification_count FROM agents WHERE id = ?', verifierId
+  // ── Sybil-resistant verifier guard ──
+  // Prevents freshly registered accounts from immediately cross-verifying each other.
+  // Requirements: registered ≥ 24 hours AND received ≥ 1 verification themselves.
+  const verifierRow = await db.get<{ reputation_score: number; verification_count: number; registered_at: string }>(
+    'SELECT reputation_score, verification_count, registered_at FROM agents WHERE id = ?', verifierId
   );
-  const isNewVerifier = (verifierRow?.verification_count ?? 0) === 0;
-  if (!isNewVerifier && (verifierRow?.reputation_score ?? 0) < 0.05) {
+  const registeredAt = verifierRow?.registered_at ? new Date(verifierRow.registered_at).getTime() : Date.now();
+  const ageHours = (Date.now() - registeredAt) / (1000 * 60 * 60);
+  const receivedCount = await db.get<{ count: number }>(
+    'SELECT COUNT(*) as count FROM verifications WHERE target_id = ?', verifierId
+  );
+  if (ageHours < 24) {
+    return c.json({
+      error: 'forbidden',
+      message: 'Verifier must be registered for at least 24 hours before giving verifications.',
+    }, 403);
+  }
+  if ((receivedCount?.count ?? 0) < 1) {
+    return c.json({
+      error: 'forbidden',
+      message: 'Verifier must have received at least 1 verification before giving verifications.',
+    }, 403);
+  }
+  if ((verifierRow?.reputation_score ?? 0) < 0.05) {
     return c.json({
       error: 'forbidden',
       message: 'Verifier reputation too low to submit verifications. Build reputation first.',

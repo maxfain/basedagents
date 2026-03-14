@@ -117,6 +117,8 @@ export interface TestAgentOptions {
   webhookUrl?: string | null;
   capabilities?: string[];
   protocols?: string[];
+  /** Override registered_at timestamp (ISO string). Defaults to now. */
+  registeredAt?: string;
 }
 
 /**
@@ -132,6 +134,7 @@ export async function createTestAgent(
   const reputationScore = options.reputationScore ?? 0.5;
   const capabilities = options.capabilities ?? ['code-generation'];
   const protocols = options.protocols ?? ['http'];
+  const registeredAt = options.registeredAt ?? new Date().toISOString();
 
   await db.run(
     `INSERT INTO agents (
@@ -159,12 +162,30 @@ export async function createTestAgent(
     JSON.stringify(protocols),
     options.webhookUrl ?? null,
     options.reputationOverride ?? null,
-    new Date().toISOString(),
+    registeredAt,
     status,
     reputationScore
   );
 
   return { ...kp, name };
+}
+
+/**
+ * Make a test agent eligible to be a verifier by satisfying sybil guards:
+ * - Set registered_at to 25 hours ago
+ * - Insert a dummy received verification (FK disabled for bootstrap verifier)
+ */
+export async function makeEligibleVerifier(db: SQLiteAdapter, agentId: string): Promise<void> {
+  const twentyFiveHoursAgo = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+  await db.run('UPDATE agents SET registered_at = ? WHERE id = ?', twentyFiveHoursAgo, agentId);
+  // Temporarily disable FK to insert a bootstrap verification from a non-existent verifier
+  await db.exec('PRAGMA foreign_keys = OFF');
+  await db.run(
+    `INSERT INTO verifications (id, verifier_id, target_id, result, coherence_score, notes, signature, nonce, created_at)
+     VALUES (?, ?, ?, 'pass', 0.9, NULL, 'bootstrap-sig', ?, ?)`,
+    `bootstrap-${agentId}`, 'ag_bootstrap', agentId, `bootstrap-nonce-${agentId}`, twentyFiveHoursAgo
+  );
+  await db.exec('PRAGMA foreign_keys = ON');
 }
 
 /**

@@ -215,7 +215,8 @@ class RegistryClient:
         """
         Submit a verification report.
 
-        The report signature covers the inner fields only (not structured_report).
+        The report signature covers all fields including structured_report
+        so they're protected by the agent's Ed25519 signature.
         result must be one of: "pass" | "fail" | "timeout"
         """
         if result not in ("pass", "fail", "timeout"):
@@ -223,10 +224,18 @@ class RegistryClient:
 
         nonce = str(uuid.uuid4())
 
-        # Build the signed payload (subset — no structured_report).
-        # Note: structured_report is intentionally excluded from the inner Ed25519 signature.
-        # This mirrors the server's verification protocol (verify.ts line ~139).
-        # structured_report is protected by the outer AgentSig header on the HTTP request.
+        # Build structured_report first so it can be included in the signed payload
+        structured_report_obj: dict[str, Any] | None = None
+        if capabilities_confirmed is not None or safety_issues or unauthorized_actions:
+            structured_report_obj = {
+                "capabilities_confirmed": capabilities_confirmed or [],
+                "safety_issues": safety_issues,
+                "unauthorized_actions": unauthorized_actions,
+                **({"notes": notes} if notes else {}),
+            }
+
+        # Build the signed payload — includes structured_report so it's
+        # covered by the agent's Ed25519 signature (prevents tampering).
         signed_fields: dict[str, Any] = {
             "assignment_id": assignment_id,
             "target_id": target_id,
@@ -239,23 +248,18 @@ class RegistryClient:
             signed_fields["notes"] = notes
         if response_time_ms is not None:
             signed_fields["response_time_ms"] = response_time_ms
+        if structured_report_obj is not None:
+            signed_fields["structured_report"] = structured_report_obj
 
         report_data = json.dumps(signed_fields, separators=(",", ":"), sort_keys=False)
         report_sig = keypair.sign(report_data.encode("utf-8"))
         sig_b64 = base64.b64encode(report_sig).decode("ascii")
 
-        # Full body adds structured_report and signature
+        # Full body = signed fields + signature
         body: dict[str, Any] = {
             **signed_fields,
             "signature": sig_b64,
         }
-        if capabilities_confirmed is not None or safety_issues or unauthorized_actions:
-            body["structured_report"] = {
-                "capabilities_confirmed": capabilities_confirmed or [],
-                "safety_issues": safety_issues,
-                "unauthorized_actions": unauthorized_actions,
-                **({"notes": notes} if notes else {}),
-            }
 
         return self._signed_post(keypair, "/v1/verify/submit", body)
 

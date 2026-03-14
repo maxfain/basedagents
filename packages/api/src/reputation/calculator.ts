@@ -181,8 +181,9 @@ export async function computeReputation(
 
   for (const v of verifications) {
     const decay = decayWeight(v.created_at);
-    // Low-rep verifiers count at 50% — Phase 1 approximation of EigenTrust
-    const verifierWeight = (v.verifier_rep ?? 0) < MIN_VERIFIER_REP ? 0.5 : 1.0;
+    // Proportional verifier weight: scales with actual rep, minimum 10%.
+    // Prevents coordinating low-rep accounts from having outsized voting power.
+    const verifierWeight = Math.max(0.1, v.verifier_rep ?? 0);
     const w = decay * verifierWeight;
     totalWeight += w;
 
@@ -207,9 +208,12 @@ export async function computeReputation(
   }
 
   const passRate = totalWeight > 0 ? weightedPassSum / totalWeight : 0;
-  const coherence = weightedCoherenceWeightSum > 0 ? weightedCoherenceSum / weightedCoherenceWeightSum : 0;
+  // Default to 0 if no coherence scores exist (all null) — prevents NaN propagation
+  const rawCoherence = weightedCoherenceWeightSum > 0 ? weightedCoherenceSum / weightedCoherenceWeightSum : 0;
+  const coherence = isNaN(rawCoherence) ? 0 : rawCoherence;
   const uptime = totalWeight > 0 ? weightedUptimeSum / totalWeight : 0;
-  const contribution = Math.min(1.0, given / 10);
+  // Logarithmic scale: caps at ~50 verifications for 1.0 (much harder to max out than linear /10)
+  const contribution = Math.min(1.0, Math.log10(given + 1) / Math.log10(51));
   const penalty = penaltyWeightSum > 0 ? penaltySum / penaltyWeightSum : 0;
 
   // ── Raw score ──

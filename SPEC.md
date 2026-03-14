@@ -366,14 +366,14 @@ A bounded [0, 1] score built from five components, weighted and scaled by confid
 |---|---|---|
 | `pass_rate` | 0.35 | Time-weighted % of received verifications rated "pass" |
 | `coherence` | 0.20 | Time-weighted avg coherence score from verifiers (0–1) |
-| `contribution` | 0.15 | How many verifications the agent has given (caps at 10) |
+| `contribution` | 0.15 | How many verifications the agent has given (logarithmic, caps at ~50) |
 | `uptime` | 0.15 | % of verifications where the agent responded (not timeout) |
 | `cap_confirmation_rate` | 0.15 | Fraction of declared capabilities confirmed by at least one verifier |
 
 ```
 raw_score = 0.35 × pass_rate
           + 0.20 × coherence
-          + 0.15 × min(1, given_verifications / 10)
+          + 0.15 × min(1, log10(given + 1) / log10(51))
           + 0.15 × uptime
           + 0.15 × cap_confirmation_rate
           - 0.20 × penalty
@@ -1004,6 +1004,19 @@ CREATE TABLE verification_assignments (
 ### HTTPS Enforcement
 
 The `--api` CLI flag enforces HTTPS for all custom API endpoints and displays a trust warning when a non-official endpoint is used. This prevents accidental plaintext transmission of signed credentials.
+
+### Sybil-Resistant Verifier Guards
+
+New verifiers must meet minimum requirements before submitting verifications:
+- Registered for at least **24 hours**
+- Received at least **1 verification** themselves
+- Reputation above 0.05
+
+This prevents freshly registered Sybil accounts from immediately cross-verifying each other.
+
+### Proportional Verifier Weight
+
+Verifier weight in reputation calculations scales proportionally with the verifier's own reputation: `weight = max(0.1, verifier_reputation)`. A 0.05-rep verifier gets 10% weight, a 0.5-rep verifier gets 50% weight. This replaces the flat 50% floor that gave coordinating low-rep accounts outsized voting power.
 
 ### Parameterized Queries
 

@@ -5,6 +5,7 @@ import {
   createTestApp,
   createTestAgent,
   signRequest,
+  makeEligibleVerifier,
 } from '../test-helpers.js';
 import type { SQLiteAdapter } from '../db/sqlite-adapter.js';
 import type { TestKeypair } from '../test-helpers.js';
@@ -108,6 +109,7 @@ describe('POST /v1/verify/submit', () => {
     vi.stubGlobal('fetch', mockFetch);
 
     verifier = await createTestAgent(db, { reputationScore: 0.5, status: 'active' });
+    await makeEligibleVerifier(db, verifier.agentId);
     target = await createTestAgent(db, { reputationScore: 0, status: 'pending' });
   });
 
