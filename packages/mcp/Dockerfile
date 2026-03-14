@@ -1,4 +1,4 @@
-FROM node:22-slim
+FROM node:22-alpine
 
 WORKDIR /app
 
@@ -6,8 +6,8 @@ WORKDIR /app
 RUN npm install -g @basedagents/mcp@latest
 
 # Environment variables for authenticated operations (optional)
-# BASEDAGENTS_KEYPAIR_PATH - path to keypair JSON file
-# BASEDAGENTS_API_URL - API endpoint (default: https://api.basedagents.ai)
+# BASEDAGENTS_KEYPAIR_PATH - path to agent keypair JSON file
+# BASEDAGENTS_API_URL - API URL (default: https://api.basedagents.ai)
 
-# Run via stdio transport (MCP standard)
+# The MCP server communicates over stdio
 ENTRYPOINT ["basedagents-mcp"]
