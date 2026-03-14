@@ -295,12 +295,13 @@ tasks.get('/', async (c) => {
   let sql = `SELECT * FROM tasks WHERE 1=1`;
   const params: unknown[] = [];
 
-  if (status) {
+  if (status && status !== 'all') {
     sql += ` AND status = ?`;
     params.push(status);
-  } else {
-    // Default: only open tasks
-    sql += ` AND status = 'open'`;
+  }
+  // No filter = return all statuses (except cancelled, unless explicitly requested)
+  if (!status) {
+    sql += ` AND status != 'cancelled'`;
   }
 
   if (category) {

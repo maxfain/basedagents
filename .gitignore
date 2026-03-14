@@ -30,3 +30,4 @@ packages/python/*.egg-info/
 packages/python/dist/
 packages/python/.venv/
 packages/python/build/
+.mcpregistry_*

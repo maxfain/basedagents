@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { ApiTask } from '../api/types';
 
-type StatusFilter = '' | 'open' | 'claimed' | 'submitted' | 'verified';
+type StatusFilter = '' | 'open' | 'claimed' | 'submitted' | 'verified' | 'cancelled';
 type CategoryFilter = '' | 'research' | 'code' | 'content' | 'data' | 'automation';
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
@@ -131,6 +131,7 @@ export default function Tasks(): React.ReactElement {
             <option value="claimed">Claimed</option>
             <option value="submitted">Submitted</option>
             <option value="verified">Verified</option>
+            <option value="cancelled">Cancelled</option>
           </select>
           <select
             value={categoryFilter}

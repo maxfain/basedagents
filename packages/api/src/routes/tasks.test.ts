@@ -230,12 +230,17 @@ describe('Task Marketplace', () => {
       const taskId = await createTask(creator);
       await claimTask(claimer, taskId);
 
-      // Open tasks should not include claimed
+      // Default (no filter) returns all non-cancelled tasks — includes claimed
       const res = await app.request('/v1/tasks');
       const data = await res.json() as { tasks: unknown[] };
-      expect(data.tasks.length).toBe(0);
+      expect(data.tasks.length).toBe(1);
 
-      // Claimed tasks
+      // Explicit status=open should exclude claimed
+      const resOpen = await app.request('/v1/tasks?status=open');
+      const dataOpen = await resOpen.json() as { tasks: unknown[] };
+      expect(dataOpen.tasks.length).toBe(0);
+
+      // Explicit status=claimed
       const res2 = await app.request('/v1/tasks?status=claimed');
       const data2 = await res2.json() as { tasks: unknown[] };
       expect(data2.tasks.length).toBe(1);

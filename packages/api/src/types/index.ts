@@ -167,10 +167,22 @@ export interface PaymentEvent {
   created_at: string;
 }
 
+const ALLOWED_WALLET_NETWORKS = [
+  'eip155:8453',    // Base mainnet
+  'eip155:84532',   // Base Sepolia (testnet)
+  'eip155:1',       // Ethereum mainnet
+  'eip155:137',     // Polygon
+  'eip155:42161',   // Arbitrum One
+  'eip155:10',      // Optimism
+  'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',  // Solana mainnet
+] as const;
+
 export const WalletUpdateSchema = z.object({
-  wallet_address: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
-  wallet_network: z.string().max(50).optional(),
+  wallet_address: z.string().regex(/^0x[a-fA-F0-9]{40}$/).nullable().optional(),
+  wallet_network: z.enum(ALLOWED_WALLET_NETWORKS).optional(),
 });
+
+export { ALLOWED_WALLET_NETWORKS };
 
 export interface Submission {
   submission_id: string;
