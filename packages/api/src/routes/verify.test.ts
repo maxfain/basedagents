@@ -462,4 +462,77 @@ describe('POST /v1/verify/submit', () => {
     expect(submitData.ok).toBe(true);
     expect(submitData.verification_id).toBeDefined();
   });
+
+  // ── NEW-4: Timestamp is required in verification submissions ──
+
+  it('missing timestamp → 400 (NEW-4: timestamp required)', async () => {
+    // Build a body without timestamp — schema should reject it
+    const assignmentId = crypto.randomUUID();
+    const nonce = crypto.randomUUID();
+    await insertAssignment(db, assignmentId, verifier.agentId, target.agentId);
+
+    // Build signed fields WITHOUT timestamp
+    const signedFields: Record<string, unknown> = {
+      assignment_id: assignmentId,
+      target_id: target.agentId,
+      result: 'pass',
+      nonce,
+      coherence_score: 0.9,
+      notes: 'test',
+    };
+    const reportData = canonicalJsonStringify(signedFields);
+    const reportBytes = new TextEncoder().encode(reportData);
+    const { sign: edSign } = await import('@noble/ed25519');
+    const sigBytes = await edSign(reportBytes, verifier.privateKey);
+    const signature = btoa(String.fromCharCode(...sigBytes));
+
+    // Omit timestamp from the request body
+    const bodyWithoutTimestamp = {
+      ...signedFields,
+      signature,
+      // timestamp intentionally omitted
+    };
+
+    const bodyStr = JSON.stringify(bodyWithoutTimestamp);
+    const authHeaders = await signRequest(verifier, 'POST', '/v1/verify/submit', bodyStr);
+
+    const res = await app.request('/v1/verify/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: bodyStr,
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('invalid timestamp format → 400 (NEW-4: timestamp must be ISO datetime)', async () => {
+    const assignmentId = crypto.randomUUID();
+    const nonce = crypto.randomUUID();
+    await insertAssignment(db, assignmentId, verifier.agentId, target.agentId);
+
+    const signedFields: Record<string, unknown> = {
+      assignment_id: assignmentId,
+      target_id: target.agentId,
+      result: 'pass',
+      nonce,
+      timestamp: 'not-a-valid-datetime', // invalid format
+      coherence_score: 0.9,
+    };
+    const reportData = canonicalJsonStringify(signedFields);
+    const reportBytes = new TextEncoder().encode(reportData);
+    const { sign: edSign } = await import('@noble/ed25519');
+    const sigBytes = await edSign(reportBytes, verifier.privateKey);
+    const signature = btoa(String.fromCharCode(...sigBytes));
+
+    const bodyStr = JSON.stringify({ ...signedFields, signature });
+    const authHeaders = await signRequest(verifier, 'POST', '/v1/verify/submit', bodyStr);
+
+    const res = await app.request('/v1/verify/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: bodyStr,
+    });
+
+    expect(res.status).toBe(400);
+  });
 });

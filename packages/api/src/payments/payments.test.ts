@@ -238,6 +238,58 @@ describe('x402 Payment Integration', () => {
       const data = await res.json() as Record<string, unknown>;
       expect(data.payment_status).toBeUndefined(); // no payment fields in response for free tasks
     });
+
+    it('rejects X-PAYMENT-SIGNATURE with invalid characters → 400 (NEW-5)', async () => {
+      const body = JSON.stringify({
+        title: 'Bad Sig Task',
+        description: 'Signature has forbidden chars',
+        bounty: { amount: '$5.00', token: 'USDC', network: 'eip155:8453' },
+      });
+      const headers = await signRequest(creator, 'POST', '/v1/tasks', body);
+
+      // This signature contains characters outside the allowed set (< > !)
+      const badSig = '<script>alert("xss")</script>';
+
+      const res = await app.request('/v1/tasks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-PAYMENT-SIGNATURE': badSig,
+          ...headers,
+        },
+        body,
+      });
+
+      expect(res.status).toBe(400);
+      const data = await res.json() as Record<string, unknown>;
+      expect(data.error).toBe('bad_request');
+    });
+
+    it('rejects X-PAYMENT-SIGNATURE that exceeds length limit → 400 (NEW-5)', async () => {
+      const body = JSON.stringify({
+        title: 'Too Long Sig',
+        description: 'Signature is way too long',
+        bounty: { amount: '$5.00', token: 'USDC', network: 'eip155:8453' },
+      });
+      const headers = await signRequest(creator, 'POST', '/v1/tasks', body);
+
+      // 10001 chars — exceeds the 10000 char limit
+      const oversizedSig = 'A'.repeat(10001);
+
+      const res = await app.request('/v1/tasks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-PAYMENT-SIGNATURE': oversizedSig,
+          ...headers,
+        },
+        body,
+      });
+
+      expect(res.status).toBe(400);
+      const data = await res.json() as Record<string, unknown>;
+      expect(data.error).toBe('bad_request');
+    });
   });
 
   // ─── Payment Status Endpoint ───

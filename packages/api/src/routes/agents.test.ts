@@ -415,4 +415,74 @@ describe('Wallet Endpoints', () => {
     const res = await app.request('/v1/agents/ag_nonexistent/wallet');
     expect(res.status).toBe(404);
   });
+
+  it('PATCH /v1/agents/:id/wallet rejects invalid network → 400', async () => {
+    const body = JSON.stringify({
+      wallet_address: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+      wallet_network: 'not-a-valid-network',
+    });
+    const headers = await signRequest(agent, 'PATCH', `/v1/agents/${agent.agentId}/wallet`, body);
+    const res = await app.request(`/v1/agents/${agent.agentId}/wallet`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body,
+    });
+    expect(res.status).toBe(400);
+    const data = await res.json() as { error: string };
+    expect(data.error).toBe('bad_request');
+  });
+
+  it('PATCH /v1/agents/:id/wallet rejects invalid address → 400', async () => {
+    const body = JSON.stringify({
+      wallet_address: 'not-an-evm-address',
+    });
+    const headers = await signRequest(agent, 'PATCH', `/v1/agents/${agent.agentId}/wallet`, body);
+    const res = await app.request(`/v1/agents/${agent.agentId}/wallet`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body,
+    });
+    expect(res.status).toBe(400);
+    const data = await res.json() as { error: string };
+    expect(data.error).toBe('bad_request');
+  });
+
+  it('PATCH /v1/agents/:id/wallet accepts all ALLOWED_WALLET_NETWORKS', async () => {
+    const ALLOWED = [
+      'eip155:8453',
+      'eip155:84532',
+      'eip155:1',
+      'eip155:137',
+      'eip155:42161',
+      'eip155:10',
+    ];
+
+    for (const network of ALLOWED) {
+      const body = JSON.stringify({
+        wallet_address: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+        wallet_network: network,
+      });
+      const headers = await signRequest(agent, 'PATCH', `/v1/agents/${agent.agentId}/wallet`, body);
+      const res = await app.request(`/v1/agents/${agent.agentId}/wallet`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body,
+      });
+      expect(res.status).toBe(200);
+      const data = await res.json() as Record<string, unknown>;
+      expect(data.wallet_network).toBe(network);
+    }
+  });
+
+  it('PATCH /v1/agents/:id/wallet without auth → 401', async () => {
+    const body = JSON.stringify({
+      wallet_address: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+    });
+    const res = await app.request(`/v1/agents/${agent.agentId}/wallet`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    expect(res.status).toBe(401);
+  });
 });

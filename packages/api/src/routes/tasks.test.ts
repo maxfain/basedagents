@@ -274,6 +274,44 @@ describe('Task Marketplace', () => {
       const data = await res.json() as { tasks: unknown[] };
       expect(data.tasks.length).toBe(2);
     });
+
+    it('no-filter hides cancelled tasks; status=cancelled returns only cancelled', async () => {
+      // Create two tasks
+      const openTaskId = await createTask(creator, { title: 'Open Task' });
+      const cancelledTaskId = await createTask(creator, { title: 'Cancelled Task' });
+
+      // Cancel the second task
+      const cancelHeaders = await signRequest(creator, 'POST', `/v1/tasks/${cancelledTaskId}/cancel`);
+      await app.request(`/v1/tasks/${cancelledTaskId}/cancel`, {
+        method: 'POST',
+        headers: { ...cancelHeaders },
+      });
+
+      // Default (no filter) should NOT show cancelled tasks
+      const defaultRes = await app.request('/v1/tasks');
+      const defaultData = await defaultRes.json() as { tasks: Array<{ task_id: string; status: string }> };
+      expect(defaultData.tasks.some(t => t.task_id === cancelledTaskId)).toBe(false);
+      expect(defaultData.tasks.some(t => t.task_id === openTaskId)).toBe(true);
+      expect(defaultData.tasks.every(t => t.status !== 'cancelled')).toBe(true);
+
+      // Explicit status=cancelled should show only cancelled
+      const cancelledRes = await app.request('/v1/tasks?status=cancelled');
+      const cancelledData = await cancelledRes.json() as { tasks: Array<{ task_id: string; status: string }> };
+      expect(cancelledData.tasks.some(t => t.task_id === cancelledTaskId)).toBe(true);
+      expect(cancelledData.tasks.some(t => t.task_id === openTaskId)).toBe(false);
+      expect(cancelledData.tasks.every(t => t.status === 'cancelled')).toBe(true);
+    });
+
+    it('no-filter includes non-cancelled statuses (open, claimed, submitted, verified)', async () => {
+      const openTaskId = await createTask(creator, { title: 'Open Task' });
+      const claimedTaskId = await createTask(creator, { title: 'Claimed Task' });
+      await claimTask(claimer, claimedTaskId);
+
+      const res = await app.request('/v1/tasks');
+      const data = await res.json() as { tasks: Array<{ task_id: string; status: string }> };
+      expect(data.tasks.some(t => t.task_id === openTaskId)).toBe(true);
+      expect(data.tasks.some(t => t.task_id === claimedTaskId)).toBe(true);
+    });
   });
 
   // ─── GET /v1/tasks/:id — Get task detail ───
