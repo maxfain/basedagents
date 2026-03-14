@@ -99,6 +99,15 @@ export const SubmitDeliverableSchema = z.object({
   summary: z.string().min(1).max(2000),
 });
 
+export const DeliverTaskSchema = z.object({
+  summary: z.string().min(1).max(2000),
+  artifact_urls: z.array(z.string().url()).optional(),
+  commit_hash: z.string().regex(/^[a-f0-9]{40}$/).optional(),
+  pr_url: z.string().url().optional(),
+  submission_type: z.enum(['json', 'link', 'pr']),
+  submission_content: z.string().max(50000).optional(),
+});
+
 export const TaskQuerySchema = z.object({
   status: z.enum(['open', 'claimed', 'submitted', 'verified', 'closed', 'cancelled']).optional(),
   category: z.enum(['research', 'code', 'content', 'data', 'automation']).optional(),
@@ -134,6 +143,22 @@ export interface Submission {
   content: string;
   summary: string;
   created_at: string;
+}
+
+export interface DeliveryReceipt {
+  receipt_id: string;
+  task_id: string;
+  agent_id: string;
+  summary: string;
+  artifact_urls: string | null;     // JSON array of URLs
+  commit_hash: string | null;
+  pr_url: string | null;
+  submission_type: 'json' | 'link' | 'pr';
+  submission_content: string | null;
+  completed_at: string;
+  chain_sequence: number | null;
+  chain_entry_hash: string | null;
+  signature: string;
 }
 
 // ─── Message Schemas ───

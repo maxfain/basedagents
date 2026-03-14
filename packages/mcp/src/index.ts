@@ -711,29 +711,80 @@ server.tool(
 // ── submit_deliverable ──────────────────────────────────────────────────────
 server.tool(
   'submit_deliverable',
-  'Submit a deliverable for a claimed task. Only the agent who claimed the task can submit. Requires keypair auth.',
+  'Deliver work for a claimed task with a signed receipt anchored to the hash chain. Only the agent who claimed the task can deliver. Requires keypair auth.',
   {
-    task_id:         z.string().describe('The task ID to submit work for'),
-    submission_type: z.enum(['json', 'link']).describe('Type of submission: json data or a link'),
-    content:         z.string().describe('The deliverable content (JSON string or URL)'),
-    summary:         z.string().describe('Brief summary of what was delivered'),
+    task_id:            z.string().describe('The task ID to deliver work for'),
+    summary:            z.string().describe('Brief summary of what was delivered'),
+    submission_type:    z.enum(['json', 'link', 'pr']).describe('Type of submission: json data, a link, or a pull request'),
+    submission_content: z.string().optional().describe('The deliverable content (JSON string or URL)'),
+    artifact_urls:      z.array(z.string()).optional().describe('URLs to artifacts (files, packages, etc.)'),
+    commit_hash:        z.string().optional().describe('Git commit hash (40-char hex) if applicable'),
+    pr_url:             z.string().optional().describe('Pull request URL if applicable'),
   },
-  async ({ task_id, submission_type, content, summary }) => {
+  async ({ task_id, summary, submission_type, submission_content, artifact_urls, commit_hash, pr_url }) => {
     const kp = await getKeypair();
     if (!kp) return noAuthResult();
 
-    const data = await authedFetch('POST', `/v1/tasks/${encodeURIComponent(task_id)}/submit`, {
-      submission_type,
-      content,
-      summary,
-    }) as Record<string, unknown>;
+    const body: Record<string, unknown> = { summary, submission_type };
+    if (submission_content) body.submission_content = submission_content;
+    if (artifact_urls) body.artifact_urls = artifact_urls;
+    if (commit_hash) body.commit_hash = commit_hash;
+    if (pr_url) body.pr_url = pr_url;
 
-    return {
-      content: [{
-        type: 'text',
-        text: `Deliverable submitted successfully.\n\n**Submission ID:** \`${data.submission_id}\`\n**Task ID:** \`${data.task_id}\`\n**Status:** ${data.status}`,
-      }],
+    const data = await authedFetch('POST', `/v1/tasks/${encodeURIComponent(task_id)}/deliver`, body) as Record<string, unknown>;
+
+    const lines = [
+      `Deliverable submitted successfully.`,
+      '',
+      `**Receipt ID:** \`${data.receipt_id}\``,
+      `**Task ID:** \`${data.task_id}\``,
+      `**Status:** ${data.status}`,
+      `**Chain sequence:** #${data.chain_sequence}`,
+      `**Chain entry hash:** \`${data.chain_entry_hash}\``,
+    ];
+
+    return { content: [{ type: 'text', text: lines.join('\n') }] };
+  }
+);
+
+// ── get_receipt ──────────────────────────────────────────────────────────────
+server.tool(
+  'get_receipt',
+  'Get the delivery receipt for a task. Includes all fields needed for independent verification. No auth required.',
+  {
+    task_id: z.string().describe('The task ID to get the delivery receipt for'),
+  },
+  async ({ task_id }) => {
+    const data = await apiFetch(`/v1/tasks/${encodeURIComponent(task_id)}/receipt`) as {
+      receipt: Record<string, unknown>;
     };
+
+    const r = data.receipt;
+    const artifacts = (r.artifact_urls as string[] | undefined) ?? [];
+    const lines = [
+      `## Delivery Receipt`,
+      `**Receipt ID:** \`${r.receipt_id}\``,
+      `**Task ID:** \`${r.task_id}\``,
+      `**Agent:** \`${r.agent_id}\``,
+      `**Summary:** ${r.summary}`,
+      `**Type:** ${r.submission_type}`,
+      `**Completed:** ${r.completed_at}`,
+      '',
+      `### Chain Anchor`,
+      `**Sequence:** #${r.chain_sequence}`,
+      `**Entry hash:** \`${r.chain_entry_hash}\``,
+      `**Signature:** \`${(r.signature as string)?.slice(0, 32)}...\``,
+      `**Agent public key:** \`${r.agent_public_key}\``,
+    ];
+
+    if (r.commit_hash) lines.push(`\n**Commit:** \`${r.commit_hash}\``);
+    if (r.pr_url) lines.push(`**PR:** ${r.pr_url}`);
+    if (artifacts.length) {
+      lines.push(`\n**Artifacts:**`);
+      for (const url of artifacts) lines.push(`  - ${url}`);
+    }
+
+    return { content: [{ type: 'text', text: lines.join('\n') }] };
   }
 );
 

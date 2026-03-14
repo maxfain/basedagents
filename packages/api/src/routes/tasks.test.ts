@@ -87,6 +87,21 @@ describe('Task Marketplace', () => {
     });
   }
 
+  async function deliverTask(agent: TestKeypair, taskId: string, overrides: Record<string, unknown> = {}): Promise<Response> {
+    const body = JSON.stringify({
+      summary: 'Delivered the work',
+      submission_type: 'json',
+      submission_content: '{"result": "done"}',
+      ...overrides,
+    });
+    const headers = await signRequest(agent, 'POST', `/v1/tasks/${taskId}/deliver`, body);
+    return app.request(`/v1/tasks/${taskId}/deliver`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body,
+    });
+  }
+
   // ─── POST /v1/tasks — Create task ───
 
   describe('POST /v1/tasks — Create task', () => {
@@ -684,6 +699,230 @@ describe('Task Marketplace', () => {
       const detailData = await detailRes.json() as { task: Record<string, unknown>; submission: Record<string, unknown> };
       expect(detailData.task.status).toBe('verified');
       expect(detailData.submission).not.toBeNull();
+    });
+  });
+
+  // ─── Delivery Protocol ───
+
+  describe('POST /v1/tasks/:id/deliver — Deliver with receipt', () => {
+    it('delivers with receipt and creates chain entry', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+
+      const res = await deliverTask(claimer, taskId);
+      expect(res.status).toBe(200);
+      const data = await res.json() as Record<string, unknown>;
+      expect(data.ok).toBe(true);
+      expect(data.receipt_id).toBeDefined();
+      expect((data.receipt_id as string).startsWith('rcpt_')).toBe(true);
+      expect(data.status).toBe('submitted');
+      expect(data.chain_sequence).toBeDefined();
+      expect(data.chain_entry_hash).toBeDefined();
+    });
+
+    it('delivery receipt includes chain_sequence and chain_entry_hash', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+
+      const res = await deliverTask(claimer, taskId);
+      const data = await res.json() as Record<string, unknown>;
+      expect(typeof data.chain_sequence).toBe('number');
+      expect(typeof data.chain_entry_hash).toBe('string');
+      expect((data.chain_entry_hash as string).length).toBe(64); // sha256 hex
+    });
+
+    it('delivers with artifact_urls and commit_hash', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+
+      const res = await deliverTask(claimer, taskId, {
+        artifact_urls: ['https://example.com/artifact1.zip'],
+        commit_hash: 'a'.repeat(40),
+        pr_url: 'https://github.com/org/repo/pull/1',
+        submission_type: 'pr',
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it('cannot deliver if not claimed agent → 403', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+
+      const thirdAgent = await createTestAgent(db, { status: 'active' });
+      const res = await deliverTask(thirdAgent, taskId);
+      expect(res.status).toBe(403);
+    });
+
+    it('cannot deliver if wrong status (open) → 403', async () => {
+      const taskId = await createTask(creator);
+      // Not claimed, so claimer is not assigned
+      const res = await deliverTask(claimer, taskId);
+      expect(res.status).toBe(403);
+    });
+
+    it('cannot deliver if already submitted → 400', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+      await deliverTask(claimer, taskId);
+
+      const res = await deliverTask(claimer, taskId);
+      expect(res.status).toBe(400);
+    });
+
+    it('notifies creator via webhook on deliver', async () => {
+      const webhookCreator = await createTestAgent(db, {
+        status: 'active',
+        webhookUrl: 'https://creator-webhook.example.com/events',
+      });
+      const taskId = await createTask(webhookCreator);
+      await claimTask(claimer, taskId);
+      await deliverTask(claimer, taskId);
+
+      await new Promise(r => setTimeout(r, 10));
+
+      const webhookCalls = mockFetch.mock.calls.filter(
+        ([url]: [string]) => url === 'https://creator-webhook.example.com/events'
+      );
+      const deliverCalls = webhookCalls.filter(([, opts]: [string, { body: string }]) => {
+        const b = JSON.parse(opts.body);
+        return b.type === 'task.delivered';
+      });
+      expect(deliverCalls.length).toBe(1);
+      const webhookBody = JSON.parse(deliverCalls[0][1].body);
+      expect(webhookBody.summary).toBe('Delivered the work');
+      expect(webhookBody.receipt_id).toBeDefined();
+    });
+  });
+
+  describe('GET /v1/tasks/:id — includes delivery_receipt', () => {
+    it('includes receipt after delivery', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+      await deliverTask(claimer, taskId);
+
+      const res = await app.request(`/v1/tasks/${taskId}`);
+      const data = await res.json() as { task: Record<string, unknown>; delivery_receipt: Record<string, unknown> | null };
+      expect(data.task.status).toBe('submitted');
+      expect(data.delivery_receipt).not.toBeNull();
+      expect(data.delivery_receipt!.receipt_id).toBeDefined();
+      expect(data.delivery_receipt!.chain_sequence).toBeDefined();
+    });
+  });
+
+  describe('GET /v1/tasks/:id/receipt — Get delivery receipt', () => {
+    it('returns full receipt with agent public key', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+      await deliverTask(claimer, taskId);
+
+      const res = await app.request(`/v1/tasks/${taskId}/receipt`);
+      expect(res.status).toBe(200);
+      const data = await res.json() as { ok: boolean; receipt: Record<string, unknown> };
+      expect(data.ok).toBe(true);
+      expect(data.receipt.receipt_id).toBeDefined();
+      expect(data.receipt.task_id).toBe(taskId);
+      expect(data.receipt.agent_id).toBe(claimer.agentId);
+      expect(data.receipt.summary).toBe('Delivered the work');
+      expect(data.receipt.agent_public_key).toBeDefined();
+      expect(data.receipt.chain_sequence).toBeDefined();
+      expect(data.receipt.chain_entry_hash).toBeDefined();
+      expect(data.receipt.signature).toBeDefined();
+    });
+
+    it('returns 404 for task with no receipt', async () => {
+      const taskId = await createTask(creator);
+      const res = await app.request(`/v1/tasks/${taskId}/receipt`);
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('POST /v1/tasks/:id/verify — chain entry + reputation', () => {
+    it('verify creates chain entry', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+      await deliverTask(claimer, taskId);
+
+      const headers = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/verify`);
+      const res = await app.request(`/v1/tasks/${taskId}/verify`, {
+        method: 'POST',
+        headers: { ...headers },
+      });
+      expect(res.status).toBe(200);
+      const data = await res.json() as Record<string, unknown>;
+      expect(data.ok).toBe(true);
+      expect(data.status).toBe('verified');
+      expect(data.chain_sequence).toBeDefined();
+      expect(data.chain_entry_hash).toBeDefined();
+      expect(typeof data.chain_sequence).toBe('number');
+    });
+
+    it('verify notifies deliverer with chain info', async () => {
+      const webhookClaimer = await createTestAgent(db, {
+        status: 'active',
+        webhookUrl: 'https://claimer-webhook.example.com/events',
+      });
+      const taskId = await createTask(creator);
+      await claimTask(webhookClaimer, taskId);
+      await deliverTask(webhookClaimer, taskId);
+
+      const headers = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/verify`);
+      await app.request(`/v1/tasks/${taskId}/verify`, {
+        method: 'POST',
+        headers: { ...headers },
+      });
+
+      await new Promise(r => setTimeout(r, 10));
+
+      const webhookCalls = mockFetch.mock.calls.filter(
+        ([url]: [string]) => url === 'https://claimer-webhook.example.com/events'
+      );
+      const verifyCalls = webhookCalls.filter(([, opts]: [string, { body: string }]) => {
+        const b = JSON.parse(opts.body);
+        return b.type === 'task.verified';
+      });
+      expect(verifyCalls.length).toBe(1);
+      const webhookBody = JSON.parse(verifyCalls[0][1].body);
+      expect(webhookBody.chain_sequence).toBeDefined();
+      expect(webhookBody.chain_entry_hash).toBeDefined();
+    });
+  });
+
+  // ─── Full lifecycle with delivery protocol ───
+
+  describe('Full lifecycle with delivery protocol', () => {
+    it('open → claimed → delivered → verified with chain entries', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+
+      // Deliver
+      const deliverRes = await deliverTask(claimer, taskId);
+      expect(deliverRes.status).toBe(200);
+      const deliverData = await deliverRes.json() as Record<string, unknown>;
+      const deliverSeq = deliverData.chain_sequence as number;
+
+      // Verify
+      const verifyHeaders = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/verify`);
+      const verifyRes = await app.request(`/v1/tasks/${taskId}/verify`, {
+        method: 'POST',
+        headers: { ...verifyHeaders },
+      });
+      expect(verifyRes.status).toBe(200);
+      const verifyData = await verifyRes.json() as Record<string, unknown>;
+      const verifySeq = verifyData.chain_sequence as number;
+
+      // Verify chain sequence increments
+      expect(verifySeq).toBeGreaterThan(deliverSeq);
+
+      // Check final state includes receipt
+      const detailRes = await app.request(`/v1/tasks/${taskId}`);
+      const detailData = await detailRes.json() as {
+        task: Record<string, unknown>;
+        submission: Record<string, unknown>;
+        delivery_receipt: Record<string, unknown>;
+      };
+      expect(detailData.task.status).toBe('verified');
+      expect(detailData.submission).not.toBeNull();
+      expect(detailData.delivery_receipt).not.toBeNull();
     });
   });
 });
