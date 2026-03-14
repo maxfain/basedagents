@@ -8,6 +8,7 @@
 
 import { validate } from './validate.js';
 import { register } from './register.js';
+import { init } from './init.js';
 import { whois } from './whois.js';
 import { check } from './check.js';
 
@@ -20,6 +21,7 @@ Usage:
   basedagents <command> [options]
 
 Commands:
+  init                             Interactive registration wizard
   whois <name-or-id>               Look up any agent by name or ID
   register                         Interactive registration (prompts)
   register --manifest <file>       Non-interactive — read profile from JSON file
@@ -31,6 +33,7 @@ Options:
   --help, -h        Show this help message
 
 Examples:
+  npx basedagents init
   npx basedagents whois Hans
   npx basedagents whois ag_7Xk9mP2qR8nK4vL3
   npx basedagents register
@@ -55,6 +58,11 @@ export async function main(): Promise<void> {
   }
 
   const command = args[0];
+
+  if (command === 'init') {
+    await init(args.slice(1));
+    return;
+  }
 
   if (command === 'whois') {
     await whois(args.slice(1));
