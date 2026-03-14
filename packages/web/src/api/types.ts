@@ -26,6 +26,8 @@ export interface ApiAgent {
   contact_email: string | null;
   x_handle: string | null;
   skills: ApiDeclaredSkill[];
+  wallet_address: string | null;
+  wallet_network: string | null;
   status: 'active' | 'pending' | 'suspended';
   reputation_score: number;
   verification_count: number;

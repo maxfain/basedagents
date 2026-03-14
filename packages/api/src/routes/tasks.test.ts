@@ -927,4 +927,79 @@ describe('Task Marketplace', () => {
       expect(detailData.delivery_receipt).not.toBeNull();
     });
   });
+
+  // ─── Payment-related behavior on standard endpoints ───
+
+  describe('Payment fields in standard endpoints', () => {
+    it('GET /v1/tasks list strips payment_signature from responses', async () => {
+      // Insert a task with payment_signature directly in DB
+      const taskId = 'task_sig_strip_list';
+      const now = new Date().toISOString();
+      await db.run(
+        `INSERT INTO tasks (task_id, creator_agent_id, title, description, status, created_at, bounty_amount, bounty_token, bounty_network, payment_signature, payment_status)
+         VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)`,
+        taskId, creator.agentId, 'Sig Test', 'Test', now, '$5.00', 'USDC', 'eip155:8453', 'encrypted-secret-sig', 'authorized'
+      );
+
+      const res = await app.request('/v1/tasks?status=open');
+      expect(res.status).toBe(200);
+      const data = await res.json() as { tasks: Record<string, unknown>[] };
+      const task = data.tasks.find(t => t.task_id === taskId);
+      expect(task).toBeDefined();
+      expect(task!.payment_signature).toBeUndefined();
+      expect(task!.bounty_amount).toBe('$5.00');
+      expect(task!.payment_status).toBe('authorized');
+    });
+
+    it('GET /v1/tasks/:id detail includes bounty fields but not payment_signature', async () => {
+      const taskId = 'task_sig_strip_detail';
+      const now = new Date().toISOString();
+      await db.run(
+        `INSERT INTO tasks (task_id, creator_agent_id, title, description, status, created_at, bounty_amount, bounty_token, bounty_network, payment_signature, payment_status)
+         VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)`,
+        taskId, creator.agentId, 'Detail Test', 'Test', now, '$10.00', 'USDC', 'eip155:8453', 'encrypted-secret', 'authorized'
+      );
+
+      const res = await app.request(`/v1/tasks/${taskId}`);
+      expect(res.status).toBe(200);
+      const data = await res.json() as { task: Record<string, unknown> };
+      expect(data.task.payment_signature).toBeUndefined();
+      expect(data.task.bounty_amount).toBe('$10.00');
+      expect(data.task.bounty_token).toBe('USDC');
+      expect(data.task.bounty_network).toBe('eip155:8453');
+      expect(data.task.payment_status).toBe('authorized');
+    });
+
+    it('creating task without bounty still works (backward compat)', async () => {
+      const taskId = await createTask(creator, {
+        title: 'Free Task No Bounty',
+        description: 'No bounty here',
+      });
+
+      const res = await app.request(`/v1/tasks/${taskId}`);
+      expect(res.status).toBe(200);
+      const data = await res.json() as { task: Record<string, unknown> };
+      expect(data.task.bounty_amount).toBeNull();
+      expect(data.task.payment_status).toBe('none');
+    });
+
+    it('verify endpoint works normally without payment (no settlement triggered)', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+      await submitDeliverable(claimer, taskId);
+
+      const headers = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/verify`);
+      const res = await app.request(`/v1/tasks/${taskId}/verify`, {
+        method: 'POST',
+        headers: { ...headers },
+      });
+      expect(res.status).toBe(200);
+      const data = await res.json() as Record<string, unknown>;
+      expect(data.ok).toBe(true);
+      expect(data.status).toBe('verified');
+      // No payment fields in response for free tasks
+      expect(data.payment_status).toBeUndefined();
+      expect(data.payment_tx_hash).toBeUndefined();
+    });
+  });
 });

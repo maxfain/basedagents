@@ -341,3 +341,78 @@ describe('GET /v1/agents/:id/reputation', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('Wallet Endpoints', () => {
+  let db: SQLiteAdapter;
+  let app: ReturnType<typeof createTestApp>;
+  let agent: TestKeypair & { name: string };
+  let otherAgent: TestKeypair & { name: string };
+
+  beforeEach(async () => {
+    db = setupTestDb();
+    app = createTestApp(db);
+    vi.stubGlobal('fetch', mockFetch);
+    agent = await createTestAgent(db, { name: 'WalletAgent', status: 'active' });
+    otherAgent = await createTestAgent(db, { name: 'OtherWalletAgent', status: 'active' });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('GET /v1/agents/:id/wallet returns wallet info', async () => {
+    const res = await app.request(`/v1/agents/${agent.agentId}/wallet`);
+    expect(res.status).toBe(200);
+    const data = await res.json() as Record<string, unknown>;
+    expect(data.agent_id).toBe(agent.agentId);
+    expect(data.wallet_address).toBeNull();
+    expect(data.wallet_network).toBe('eip155:8453');
+  });
+
+  it('PATCH /v1/agents/:id/wallet updates wallet', async () => {
+    const body = JSON.stringify({
+      wallet_address: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+    });
+    const headers = await signRequest(agent, 'PATCH', `/v1/agents/${agent.agentId}/wallet`, body);
+    const res = await app.request(`/v1/agents/${agent.agentId}/wallet`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body,
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json() as Record<string, unknown>;
+    expect(data.wallet_address).toBe('0xabcdefabcdefabcdefabcdefabcdefabcdefabcd');
+    expect(data.wallet_network).toBe('eip155:8453');
+  });
+
+  it('PATCH /v1/agents/:id/wallet rejects other agent → 403', async () => {
+    const body = JSON.stringify({
+      wallet_address: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+    });
+    const headers = await signRequest(otherAgent, 'PATCH', `/v1/agents/${agent.agentId}/wallet`, body);
+    const res = await app.request(`/v1/agents/${agent.agentId}/wallet`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body,
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('agent profile response includes wallet_address and wallet_network', async () => {
+    await db.run(
+      'UPDATE agents SET wallet_address = ? WHERE id = ?',
+      '0x1111111111111111111111111111111111111111', agent.agentId
+    );
+
+    const res = await app.request(`/v1/agents/${agent.agentId}`);
+    expect(res.status).toBe(200);
+    const data = await res.json() as Record<string, unknown>;
+    expect(data.wallet_address).toBe('0x1111111111111111111111111111111111111111');
+    expect(data.wallet_network).toBe('eip155:8453');
+  });
+
+  it('GET /v1/agents/:id/wallet returns 404 for unknown agent', async () => {
+    const res = await app.request('/v1/agents/ag_nonexistent/wallet');
+    expect(res.status).toBe(404);
+  });
+});
