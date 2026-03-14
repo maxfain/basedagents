@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAgent, useReputation } from '../hooks';
+import { api } from '../api/client';
+import type { ApiTask } from '../api/types';
 import { truncateHash, formatTimeAgo } from '../data/mockData';
 import StatusIndicator from '../components/StatusIndicator';
 import { TagList } from '../components/CapabilityTag';
@@ -35,6 +37,157 @@ function CopyButton({ text }: { text: string }) {
     >
       {copied ? 'Copied!' : 'Copy'}
     </button>
+  );
+}
+
+const TASK_STATUS_COLORS: Record<string, { bg: string; color: string }> = {
+  open: { bg: 'rgba(34, 197, 94, 0.15)', color: '#22C55E' },
+  claimed: { bg: 'rgba(245, 158, 11, 0.15)', color: '#F59E0B' },
+  submitted: { bg: 'rgba(59, 130, 246, 0.15)', color: '#3B82F6' },
+  verified: { bg: 'rgba(139, 92, 246, 0.15)', color: '#8B5CF6' },
+  cancelled: { bg: 'rgba(113, 113, 122, 0.15)', color: '#71717A' },
+  closed: { bg: 'rgba(113, 113, 122, 0.15)', color: '#71717A' },
+};
+
+function TaskActivitySection({ agentId }: { agentId: string }) {
+  const [createdTasks, setCreatedTasks] = useState<ApiTask[]>([]);
+  const [deliveredTasks, setDeliveredTasks] = useState<ApiTask[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+
+    Promise.all([
+      api.getTasks({ creator: agentId, limit: 20 }).catch(() => ({ tasks: [] })),
+      api.getTasks({ claimer: agentId, limit: 20 }).catch(() => ({ tasks: [] })),
+    ]).then(([created, delivered]) => {
+      if (!cancelled) {
+        setCreatedTasks(created.tasks || []);
+        setDeliveredTasks(delivered.tasks || []);
+      }
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [agentId]);
+
+  if (loading) {
+    return (
+      <div style={{
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border)',
+        borderRadius: 8,
+        padding: 24,
+        marginBottom: 48,
+      }}>
+        <h2 style={{ fontSize: 18, marginBottom: 16 }}>Task Activity</h2>
+        <p style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>Loading tasks...</p>
+      </div>
+    );
+  }
+
+  if (createdTasks.length === 0 && deliveredTasks.length === 0) {
+    return (
+      <div style={{
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border)',
+        borderRadius: 8,
+        padding: 24,
+        marginBottom: 48,
+      }}>
+        <h2 style={{ fontSize: 18, marginBottom: 16 }}>Task Activity</h2>
+        <p style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>No task activity yet.</p>
+      </div>
+    );
+  }
+
+  const renderTaskRow = (task: ApiTask) => {
+    const sc = TASK_STATUS_COLORS[task.status] || TASK_STATUS_COLORS.closed;
+    return (
+      <Link
+        key={task.task_id}
+        to={`/tasks/${task.task_id}`}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '10px 12px',
+          borderRadius: 6,
+          textDecoration: 'none',
+          transition: 'background 150ms ease',
+          flexWrap: 'wrap',
+        }}
+        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
+        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+      >
+        <span style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 500, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {task.title}
+        </span>
+        <span style={{
+          display: 'inline-block',
+          padding: '2px 7px',
+          borderRadius: 4,
+          fontSize: 10,
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          letterSpacing: '0.5px',
+          background: sc.bg,
+          color: sc.color,
+          flexShrink: 0,
+        }}>
+          {task.status}
+        </span>
+        {task.bounty_amount && (
+          <span style={{
+            fontSize: 11,
+            fontFamily: 'var(--font-mono)',
+            color: '#22C55E',
+            flexShrink: 0,
+          }}>
+            {task.bounty_amount} {task.bounty_token || ''}
+          </span>
+        )}
+        <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>
+          {new Date(task.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+        </span>
+      </Link>
+    );
+  };
+
+  return (
+    <div style={{
+      background: 'var(--bg-secondary)',
+      border: '1px solid var(--border)',
+      borderRadius: 8,
+      padding: 24,
+      marginBottom: 48,
+    }}>
+      <h2 style={{ fontSize: 18, marginBottom: 16 }}>Task Activity</h2>
+
+      {createdTasks.length > 0 && (
+        <div style={{ marginBottom: deliveredTasks.length > 0 ? 20 : 0 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+            Created ({createdTasks.length})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {createdTasks.map(renderTaskRow)}
+          </div>
+        </div>
+      )}
+
+      {deliveredTasks.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+            Delivered ({deliveredTasks.length})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {deliveredTasks.map(renderTaskRow)}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -420,6 +573,9 @@ export default function AgentProfile(): React.ReactElement {
             </Link>
           </div>
         )}
+
+        {/* Task Activity */}
+        <TaskActivitySection agentId={agent.id} />
 
         {/* Embed Badge */}
         <EmbedBadgeSection agentId={agent.id} agentName={agent.name} />

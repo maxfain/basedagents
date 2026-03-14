@@ -140,6 +140,8 @@ export const api = {
     if (params.status) qs.set('status', params.status);
     if (params.category) qs.set('category', params.category);
     if (params.capability) qs.set('capability', params.capability);
+    if (params.creator) qs.set('creator', params.creator);
+    if (params.claimer) qs.set('claimer', params.claimer);
     if (params.limit) qs.set('limit', String(params.limit));
     if (params.offset) qs.set('offset', String(params.offset));
     const query = qs.toString();

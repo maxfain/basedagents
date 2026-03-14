@@ -88,6 +88,37 @@ export default function TaskDetail(): React.ReactElement {
 
   const statusColor = STATUS_COLORS[task.status] || STATUS_COLORS.cancelled;
   const capabilities = task.required_capabilities || [];
+  const isCancelled = task.status === 'cancelled' || task.status === 'closed';
+
+  const PAYMENT_COLORS: Record<string, { bg: string; color: string }> = {
+    authorized: { bg: 'rgba(245, 158, 11, 0.15)', color: '#F59E0B' },
+    settled: { bg: 'rgba(34, 197, 94, 0.15)', color: '#22C55E' },
+    failed: { bg: 'rgba(239, 68, 68, 0.15)', color: '#EF4444' },
+    disputed: { bg: 'rgba(239, 68, 68, 0.15)', color: '#EF4444' },
+    expired: { bg: 'rgba(113, 113, 122, 0.15)', color: '#71717A' },
+  };
+
+  // Timeline steps
+  const normalSteps = ['open', 'claimed', 'submitted', 'verified'] as const;
+  const stepTimestamps: Record<string, string | null> = {
+    open: task.created_at,
+    claimed: task.claimed_at,
+    submitted: task.submitted_at,
+    verified: task.verified_at,
+  };
+  const statusOrder = isCancelled
+    ? (() => {
+        // Show steps up to wherever it was cancelled, then cancelled
+        const reached: string[] = ['open'];
+        if (task.claimed_at) reached.push('claimed');
+        if (task.submitted_at) reached.push('submitted');
+        reached.push('cancelled');
+        return reached;
+      })()
+    : [...normalSteps];
+  const currentStepIndex = isCancelled
+    ? statusOrder.length - 1
+    : normalSteps.indexOf(task.status as typeof normalSteps[number]);
 
   const sectionStyle: React.CSSProperties = {
     background: 'var(--bg-secondary)',
@@ -158,6 +189,136 @@ export default function TaskDetail(): React.ReactElement {
           <p style={{ color: 'var(--text-tertiary)', margin: 0, fontSize: 13, fontFamily: 'var(--font-mono)' }}>
             {task.task_id}
           </p>
+        </div>
+
+        {/* Status Timeline */}
+        <div style={{
+          ...sectionStyle,
+          padding: '24px 28px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <div style={labelStyle}>Status Timeline</div>
+            {task.bounty_amount && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '3px 10px',
+                  borderRadius: 5,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  background: 'rgba(34, 197, 94, 0.1)',
+                  color: '#22C55E',
+                  border: '1px solid rgba(34, 197, 94, 0.25)',
+                  fontFamily: 'var(--font-mono)',
+                }}>
+                  {task.bounty_amount} {task.bounty_token || ''}
+                  {task.bounty_network && (
+                    <span style={{ fontSize: 10, opacity: 0.7 }}> ({task.bounty_network})</span>
+                  )}
+                </span>
+                {task.payment_status && task.payment_status !== 'none' && (() => {
+                  const pc = PAYMENT_COLORS[task.payment_status] || PAYMENT_COLORS.expired;
+                  return (
+                    <span style={{
+                      display: 'inline-block',
+                      padding: '3px 8px',
+                      borderRadius: 4,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      background: pc.bg,
+                      color: pc.color,
+                    }}>
+                      {task.payment_status}
+                    </span>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-start', position: 'relative', padding: '8px 0' }}>
+            {statusOrder.map((step, i) => {
+              const isCompleted = i <= currentStepIndex;
+              const isCurrent = i === currentStepIndex;
+              const isFuture = i > currentStepIndex;
+              const stepColor = STATUS_COLORS[step] || STATUS_COLORS.cancelled;
+              const dotColor = isCompleted ? stepColor.color : 'var(--border)';
+              const timestamp = stepTimestamps[step] || null;
+              const isLast = i === statusOrder.length - 1;
+
+              return (
+                <div key={step} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: isLast ? '0 0 auto' : 1, position: 'relative', minWidth: 80 }}>
+                  {/* Connector line before dot */}
+                  {i > 0 && (
+                    <div style={{
+                      position: 'absolute',
+                      top: 10,
+                      right: '50%',
+                      width: '100%',
+                      height: 2,
+                      background: isCompleted ? stepColor.color : 'var(--border)',
+                      opacity: isCompleted ? 0.5 : 0.3,
+                      zIndex: 0,
+                    }} />
+                  )}
+                  {/* Dot */}
+                  <div style={{
+                    width: isCurrent ? 22 : 16,
+                    height: isCurrent ? 22 : 16,
+                    borderRadius: '50%',
+                    background: isCompleted ? dotColor : 'var(--bg-tertiary)',
+                    border: `2px solid ${isCompleted ? dotColor : 'var(--border)'}`,
+                    zIndex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: isCurrent ? `0 0 8px ${dotColor}44` : 'none',
+                    animation: isCurrent && !isCancelled ? 'pulse-dot 2s ease-in-out infinite' : 'none',
+                    transition: 'all 200ms ease',
+                  }}>
+                    {isCompleted && (
+                      <span style={{ color: '#fff', fontSize: isCurrent ? 11 : 9, fontWeight: 700, lineHeight: 1 }}>
+                        {step === 'cancelled' ? '×' : '✓'}
+                      </span>
+                    )}
+                  </div>
+                  {/* Label */}
+                  <div style={{
+                    marginTop: 8,
+                    fontSize: 12,
+                    fontWeight: isCurrent ? 600 : 500,
+                    color: isFuture ? 'var(--text-tertiary)' : stepColor.color,
+                    textTransform: 'capitalize',
+                    opacity: isFuture ? 0.5 : 1,
+                  }}>
+                    {step}
+                  </div>
+                  {/* Timestamp */}
+                  {timestamp && isCompleted && (
+                    <div style={{
+                      marginTop: 2,
+                      fontSize: 10,
+                      color: 'var(--text-tertiary)',
+                      fontFamily: 'var(--font-mono)',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {formatDate(timestamp)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {/* Pulse animation */}
+          <style>{`
+            @keyframes pulse-dot {
+              0%, 100% { box-shadow: 0 0 4px rgba(255,255,255,0.1); }
+              50% { box-shadow: 0 0 12px rgba(255,255,255,0.3); }
+            }
+          `}</style>
         </div>
 
         {/* Description */}

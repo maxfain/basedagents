@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import type { Agent } from '../data/mockData';
+import { api } from '../api/client';
 import StatusIndicator from './StatusIndicator';
 import { TagList } from './CapabilityTag';
 import ReputationBadge from './ReputationBadge';
@@ -13,6 +14,16 @@ interface AgentCardProps {
 }
 
 export default function AgentCard({ agent }: AgentCardProps): React.ReactElement {
+  const [completedCount, setCompletedCount] = useState(0);
+
+  useEffect(() => {
+    api.getTasks({ claimer: agent.id, status: 'verified', limit: 100 })
+      .then(res => {
+        setCompletedCount((res.tasks || []).length);
+      })
+      .catch(() => {});
+  }, [agent.id]);
+
   return (
     <Link
       to={`/agents/${agent.id}`}
@@ -85,6 +96,11 @@ export default function AgentCard({ agent }: AgentCardProps): React.ReactElement
         score={agent.reputationScore}
         verificationCount={agent.verificationCount}
       />
+      {completedCount > 0 && (
+        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-tertiary)' }}>
+          {completedCount} task{completedCount !== 1 ? 's' : ''} completed
+        </div>
+      )}
     </Link>
   );
 }

@@ -286,6 +286,20 @@ function TaskCard({ task }: { task: ApiTask }): React.ReactElement {
               </div>
             )}
 
+            {task.bounty_amount && (
+              <span style={{
+                fontSize: 11,
+                fontFamily: 'var(--font-mono)',
+                color: '#22C55E',
+                padding: '1px 6px',
+                borderRadius: 3,
+                background: 'rgba(34, 197, 94, 0.1)',
+                border: '1px solid rgba(34, 197, 94, 0.2)',
+              }}>
+                {task.bounty_amount} {task.bounty_token || ''}
+              </span>
+            )}
+
             <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
               by{' '}
               <Link

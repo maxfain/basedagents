@@ -129,6 +129,11 @@ export interface ApiTask {
   verified_at: string | null;
   proposer_signature: string | null;
   acceptor_signature: string | null;
+  bounty_amount: string | null;
+  bounty_token: string | null;
+  bounty_network: string | null;
+  payment_status: 'none' | 'authorized' | 'settled' | 'failed' | 'disputed' | 'expired' | null;
+  payment_tx_hash: string | null;
 }
 
 export interface ApiTaskSubmission {
@@ -173,6 +178,8 @@ export interface TaskSearchParams {
   status?: string;
   category?: string;
   capability?: string;
+  creator?: string;
+  claimer?: string;
   limit?: number;
   offset?: number;
 }
