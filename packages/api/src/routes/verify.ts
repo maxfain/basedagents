@@ -136,7 +136,7 @@ verify.post('/submit', agentAuth, async (c) => {
     return c.json({ error: 'bad_request', message: 'Validation failed', details: parsed.error.flatten() }, 400);
   }
 
-  const { assignment_id, target_id, result, response_time_ms, coherence_score, notes, signature, structured_report, nonce } = parsed.data;
+  const { assignment_id, target_id, result, response_time_ms, coherence_score, notes, signature, structured_report, nonce, timestamp } = parsed.data;
 
   // ── Self-verification ban ──
   if (verifierId === target_id) {
@@ -220,7 +220,7 @@ verify.post('/submit', agentAuth, async (c) => {
   // ── Verify report signature (nonce is bound into signed payload — prevents replay) ──
   // All fields including structured_report are covered by the inner Ed25519 signature,
   // so chain auditors can verify the full report without relying on transport-layer AgentSig.
-  const signedFields: Record<string, unknown> = { assignment_id, target_id, result, nonce };
+  const signedFields: Record<string, unknown> = { assignment_id, target_id, result, nonce, timestamp };
   if (coherence_score !== undefined && coherence_score !== null) signedFields.coherence_score = coherence_score;
   if (notes !== undefined && notes !== null) signedFields.notes = notes;
   if (response_time_ms !== undefined && response_time_ms !== null) signedFields.response_time_ms = response_time_ms;

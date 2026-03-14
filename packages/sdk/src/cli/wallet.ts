@@ -16,6 +16,7 @@ const dim    = (s: string) => `\x1b[2m${s}${R}`;
 const red    = (s: string) => `\x1b[31m${s}${R}`;
 const green  = (s: string) => `\x1b[32m${s}${R}`;
 const cyan   = (s: string) => `\x1b[36m${s}${R}`;
+const yellow = (s: string) => `\x1b[33m${s}${R}`;
 
 const API_URL = process.env.BASEDAGENTS_API_URL ?? 'https://api.basedagents.ai';
 
@@ -30,7 +31,11 @@ function loadKeypair() {
   if (files.length === 0) {
     throw new Error(`No keypairs found in ${keysDir}. Register first: npx basedagents register`);
   }
-  // Use the most recently modified keypair, or the only one
+  // Use the last alphabetical keypair; warn if multiple exist (NEW-2)
+  if (files.length > 1) {
+    console.log(yellow(`  ⚠ Multiple keypairs found. Using: ${files[files.length - 1]}`));
+    console.log(yellow(`  To use a specific keypair, pass --keypair <file>`));
+  }
   const keypairPath = join(keysDir, files[files.length - 1]);
   const raw = readFileSync(keypairPath, 'utf8');
   return deserializeKeypair(raw);

@@ -146,15 +146,21 @@ ${bold('Options:')}
   let verdict: Verdict;
   if (agent.status === 'suspended' || safetyFlags > 0) {
     verdict = 'CAUTION';
-  } else if (agent.status === 'active' && verifications > 0) {
+  } else if (agent.status === 'active' && verifications >= 2) {
+    // NEW-LOW-2: require at least 2 verifications for TRUSTED (single verification is not enough)
     verdict = 'TRUSTED';
   } else {
     verdict = 'UNVERIFIED';
   }
 
   // Strict mode override
-  if (strict && (score < 0.5 || verifications < 2)) {
-    verdict = verdict === 'TRUSTED' ? 'UNVERIFIED' : verdict;
+  if (strict) {
+    if (score < 0.2) {
+      // NEW-7: low-score agents in strict mode get CAUTION, not just UNVERIFIED
+      verdict = 'CAUTION';
+    } else if (score < 0.5 || verifications < 2) {
+      verdict = verdict === 'TRUSTED' ? 'UNVERIFIED' : verdict;
+    }
   }
 
   const exitCode = verdict === 'TRUSTED' ? 0 : 1;

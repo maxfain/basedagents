@@ -102,7 +102,14 @@ export async function init(args: string[]): Promise<void> {
     const capabilities = capInput ? capInput.split(',').map(s => s.trim()).filter(Boolean) : [];
 
     const protoInput = await askOptional(rl, 'Protocols? (e.g. mcp, rest, openclaw) [skip]:');
-    const protocols = protoInput ? protoInput.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const ALLOWED_PROTOCOLS = ['mcp', 'rest', 'grpc', 'websocket', 'openclaw', 'a2a', 'http', 'https'];
+    const rawProtocols = protoInput ? protoInput.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const invalidProtocols = rawProtocols.filter(p => !ALLOWED_PROTOCOLS.includes(p));
+    if (invalidProtocols.length > 0) {
+      console.log(`  ⚠ Unknown protocols ignored: ${invalidProtocols.join(', ')}`);
+      console.log(`  Allowed: ${ALLOWED_PROTOCOLS.join(', ')}`);
+    }
+    const protocols = rawProtocols.filter(p => ALLOWED_PROTOCOLS.includes(p));
 
     const homepage = await askOptional(rl, 'Homepage URL? [skip]:');
 

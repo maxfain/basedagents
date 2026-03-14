@@ -68,6 +68,8 @@ async function buildVerificationBody(
     ? undefined
     : options.structuredReport;
 
+  const timestamp = new Date().toISOString();
+
   // Build the signed fields — must match the server's reconstruction order.
   // All fields including structured_report are covered by the inner signature (M4).
   const signedFields: Record<string, unknown> = {
@@ -75,6 +77,7 @@ async function buildVerificationBody(
     target_id: targetId,
     result,
     nonce,
+    timestamp,
   };
   signedFields.coherence_score = coherenceScore;
   signedFields.notes = 'test verification';

@@ -40,6 +40,17 @@ export const RegisterInitSchema = z.object({
   public_key: z.string().min(1),
 });
 
+// Must be defined before RegisterCompleteSchema so the enum can reference it (NEW-1)
+export const ALLOWED_WALLET_NETWORKS_CONST = [
+  'eip155:8453',    // Base mainnet
+  'eip155:84532',   // Base Sepolia (testnet)
+  'eip155:1',       // Ethereum mainnet
+  'eip155:137',     // Polygon
+  'eip155:42161',   // Arbitrum One
+  'eip155:10',      // Optimism
+  'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',  // Solana mainnet
+] as const;
+
 export const RegisterCompleteSchema = z.object({
   challenge_id: z.string().uuid(),
   public_key: z.string().min(1),
@@ -47,7 +58,7 @@ export const RegisterCompleteSchema = z.object({
   nonce: z.string().min(1),
   profile: ProfileSchema,
   wallet_address: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
-  wallet_network: z.string().max(50).default('eip155:8453').optional(),
+  wallet_network: z.enum(ALLOWED_WALLET_NETWORKS_CONST as unknown as [string, ...string[]]).default('eip155:8453').optional(),
 });
 
 // ─── Structured Verification Report ───
@@ -81,6 +92,8 @@ export const VerifySubmitSchema = z.object({
   structured_report: StructuredReportSchema,
   // Anti-replay: client-generated nonce (UUID). Stored and checked for uniqueness.
   nonce: z.string().uuid(),
+  // Timestamp prevents replay across time windows and is covered by signature (NEW-4)
+  timestamp: z.string().datetime(),
   signature: z.string().min(1),
 });
 
@@ -167,22 +180,13 @@ export interface PaymentEvent {
   created_at: string;
 }
 
-const ALLOWED_WALLET_NETWORKS = [
-  'eip155:8453',    // Base mainnet
-  'eip155:84532',   // Base Sepolia (testnet)
-  'eip155:1',       // Ethereum mainnet
-  'eip155:137',     // Polygon
-  'eip155:42161',   // Arbitrum One
-  'eip155:10',      // Optimism
-  'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',  // Solana mainnet
-] as const;
-
 export const WalletUpdateSchema = z.object({
   wallet_address: z.string().regex(/^0x[a-fA-F0-9]{40}$/).nullable().optional(),
-  wallet_network: z.enum(ALLOWED_WALLET_NETWORKS).optional(),
+  wallet_network: z.enum(ALLOWED_WALLET_NETWORKS_CONST).optional(),
 });
 
-export { ALLOWED_WALLET_NETWORKS };
+// Re-export under the canonical name for backwards compatibility
+export { ALLOWED_WALLET_NETWORKS_CONST as ALLOWED_WALLET_NETWORKS };
 
 export interface Submission {
   submission_id: string;

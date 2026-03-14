@@ -158,6 +158,14 @@ tasks.post('/', agentAuth, async (c) => {
   let autoReleaseAt: string | null = null;
 
   if (bounty && paymentSigHeader) {
+    // Validate X-PAYMENT-SIGNATURE format before forwarding to CDP (NEW-5)
+    if (
+      !paymentSigHeader ||
+      paymentSigHeader.length > 10000 ||
+      !/^[A-Za-z0-9+/=_\-.:{}",\s]+$/.test(paymentSigHeader)
+    ) {
+      return c.json({ error: 'bad_request', message: 'Invalid X-PAYMENT-SIGNATURE format' }, 400);
+    }
     // Verify payment signature via CDP facilitator
     const provider = new CdpPaymentProvider(c.env?.CDP_API_KEY);
     const verifyResult = await provider.verify(paymentSigHeader);

@@ -228,7 +228,9 @@ register.post('/complete', async (c) => {
 
   // Insert agent + chain entry + mark challenge completed
   // Run sequentially — both SQLite adapter and D1 handle this correctly.
-  await db.run(
+  // Wrap INSERT to handle UNIQUE constraint race (LOW-8: TOCTOU on name uniqueness)
+  try {
+    await db.run(
     `INSERT INTO agents (id, public_key, name, description, capabilities, protocols, offers, needs, homepage, contact_endpoint, comment, organization, organization_url, logo_url, tags, version, contact_email, x_handle, skills, webhook_url, wallet_address, wallet_network, registered_at, status, reputation_score, verification_count)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0)`,
     agentId,
@@ -256,6 +258,14 @@ register.post('/complete', async (c) => {
     timestamp,
     initialStatus
   );
+  } catch (insertErr: unknown) {
+    // UNIQUE constraint on name — race condition between SELECT and INSERT (TOCTOU)
+    const msg = insertErr instanceof Error ? insertErr.message : String(insertErr);
+    if (msg.includes('UNIQUE') || msg.includes('unique')) {
+      return c.json({ error: 'conflict', message: `Agent name '${profile.name}' is already taken` }, 409);
+    }
+    throw insertErr;
+  }
 
   // Derive sequence as MAX(sequence)+1 rather than AUTOINCREMENT so deletions
   // during cleanup never leave gaps in the chain display.

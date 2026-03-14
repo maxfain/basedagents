@@ -62,6 +62,21 @@ ${bold('Options:')}
   const capability = getFlag(args, '--capability');
   const limit = getFlag(args, '--limit');
 
+  // NEW-6: validate --status and --category against allowlists
+  const ALLOWED_STATUSES = ['open', 'claimed', 'submitted', 'verified', 'cancelled', 'all'];
+  const ALLOWED_CATEGORIES = ['research', 'code', 'content', 'data', 'automation'];
+
+  if (status && !ALLOWED_STATUSES.includes(status)) {
+    console.error(`  ✗ Invalid --status value: '${status}'`);
+    console.error(`  Allowed values: ${ALLOWED_STATUSES.join(', ')}`);
+    process.exit(1);
+  }
+  if (category && !ALLOWED_CATEGORIES.includes(category)) {
+    console.error(`  ✗ Invalid --category value: '${category}'`);
+    console.error(`  Allowed values: ${ALLOWED_CATEGORIES.join(', ')}`);
+    process.exit(1);
+  }
+
   if (status) params.status = status;
   if (category) params.category = category;
   if (capability) params.capability = capability;
