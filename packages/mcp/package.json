@@ -17,6 +17,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "postinstall": "npm run build 2>/dev/null || true",
     "dev": "tsx src/index.ts",
     "prepublishOnly": "npm run build"
   },
