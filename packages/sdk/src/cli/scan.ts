@@ -72,9 +72,19 @@ function formatBytes(bytes: number): string {
 async function uploadReport(report: ScanReport, apiUrl: string): Promise<void> {
   try {
     const client = new RegistryClient(apiUrl);
+    const payload = {
+      package_name: report.package,
+      package_version: report.version,
+      score: report.score,
+      grade: report.grade,
+      findings: report.findings,
+      metadata: report.metadata,
+      basedagents: report.basedagents,
+      scanned_at: report.scanned_at,
+    };
     await client.fetchJson('/v1/scan', {
       method: 'POST',
-      body: JSON.stringify(report),
+      body: JSON.stringify(payload),
     });
     console.log(green('  ✓ Report uploaded successfully'));
   } catch (err) {
