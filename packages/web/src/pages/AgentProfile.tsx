@@ -14,6 +14,7 @@ import TrustSafetyCard from '../components/TrustSafetyCard';
 import DemoBanner from '../components/DemoBanner';
 import VerifyAgentForm from '../components/VerifyAgentForm';
 import { useAgentAuth } from '../hooks/useAgentAuth';
+import McpPlayground from '../components/McpPlayground';
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -454,6 +455,11 @@ export default function AgentProfile(): React.ReactElement {
           </h3>
           <TagList tags={agent.protocols} variant="protocol" />
         </div>
+
+        {/* MCP Playground — only shown if agent has a contact endpoint and supports MCP */}
+        {agent.contactEndpoint && agent.protocols.some(p => p.toLowerCase() === 'mcp') && (
+          <McpPlayground agentId={agent.id} contactEndpoint={agent.contactEndpoint} />
+        )}
 
         {/* Skills */}
         {agent.skills && agent.skills.length > 0 && (

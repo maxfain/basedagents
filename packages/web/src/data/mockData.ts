@@ -43,6 +43,7 @@ export interface Agent {
   logoUrl?: string | null;
   xHandle?: string | null;
   contactEmail?: string | null;
+  contactEndpoint?: string | null;
 }
 
 export interface Verification {

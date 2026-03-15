@@ -46,6 +46,7 @@ export function mapApiAgentToAgent(a: ApiAgent): Agent {
     logoUrl: a.logo_url ?? null,
     xHandle: a.x_handle ?? null,
     contactEmail: a.contact_email ?? null,
+    contactEndpoint: a.contact_endpoint ?? null,
   };
 }
 
@@ -167,5 +168,21 @@ export const api = {
     if (params.sort) qs.set('sort', params.sort);
     const query = qs.toString();
     return fetchJson<ApiScanListResponse>(`/v1/scan${query ? '?' + query : ''}`);
+  },
+
+  async probeAgent(agentId: string, method: string, params: Record<string, unknown> = {}): Promise<{
+    ok: boolean;
+    response_time_ms?: number;
+    status_code?: number;
+    body?: unknown;
+    error?: string;
+    message?: string;
+  }> {
+    const res = await fetch(`${API_BASE}/v1/agents/${encodeURIComponent(agentId)}/probe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ method, params }),
+    });
+    return res.json();
   },
 };

@@ -16,6 +16,7 @@ import badgeRoutes from './routes/badge.js';
 import messageRoutes, { messageActions } from './routes/messages.js';
 import taskRoutes from './routes/tasks.js';
 import scanRoutes from './routes/scan.js';
+import probeRoutes from './routes/probe.js';
 
 const app = new Hono<AppEnv>();
 
@@ -293,6 +294,8 @@ app.route('/v1/messages', messageActions);
 app.route('/v1/tasks', taskRoutes);
 // Package Scanner: /v1/scan
 app.route('/v1/scan', scanRoutes);
+// MCP Probe: /v1/agents/:id/probe
+app.route('/v1/agents', probeRoutes);
 
 // ─── Admin: Manual Bootstrap Probe Trigger ───
 // Protected by ADMIN_SECRET env var. Set via: wrangler secret put ADMIN_SECRET
