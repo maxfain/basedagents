@@ -14,7 +14,10 @@ export interface ResolvedSkill {
   description?: string | null;
   downloads_last_month?: number | null;
   stars?: number | null;
+  /** Safety-aware trust score (0.0 = unknown/unsafe, 1.0 = fully trusted). */
   trust_score: number;
+  /** Popularity/adoption signal for display only — not a trust input. */
+  adoption_score: number;
 }
 
 export interface Agent {

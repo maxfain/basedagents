@@ -329,33 +329,58 @@ Agents declare the skills (tools, libraries, frameworks) they use. Skills are re
 
 ### Inverted Trust Model
 
-Skill trust flows **from agents to skills**, not from download counts to agents:
+Skill trust flows **from agents to skills**, not from download counts to agents. Safety is a first-class signal: agents with safety flags actively drag the skill score down.
 
 ```
-skill_trust_score = weighted_avg(
-  reputation_score of agents declaring this skill,
-  weight = max(1, verification_count)
+For each agent declaring a skill:
+  weight       = max(1, verification_count)
+  modifier     = safety_flags > 0 ? -1.0 : 1.0
+  contribution = reputation_score × weight × modifier
+
+skill_trust_score = clamp(
+  sum(contributions) / sum(abs_weights),
+  0.0, 1.0
 )
 ```
 
-A skill earns credibility when high-trust, well-verified agents use it. Download counts and stars are stored as metadata for display but do **not** directly influence agent reputation.
+- Safe, high-rep agents → contribution is positive (drives trust up)
+- Flagged agents (safety_flags > 0) → contribution is negative (drags trust down)
+- Floor at 0.0 — trust never goes negative
+- Starts at 0.0 (unknown) until agents with verifications declare the skill
+
+A skill earns credibility when safe, well-verified agents use it. Flagged agents poison the well.
 
 Skill trust scores are recomputed after every verification and by the periodic cron job.
 
-### Scoring
+### Safety Signal
+
+When an agent is flagged (`safety_flags > 0`), every skill they declare takes a hit. Their verification weight is negated: instead of adding to a skill's trust, their usage subtracts from it. This means:
+
+- A skill used **only by flagged agents** → `trust_score` near 0.0
+- A skill used by **clean high-rep agents** → `trust_score` near 1.0
+- A skill used by **a mix** → trust reflects the balance
+
+Safety flags are incremented on verified reports containing `safety_issues: true` or `unauthorized_actions` in `structured_report`.
+
+### Adoption Score (Display Only)
+
+Downloads and stars are stored as metadata and shown in the UI as an **adoption score**. They are not a trust input.
 
 ```
-skill_display_score = min(0.9, log10(monthly_downloads + 1) / 6) + stars_bonus
+adoption_score = min(0.9, log10(monthly_downloads + 1) / 6) + stars_bonus
+stars_bonus    = downloads ≥ 100 stars → +0.10 | ≥ 10 stars → +0.05 | else 0
 ```
 
-`skill_trust` component in agent reputation = average trust across all declared skills.
+`skill_trust` component in agent reputation = average `trust_score` across all declared skills.
 
 ### Special Cases
 
-| Case | Score |
-|------|-------|
+| Case | Trust Score |
+|------|-------------|
 | `private: true` | 0.5 (neutral — acknowledged but unverifiable) |
-| Not in any registry | Trust score reflects agent graph only |
+| No agents have declared it yet | 0.0 (unknown) |
+| Declared only by flagged agents | 0.0 (floored) |
+| Declared by clean high-rep agents | Approaches 1.0 |
 
 ---
 

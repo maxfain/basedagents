@@ -64,6 +64,9 @@ CREATE TABLE IF NOT EXISTS verification_assignments (assignment_id TEXT PRIMARY 
 CREATE INDEX IF NOT EXISTS idx_assignments_expires ON verification_assignments(expires_at);
 ALTER TABLE agents ADD COLUMN wallet_address TEXT;
 ALTER TABLE agents ADD COLUMN wallet_network TEXT DEFAULT 'eip155:8453';
+CREATE TABLE IF NOT EXISTS skill_cache (id TEXT PRIMARY KEY, registry TEXT NOT NULL, name TEXT NOT NULL, version TEXT, description TEXT, downloads_last_month INTEGER, stars INTEGER, verified INTEGER NOT NULL DEFAULT 0, trust_score REAL NOT NULL DEFAULT 0.0, adoption_score REAL NOT NULL DEFAULT 0.0, last_checked_at DATETIME NOT NULL, UNIQUE(registry, name));
+CREATE INDEX IF NOT EXISTS idx_skill_cache_registry ON skill_cache(registry);
+CREATE INDEX IF NOT EXISTS idx_skill_cache_verified ON skill_cache(verified);
 ALTER TABLE tasks ADD COLUMN bounty_amount TEXT;
 ALTER TABLE tasks ADD COLUMN bounty_token TEXT;
 ALTER TABLE tasks ADD COLUMN bounty_network TEXT;

@@ -3,16 +3,22 @@
  *
  * Resolves agent-declared skills against known registries (npm, ClaWHub, PyPI).
  * Caches results in skill_cache table.
- * Computes a trust_score for each skill based on downloads/stars.
  *
- * Trust score logic:
- *   - Not found in any registry:  0.0  (unverified)
- *   - Found, < 100 downloads:     0.3  (low traction)
- *   - Found, 100–1K downloads:    0.5  (emerging)
- *   - Found, 1K–10K downloads:    0.7  (established)
- *   - Found, 10K+ downloads:      0.9  (trusted)
- *   - Stars add up to +0.1 bonus
- *   - Private skill (self-declared): 0.5 (acknowledged, unverifiable)
+ * Trust score logic (inverted model — agent reputation → skill trust):
+ *   skill_trust_score = weighted_avg(
+ *     reputation_score of agents declaring this skill,
+ *     weight = max(1, verification_count) * safety_modifier
+ *   )
+ *   safety_modifier = safety_flags > 0 ? -1.0 : 1.0
+ *   (flagged agents drag the skill score DOWN; floored at 0.0)
+ *
+ * trust_score starts at 0.0 (unknown) until agents with verifications declare it.
+ *
+ * Adoption score (display only, not a trust signal):
+ *   adoption_score = min(0.9, log10(downloads + 1) / 6) + stars_bonus
+ *   This shows how widely-used a skill is, independent of safety.
+ *
+ * Private skill (self-declared): trust_score = 0.5 (acknowledged, unverifiable)
  */
 
 import type { DBAdapter } from '../db/adapter.js';
@@ -33,7 +39,10 @@ export interface ResolvedSkill {
   description?: string | null;
   downloads_last_month?: number | null;
   stars?: number | null;
+  /** Safety-aware trust score (0.0 = unknown/unsafe, 1.0 = fully trusted). */
   trust_score: number;
+  /** Download/popularity signal for display purposes only — not a trust input. */
+  adoption_score: number;
   last_checked_at: string;
 }
 
@@ -47,18 +56,18 @@ interface SkillCacheRow {
   stars: number | null;
   verified: number;
   trust_score: number;
+  adoption_score: number | null;
   last_checked_at: string;
 }
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-// ─── Trust Score Calculation ───
+// ─── Adoption Score Calculation (display metadata only) ───
 //
 // Formula: min(0.9, log10(downloads + 1) / 6)
 //
 // Intuition (downloads → score):
-//   0       → 0.00  (unresolved / brand new)
-//   1       → 0.05
+//   0       → 0.00  (brand new / unresolved)
 //   10      → 0.17
 //   100     → 0.34
 //   1,000   → 0.50
@@ -69,10 +78,12 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 // Stars bonus: up to +0.10 (≥10 stars → +0.05, ≥100 stars → +0.10)
 // Total cap: 1.0
 //
-function computeTrustScore(downloads: number | null, stars: number | null): number {
+// NOTE: This number is metadata for display (popularity/adoption signal).
+// It does NOT feed into trust_score or agent reputation.
+//
+export function computeAdoptionScore(downloads: number | null, stars: number | null): number {
   const d = downloads ?? 0;
   const baseScore = Math.min(0.9, Math.log10(d + 1) / 6);
-  // Stars bonus (up to +0.1)
   const s = stars ?? 0;
   const starsBonus = s >= 100 ? 0.10 : s >= 10 ? 0.05 : 0;
   return Math.round(Math.min(1.0, baseScore + starsBonus) * 100) / 100;
@@ -170,6 +181,7 @@ export async function resolveSkill(
       downloads_last_month: null,
       stars: null,
       trust_score: 0.5,
+      adoption_score: 0,
       last_checked_at: now.toISOString(),
     };
   }
@@ -193,6 +205,7 @@ export async function resolveSkill(
         downloads_last_month: cached.downloads_last_month,
         stars: cached.stars,
         trust_score: cached.trust_score,
+        adoption_score: cached.adoption_score ?? computeAdoptionScore(cached.downloads_last_month, cached.stars),
         last_checked_at: cached.last_checked_at,
       };
     }
@@ -207,24 +220,34 @@ export async function resolveSkill(
   const verified = fetched !== null;
   const downloads = fetched?.downloads_last_month ?? null;
   const stars = fetched?.stars ?? null;
-  const trustScore = verified ? computeTrustScore(downloads, stars) : 0.0;
+  // trust_score starts at 0.0 (unknown) — only the inverted model from
+  // computeSkillReputations() sets real trust based on agent safety signals.
+  const trustScore = 0.0;
+  const adoptionScore = verified ? computeAdoptionScore(downloads, stars) : 0.0;
   const nowIso = now.toISOString();
 
-  // Upsert cache
+  // Upsert cache — include adoption_score column
   await db.run(
-    `INSERT INTO skill_cache (id, registry, name, version, description, downloads_last_month, stars, verified, trust_score, last_checked_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO skill_cache (id, registry, name, version, description, downloads_last_month, stars, verified, trust_score, adoption_score, last_checked_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        version = excluded.version,
        description = excluded.description,
        downloads_last_month = excluded.downloads_last_month,
        stars = excluded.stars,
        verified = excluded.verified,
-       trust_score = excluded.trust_score,
+       trust_score = CASE WHEN skill_cache.trust_score > 0 THEN skill_cache.trust_score ELSE excluded.trust_score END,
+       adoption_score = excluded.adoption_score,
        last_checked_at = excluded.last_checked_at`,
     cacheId, registry, skill.name, skill.version ?? null,
     fetched?.description ?? null, downloads, stars,
-    verified ? 1 : 0, trustScore, nowIso
+    verified ? 1 : 0, trustScore, adoptionScore, nowIso
+  );
+
+  // Re-read actual trust_score from cache (may have been set by computeSkillReputations)
+  const row = await db.get<{ trust_score: number }>(
+    'SELECT trust_score FROM skill_cache WHERE id = ?',
+    cacheId
   );
 
   return {
@@ -236,7 +259,8 @@ export async function resolveSkill(
     description: fetched?.description ?? null,
     downloads_last_month: downloads,
     stars,
-    trust_score: trustScore,
+    trust_score: row?.trust_score ?? trustScore,
+    adoption_score: adoptionScore,
     last_checked_at: nowIso,
   };
 }
@@ -283,13 +307,20 @@ export async function resolveAllAgentSkills(db: DBAdapter): Promise<{ updated: n
 }
 
 /**
- * Compute skill trust scores from agent reputation (inverted model).
+ * Compute skill trust scores from agent reputation (safety-aware inverted model).
  *
- * A skill's trust = weighted average reputation of agents that declare it
- * and have been verified, weighted by their verification count.
+ * A skill's trust = weighted average reputation of agents that declare it,
+ * weighted by verification_count, with a safety modifier:
  *
- * This is the correct direction: agent reputation → skill reputation.
- * (Not: skill download count → agent reputation, which is what we had before.)
+ *   For each agent declaring a skill:
+ *     weight    = max(1, verification_count)
+ *     modifier  = safety_flags > 0 ? -1.0 : 1.0
+ *     contribution = reputation_score * weight * modifier
+ *
+ *   skill_trust_score = clamp(sum(contributions) / sum(abs_weights), 0.0, 1.0)
+ *
+ * Flagged agents (safety_flags > 0) drag the skill score DOWN.
+ * The final score is floored at 0.0 (never goes negative).
  *
  * Called after every verification and in the periodic cron.
  */
@@ -299,34 +330,38 @@ export async function computeSkillReputations(db: DBAdapter): Promise<void> {
     skills: string | null;
     reputation_score: number;
     verification_count: number;
+    safety_flags: number;
   }>(
-    "SELECT id, skills, reputation_score, verification_count FROM agents WHERE status IN ('active', 'pending')"
+    `SELECT id, skills, reputation_score, verification_count, safety_flags
+     FROM agents WHERE status IN ('active', 'pending')`
   );
 
   // skill_id → weighted reputation accumulator
-  const skillData = new Map<string, { weightedRep: number; totalWeight: number }>();
+  const skillData = new Map<string, { weightedRep: number; totalAbsWeight: number }>();
 
   for (const agent of agents) {
     if (!agent.skills) continue;
     let skills: Array<{ name: string; registry?: string; private?: boolean }>;
     try { skills = JSON.parse(agent.skills); } catch { continue; }
 
+    const safetyModifier = (agent.safety_flags ?? 0) > 0 ? -1.0 : 1.0;
+    const baseWeight = Math.max(1, agent.verification_count);
+
     for (const skill of skills) {
       if (skill.private) continue;
       const id = `${skill.registry ?? 'npm'}:${skill.name}`;
-      const weight = Math.max(1, agent.verification_count); // unverified agents count once
-      if (!skillData.has(id)) skillData.set(id, { weightedRep: 0, totalWeight: 0 });
+      if (!skillData.has(id)) skillData.set(id, { weightedRep: 0, totalAbsWeight: 0 });
       const entry = skillData.get(id)!;
-      entry.weightedRep += agent.reputation_score * weight;
-      entry.totalWeight += weight;
+      entry.weightedRep += agent.reputation_score * baseWeight * safetyModifier;
+      entry.totalAbsWeight += baseWeight; // always add positive weight for normalization
     }
   }
 
   const now = new Date().toISOString();
-  for (const [id, { weightedRep, totalWeight }] of skillData) {
-    const trustScore = totalWeight > 0
-      ? Math.round((weightedRep / totalWeight) * 1000) / 1000
-      : 0;
+  for (const [id, { weightedRep, totalAbsWeight }] of skillData) {
+    const raw = totalAbsWeight > 0 ? weightedRep / totalAbsWeight : 0;
+    // Floor at 0.0 — trust can't go negative
+    const trustScore = Math.round(Math.max(0.0, Math.min(1.0, raw)) * 1000) / 1000;
     // Only update existing cache rows (registry metadata rows created by resolveSkill)
     await db.run(
       'UPDATE skill_cache SET trust_score = ?, last_checked_at = ? WHERE id = ?',
