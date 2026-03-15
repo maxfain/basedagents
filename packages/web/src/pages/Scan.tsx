@@ -242,6 +242,8 @@ export default function Scan(): React.ReactElement {
   const [notFound, setNotFound] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [copied, setCopied] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
 
   const packageName = pkgParam ? decodeURIComponent(pkgParam) : '';
 
@@ -264,9 +266,28 @@ export default function Scan(): React.ReactElement {
 
   useEffect(() => {
     if (packageName) {
+      setScanError(null);
       loadReport(packageName, version);
     }
   }, [packageName, version, loadReport]);
+
+  async function handleScanNow() {
+    setScanning(true);
+    setScanError(null);
+    try {
+      const result = await api.triggerScan(packageName, version);
+      if (result.ok) {
+        // Reload the report — it should now exist in the DB
+        loadReport(packageName, version);
+      } else {
+        setScanError(result.message || result.error || 'Scan failed');
+      }
+    } catch {
+      setScanError('Scan request failed. Please try again.');
+    } finally {
+      setScanning(false);
+    }
+  }
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -388,20 +409,79 @@ export default function Scan(): React.ReactElement {
               <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>{packageName}</strong>
               {' '}hasn't been scanned yet.
             </p>
-            <div style={{
-              background: 'var(--bg-tertiary)',
-              border: '1px solid var(--border)',
-              borderRadius: 8,
-              padding: '12px 20px',
-              display: 'inline-block',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 14,
-            }}>
-              npx basedagents scan {packageName}
-            </div>
-            <p style={{ marginTop: 16, fontSize: 13, color: 'var(--text-tertiary)' }}>
-              Run the command above to generate a security report.
+
+            {/* Scan Now button */}
+            {!scanning && !scanError && (
+              <button
+                onClick={handleScanNow}
+                style={{
+                  background: 'var(--accent)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 10,
+                  padding: '14px 36px',
+                  fontSize: 16,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  marginBottom: 24,
+                  boxShadow: '0 2px 12px rgba(0,0,0,0.18)',
+                  transition: 'opacity 0.15s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
+                onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+              >
+                🔍 Scan Now
+              </button>
+            )}
+
+            {/* Scanning spinner */}
+            {scanning && (
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                gap: 10, marginBottom: 24, color: 'var(--accent)', fontSize: 15, fontWeight: 600,
+              }}>
+                <span style={{
+                  display: 'inline-block', width: 20, height: 20,
+                  border: '3px solid rgba(var(--accent-rgb,99,102,241),0.3)',
+                  borderTopColor: 'var(--accent)',
+                  borderRadius: '50%',
+                  animation: 'spin 0.8s linear infinite',
+                }} />
+                Scanning…
+              </div>
+            )}
+
+            {/* Scan error */}
+            {scanError && (
+              <div style={{
+                background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
+                borderRadius: 8, padding: '12px 20px', color: '#EF4444',
+                marginBottom: 24, fontSize: 14,
+              }}>
+                {scanError}
+                <button
+                  onClick={() => { setScanError(null); }}
+                  style={{ marginLeft: 12, background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', textDecoration: 'underline', fontSize: 13 }}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            <p style={{ marginTop: 8, fontSize: 13, color: 'var(--text-tertiary)' }}>
+              Or run locally:{' '}
+              <code style={{
+                fontFamily: 'var(--font-mono)', fontSize: 13,
+                background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                borderRadius: 4, padding: '2px 8px',
+              }}>
+                npx basedagents scan {packageName}
+              </code>
             </p>
+
+            <style>{`
+              @keyframes spin { to { transform: rotate(360deg); } }
+            `}</style>
           </div>
         )}
 

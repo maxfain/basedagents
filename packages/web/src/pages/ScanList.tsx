@@ -57,6 +57,8 @@ export default function ScanList(): React.ReactElement {
   const [sort, setSort] = useState<'recent' | 'score'>('recent');
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
+  const [scanningPkg, setScanningPkg] = useState<string | null>(null);
+  const [scanMsg, setScanMsg] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,11 +75,41 @@ export default function ScanList(): React.ReactElement {
     !search || p.package_name.toLowerCase().includes(search.toLowerCase())
   );
 
-  function handleSearch(e: React.FormEvent) {
+  async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     const pkg = searchInput.trim();
     if (!pkg) return;
-    navigate(`/scan/${encodeURIComponent(pkg)}`);
+
+    // Try to fetch existing report; if 404, auto-trigger a scan
+    setScanMsg(null);
+    setScanningPkg(null);
+    try {
+      await api.getScanReport(pkg);
+      // Report exists — navigate straight to it
+      navigate(`/scan/${encodeURIComponent(pkg)}`);
+    } catch (err: unknown) {
+      const status = (err as { status?: number }).status;
+      if (status === 404) {
+        // Auto-trigger scan
+        setScanningPkg(pkg);
+        setScanMsg(`Scanning ${pkg}…`);
+        try {
+          const result = await api.triggerScan(pkg);
+          if (result.ok) {
+            navigate(`/scan/${encodeURIComponent(pkg)}`);
+          } else {
+            setScanMsg(result.message || result.error || 'Scan failed');
+            setScanningPkg(null);
+          }
+        } catch {
+          setScanMsg('Scan request failed. Please try again.');
+          setScanningPkg(null);
+        }
+      } else {
+        // Non-404 error — just navigate and let Scan page handle it
+        navigate(`/scan/${encodeURIComponent(pkg)}`);
+      }
+    }
   }
 
   const inputStyle: React.CSSProperties = {
@@ -147,12 +179,38 @@ export default function ScanList(): React.ReactElement {
             />
             <button type="submit" style={btnStyle}>View Report</button>
           </form>
-          <p style={{ marginTop: 10, fontSize: 12, color: 'var(--text-tertiary)', margin: '10px 0 0' }}>
-            Don't see your package?{' '}
-            <code style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-              npx basedagents scan &lt;package&gt;
-            </code>
-          </p>
+          {/* Scanning state */}
+          {scanningPkg && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              marginTop: 12, color: 'var(--accent)', fontSize: 14, fontWeight: 600,
+            }}>
+              <span style={{
+                display: 'inline-block', width: 16, height: 16,
+                border: '2px solid rgba(99,102,241,0.3)',
+                borderTopColor: 'var(--accent)',
+                borderRadius: '50%',
+                animation: 'spin 0.8s linear infinite',
+                flexShrink: 0,
+              }} />
+              {scanMsg}
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          )}
+          {!scanningPkg && scanMsg && (
+            <div style={{
+              marginTop: 12, fontSize: 13, color: '#EF4444',
+              background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
+              borderRadius: 6, padding: '8px 12px',
+            }}>
+              {scanMsg}
+            </div>
+          )}
+          {!scanMsg && (
+            <p style={{ marginTop: 10, fontSize: 12, color: 'var(--text-tertiary)', margin: '10px 0 0' }}>
+              Don't see your package? Enter its name above — we'll scan it automatically.
+            </p>
+          )}
         </div>
 
         {/* Filter bar */}

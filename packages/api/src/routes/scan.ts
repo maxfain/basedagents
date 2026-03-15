@@ -1,7 +1,37 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../types/index.js';
+import { scan as workerScan } from '../scanner/index.js';
 
 const scan = new Hono<AppEnv>();
+
+// ─── In-memory rate limiter: 5 scans/min per IP ───
+
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT = 5;
+const RATE_WINDOW_MS = 60_000;
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+  if (!entry || now >= entry.resetAt) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT) return false;
+  entry.count++;
+  return true;
+}
+
+// Periodic cleanup to avoid memory leaks (best-effort, once per minute)
+let lastCleanup = Date.now();
+function maybeCleanupRateLimit() {
+  const now = Date.now();
+  if (now - lastCleanup < RATE_WINDOW_MS) return;
+  lastCleanup = now;
+  for (const [key, val] of rateLimitMap.entries()) {
+    if (now >= val.resetAt) rateLimitMap.delete(key);
+  }
+}
 
 // ─── Types ───
 
@@ -26,6 +56,116 @@ interface ScanReport {
   scanned_at: string;
   submitted_by?: string;
 }
+
+// ─── POST /v1/scan/trigger — Trigger a server-side scan ───
+scan.post('/trigger', async (c) => {
+  maybeCleanupRateLimit();
+
+  // Rate limiting
+  const ip =
+    c.req.header('cf-connecting-ip') ||
+    c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
+    'unknown';
+
+  if (!checkRateLimit(ip)) {
+    return c.json({
+      error: 'rate_limited',
+      message: 'Too many scan requests. Limit: 5 scans per minute per IP.',
+    }, 429);
+  }
+
+  // Parse body
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400);
+  }
+
+  const { package: packageName, version = 'latest' } = body as { package?: string; version?: string };
+
+  if (!packageName || typeof packageName !== 'string' || !packageName.trim()) {
+    return c.json({ error: 'bad_request', message: 'package name is required' }, 400);
+  }
+
+  const db = c.get('db') || null;
+
+  let report;
+  try {
+    report = await workerScan(packageName.trim(), { db, version: version || 'latest' });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+
+    if (msg === 'PACKAGE_NOT_FOUND') {
+      return c.json({ error: 'not_found', message: `Package "${packageName}" not found on npm` }, 404);
+    }
+    if (msg.startsWith('TARBALL_TOO_LARGE')) {
+      return c.json({ error: 'payload_too_large', message: 'Package tarball exceeds 50 MB limit' }, 413);
+    }
+    if (msg === 'SCAN_TIMEOUT') {
+      return c.json({ error: 'gateway_timeout', message: 'Scan timed out after 30 seconds' }, 504);
+    }
+
+    console.error('[scan/trigger] Scan error:', err);
+    return c.json({ error: 'internal_error', message: 'Scan failed unexpectedly' }, 500);
+  }
+
+  // Store the report (reuse POST /v1/scan DB logic)
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  if (db) {
+    try {
+      await db.run(
+        `INSERT INTO scan_reports (id, package_name, package_version, score, grade, findings_json, metadata_json, basedagents_json, scanned_at, submitted_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(package_name, package_version) DO UPDATE SET
+           id = excluded.id,
+           score = excluded.score,
+           grade = excluded.grade,
+           findings_json = excluded.findings_json,
+           metadata_json = excluded.metadata_json,
+           basedagents_json = excluded.basedagents_json,
+           scanned_at = excluded.scanned_at,
+           submitted_by = excluded.submitted_by`,
+        id,
+        report.package,
+        report.version,
+        Math.round(report.score),
+        report.grade,
+        JSON.stringify(report.findings || []),
+        JSON.stringify(report.metadata || {}),
+        JSON.stringify(report.basedagents || {}),
+        report.scanned_at,
+        'web-trigger',
+        now
+      );
+    } catch (err) {
+      console.error('[scan/trigger] DB insert error:', err);
+      // Don't fail the request — return the report even if storage fails
+    }
+  }
+
+  const criticalHighCount = report.findings.filter(
+    f => f.severity === 'critical' || f.severity === 'high'
+  ).length;
+
+  const encodedPkg = encodeURIComponent(report.package);
+  const reportUrl = `https://basedagents.ai/scan/${encodedPkg}?version=${encodeURIComponent(report.version)}`;
+
+  return c.json({
+    ok: true,
+    id,
+    package_name: report.package,
+    package_version: report.version,
+    score: Math.round(report.score),
+    grade: report.grade,
+    finding_count: report.findings.length,
+    critical_high_count: criticalHighCount,
+    report_url: reportUrl,
+    message: 'Scan complete',
+  });
+});
 
 // ─── POST /v1/scan — Submit a scan report ───
 scan.post('/', async (c) => {

@@ -170,6 +170,27 @@ export const api = {
     return fetchJson<ApiScanListResponse>(`/v1/scan${query ? '?' + query : ''}`);
   },
 
+  async triggerScan(packageName: string, version?: string): Promise<{
+    ok: boolean;
+    id?: string;
+    package_name?: string;
+    package_version?: string;
+    score?: number;
+    grade?: string;
+    finding_count?: number;
+    critical_high_count?: number;
+    report_url?: string;
+    error?: string;
+    message?: string;
+  }> {
+    const res = await fetch(`${API_BASE}/v1/scan/trigger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ package: packageName, version }),
+    });
+    return res.json();
+  },
+
   async probeAgent(agentId: string, method: string, params: Record<string, unknown> = {}): Promise<{
     ok: boolean;
     response_time_ms?: number;
