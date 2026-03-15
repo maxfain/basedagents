@@ -15,6 +15,7 @@ import { attestation as attestationRoutes } from './routes/attestation.js';
 import badgeRoutes from './routes/badge.js';
 import messageRoutes, { messageActions } from './routes/messages.js';
 import taskRoutes from './routes/tasks.js';
+import scanRoutes from './routes/scan.js';
 
 const app = new Hono<AppEnv>();
 
@@ -290,6 +291,8 @@ app.route('/v1/agents', messageRoutes);
 app.route('/v1/messages', messageActions);
 // Task Marketplace: /v1/tasks
 app.route('/v1/tasks', taskRoutes);
+// Package Scanner: /v1/scan
+app.route('/v1/scan', scanRoutes);
 
 // ─── Admin: Manual Bootstrap Probe Trigger ───
 // Protected by ADMIN_SECRET env var. Set via: wrangler secret put ADMIN_SECRET

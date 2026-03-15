@@ -16,6 +16,8 @@ import Blog from './pages/Blog';
 import BlogPost from './pages/BlogPost';
 import Tasks from './pages/Tasks';
 import TaskDetail from './pages/TaskDetail';
+import Scan from './pages/Scan';
+import ScanList from './pages/ScanList';
 import { AgentAuthProvider } from './hooks/useAgentAuth';
 
 export default function App(): React.ReactElement {
@@ -30,6 +32,8 @@ export default function App(): React.ReactElement {
           <Route path="/agent/:name" element={<AgentProfile />} />
           <Route path="/tasks" element={<Tasks />} />
           <Route path="/tasks/:id" element={<TaskDetail />} />
+          <Route path="/scan" element={<ScanList />} />
+          <Route path="/scan/:package" element={<Scan />} />
           <Route path="/chain" element={<ChainExplorer />} />
           <Route path="/docs/getting-started" element={<GettingStarted />} />
           <Route path="/status" element={<Status />} />

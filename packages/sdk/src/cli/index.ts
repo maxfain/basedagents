@@ -14,6 +14,7 @@ import { check } from './check.js';
 import { tasks } from './tasks.js';
 import { task } from './task.js';
 import { wallet } from './wallet.js';
+import { scanCommand } from './scan.js';
 
 const VERSION = '0.2.0';
 
@@ -26,6 +27,8 @@ Usage:
 Commands:
   init                             Interactive registration wizard
   whois <name-or-id>               Look up any agent by name or ID
+  check <package-or-agent-id>      Check if a package/agent is trusted
+  scan <package>                   Download & scan an npm package for dangerous patterns
   register                         Interactive registration (prompts)
   register --manifest <file>       Non-interactive — read profile from JSON file
   validate [file]                  Validate a basedagents.json manifest
@@ -42,6 +45,9 @@ Examples:
   npx basedagents init
   npx basedagents whois Hans
   npx basedagents whois ag_7Xk9mP2qR8nK4vL3
+  npx basedagents check @some/mcp-server
+  npx basedagents scan lodash
+  npx basedagents scan @modelcontextprotocol/server-filesystem --json
   npx basedagents register
   npx basedagents register --manifest ./basedagents.json
   npx basedagents validate
@@ -99,6 +105,16 @@ export async function main(): Promise<void> {
     const file = args[1] ?? 'basedagents.json';
     const result = validate(file);
     process.exit(result.valid ? 0 : 1);
+  }
+
+  if (command === 'scan') {
+    await scanCommand(args.slice(1));
+    return;
+  }
+
+  if (command === 'check') {
+    await check(args.slice(1));
+    return;
   }
 
   console.error(`\nUnknown command: ${command}`);

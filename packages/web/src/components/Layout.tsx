@@ -32,6 +32,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
           <div className="nav-links">
             {navLink('/agents', 'Agents')}
             {navLink('/tasks', 'Tasks')}
+            {navLink('/scan', 'Scan')}
             {navLink('/whois', 'Whois')}
             {navLink('/chain', 'Chain')}
             {navLink('/blog', 'Blog')}
@@ -67,6 +68,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
         <div className={`nav-mobile-menu ${menuOpen ? 'open' : ''}`}>
           {navLink('/agents', 'Agents')}
           {navLink('/tasks', 'Tasks')}
+          {navLink('/scan', 'Scan')}
           {navLink('/whois', 'Whois')}
           {navLink('/chain', 'Chain')}
           {navLink('/blog', 'Blog')}

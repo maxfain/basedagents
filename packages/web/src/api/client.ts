@@ -7,8 +7,11 @@ import type {
   ApiReputationResponse,
   ApiTaskListResponse,
   ApiTaskDetailResponse,
+  ApiScanReport,
+  ApiScanListResponse,
   SearchParams,
   TaskSearchParams,
+  ScanSearchParams,
 } from './types';
 import type { Agent, Verification, ChainEntry } from '../data/mockData';
 
@@ -150,5 +153,19 @@ export const api = {
 
   async getTask(id: string): Promise<ApiTaskDetailResponse> {
     return fetchJson<ApiTaskDetailResponse>(`/v1/tasks/${encodeURIComponent(id)}`);
+  },
+
+  async getScanReport(packageName: string, version?: string): Promise<ApiScanReport> {
+    const qs = version ? `?version=${encodeURIComponent(version)}` : '';
+    return fetchJson<ApiScanReport>(`/v1/scan/${encodeURIComponent(packageName)}${qs}`);
+  },
+
+  async listScanReports(params: ScanSearchParams = {}): Promise<ApiScanListResponse> {
+    const qs = new URLSearchParams();
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.offset) qs.set('offset', String(params.offset));
+    if (params.sort) qs.set('sort', params.sort);
+    const query = qs.toString();
+    return fetchJson<ApiScanListResponse>(`/v1/scan${query ? '?' + query : ''}`);
   },
 };

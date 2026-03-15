@@ -798,3 +798,21 @@ export interface DeliverOptions {
 
 /** Pre-configured client pointing at api.basedagents.ai */
 export const registry = new RegistryClient();
+
+// ─── CLI entry (when invoked directly via tsx/node) ───
+
+// Detect if this module is the main entry point (tsx src/index.ts ...)
+{
+  const argv1 = process.argv[1] ?? '';
+  const isMain = argv1.endsWith('src/index.ts') ||
+                 argv1.endsWith('src/index.js') ||
+                 argv1.endsWith('/index.ts') ||
+                 argv1.endsWith('/index.js');
+
+  if (isMain && process.argv[2]) {
+    import('./cli/index.js').then(({ main }) => main()).catch((err: unknown) => {
+      console.error(err);
+      process.exit(1);
+    });
+  }
+}

@@ -199,3 +199,77 @@ export interface SearchParams {
   limit?: number;
   sort?: 'reputation' | 'registered_at' | 'name';
 }
+
+// ─── Scan Types ───
+
+export interface ScanFinding {
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
+  category: string;
+  file: string;
+  line?: number;
+  snippet?: string;
+  description: string;
+}
+
+export interface ScanMetadata {
+  files_scanned?: number;
+  has_install_scripts?: boolean;
+  install_scripts?: string[];
+  total_size?: number;
+  dependencies?: number;
+  [key: string]: unknown;
+}
+
+export interface ScanBasedAgents {
+  registered?: boolean;
+  verified?: boolean;
+  reputation_score?: number;
+  agent_id?: string;
+  agent_name?: string;
+  profile_url?: string;
+  [key: string]: unknown;
+}
+
+export interface ApiScanReport {
+  ok: boolean;
+  id: string;
+  package_name: string;
+  package_version: string;
+  score: number;
+  grade: string;
+  findings: ScanFinding[];
+  metadata: ScanMetadata;
+  basedagents: ScanBasedAgents;
+  scanned_at: string;
+  submitted_by: string | null;
+  created_at: string;
+}
+
+export interface ApiScanListItem {
+  id: string;
+  package_name: string;
+  package_version: string;
+  score: number;
+  grade: string;
+  finding_count: number;
+  critical_high_count: number;
+  scanned_at: string;
+  submitted_by: string | null;
+  report_url: string;
+}
+
+export interface ApiScanListResponse {
+  ok: boolean;
+  packages: ApiScanListItem[];
+  pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+  };
+}
+
+export interface ScanSearchParams {
+  limit?: number;
+  offset?: number;
+  sort?: 'recent' | 'score';
+}

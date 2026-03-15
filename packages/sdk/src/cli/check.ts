@@ -6,6 +6,7 @@
  */
 
 import { RegistryClient } from '../index.js';
+import { scanCommand } from './scan.js';
 
 const R = '\x1b[0m';
 const bold   = (s: string) => `\x1b[1m${s}${R}`;
@@ -70,6 +71,14 @@ export async function check(args: string[]): Promise<void> {
     a !== '--api' && a !== '--json' && a !== '--strict' && (i === 0 || args[i - 1] !== '--api')
   );
   const query = positional[0];
+
+  // If the query looks like an npm package (contains '/' or starts with '@'),
+  // delegate to the scanner for a full trust report.
+  const looksLikeNpmPackage = query && (query.includes('/') || query.startsWith('@')) && !query.startsWith('ag_');
+  if (looksLikeNpmPackage) {
+    await scanCommand(args);
+    return;
+  }
 
   if (!query || query === '--help' || query === '-h') {
     console.log(`
