@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../types/index.js';
-import { scan as workerScan } from '../scanner/index.js';
+import { scan as workerScan, scanGitHub, parseGitHubTarget } from '../scanner/index.js';
 
 const scan = new Hono<AppEnv>();
 
@@ -22,7 +22,6 @@ function checkRateLimit(ip: string): boolean {
   return true;
 }
 
-// Periodic cleanup to avoid memory leaks (best-effort, once per minute)
 let lastCleanup = Date.now();
 function maybeCleanupRateLimit() {
   const now = Date.now();
@@ -48,6 +47,8 @@ interface ScanReport {
   id?: string;
   package_name: string;
   package_version: string;
+  source?: string;
+  ref?: string;
   score: number;
   grade: string;
   findings: ScanFinding[];
@@ -57,11 +58,76 @@ interface ScanReport {
   submitted_by?: string;
 }
 
+type SourceType = 'npm' | 'github';
+
+// ─── DB helpers ───
+
+interface StoreReportInput {
+  package: string;
+  version: string;
+  source: string;
+  ref?: string;
+  score: number;
+  grade: string;
+  findings: unknown[];
+  metadata: unknown;
+  basedagents: unknown;
+  scanned_at: string;
+}
+
+async function storeReport(
+  db: import('../db/adapter.js').DBAdapter,
+  report: StoreReportInput,
+  submittedBy: string,
+): Promise<string> {
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  await db.run(
+    `INSERT INTO scan_reports (id, package_name, package_version, source, ref, score, grade, findings_json, metadata_json, basedagents_json, scanned_at, submitted_by, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(source, package_name, package_version) DO UPDATE SET
+       id = excluded.id,
+       ref = excluded.ref,
+       score = excluded.score,
+       grade = excluded.grade,
+       findings_json = excluded.findings_json,
+       metadata_json = excluded.metadata_json,
+       basedagents_json = excluded.basedagents_json,
+       scanned_at = excluded.scanned_at,
+       submitted_by = excluded.submitted_by`,
+    id,
+    report.package,
+    report.version,
+    report.source,
+    report.ref ?? null,
+    Math.round(report.score),
+    report.grade,
+    JSON.stringify(report.findings || []),
+    JSON.stringify(report.metadata || {}),
+    JSON.stringify(report.basedagents || {}),
+    report.scanned_at,
+    submittedBy,
+    now,
+  );
+
+  return id;
+}
+
+function makeReportUrl(source: string, packageName: string, version?: string): string {
+  if (source === 'github') {
+    const encoded = encodeURIComponent(`github:${packageName}`);
+    return `https://basedagents.ai/scan/${encoded}`;
+  }
+  const encodedPkg = encodeURIComponent(packageName);
+  const base = `https://basedagents.ai/scan/${encodedPkg}`;
+  return version ? `${base}?version=${encodeURIComponent(version)}` : base;
+}
+
 // ─── POST /v1/scan/trigger — Trigger a server-side scan ───
 scan.post('/trigger', async (c) => {
   maybeCleanupRateLimit();
 
-  // Rate limiting
   const ip =
     c.req.header('cf-connecting-ip') ||
     c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
@@ -74,7 +140,6 @@ scan.post('/trigger', async (c) => {
     }, 429);
   }
 
-  // Parse body
   let body: unknown;
   try {
     body = await c.req.json();
@@ -82,67 +147,95 @@ scan.post('/trigger', async (c) => {
     return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400);
   }
 
-  const { package: packageName, version = 'latest' } = body as { package?: string; version?: string };
-
-  if (!packageName || typeof packageName !== 'string' || !packageName.trim()) {
-    return c.json({ error: 'bad_request', message: 'package name is required' }, 400);
-  }
+  const {
+    package: packageName,
+    version = 'latest',
+    source,
+    target,
+    ref,
+  } = body as {
+    package?: string;
+    version?: string;
+    source?: string;
+    target?: string;
+    ref?: string;
+  };
 
   const db = c.get('db') || null;
 
+  // Determine source type
+  // - new API: { source: "github", target: "owner/repo", ref?: "main" }
+  // - new API: { source: "npm", target: "lodash" }
+  // - legacy:  { package: "lodash", version: "latest" }
+  let effectiveSource: SourceType;
+  let effectiveTarget: string;
+
+  if (source === 'github') {
+    if (!target || typeof target !== 'string' || !target.trim()) {
+      return c.json({ error: 'bad_request', message: 'target (owner/repo) is required for GitHub scans' }, 400);
+    }
+    effectiveSource = 'github';
+    effectiveTarget = target.trim();
+  } else if (source === 'npm') {
+    const pkg = target || packageName;
+    if (!pkg || typeof pkg !== 'string' || !pkg.trim()) {
+      return c.json({ error: 'bad_request', message: 'target or package name is required' }, 400);
+    }
+    effectiveSource = 'npm';
+    effectiveTarget = pkg.trim();
+  } else {
+    // Legacy: no source field, use package
+    if (!packageName || typeof packageName !== 'string' || !packageName.trim()) {
+      return c.json({ error: 'bad_request', message: 'package name is required' }, 400);
+    }
+    effectiveSource = 'npm';
+    effectiveTarget = packageName.trim();
+  }
+
   let report;
   try {
-    report = await workerScan(packageName.trim(), { db, version: version || 'latest' });
+    if (effectiveSource === 'github') {
+      // Parse "owner/repo", "https://github.com/owner/repo", or "github:owner/repo"
+      const { owner, repo } = parseGitHubTarget(effectiveTarget);
+      report = await scanGitHub(owner, repo, {
+        db,
+        ref: ref || undefined,
+        githubToken: (c.env as Record<string, string>)?.GITHUB_TOKEN,
+      });
+    } else {
+      report = await workerScan(effectiveTarget, { db, version: version || 'latest' });
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
 
-    if (msg === 'PACKAGE_NOT_FOUND') {
-      return c.json({ error: 'not_found', message: `Package "${packageName}" not found on npm` }, 404);
-    }
-    if (msg.startsWith('TARBALL_TOO_LARGE')) {
-      return c.json({ error: 'payload_too_large', message: 'Package tarball exceeds 50 MB limit' }, 413);
-    }
-    if (msg === 'SCAN_TIMEOUT') {
-      return c.json({ error: 'gateway_timeout', message: 'Scan timed out after 30 seconds' }, 504);
-    }
+    if (msg === 'PACKAGE_NOT_FOUND')      return c.json({ error: 'not_found',        message: `Package "${effectiveTarget}" not found on npm` }, 404);
+    if (msg === 'GITHUB_REPO_NOT_FOUND')  return c.json({ error: 'not_found',        message: `GitHub repo "${effectiveTarget}" not found` }, 404);
+    if (msg === 'GITHUB_RATE_LIMITED')    return c.json({ error: 'rate_limited',     message: 'GitHub API rate limit hit. Try again later.' }, 429);
+    if (msg.startsWith('TARBALL_TOO_LARGE'))  return c.json({ error: 'payload_too_large', message: 'Tarball exceeds 50 MB limit' }, 413);
+    if (msg === 'SCAN_TIMEOUT')           return c.json({ error: 'gateway_timeout',  message: 'Scan timed out after 30 seconds' }, 504);
+    if (msg.startsWith('INVALID_GITHUB_TARGET')) return c.json({ error: 'bad_request', message: `Invalid GitHub target: "${effectiveTarget}". Use owner/repo format.` }, 400);
 
     console.error('[scan/trigger] Scan error:', err);
     return c.json({ error: 'internal_error', message: 'Scan failed unexpectedly' }, 500);
   }
 
-  // Store the report (reuse POST /v1/scan DB logic)
-  const id = crypto.randomUUID();
-  const now = new Date().toISOString();
-
+  let id: string = crypto.randomUUID();
   if (db) {
     try {
-      await db.run(
-        `INSERT INTO scan_reports (id, package_name, package_version, score, grade, findings_json, metadata_json, basedagents_json, scanned_at, submitted_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(package_name, package_version) DO UPDATE SET
-           id = excluded.id,
-           score = excluded.score,
-           grade = excluded.grade,
-           findings_json = excluded.findings_json,
-           metadata_json = excluded.metadata_json,
-           basedagents_json = excluded.basedagents_json,
-           scanned_at = excluded.scanned_at,
-           submitted_by = excluded.submitted_by`,
-        id,
-        report.package,
-        report.version,
-        Math.round(report.score),
-        report.grade,
-        JSON.stringify(report.findings || []),
-        JSON.stringify(report.metadata || {}),
-        JSON.stringify(report.basedagents || {}),
-        report.scanned_at,
-        'web-trigger',
-        now
-      );
+      id = await storeReport(db, {
+        package: report.package,
+        version: report.version,
+        source: report.source,
+        ref: effectiveSource === 'github' ? report.version : undefined,
+        score: report.score,
+        grade: report.grade,
+        findings: report.findings,
+        metadata: report.metadata,
+        basedagents: report.basedagents,
+        scanned_at: report.scanned_at,
+      }, 'web-trigger');
     } catch (err) {
       console.error('[scan/trigger] DB insert error:', err);
-      // Don't fail the request — return the report even if storage fails
     }
   }
 
@@ -150,11 +243,11 @@ scan.post('/trigger', async (c) => {
     f => f.severity === 'critical' || f.severity === 'high'
   ).length;
 
-  const encodedPkg = encodeURIComponent(report.package);
-  const reportUrl = `https://basedagents.ai/scan/${encodedPkg}?version=${encodeURIComponent(report.version)}`;
+  const reportUrl = makeReportUrl(report.source, report.package, report.version);
 
   return c.json({
     ok: true,
+    source: report.source,
     id,
     package_name: report.package,
     package_version: report.version,
@@ -181,7 +274,6 @@ scan.post('/', async (c) => {
 
   const report = body as ScanReport;
 
-  // Basic validation
   if (!report.package_name || typeof report.package_name !== 'string') {
     return c.json({ error: 'bad_request', message: 'package_name is required' }, 400);
   }
@@ -198,17 +290,18 @@ scan.post('/', async (c) => {
     return c.json({ error: 'bad_request', message: 'findings must be an array' }, 400);
   }
 
+  const source = (report.source as SourceType) || 'npm';
   const id = report.id || crypto.randomUUID();
   const now = new Date().toISOString();
   const scannedAt = report.scanned_at || now;
 
   try {
-    // Upsert — last write wins on same package@version
     await db.run(
-      `INSERT INTO scan_reports (id, package_name, package_version, score, grade, findings_json, metadata_json, basedagents_json, scanned_at, submitted_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(package_name, package_version) DO UPDATE SET
+      `INSERT INTO scan_reports (id, package_name, package_version, source, ref, score, grade, findings_json, metadata_json, basedagents_json, scanned_at, submitted_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(source, package_name, package_version) DO UPDATE SET
          id = excluded.id,
+         ref = excluded.ref,
          score = excluded.score,
          grade = excluded.grade,
          findings_json = excluded.findings_json,
@@ -219,6 +312,8 @@ scan.post('/', async (c) => {
       id,
       report.package_name,
       report.package_version,
+      source,
+      report.ref ?? null,
       Math.round(report.score),
       report.grade,
       JSON.stringify(report.findings || []),
@@ -226,14 +321,14 @@ scan.post('/', async (c) => {
       JSON.stringify(report.basedagents || {}),
       scannedAt,
       report.submitted_by || null,
-      now
+      now,
     );
 
-    const encodedPkg = encodeURIComponent(report.package_name);
-    const reportUrl = `https://basedagents.ai/scan/${encodedPkg}?version=${encodeURIComponent(report.package_version)}`;
+    const reportUrl = makeReportUrl(source, report.package_name, report.package_version);
 
     return c.json({
       ok: true,
+      source,
       id,
       package_name: report.package_name,
       package_version: report.package_version,
@@ -253,35 +348,53 @@ scan.get('/', async (c) => {
   const db = c.get('db');
   if (!db) return c.json({ error: 'db_unavailable', message: 'Database not available' }, 503);
 
-  const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '20', 10)));
+  const limit  = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '20', 10)));
   const offset = Math.max(0, parseInt(c.req.query('offset') || '0', 10));
-  const sort = c.req.query('sort') === 'score' ? 'score DESC' : 'scanned_at DESC';
+  const sort   = c.req.query('sort') === 'score' ? 'score DESC' : 'scanned_at DESC';
+  const sourceFilter = c.req.query('source'); // optional: "npm" | "github"
 
   try {
+    const whereClauses: string[] = [];
+    const params: unknown[] = [];
+
+    if (sourceFilter) {
+      whereClauses.push('source = ?');
+      params.push(sourceFilter);
+    }
+
+    const where = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
     const rows = await db.all<{
       id: string;
       package_name: string;
       package_version: string;
+      source: string;
       score: number;
       grade: string;
       findings_json: string;
       scanned_at: string;
       submitted_by: string | null;
     }>(
-      `SELECT id, package_name, package_version, score, grade, findings_json, scanned_at, submitted_by
+      `SELECT id, package_name, package_version, source, score, grade, findings_json, scanned_at, submitted_by
        FROM scan_reports
+       ${where}
        ORDER BY ${sort}
        LIMIT ? OFFSET ?`,
-      limit, offset
+      ...params, limit, offset
     );
 
-    const countRow = await db.get<{ count: number }>('SELECT COUNT(*) as count FROM scan_reports');
+    const countRow = await db.get<{ count: number }>(
+      `SELECT COUNT(*) as count FROM scan_reports ${where}`,
+      ...params
+    );
 
     const packages = rows.map(row => {
       const findings = JSON.parse(row.findings_json || '[]') as ScanFinding[];
       const criticalHigh = findings.filter(f => f.severity === 'critical' || f.severity === 'high').length;
+      const src = row.source || 'npm';
       return {
         id: row.id,
+        source: src,
         package_name: row.package_name,
         package_version: row.package_version,
         score: row.score,
@@ -290,7 +403,7 @@ scan.get('/', async (c) => {
         critical_high_count: criticalHigh,
         scanned_at: row.scanned_at,
         submitted_by: row.submitted_by,
-        report_url: `https://basedagents.ai/scan/${encodeURIComponent(row.package_name)}`,
+        report_url: makeReportUrl(src, row.package_name),
       };
     });
 
@@ -309,20 +422,45 @@ scan.get('/', async (c) => {
   }
 });
 
-// ─── GET /v1/scan/:package — Get scan report for a package ───
+// ─── GET /v1/scan/:package — Get scan report ───
 scan.get('/:package', async (c) => {
   const db = c.get('db');
   if (!db) return c.json({ error: 'db_unavailable', message: 'Database not available' }, 503);
 
-  // Hono encodes path params but let's be safe
   const rawPkg = decodeURIComponent(c.req.param('package'));
-  const version = c.req.query('version');
+  const version       = c.req.query('version');
+  const sourceParam   = c.req.query('source');    // ?source=github
+  const packageParam  = c.req.query('package');   // ?source=github&package=owner/repo
+
+  // Resolve identifier:
+  //   "lodash"             → npm, name="lodash"
+  //   "github:owner/repo"  → github, name="owner/repo"
+  //   "npm:lodash"         → npm, name="lodash"
+  //   ?source=github&package=owner/repo → github
+  let resolvedSource: string;
+  let resolvedName: string;
+
+  if (rawPkg.startsWith('github:')) {
+    resolvedSource = 'github';
+    resolvedName   = rawPkg.slice('github:'.length);
+  } else if (rawPkg.startsWith('npm:')) {
+    resolvedSource = 'npm';
+    resolvedName   = rawPkg.slice('npm:'.length);
+  } else if (sourceParam) {
+    resolvedSource = sourceParam;
+    resolvedName   = packageParam || rawPkg;
+  } else {
+    resolvedSource = 'npm';
+    resolvedName   = rawPkg;
+  }
 
   try {
     let row: {
       id: string;
       package_name: string;
       package_version: string;
+      source: string;
+      ref: string | null;
       score: number;
       grade: string;
       findings_json: string;
@@ -333,24 +471,46 @@ scan.get('/:package', async (c) => {
       created_at: string;
     } | null = null;
 
+    
+
     if (version) {
       row = await db.get(
-        `SELECT * FROM scan_reports WHERE package_name = ? AND package_version = ? LIMIT 1`,
-        rawPkg, version
+        `SELECT * FROM scan_reports WHERE source = ? AND package_name = ? AND package_version = ? LIMIT 1`,
+        resolvedSource, resolvedName, version
       );
     } else {
       row = await db.get(
-        `SELECT * FROM scan_reports WHERE package_name = ? ORDER BY scanned_at DESC LIMIT 1`,
-        rawPkg
+        `SELECT * FROM scan_reports WHERE source = ? AND package_name = ? ORDER BY scanned_at DESC LIMIT 1`,
+        resolvedSource, resolvedName
       );
     }
 
+    // Backward compat: if not found with source filter and rawPkg has no prefix, try without source
+    if (!row && resolvedSource === 'npm' && !rawPkg.startsWith('npm:') && !sourceParam) {
+      if (version) {
+        row = await db.get(
+          `SELECT * FROM scan_reports WHERE package_name = ? AND package_version = ? LIMIT 1`,
+          resolvedName, version
+        );
+      } else {
+        row = await db.get(
+          `SELECT * FROM scan_reports WHERE package_name = ? ORDER BY scanned_at DESC LIMIT 1`,
+          resolvedName
+        );
+      }
+    }
+
     if (!row) {
+      const scanCmd = resolvedSource === 'github'
+        ? `npx basedagents scan github:${resolvedName}`
+        : `npx basedagents scan ${resolvedName}`;
+
       return c.json({
         error: 'not_found',
-        message: `Package not yet scanned. Run: npx basedagents scan ${rawPkg}`,
-        package_name: rawPkg,
-        scan_command: `npx basedagents scan ${rawPkg}`,
+        message: `Not yet scanned. Run: ${scanCmd}`,
+        source: resolvedSource,
+        package_name: resolvedName,
+        scan_command: scanCmd,
         submit_url: 'POST /v1/scan',
       }, 404);
     }
@@ -358,6 +518,8 @@ scan.get('/:package', async (c) => {
     return c.json({
       ok: true,
       id: row.id,
+      source: row.source || 'npm',
+      ref: row.ref || null,
       package_name: row.package_name,
       package_version: row.package_version,
       score: row.score,
