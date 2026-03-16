@@ -93,27 +93,19 @@ function SourceFilterTabs({
     }}>
       {tabs.map(tab => {
         const isActive = tab === active;
-        const isDisabled = tab === 'pypi';
         return (
           <button
             key={tab}
-            title={isDisabled ? 'Coming soon' : undefined}
-            disabled={isDisabled}
-            onClick={() => !isDisabled && onChange(tab)}
+            onClick={() => onChange(tab)}
             style={{
               background: isActive ? 'rgba(99,102,241,0.15)' : 'transparent',
-              color: isDisabled
-                ? 'var(--text-tertiary)'
-                : isActive
-                  ? 'var(--accent)'
-                  : 'var(--text-tertiary)',
+              color: isActive ? 'var(--accent)' : 'var(--text-tertiary)',
               border: isActive ? '1px solid rgba(99,102,241,0.3)' : '1px solid transparent',
               borderRadius: 6,
               padding: '5px 14px',
               fontSize: 13,
               fontWeight: isActive ? 600 : 400,
-              cursor: isDisabled ? 'not-allowed' : 'pointer',
-              opacity: isDisabled ? 0.45 : 1,
+              cursor: 'pointer',
               transition: 'all 0.15s',
               whiteSpace: 'nowrap',
             }}
@@ -146,27 +138,19 @@ function SearchSourceTabs({
     }}>
       {tabs.map(tab => {
         const isActive = tab === active;
-        const isDisabled = tab === 'pypi';
         return (
           <button
             key={tab}
-            title={isDisabled ? 'Coming soon' : undefined}
-            disabled={isDisabled}
-            onClick={() => !isDisabled && onChange(tab)}
+            onClick={() => onChange(tab)}
             style={{
               background: isActive ? 'rgba(99,102,241,0.15)' : 'transparent',
-              color: isDisabled
-                ? 'var(--text-tertiary)'
-                : isActive
-                  ? 'var(--accent)'
-                  : 'var(--text-tertiary)',
+              color: isActive ? 'var(--accent)' : 'var(--text-tertiary)',
               border: isActive ? '1px solid rgba(99,102,241,0.3)' : '1px solid transparent',
               borderRadius: 6,
               padding: '5px 14px',
               fontSize: 13,
               fontWeight: isActive ? 600 : 400,
-              cursor: isDisabled ? 'not-allowed' : 'pointer',
-              opacity: isDisabled ? 0.45 : 1,
+              cursor: 'pointer',
               transition: 'all 0.15s',
               whiteSpace: 'nowrap',
             }}
@@ -219,13 +203,15 @@ export default function ScanList(): React.ReactElement {
     setScanMsg(null);
     setScanningPkg(null);
 
-    // For GitHub, build the prefixed identifier
+    // Build the prefixed identifier based on source
     let identifier: string;
     if (searchSource === 'github') {
       // Parse GitHub URL if pasted
       const match = target.match(/github\.com\/([^/]+\/[^/?\s#]+)/);
       if (match) target = match[1];
       identifier = `github:${target}`;
+    } else if (searchSource === 'pypi') {
+      identifier = `pypi:${target}`;
     } else {
       identifier = target;
     }
@@ -243,7 +229,9 @@ export default function ScanList(): React.ReactElement {
         try {
           const triggerOpts = searchSource === 'github'
             ? { source: 'github' as const, target }
-            : { target: identifier };
+            : searchSource === 'pypi'
+              ? { source: 'pypi' as const, target }
+              : { target: identifier };
           const result = await api.triggerScan(triggerOpts);
           if (result.ok) {
             navigate(`/scan/${encodeURIComponent(identifier)}`);
@@ -312,7 +300,9 @@ export default function ScanList(): React.ReactElement {
 
   const searchPlaceholder = searchSource === 'github'
     ? 'owner/repo or https://github.com/owner/repo'
-    : '@scope/package or package-name';
+    : searchSource === 'pypi'
+      ? 'package-name (e.g. requests)'
+      : '@scope/package or package-name';
 
   return (
     <div style={{ padding: '48px 0' }}>

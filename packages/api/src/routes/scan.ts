@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../types/index.js';
-import { scan as workerScan, scanGitHub, parseGitHubTarget } from '../scanner/index.js';
+import { scan as workerScan, scanGitHub, scanPyPI, parseGitHubTarget } from '../scanner/index.js';
 
 const scan = new Hono<AppEnv>();
 
@@ -58,7 +58,7 @@ interface ScanReport {
   submitted_by?: string;
 }
 
-type SourceType = 'npm' | 'github';
+type SourceType = 'npm' | 'github' | 'pypi';
 
 // ─── DB helpers ───
 
@@ -119,6 +119,10 @@ function makeReportUrl(source: string, packageName: string, version?: string): s
     const encoded = encodeURIComponent(`github:${packageName}`);
     return `https://basedagents.ai/scan/${encoded}`;
   }
+  if (source === 'pypi') {
+    const encoded = encodeURIComponent(`pypi:${packageName}`);
+    return `https://basedagents.ai/scan/${encoded}`;
+  }
   const encodedPkg = encodeURIComponent(packageName);
   const base = `https://basedagents.ai/scan/${encodedPkg}`;
   return version ? `${base}?version=${encodeURIComponent(version)}` : base;
@@ -176,6 +180,13 @@ scan.post('/trigger', async (c) => {
     }
     effectiveSource = 'github';
     effectiveTarget = target.trim();
+  } else if (source === 'pypi') {
+    const pkg = target || packageName;
+    if (!pkg || typeof pkg !== 'string' || !pkg.trim()) {
+      return c.json({ error: 'bad_request', message: 'target (package name) is required for PyPI scans' }, 400);
+    }
+    effectiveSource = 'pypi';
+    effectiveTarget = pkg.trim();
   } else if (source === 'npm') {
     const pkg = target || packageName;
     if (!pkg || typeof pkg !== 'string' || !pkg.trim()) {
@@ -202,13 +213,16 @@ scan.post('/trigger', async (c) => {
         ref: ref || undefined,
         githubToken: (c.env as Record<string, string>)?.GITHUB_TOKEN,
       });
+    } else if (effectiveSource === 'pypi') {
+      report = await scanPyPI(effectiveTarget, { db, version: version || undefined });
     } else {
       report = await workerScan(effectiveTarget, { db, version: version || 'latest' });
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
 
-    if (msg === 'PACKAGE_NOT_FOUND')      return c.json({ error: 'not_found',        message: `Package "${effectiveTarget}" not found on npm` }, 404);
+    if (msg === 'PACKAGE_NOT_FOUND')      return c.json({ error: 'not_found',        message: `Package "${effectiveTarget}" not found` }, 404);
+    if (msg === 'WHEEL_ONLY_PACKAGE')     return c.json({ error: 'not_supported',    message: `Package "${effectiveTarget}" only provides wheel distributions. Sdist (source distribution) required for scanning.` }, 422);
     if (msg === 'GITHUB_REPO_NOT_FOUND')  return c.json({ error: 'not_found',        message: `GitHub repo "${effectiveTarget}" not found` }, 404);
     if (msg === 'GITHUB_RATE_LIMITED')    return c.json({ error: 'rate_limited',     message: 'GitHub API rate limit hit. Try again later.' }, 429);
     if (msg.startsWith('TARBALL_TOO_LARGE'))  return c.json({ error: 'payload_too_large', message: 'Tarball exceeds 50 MB limit' }, 413);
@@ -443,6 +457,9 @@ scan.get('/:package', async (c) => {
   if (rawPkg.startsWith('github:')) {
     resolvedSource = 'github';
     resolvedName   = rawPkg.slice('github:'.length);
+  } else if (rawPkg.startsWith('pypi:')) {
+    resolvedSource = 'pypi';
+    resolvedName   = rawPkg.slice('pypi:'.length);
   } else if (rawPkg.startsWith('npm:')) {
     resolvedSource = 'npm';
     resolvedName   = rawPkg.slice('npm:'.length);
@@ -503,7 +520,9 @@ scan.get('/:package', async (c) => {
     if (!row) {
       const scanCmd = resolvedSource === 'github'
         ? `npx basedagents scan github:${resolvedName}`
-        : `npx basedagents scan ${resolvedName}`;
+        : resolvedSource === 'pypi'
+          ? `npx basedagents scan pypi:${resolvedName}`
+          : `npx basedagents scan ${resolvedName}`;
 
       return c.json({
         error: 'not_found',

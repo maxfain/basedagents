@@ -12,12 +12,14 @@
 import type { DBAdapter } from '../db/adapter.js';
 import { resolveNpm }    from './resolvers/npm.js';
 import { resolveGitHub } from './resolvers/github.js';
+import { resolvePyPI }   from './resolvers/pypi.js';
 import { scanFiles, computeScore, computeGrade } from './core.js';
 
 export type { Finding, ScanReport, FileEntry, SourceMetadata, PatternDef } from './core.js';
 export { computeScore, computeGrade, scanFiles };
 export { resolveNpm }    from './resolvers/npm.js';
 export { resolveGitHub, parseGitHubTarget } from './resolvers/github.js';
+export { resolvePyPI }   from './resolvers/pypi.js';
 
 // ─── Constants ───
 
@@ -137,4 +139,59 @@ export async function scanGitHub(
   const db = options.db ?? null;
   const { files, metadata } = await resolveGitHub(owner, repo, options.ref, options.githubToken);
   return scanFiles(files, metadata, db);
+}
+
+// ─── PyPI scan ───
+
+export interface PyPIScanOptions {
+  db?: DBAdapter | null;
+  version?: string;
+}
+
+/**
+ * Scan a PyPI package by name.
+ */
+export async function scanPyPI(
+  packageName: string,
+  options: PyPIScanOptions = {},
+) {
+  const db = options.db ?? null;
+  const { files, metadata } = await resolvePyPI(packageName, options.version);
+
+  const report = await scanFiles(files, metadata, db);
+
+  // Add PyPI-specific info findings
+  const extra = metadata.extra;
+
+  if (extra.has_setup_py) {
+    const infoCount = report.findings.filter(f => f.severity === 'info').length;
+    if (infoCount < 20) {
+      report.findings.push({
+        severity: 'info',
+        category: 'Package Metadata',
+        pattern: 'has setup.py',
+        file: 'setup.py',
+        line: 0,
+        context: 'setup.py present',
+        description: 'Package uses setup.py — code in setup.py runs during pip install',
+      });
+    }
+  }
+
+  {
+    const infoCount = report.findings.filter(f => f.severity === 'info').length;
+    if (infoCount < 20 && extra.requires_python) {
+      report.findings.push({
+        severity: 'info',
+        category: 'Package Metadata',
+        pattern: 'requires_python',
+        file: 'PKG-INFO',
+        line: 0,
+        context: `Requires-Python: ${extra.requires_python}`,
+        description: `Package requires Python ${extra.requires_python}`,
+      });
+    }
+  }
+
+  return report;
 }

@@ -226,6 +226,24 @@ export interface ScanMetadata {
   has_ci?: boolean;
   created_at?: string;
   pushed_at?: string;
+  // PyPI-specific fields (nested in source_metadata.extra)
+  source_metadata?: {
+    extra?: {
+      author?: string;
+      author_email?: string;
+      license?: string;
+      requires_python?: string;
+      home_page?: string;
+      project_url?: string;
+      project_urls?: Record<string, string>;
+      classifiers?: string[];
+      has_setup_py?: boolean;
+      has_setup_cfg?: boolean;
+      has_pyproject_toml?: boolean;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
   [key: string]: unknown;
 }
 

@@ -110,27 +110,19 @@ function SourceTabs({
     }}>
       {tabs.map(tab => {
         const isActive = tab === active;
-        const isDisabled = tab === 'pypi';
         return (
           <button
             key={tab}
-            title={isDisabled ? 'Coming soon' : undefined}
-            disabled={isDisabled}
-            onClick={() => !isDisabled && onChange(tab)}
+            onClick={() => onChange(tab)}
             style={{
               background: isActive ? 'rgba(99,102,241,0.15)' : 'transparent',
-              color: isDisabled
-                ? 'var(--text-tertiary)'
-                : isActive
-                  ? 'var(--accent)'
-                  : 'var(--text-tertiary)',
+              color: isActive ? 'var(--accent)' : 'var(--text-tertiary)',
               border: isActive ? '1px solid rgba(99,102,241,0.3)' : '1px solid transparent',
               borderRadius: 6,
               padding: '5px 14px',
               fontSize: 13,
               fontWeight: isActive ? 600 : 400,
-              cursor: isDisabled ? 'not-allowed' : 'pointer',
-              opacity: isDisabled ? 0.45 : 1,
+              cursor: 'pointer',
               transition: 'all 0.15s',
               whiteSpace: 'nowrap',
             }}
@@ -248,6 +240,94 @@ function GitHubMetaCard({ metadata, packageName }: {
           {metadata.pushed_at && <span>Last pushed: {formatDate(metadata.pushed_at)}</span>}
         </div>
       )}
+    </div>
+  );
+}
+
+function PyPIMetaCard({ metadata, packageName }: {
+  metadata: ApiScanReport['metadata'];
+  packageName: string;
+}) {
+  const pypiUrl = `https://pypi.org/project/${packageName}/`;
+  const extra = metadata.source_metadata?.extra;
+  if (!extra) return null;
+
+  const homeUrl = extra.home_page as string | undefined;
+  const requiresPython = extra.requires_python as string | undefined;
+  const author = extra.author as string | undefined;
+  const license = extra.license as string | undefined;
+  const hasSetupPy = extra.has_setup_py as boolean | undefined;
+  const hasPyprojectToml = extra.has_pyproject_toml as boolean | undefined;
+
+  return (
+    <div style={{
+      background: 'var(--bg-secondary)',
+      border: '1px solid var(--border)',
+      borderRadius: 12,
+      padding: '20px 24px',
+      marginBottom: 24,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+        <span style={{ fontSize: 18 }}>🐍</span>
+        <a
+          href={pypiUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 16,
+            fontWeight: 700,
+            color: 'var(--accent)',
+            textDecoration: 'none',
+          }}
+        >
+          {packageName}
+        </a>
+        {license && (
+          <span style={{
+            padding: '1px 7px',
+            borderRadius: 4,
+            fontSize: 11,
+            fontWeight: 600,
+            background: 'rgba(99,102,241,0.12)',
+            color: 'var(--accent)',
+            border: '1px solid rgba(99,102,241,0.25)',
+            marginLeft: 4,
+          }}>
+            {license}
+          </span>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+        {author && (
+          <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+            👤 <strong>{author}</strong>
+          </span>
+        )}
+        {requiresPython && (
+          <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+            🐍 Python <strong>{requiresPython}</strong>
+          </span>
+        )}
+        {homeUrl && (
+          <a
+            href={homeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontSize: 14, color: 'var(--accent)', textDecoration: 'none' }}
+          >
+            🔗 Project Homepage
+          </a>
+        )}
+        <span style={{
+          fontSize: 14,
+          color: hasSetupPy ? '#F97316' : hasPyprojectToml ? '#22C55E' : 'var(--text-tertiary)',
+          fontWeight: 600,
+        }}>
+          {hasSetupPy ? '⚠ setup.py' : hasPyprojectToml ? '✓ pyproject.toml' : ''}
+        </span>
+      </div>
     </div>
   );
 }
@@ -593,7 +673,9 @@ export default function Scan(): React.ReactElement {
   // Input placeholder based on active source
   const inputPlaceholder = activeSource === 'github'
     ? 'owner/repo or https://github.com/owner/repo'
-    : '@scope/package or package-name';
+    : activeSource === 'pypi'
+      ? 'package-name (e.g. requests)'
+      : '@scope/package or package-name';
 
   return (
     <div style={{ padding: '48px 0' }}>
@@ -659,7 +741,7 @@ export default function Scan(): React.ReactElement {
             textAlign: 'center', padding: '48px 28px',
           }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>
-              {activeSource === 'github' ? '🐙' : '📦'}
+              {activeSource === 'github' ? '🐙' : activeSource === 'pypi' ? '🐍' : '📦'}
             </div>
             <h2 style={{ marginBottom: 8 }}>Not yet scanned</h2>
             <p style={{ color: 'var(--text-tertiary)', marginBottom: 24 }}>
@@ -734,7 +816,9 @@ export default function Scan(): React.ReactElement {
               }}>
                 {activeSource === 'github'
                   ? `npx basedagents scan github:${displayName}`
-                  : `npx basedagents scan ${displayName}`}
+                  : activeSource === 'pypi'
+                    ? `npx basedagents scan pypi:${displayName}`
+                    : `npx basedagents scan ${displayName}`}
               </code>
             </p>
 
@@ -761,6 +845,11 @@ export default function Scan(): React.ReactElement {
             {/* GitHub metadata card */}
             {reportSource === 'github' && report.metadata && (
               <GitHubMetaCard metadata={report.metadata} packageName={report.package_name} />
+            )}
+
+            {/* PyPI metadata card */}
+            {reportSource === 'pypi' && report.metadata && (
+              <PyPIMetaCard metadata={report.metadata} packageName={report.package_name} />
             )}
 
             {/* Header */}
@@ -907,7 +996,9 @@ export default function Scan(): React.ReactElement {
               }}>
                 {reportSource === 'github'
                   ? `npx basedagents scan github:${report.package_name}`
-                  : `npx basedagents scan ${report.package_name}`}
+                  : reportSource === 'pypi'
+                    ? `npx basedagents scan pypi:${report.package_name}`
+                    : `npx basedagents scan ${report.package_name}`}
               </code>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
                 <button onClick={copyUrl} style={{ ...btnStyle, background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>

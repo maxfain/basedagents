@@ -9,6 +9,7 @@
 
 import type { DBAdapter } from '../db/adapter.js';
 import { PATTERNS as JS_PATTERNS }          from './patterns/javascript.js';
+import { PATTERNS as PYTHON_PATTERNS }      from './patterns/python.js';
 import { PATTERNS as RUST_PATTERNS }        from './patterns/rust.js';
 import { PATTERNS as SHELL_PATTERNS }       from './patterns/shell.js';
 import { PATTERNS as YAML_PATTERNS }        from './patterns/yaml.js';
@@ -87,10 +88,6 @@ export interface PatternDef {
   regex: RegExp;
   description: string;
 }
-
-// ─── Empty placeholder for Python (Phase 2) ───
-
-const PYTHON_PATTERNS: PatternDef[] = [];
 
 // ─── Language routing ───
 
