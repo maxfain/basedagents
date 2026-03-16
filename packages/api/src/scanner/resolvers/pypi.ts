@@ -79,9 +79,12 @@ async function fetchPyPIMetadata(packageName: string, version?: string): Promise
     ? `https://pypi.org/pypi/${encodeURIComponent(packageName)}/${encodeURIComponent(version)}/json`
     : `https://pypi.org/pypi/${encodeURIComponent(packageName)}/json`;
 
+  console.log(`[pypi-resolver] Fetching metadata: ${url}`);
   const res = await fetch(url, {
     headers: { 'User-Agent': 'BasedAgents-Scanner/1.0 (https://basedagents.ai)', 'Accept': 'application/json' },
+    redirect: 'follow',
   });
+  console.log(`[pypi-resolver] Response status: ${res.status}, url: ${res.url}`);
   if (res.status === 404) throw new Error('PACKAGE_NOT_FOUND');
   if (!res.ok) throw new Error(`PYPI_REGISTRY_ERROR:${res.status}`);
 
