@@ -1045,4 +1045,123 @@ describe('Task Marketplace', () => {
       expect(data.payment_tx_hash).toBeUndefined();
     });
   });
+
+  // ─── Balance verification at claim time ───
+
+  describe('Balance verification at claim time', () => {
+    // The test app uses PAYMENT_ENCRYPTION_KEY = 'a'.repeat(64)
+    // We need a properly encrypted sig so decryptPaymentSignature doesn't throw
+    async function makeEncryptedSig(): Promise<string> {
+      const { encryptPaymentSignature } = await import('../payments/crypto.js');
+      return encryptPaymentSignature('mock-x402-sig', 'a'.repeat(64));
+    }
+
+    async function createBountyTask(paymentStatus = 'authorized', paymentExpiresAt: string | null = null): Promise<string> {
+      const taskId = `task_bounty_${Math.random().toString(36).slice(2)}`;
+      const now = new Date().toISOString();
+      const encryptedSig = await makeEncryptedSig();
+      await db.run(
+        `INSERT INTO tasks (task_id, creator_agent_id, title, description, status, created_at,
+                            bounty_amount, bounty_token, bounty_network, payment_signature,
+                            payment_status, payment_expires_at)
+         VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)`,
+        taskId, creator.agentId, 'Bounty Task', 'Do work for pay', now,
+        '$5.00', 'USDC', 'eip155:8453', encryptedSig,
+        paymentStatus, paymentExpiresAt
+      );
+      return taskId;
+    }
+
+    it('rejects claim when payment_expires_at is in the past → 402', async () => {
+      const expiredAt = new Date(Date.now() - 60_000).toISOString(); // 1 min ago
+      const taskId = await createBountyTask('authorized', expiredAt);
+
+      const res = await claimTask(claimer, taskId);
+      expect(res.status).toBe(402);
+      const data = await res.json() as Record<string, unknown>;
+      expect(data.error).toBe('payment_expired');
+
+      // DB should be updated to expired
+      const task = await db.get<{ payment_status: string }>(
+        'SELECT payment_status FROM tasks WHERE task_id = ?', taskId
+      );
+      expect(task!.payment_status).toBe('expired');
+    });
+
+    it('allows claim when payment_expires_at is in the future', async () => {
+      const futureAt = new Date(Date.now() + 3_600_000).toISOString(); // 1h from now
+      const taskId = await createBountyTask('authorized', futureAt);
+
+      // CDP verify call — mock as valid
+      mockFetch.mockImplementation((url: string) => {
+        if (typeof url === 'string' && url.includes('cdp.coinbase.com')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ valid: true, valid_before: futureAt }),
+          });
+        }
+        return Promise.resolve({ ok: true });
+      });
+
+      const res = await claimTask(claimer, taskId);
+      expect(res.status).toBe(200);
+    });
+
+    it('allows claim when task has no bounty (no payment check)', async () => {
+      const taskId = await createTask(creator);
+      const res = await claimTask(claimer, taskId);
+      expect(res.status).toBe(200);
+    });
+
+    it('rejects claim when CDP re-verify returns invalid → 402', async () => {
+      const futureAt = new Date(Date.now() + 3_600_000).toISOString();
+      const taskId = await createBountyTask('authorized', futureAt);
+
+      // Simulate funds moved — CDP says invalid
+      mockFetch.mockImplementation((url: string) => {
+        if (typeof url === 'string' && url.includes('cdp.coinbase.com')) {
+          return Promise.resolve({
+            ok: false,
+            json: () => Promise.resolve({ message: 'Insufficient funds' }),
+          });
+        }
+        return Promise.resolve({ ok: true });
+      });
+
+      const res = await claimTask(claimer, taskId);
+      expect(res.status).toBe(402);
+      const data = await res.json() as Record<string, unknown>;
+      expect(data.error).toBe('payment_invalid');
+
+      // DB should reflect failed status
+      const task = await db.get<{ payment_status: string }>(
+        'SELECT payment_status FROM tasks WHERE task_id = ?', taskId
+      );
+      expect(task!.payment_status).toBe('failed');
+    });
+
+    it('allows claim even if CDP is unreachable (non-fatal, logs warning)', async () => {
+      const futureAt = new Date(Date.now() + 3_600_000).toISOString();
+      const taskId = await createBountyTask('authorized', futureAt);
+
+      // CDP throws a network error
+      mockFetch.mockImplementation((url: string) => {
+        if (typeof url === 'string' && url.includes('cdp.coinbase.com')) {
+          return Promise.reject(new Error('Network timeout'));
+        }
+        return Promise.resolve({ ok: true });
+      });
+
+      const res = await claimTask(claimer, taskId);
+      // Should still succeed — CDP failure is non-fatal at claim time
+      expect(res.status).toBe(200);
+    });
+
+    it('allows claim for task with payment_status=none (free task with explicit check)', async () => {
+      const taskId = await createBountyTask('none', null);
+      const res = await claimTask(claimer, taskId);
+      // payment_status=none means no bounty check — should pass
+      expect(res.status).toBe(200);
+    });
+  });
 });

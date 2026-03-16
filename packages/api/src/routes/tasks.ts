@@ -488,8 +488,20 @@ tasks.post('/:id/claim', agentAuth, async (c) => {
     return c.json({ error: 'forbidden', message: 'Agent must be active to claim tasks' }, 403);
   }
 
-  const task = await db.get<{ task_id: string; creator_agent_id: string; status: string }>(
-    'SELECT task_id, creator_agent_id, status FROM tasks WHERE task_id = ?', taskId
+  const task = await db.get<{
+    task_id: string;
+    creator_agent_id: string;
+    status: string;
+    payment_status: string;
+    payment_signature: string | null;
+    payment_expires_at: string | null;
+    bounty_amount: string | null;
+    bounty_token: string | null;
+    bounty_network: string | null;
+  }>(
+    `SELECT task_id, creator_agent_id, status, payment_status, payment_signature,
+            payment_expires_at, bounty_amount, bounty_token, bounty_network
+     FROM tasks WHERE task_id = ?`, taskId
   );
   if (!task) {
     return c.json({ error: 'not_found', message: 'Task not found' }, 404);
@@ -503,6 +515,58 @@ tasks.post('/:id/claim', agentAuth, async (c) => {
   // Task must be open
   if (task.status !== 'open') {
     return c.json({ error: 'conflict', message: 'Task is not open for claiming' }, 409);
+  }
+
+  // ─── Balance verification at claim time ───
+  // If this task has an authorized bounty, re-verify the payment signature is still valid
+  // before allowing a claim. Catches expired authorizations and drained wallets.
+  if (task.payment_status === 'authorized' && task.payment_signature) {
+    // Fast path: check payment_expires_at before hitting CDP
+    if (task.payment_expires_at && new Date(task.payment_expires_at) <= new Date()) {
+      await db.run(
+        `UPDATE tasks SET payment_status = 'expired' WHERE task_id = ?`, taskId
+      );
+      await logPaymentEvent(db, taskId, 'expired', { reason: 'authorization_expired_at_claim' });
+      return c.json({
+        error: 'payment_expired',
+        message: 'The bounty payment authorization has expired. The task creator must re-authorize payment.',
+        payment_expires_at: task.payment_expires_at,
+      }, 402);
+    }
+
+    // Call CDP to re-verify the signature is still valid (funds still available)
+    const encKey = c.env?.PAYMENT_ENCRYPTION_KEY;
+    if (encKey) {
+      try {
+        const rawSig = await decryptPaymentSignature(task.payment_signature, encKey);
+        const provider = new CdpPaymentProvider(c.env?.CDP_API_KEY);
+        const verifyResult = await provider.verify(rawSig);
+        if (!verifyResult.valid) {
+          if (verifyResult.unreachable) {
+            // CDP is unreachable — non-fatal, allow the claim and log a warning.
+            // Settlement at verify time will catch any real funding issues.
+            console.warn(`[claim] CDP unreachable for task ${taskId} — allowing claim (non-fatal)`);
+          } else {
+            // Sig is explicitly invalid (funds moved, sig tampered, etc.) — hard fail.
+            await db.run(
+              `UPDATE tasks SET payment_status = 'failed' WHERE task_id = ?`, taskId
+            );
+            await logPaymentEvent(db, taskId, 'settle_failed', {
+              error: verifyResult.error,
+              trigger: 'balance_check_at_claim',
+            });
+            return c.json({
+              error: 'payment_invalid',
+              message: 'The bounty payment authorization is no longer valid. The task creator must re-authorize payment.',
+              detail: verifyResult.error,
+            }, 402);
+          }
+        }
+      } catch (err) {
+        // Non-fatal: unexpected error — allow the claim but log the warning.
+        console.warn(`[claim] CDP balance check error for task ${taskId} (non-fatal):`, err);
+      }
+    }
   }
 
   // Store acceptor_signature from auth header

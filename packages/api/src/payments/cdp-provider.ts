@@ -53,6 +53,7 @@ export class CdpPaymentProvider implements PaymentProvider {
     } catch (err) {
       return {
         valid: false,
+        unreachable: true, // network-level failure — caller may treat as non-fatal
         error: `CDP verify request failed: ${String(err)}`,
       };
     }

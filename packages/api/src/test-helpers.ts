@@ -42,6 +42,7 @@ ALTER TABLE agents ADD COLUMN reputation_override REAL;
 ALTER TABLE agents ADD COLUMN probe_attempts INTEGER DEFAULT 0;
 ALTER TABLE agents ADD COLUMN last_probe_result TEXT;
 ALTER TABLE agents ADD COLUMN webhook_url TEXT;
+ALTER TABLE agents ADD COLUMN webhook_secret TEXT;
 ALTER TABLE verifications ADD COLUMN structured_report TEXT;
 ALTER TABLE verifications ADD COLUMN nonce TEXT;
 ALTER TABLE chain ADD COLUMN entry_type TEXT DEFAULT 'registration';

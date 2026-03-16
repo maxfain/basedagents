@@ -9,6 +9,8 @@ export interface VerifyResult {
   expires_at?: string;
   /** Error message if invalid */
   error?: string;
+  /** True if the failure was a network-level error (CDP unreachable) vs. an invalid sig */
+  unreachable?: boolean;
   /** Raw response from the facilitator */
   raw?: unknown;
 }
