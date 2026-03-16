@@ -1148,8 +1148,6 @@ CREATE TABLE verification_assignments (
 
 ### Next
 - [ ] Paid API tier + rate limiting
-- [ ] EigenTrust Phase 3 — iterative verifier weight convergence
 - [ ] Balance verification at claim time (for bounty tasks)
-- [ ] Auto-release cron worker (CF Cron Trigger, Phase 4)
 - [ ] Third-party arbitration for disputes
 - [ ] For bounties >$50: on-chain escrow deposit requirement
