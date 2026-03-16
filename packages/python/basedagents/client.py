@@ -282,3 +282,121 @@ class RegistryClient:
 
     def get_chain_entry(self, sequence: int) -> dict[str, Any]:
         return self._get(f"/v1/chain/{sequence}")
+
+    # ── Scanner ──
+
+    def scan_trigger(
+        self,
+        package: str,
+        source: str = "npm",
+        version: str | None = None,
+        ref: str | None = None,
+    ) -> dict[str, Any]:
+        """Trigger a server-side package scan."""
+        body: dict[str, Any] = {}
+        if source == "npm":
+            body["package"] = package
+            if version:
+                body["version"] = version
+        else:
+            body["source"] = source
+            body["target"] = package
+            if ref:
+                body["ref"] = ref
+            if version and version != "latest":
+                body["version"] = version
+        return self._post("/v1/scan/trigger", body)
+
+    def get_scan_report(self, identifier: str, version: str | None = None) -> dict[str, Any]:
+        """Get a scan report by package identifier (e.g., 'lodash', 'github:owner/repo', 'pypi:requests')."""
+        qs = f"?version={version}" if version else ""
+        return self._get(f"/v1/scan/{identifier}{qs}")
+
+    def list_scan_reports(
+        self,
+        limit: int = 20,
+        offset: int = 0,
+        sort: str = "recent",
+        source: str | None = None,
+    ) -> dict[str, Any]:
+        """List scan reports."""
+        params = f"?limit={limit}&offset={offset}&sort={sort}"
+        if source:
+            params += f"&source={source}"
+        return self._get(f"/v1/scan{params}")
+
+    # ── Tasks ──
+
+    def create_task(
+        self,
+        keypair: AgentKeypair,
+        title: str,
+        description: str,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Create a task."""
+        body = {"title": title, "description": description, **kwargs}
+        return self._signed_post(keypair, "/v1/tasks", body)
+
+    def get_task(self, task_id: str) -> dict[str, Any]:
+        """Get task details."""
+        return self._get(f"/v1/tasks/{task_id}")
+
+    def list_tasks(
+        self,
+        status: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """List tasks."""
+        params = f"?limit={limit}&offset={offset}"
+        if status:
+            params += f"&status={status}"
+        return self._get(f"/v1/tasks{params}")
+
+    def claim_task(self, keypair: AgentKeypair, task_id: str) -> dict[str, Any]:
+        """Claim a task."""
+        return self._signed_post(keypair, f"/v1/tasks/{task_id}/claim", {})
+
+    def submit_task(
+        self,
+        keypair: AgentKeypair,
+        task_id: str,
+        content: str,
+        summary: str,
+        submission_type: str = "json",
+    ) -> dict[str, Any]:
+        """Submit task deliverable."""
+        return self._signed_post(keypair, f"/v1/tasks/{task_id}/submit", {
+            "content": content,
+            "summary": summary,
+            "submission_type": submission_type,
+        })
+
+    def verify_task(self, keypair: AgentKeypair, task_id: str) -> dict[str, Any]:
+        """Verify/accept a task deliverable."""
+        return self._signed_post(keypair, f"/v1/tasks/{task_id}/verify", {})
+
+    # ── Probe (MCP Playground) ──
+
+    def probe_agent(
+        self,
+        agent_id: str,
+        method: str = "tools/list",
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Probe an agent's MCP endpoint."""
+        return self._post(f"/v1/agents/{agent_id}/probe", {
+            "method": method,
+            "params": params or {},
+        })
+
+    # ── Skills ──
+
+    def get_agent_skills(self, agent_id: str) -> dict[str, Any]:
+        """Get resolved skills for an agent."""
+        return self._get(f"/v1/skills/agent/{agent_id}")
+
+    def get_skill(self, registry: str, name: str) -> dict[str, Any]:
+        """Look up a skill by registry and name."""
+        return self._get(f"/v1/skills/{registry}/{name}")

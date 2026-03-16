@@ -5,6 +5,7 @@ Usage:
     basedagents register [--manifest <file>] [--api <url>] [--dry-run]
     basedagents whois <name>
     basedagents validate [--keypair <file>]
+    basedagents scan <package> [--source npm|github|pypi] [--version <ver>]
     basedagents version
 """
 from __future__ import annotations
@@ -219,6 +220,58 @@ def cmd_validate(args: list[str]) -> None:
     print()
 
 
+# ── scan ──
+
+def cmd_scan(args: list[str]) -> None:
+    if not args or args[0].startswith("--"):
+        _print_err("Usage: basedagents scan <package> [--source npm|github|pypi] [--version <ver>]")
+        sys.exit(1)
+
+    package = args[0]
+    rest = args[1:]
+
+    source = "npm"
+    if "--source" in rest:
+        idx = rest.index("--source")
+        if idx + 1 >= len(rest) or rest[idx + 1].startswith("--"):
+            _print_err("--source requires a value (npm, github, pypi)")
+            sys.exit(1)
+        source = rest[idx + 1]
+
+    version: str | None = None
+    if "--version" in rest:
+        idx = rest.index("--version")
+        if idx + 1 >= len(rest) or rest[idx + 1].startswith("--"):
+            _print_err("--version requires a value")
+            sys.exit(1)
+        version = rest[idx + 1]
+
+    from .client import RegistryClient, BasedAgentsError
+
+    print(f"\n  Triggering scan: {package} (source={source})" + (f" v{version}" if version else ""))
+
+    with RegistryClient() as client:
+        try:
+            result = client.scan_trigger(package, source=source, version=version)
+        except BasedAgentsError as e:
+            _print_err(str(e))
+            sys.exit(1)
+
+    scan_id = result.get("scan_id") or result.get("id") or ""
+    status = result.get("status", "queued")
+    _print_ok(f"Scan triggered — status: {status}" + (f" (id: {scan_id})" if scan_id else ""))
+
+    # If the response already contains report data, print it
+    if result.get("score") is not None:
+        print(f"  Score        {result['score']}")
+    if result.get("risk"):
+        print(f"  Risk         {result['risk']}")
+    if result.get("summary"):
+        print(f"  Summary      {result['summary'][:120]}")
+
+    print(f"\n  Full result: {json.dumps(result, indent=2)}\n")
+
+
 # ── main ──
 
 def main() -> None:
@@ -236,6 +289,8 @@ def main() -> None:
         cmd_whois(rest)
     elif cmd == "validate":
         cmd_validate(rest)
+    elif cmd == "scan":
+        cmd_scan(rest)
     elif cmd == "version":
         print(f"basedagents {VERSION}")
     else:
