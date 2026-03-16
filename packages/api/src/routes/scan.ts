@@ -214,7 +214,7 @@ scan.post('/trigger', async (c) => {
         githubToken: (c.env as Record<string, string>)?.GITHUB_TOKEN,
       });
     } else if (effectiveSource === 'pypi') {
-      report = await scanPyPI(effectiveTarget, { db, version: version || undefined });
+      report = await scanPyPI(effectiveTarget, { db, version: version === 'latest' ? undefined : version || undefined });
     } else {
       report = await workerScan(effectiveTarget, { db, version: version || 'latest' });
     }
