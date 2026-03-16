@@ -16,7 +16,7 @@ import { task } from './task.js';
 import { wallet } from './wallet.js';
 import { scanCommand } from './scan.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.5.1';
 
 const HELP = `
 basedagents — CLI for BasedAgents

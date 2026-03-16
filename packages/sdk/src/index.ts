@@ -382,16 +382,23 @@ export class RegistryClient {
   }
 
   private async fetch(path: string, init?: RequestInit): Promise<Response> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      ...init,
-      headers: { 'Content-Type': 'application/json', ...init?.headers },
-    });
-    if (!res.ok) {
-      let msg = res.statusText;
-      try { const e = await res.json() as { message?: string }; msg = e.message ?? msg; } catch { /* ignore */ }
-      throw new Error(`BasedAgents API error ${res.status}: ${msg}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const res = await fetch(`${this.baseUrl}${path}`, {
+        ...init,
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', ...init?.headers },
+      });
+      if (!res.ok) {
+        let msg = res.statusText;
+        try { const e = await res.json() as { message?: string }; msg = e.message ?? msg; } catch { /* ignore */ }
+        throw new Error(`BasedAgents API error ${res.status}: ${msg}`);
+      }
+      return res;
+    } finally {
+      clearTimeout(timeout);
     }
-    return res;
   }
 
   async fetchJson<T>(path: string, init?: RequestInit): Promise<T> {

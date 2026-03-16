@@ -6,6 +6,8 @@ from __future__ import annotations
 import base64
 import json
 import os
+import random
+import time
 import uuid
 from typing import Any, Callable
 
@@ -36,10 +38,22 @@ class BasedAgentsError(Exception):
         super().__init__(f"HTTP {status}: {message}")
 
 
+_MAX_RETRIES = 3
+
+
 class RegistryClient:
     def __init__(self, api_url: str = DEFAULT_API_URL, timeout: float = 30.0):
         self._base = api_url.rstrip("/")
-        self._http = httpx.Client(timeout=timeout)
+        # PY-NEW-HIGH-2: Reject HTTP URLs unless localhost or explicitly allowed
+        is_localhost = "localhost" in api_url or "127.0.0.1" in api_url
+        if api_url.startswith("http://") and not is_localhost:
+            if os.environ.get("BASEDAGENTS_ALLOW_HTTP") != "1":
+                raise ValueError(
+                    f"Refusing to use HTTP URL '{api_url}' — credentials would be sent in plaintext. "
+                    f"Use https:// or set BASEDAGENTS_ALLOW_HTTP=1 to override."
+                )
+        # PY-HIGH-2: Explicit TLS verification (verify=True is default but stated for clarity)
+        self._http = httpx.Client(timeout=timeout, verify=True)
 
     def close(self) -> None:
         self._http.close()
@@ -52,14 +66,28 @@ class RegistryClient:
 
     # ── Internal ──
 
+    def _request_with_retry(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        """PY-MED-1: Retry on 429 with exponential backoff + jitter."""
+        for attempt in range(_MAX_RETRIES + 1):
+            res = self._http.request(method, path, **kwargs)
+            if res.status_code == 429:
+                if attempt == _MAX_RETRIES:
+                    break
+                retry_after = int(res.headers.get("retry-after", "5"))
+                jitter = random.uniform(0, 1)
+                time.sleep(retry_after + jitter)
+                continue
+            return res
+        return res  # return last response even if 429
+
     def _get(self, path: str) -> Any:
-        res = self._http.get(f"{self._base}{path}")
+        res = self._request_with_retry("GET", f"{self._base}{path}")
         return self._parse(res)
 
     def _post(self, path: str, body: dict[str, Any], headers: dict[str, str] | None = None) -> Any:
         body_str = json.dumps(body)
         h = {"Content-Type": "application/json", **(headers or {})}
-        res = self._http.post(f"{self._base}{path}", content=body_str.encode(), headers=h)
+        res = self._request_with_retry("POST", f"{self._base}{path}", content=body_str.encode(), headers=h)
         return self._parse(res)
 
     def _signed_post(self, keypair: AgentKeypair, path: str, body: dict[str, Any]) -> Any:
@@ -72,7 +100,7 @@ class RegistryClient:
         auth = build_headers(keypair, "PUT", path, body_str)
         body_bytes = body_str.encode()
         h = {"Content-Type": "application/json", **auth}
-        res = self._http.put(f"{self._base}{path}", content=body_bytes, headers=h)
+        res = self._request_with_retry("PUT", f"{self._base}{path}", content=body_bytes, headers=h)
         return self._parse(res)
 
     @staticmethod
@@ -80,13 +108,18 @@ class RegistryClient:
         try:
             data = res.json()
         except Exception:
-            res.raise_for_status()
+            if not res.is_success:
+                # PY-LOW-1: Truncate raw body to prevent leaking large payloads
+                body = res.text[:500]
+                raise BasedAgentsError(res.status_code, f"API error: {res.status_code}", details=body)
             return {}
         if not res.is_success:
+            # PY-LOW-1: Truncate raw body to prevent leaking large payloads
+            body = res.text[:500]
             raise BasedAgentsError(
                 res.status_code,
                 data.get("message", "Unknown error"),
-                data.get("details"),
+                body,
             )
         return data
 
@@ -112,6 +145,12 @@ class RegistryClient:
         Returns:
             Agent dict from the server
         """
+        # PY-LOW-3: Input length validation
+        if len(profile.get("name", "")) > 100:
+            raise ValueError("Agent name must be 100 characters or less")
+        if len(profile.get("description", "")) > 1000:
+            raise ValueError("Description must be 1000 characters or less")
+
         # Step 1: Init
         init = self._post("/v1/register/init", {"public_key": keypair.public_key_b58})
         difficulty: int = init["difficulty"]
@@ -151,6 +190,11 @@ class RegistryClient:
 
     def update_profile(self, keypair: AgentKeypair, updates: dict[str, Any]) -> dict[str, Any]:
         """Update an agent's profile (signed by owner)."""
+        # PY-LOW-3: Input length validation
+        if len(updates.get("name", "")) > 100:
+            raise ValueError("Agent name must be 100 characters or less")
+        if len(updates.get("description", "")) > 1000:
+            raise ValueError("Description must be 1000 characters or less")
         agent_id = keypair.agent_id
         return self._signed_put(keypair, f"/v1/agents/{agent_id}", updates)
 

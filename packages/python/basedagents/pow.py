@@ -47,6 +47,17 @@ def solve(
         progress_interval: How often to call on_progress
         challenge: Server challenge string (binds PoW to registration attempt)
     """
+    # PY-NEW-LOW-2: Validate public key size
+    if len(public_key_bytes) != 32:
+        raise ValueError(f"Invalid Ed25519 public key: expected 32 bytes, got {len(public_key_bytes)}")
+
+    # PY-NEW-LOW-1: Validate challenge length bounds
+    if challenge is not None:
+        if len(challenge) > 1024:
+            raise ValueError("Challenge too large — possible attack")
+        if len(challenge) < 16:
+            raise ValueError("Challenge too small — possible attack")
+
     challenge_bytes = challenge.encode("utf-8") if challenge else b""
     prefix = public_key_bytes + challenge_bytes
     nonce = 0

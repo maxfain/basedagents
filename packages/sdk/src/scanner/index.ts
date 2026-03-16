@@ -5,9 +5,11 @@
  * for dangerous patterns, and returns a structured trust report.
  */
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
+import { rmSync } from 'fs';
 import * as path from 'path';
+import { randomBytes } from 'crypto';
 import { RegistryClient } from '../index.js';
 
 // ─── Types ───
@@ -518,7 +520,7 @@ export interface ScanOptions {
 }
 
 export async function scan(packageSpec: string, options: ScanOptions = {}): Promise<ScanReport> {
-  const tmpDir = `/tmp/basedagents-scan-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const tmpDir = `/tmp/basedagents-scan-${Date.now()}-${randomBytes(8).toString('hex')}`;
 
   try {
     fs.mkdirSync(tmpDir, { recursive: true });
@@ -526,9 +528,10 @@ export async function scan(packageSpec: string, options: ScanOptions = {}): Prom
     // 1. Download tarball via npm pack
     let tarballPath: string;
     try {
-      const output = execSync(
-        `npm pack ${packageSpec} --pack-destination ${tmpDir} --json 2>/dev/null`,
-        { encoding: 'utf-8', timeout: 60_000 }
+      const output = execFileSync(
+        'npm',
+        ['pack', packageSpec, '--pack-destination', tmpDir, '--json'],
+        { encoding: 'utf-8', timeout: 60_000, stdio: ['pipe', 'pipe', 'pipe'] }
       ).trim();
 
       // npm pack --json returns an array
@@ -555,7 +558,7 @@ export async function scan(packageSpec: string, options: ScanOptions = {}): Prom
     // 2. Extract tarball
     const extractDir = path.join(tmpDir, 'extracted');
     fs.mkdirSync(extractDir, { recursive: true });
-    execSync(`tar xzf ${tarballPath} -C ${extractDir}`, { timeout: 30_000 });
+    execFileSync('tar', ['xzf', tarballPath, '-C', extractDir], { timeout: 30_000 });
 
     // npm packs files under a "package/" subdirectory
     const packageDir = path.join(extractDir, 'package');
@@ -661,7 +664,7 @@ export async function scan(packageSpec: string, options: ScanOptions = {}): Prom
   } finally {
     // Cleanup temp directory
     try {
-      execSync(`rm -rf ${tmpDir}`, { timeout: 10_000 });
+      rmSync(tmpDir, { recursive: true, force: true });
     } catch { /* best-effort cleanup */ }
   }
 }

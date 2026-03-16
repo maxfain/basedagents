@@ -20,8 +20,14 @@ const yellow = (s: string) => `\x1b[33m${s}${R}`;
 
 const API_URL = process.env.BASEDAGENTS_API_URL ?? 'https://api.basedagents.ai';
 
-function loadKeypair() {
+function loadKeypair(keypairFile?: string) {
   const keysDir = join(homedir(), '.basedagents', 'keys');
+  if (keypairFile) {
+    // Explicit keypair path provided via --keypair flag
+    const keypairPath = keypairFile.includes('/') ? keypairFile : join(keysDir, keypairFile);
+    const raw = readFileSync(keypairPath, 'utf8');
+    return deserializeKeypair(raw);
+  }
   let files: string[];
   try {
     files = readdirSync(keysDir).filter(f => f.endsWith('-keypair.json'));
@@ -55,6 +61,7 @@ ${bold('Usage:')}
 
 ${bold('Options:')}
   --network <chain>   Chain ID (default: eip155:8453 = Base mainnet)
+  --keypair <file>    Path to keypair file (or filename in ~/.basedagents/keys/)
   --json              Output raw JSON
   --api <url>         Custom API endpoint
 `);
@@ -63,6 +70,7 @@ ${bold('Options:')}
 
   const apiUrl = args.includes('--api') ? args[args.indexOf('--api') + 1] : API_URL;
   const jsonMode = args.includes('--json');
+  const keypairFile = args.includes('--keypair') ? args[args.indexOf('--keypair') + 1] : undefined;
   const client = new RegistryClient(apiUrl);
 
   const subcommand = args[0];
@@ -78,7 +86,7 @@ ${bold('Options:')}
     const network = networkIdx !== -1 && args[networkIdx + 1] ? args[networkIdx + 1] : undefined;
 
     let kp;
-    try { kp = loadKeypair(); } catch (err) {
+    try { kp = loadKeypair(keypairFile); } catch (err) {
       console.log(red(`\n  ${err instanceof Error ? err.message : 'Failed to load keypair'}\n`));
       process.exit(1);
     }
@@ -107,7 +115,7 @@ ${bold('Options:')}
   } else {
     // Show wallet for current agent
     let kp;
-    try { kp = loadKeypair(); } catch (err) {
+    try { kp = loadKeypair(keypairFile); } catch (err) {
       console.log(red(`\n  ${err instanceof Error ? err.message : 'Failed to load keypair'}\n`));
       process.exit(1);
     }
