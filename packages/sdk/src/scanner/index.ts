@@ -168,30 +168,16 @@ const PATTERNS: PatternDef[] = [
     description: 'Dynamic import() with a variable argument — can load arbitrary modules at runtime',
   },
 
-  // ── High: credential harvesting ──
+  // ── High: credential exfiltration (env var in network call) ──
   {
     severity: 'high',
-    category: 'Credential Harvesting',
-    pattern: 'process.env access',
-    regex: /\bprocess\.env\b/g,
-    description: 'Accesses environment variables — may harvest API keys, tokens, or secrets',
+    category: 'Credential Exfiltration',
+    pattern: 'env var in network call',
+    regex: /(?:fetch|https?\.request|axios|got)\s*\([^)]*process\.env/g,
+    description: 'Environment variable passed directly into a network call — potential credential exfiltration',
   },
 
-  // ── High: network calls ──
-  {
-    severity: 'high',
-    category: 'Network Call',
-    pattern: 'http.request',
-    regex: /\bhttp\.request\s*\(/g,
-    description: 'http.request() — makes outbound HTTP connections',
-  },
-  {
-    severity: 'high',
-    category: 'Network Call',
-    pattern: 'https.request',
-    regex: /\bhttps\.request\s*\(/g,
-    description: 'https.request() — makes outbound HTTPS connections',
-  },
+  // ── High: raw sockets ──
   {
     severity: 'high',
     category: 'Network Call',
@@ -206,8 +192,33 @@ const PATTERNS: PatternDef[] = [
     regex: /\bdgram\b/g,
     description: 'UDP datagram socket usage — can exfiltrate data over UDP',
   },
+
+  // ── Medium: environment access ──
   {
-    severity: 'high',
+    severity: 'medium',
+    category: 'Environment Access',
+    pattern: 'process.env access',
+    regex: /\bprocess\.env\b/g,
+    description: 'Accesses environment variables — common for configuration',
+  },
+
+  // ── Medium: network calls ──
+  {
+    severity: 'medium',
+    category: 'Network Call',
+    pattern: 'http.request',
+    regex: /\bhttp\.request\s*\(/g,
+    description: 'http.request() — makes outbound HTTP connections',
+  },
+  {
+    severity: 'medium',
+    category: 'Network Call',
+    pattern: 'https.request',
+    regex: /\bhttps\.request\s*\(/g,
+    description: 'https.request() — makes outbound HTTPS connections',
+  },
+  {
+    severity: 'medium',
     category: 'Network Call',
     pattern: 'fetch()',
     regex: /\bfetch\s*\(\s*(?!['"](?:https?:\/\/(?:localhost|127\.0\.0\.1)))[^)]{1,200}\)/g,
@@ -260,13 +271,13 @@ const PATTERNS: PatternDef[] = [
     description: 'os.hostname() — reads the machine hostname',
   },
 
-  // ── Medium: crypto ──
+  // ── Low: crypto ──
   {
-    severity: 'medium',
+    severity: 'low',
     category: 'Crypto Usage',
     pattern: 'crypto module',
     regex: /require\s*\(\s*['"]crypto['"]\s*\)|from\s+['"](?:node:)?crypto['"]/g,
-    description: 'Uses the crypto module — could be for encryption or key generation',
+    description: 'Uses the crypto module — standard for encryption or key generation',
   },
 
   // ── Medium: WebSocket ──
@@ -278,16 +289,16 @@ const PATTERNS: PatternDef[] = [
     description: 'WebSocket connection — opens persistent two-way network channel',
   },
 
-  // ── Low: logging ──
+  // ── Info: logging ──
   {
-    severity: 'low',
+    severity: 'info',
     category: 'Logging',
     pattern: 'console.log',
     regex: /\bconsole\.log\s*\(/g,
     description: 'console.log() — benign debug output',
   },
   {
-    severity: 'low',
+    severity: 'info',
     category: 'Logging',
     pattern: 'console.error',
     regex: /\bconsole\.error\s*\(/g,
@@ -323,8 +334,13 @@ const MAX_FINDINGS: Record<Finding['severity'], number> = {
 // ─── Score & Grade ───
 
 function computeScore(findings: Finding[]): number {
+  // Deduplicate: same pattern + same file = count once
+  const seen = new Set<string>();
   let score = 100;
   for (const f of findings) {
+    const key = `${f.pattern}:${f.file}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     switch (f.severity) {
       case 'critical': score -= 25; break;
       case 'high':     score -= 10; break;
