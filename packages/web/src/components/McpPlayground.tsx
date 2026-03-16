@@ -43,26 +43,28 @@ function isToolsListResponse(method: string, response: ProbeResponse): boolean {
   return method === 'tools/list' && response.ok === true;
 }
 
-// Very lightweight JSON syntax highlighter — wraps strings, numbers, booleans, null, keys
-function syntaxHighlight(json: string): string {
-  return json
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(
-      /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^"\\])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
-      (match) => {
-        let cls = 'json-number';
-        if (/^"/.test(match)) {
-          cls = /:$/.test(match) ? 'json-key' : 'json-string';
-        } else if (/true|false/.test(match)) {
-          cls = 'json-boolean';
-        } else if (/null/.test(match)) {
-          cls = 'json-null';
-        }
-        return `<span class="${cls}">${match}</span>`;
-      }
-    );
+// HIGH-5: Safe JSON renderer — no dangerouslySetInnerHTML, React auto-escapes text nodes.
+function JsonView({ data }: { data: unknown }) {
+  const json = JSON.stringify(data, null, 2);
+  return (
+    <pre
+      style={{
+        background: 'var(--bg-tertiary)',
+        border: '1px solid var(--border)',
+        borderRadius: 6,
+        padding: '12px 16px',
+        fontSize: 12,
+        fontFamily: 'var(--font-mono)',
+        color: 'var(--text-primary)',
+        overflow: 'auto',
+        maxHeight: 400,
+        margin: 0,
+        lineHeight: 1.6,
+      }}
+    >
+      <code>{json}</code>
+    </pre>
+  );
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -185,13 +187,8 @@ export default function McpPlayground({ agentId, contactEndpoint }: McpPlaygroun
 
   return (
     <div style={{ marginBottom: 32 }}>
-      {/* CSS for syntax highlighting */}
+      {/* CSS for interactive elements */}
       <style>{`
-        .json-key    { color: var(--accent); }
-        .json-string { color: var(--status-active); }
-        .json-number { color: #f59e0b; }
-        .json-boolean{ color: #a78bfa; }
-        .json-null   { color: var(--text-tertiary); }
         .mcp-send-btn:hover { opacity: 0.85; }
         .mcp-quick-btn:hover { background: var(--bg-secondary) !important; border-color: var(--accent) !important; }
         .mcp-toggle:hover { background: var(--bg-tertiary) !important; }
@@ -483,7 +480,7 @@ export default function McpPlayground({ agentId, contactEndpoint }: McpPlaygroun
                 </div>
               )}
 
-              {/* Raw JSON */}
+              {/* Raw JSON — rendered safely via React text nodes (HIGH-5: no dangerouslySetInnerHTML) */}
               {response.body !== undefined && (
                 <details open={!tools || tools.length === 0} style={{ marginTop: tools && tools.length > 0 ? 8 : 0 }}>
                   <summary style={{
@@ -495,25 +492,7 @@ export default function McpPlayground({ agentId, contactEndpoint }: McpPlaygroun
                   }}>
                     Raw JSON
                   </summary>
-                  <pre
-                    // biome-ignore lint/security/noDangerouslySetInnerHtml: intentional syntax highlight
-                    dangerouslySetInnerHTML={{
-                      __html: syntaxHighlight(JSON.stringify(response.body, null, 2)),
-                    }}
-                    style={{
-                      background: 'var(--bg-tertiary)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 6,
-                      padding: '12px 16px',
-                      fontSize: 12,
-                      fontFamily: 'var(--font-mono)',
-                      color: 'var(--text-primary)',
-                      overflow: 'auto',
-                      maxHeight: 400,
-                      margin: 0,
-                      lineHeight: 1.6,
-                    }}
-                  />
+                  <JsonView data={response.body} />
                 </details>
               )}
 

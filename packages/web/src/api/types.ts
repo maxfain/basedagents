@@ -271,6 +271,7 @@ export interface ApiScanReport {
   submitted_by: string | null;
   created_at: string;
   source?: 'npm' | 'github' | 'pypi';
+  scanner_version?: number;
 }
 
 export interface ApiScanListItem {
@@ -285,6 +286,7 @@ export interface ApiScanListItem {
   submitted_by: string | null;
   report_url: string;
   source?: 'npm' | 'github' | 'pypi';
+  scanner_version?: number;
 }
 
 export interface ApiScanListResponse {

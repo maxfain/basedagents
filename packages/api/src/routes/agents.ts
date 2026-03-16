@@ -5,6 +5,7 @@ import { ProfileSchema, WalletUpdateSchema } from '../types/index.js';
 import { agentAuth } from '../middleware/auth.js';
 import { computeReputation } from '../reputation/calculator.js';
 import { hashProfile, computeChainHash, GENESIS_HASH } from '../crypto/index.js';
+import { isSafeUrl } from '../lib/url-validator.js';
 
 const agents = new Hono<AppEnv>();
 
@@ -248,6 +249,21 @@ async function handleProfileUpdate(c: Context<AppEnv>): Promise<Response> {
   if (!before) return c.json({ error: 'not_found', message: 'Agent not found' }, 404);
 
   const updates = parsed.data;
+
+  // SSRF protection: validate contact_endpoint and webhook_url (CRIT-1, CRIT-2)
+  if (updates.contact_endpoint && !isSafeUrl(updates.contact_endpoint)) {
+    return c.json({
+      error: 'bad_request',
+      message: 'contact_endpoint must be a safe HTTPS URL (no private/internal addresses)',
+    }, 400);
+  }
+  if (updates.webhook_url && !isSafeUrl(updates.webhook_url)) {
+    return c.json({
+      error: 'bad_request',
+      message: 'webhook_url must be a safe HTTPS URL (no private/internal addresses)',
+    }, 400);
+  }
+
   const setClauses: string[] = [];
   const params: unknown[] = [];
 

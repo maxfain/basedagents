@@ -66,6 +66,11 @@ export async function resolveNpm(
   const pkgVersion = meta.version;
   const tarballUrl = meta.dist.tarball;
 
+  // MED-7: Validate tarball URL to prevent open redirect / SSRF via poisoned registry responses
+  if (!tarballUrl.startsWith('https://registry.npmjs.org/')) {
+    throw new Error('INVALID_TARBALL_URL');
+  }
+
   // Check size
   const headRes = await fetch(tarballUrl, { method: 'HEAD' });
   const contentLength = parseInt(headRes.headers.get('content-length') || '0', 10);

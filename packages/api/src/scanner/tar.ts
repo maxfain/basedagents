@@ -102,6 +102,10 @@ export async function* parseTar(
     const prefix = readString(header, 345, 155);
     const fullName = prefix ? `${prefix}/${name}` : name;
 
+    // HIGH-2: Sanitize path traversal
+    const sanitized = fullName.replace(/\.\.\//g, '').replace(/^\/+/, '');
+    if (sanitized.includes('..') || sanitized.startsWith('/')) continue; // skip dangerous entry
+
     // Classify type
     let type: TarEntry['type'];
     if (typeFlag === '0' || typeFlag === '\0') type = 'file';
@@ -116,7 +120,7 @@ export async function* parseTar(
     if (pos > buf.length + BLOCK) break; // corrupt archive guard
 
     yield {
-      name: fullName,
+      name: sanitized,
       size,
       type,
       content,

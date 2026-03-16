@@ -534,6 +534,8 @@ export default function Scan(): React.ReactElement {
   const [copied, setCopied] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [rescanning, setRescanning] = useState(false);
+  const [rescanError, setRescanError] = useState<string | null>(null);
 
   // The full identifier for API calls (e.g. "lodash" or "github:owner/repo")
   const identifier = rawIdentifier;

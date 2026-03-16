@@ -1,36 +1,11 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../types/index.js';
 import { scan as workerScan, scanGitHub, scanPyPI, parseGitHubTarget } from '../scanner/index.js';
+import { SCANNER_VERSION } from '../scanner/core.js';
+import { queueSingleReport, processRescanQueue } from '../scanner/rescan.js';
+import { checkRateLimit as d1CheckRateLimit } from '../lib/rate-limiter.js';
 
 const scan = new Hono<AppEnv>();
-
-// ─── In-memory rate limiter: 5 scans/min per IP ───
-
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT = 5;
-const RATE_WINDOW_MS = 60_000;
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip);
-  if (!entry || now >= entry.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return true;
-  }
-  if (entry.count >= RATE_LIMIT) return false;
-  entry.count++;
-  return true;
-}
-
-let lastCleanup = Date.now();
-function maybeCleanupRateLimit() {
-  const now = Date.now();
-  if (now - lastCleanup < RATE_WINDOW_MS) return;
-  lastCleanup = now;
-  for (const [key, val] of rateLimitMap.entries()) {
-    if (now >= val.resetAt) rateLimitMap.delete(key);
-  }
-}
 
 // ─── Types ───
 
@@ -73,6 +48,7 @@ interface StoreReportInput {
   metadata: unknown;
   basedagents: unknown;
   scanned_at: string;
+  scanner_version?: number;
 }
 
 async function storeReport(
@@ -82,10 +58,11 @@ async function storeReport(
 ): Promise<string> {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
+  const scannerVersion = report.scanner_version ?? SCANNER_VERSION;
 
   await db.run(
-    `INSERT INTO scan_reports (id, package_name, package_version, source, ref, score, grade, findings_json, metadata_json, basedagents_json, scanned_at, submitted_by, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO scan_reports (id, package_name, package_version, source, ref, score, grade, findings_json, metadata_json, basedagents_json, scanned_at, submitted_by, created_at, scanner_version)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(source, package_name, package_version) DO UPDATE SET
        id = excluded.id,
        ref = excluded.ref,
@@ -95,7 +72,8 @@ async function storeReport(
        metadata_json = excluded.metadata_json,
        basedagents_json = excluded.basedagents_json,
        scanned_at = excluded.scanned_at,
-       submitted_by = excluded.submitted_by`,
+       submitted_by = excluded.submitted_by,
+       scanner_version = excluded.scanner_version`,
     id,
     report.package,
     report.version,
@@ -109,6 +87,7 @@ async function storeReport(
     report.scanned_at,
     submittedBy,
     now,
+    scannerVersion,
   );
 
   return id;
@@ -130,18 +109,24 @@ function makeReportUrl(source: string, packageName: string, version?: string): s
 
 // ─── POST /v1/scan/trigger — Trigger a server-side scan ───
 scan.post('/trigger', async (c) => {
-  maybeCleanupRateLimit();
-
   const ip =
     c.req.header('cf-connecting-ip') ||
     c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
     'unknown';
 
-  if (!checkRateLimit(ip)) {
-    return c.json({
-      error: 'rate_limited',
-      message: 'Too many scan requests. Limit: 5 scans per minute per IP.',
-    }, 429);
+  const db = c.get('db') || null;
+
+  // D1-based rate limit: 5 scans/min per IP (HIGH-1)
+  if (db) {
+    const rl = await d1CheckRateLimit(db, `scan:${ip}`, 5, 60_000);
+    if (!rl.allowed) {
+      const retryAfterSec = rl.retryAfterMs ? Math.ceil(rl.retryAfterMs / 1000) : 60;
+      c.header('Retry-After', String(retryAfterSec));
+      return c.json({
+        error: 'rate_limited',
+        message: 'Too many scan requests. Limit: 5 scans per minute per IP.',
+      }, 429);
+    }
   }
 
   let body: unknown;
@@ -164,8 +149,6 @@ scan.post('/trigger', async (c) => {
     target?: string;
     ref?: string;
   };
-
-  const db = c.get('db') || null;
 
   // Determine source type
   // - new API: { source: "github", target: "owner/repo", ref?: "main" }
@@ -247,6 +230,7 @@ scan.post('/trigger', async (c) => {
         metadata: report.metadata,
         basedagents: report.basedagents,
         scanned_at: report.scanned_at,
+        scanner_version: SCANNER_VERSION,
       }, 'web-trigger');
     } catch (err) {
       console.error('[scan/trigger] DB insert error:', err);
@@ -269,6 +253,7 @@ scan.post('/trigger', async (c) => {
     grade: report.grade,
     finding_count: report.findings.length,
     critical_high_count: criticalHighCount,
+    scanner_version: SCANNER_VERSION,
     report_url: reportUrl,
     message: 'Scan complete',
   });
@@ -276,6 +261,15 @@ scan.post('/trigger', async (c) => {
 
 // ─── POST /v1/scan — Submit a scan report ───
 scan.post('/', async (c) => {
+  // HIGH-3: Require admin bearer token for external scan report submission
+  const adminSecret = (c.env as Record<string, string>)?.ADMIN_SECRET;
+  if (adminSecret) {
+    const auth = c.req.header('authorization');
+    if (!auth || auth !== `Bearer ${adminSecret}`) {
+      return c.json({ error: 'unauthorized', message: 'Scan report submission requires authentication' }, 401);
+    }
+  }
+
   const db = c.get('db');
   if (!db) return c.json({ error: 'db_unavailable', message: 'Database not available' }, 503);
 
@@ -308,11 +302,12 @@ scan.post('/', async (c) => {
   const id = report.id || crypto.randomUUID();
   const now = new Date().toISOString();
   const scannedAt = report.scanned_at || now;
+  const scannerVersion = (report as ScanReport & { scanner_version?: number }).scanner_version ?? SCANNER_VERSION;
 
   try {
     await db.run(
-      `INSERT INTO scan_reports (id, package_name, package_version, source, ref, score, grade, findings_json, metadata_json, basedagents_json, scanned_at, submitted_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO scan_reports (id, package_name, package_version, source, ref, score, grade, findings_json, metadata_json, basedagents_json, scanned_at, submitted_by, created_at, scanner_version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(source, package_name, package_version) DO UPDATE SET
          id = excluded.id,
          ref = excluded.ref,
@@ -322,7 +317,8 @@ scan.post('/', async (c) => {
          metadata_json = excluded.metadata_json,
          basedagents_json = excluded.basedagents_json,
          scanned_at = excluded.scanned_at,
-         submitted_by = excluded.submitted_by`,
+         submitted_by = excluded.submitted_by,
+         scanner_version = excluded.scanner_version`,
       id,
       report.package_name,
       report.package_version,
@@ -336,6 +332,7 @@ scan.post('/', async (c) => {
       scannedAt,
       report.submitted_by || null,
       now,
+      scannerVersion,
     );
 
     const reportUrl = makeReportUrl(source, report.package_name, report.package_version);
@@ -388,8 +385,9 @@ scan.get('/', async (c) => {
       findings_json: string;
       scanned_at: string;
       submitted_by: string | null;
+      scanner_version: number | null;
     }>(
-      `SELECT id, package_name, package_version, source, score, grade, findings_json, scanned_at, submitted_by
+      `SELECT id, package_name, package_version, source, score, grade, findings_json, scanned_at, submitted_by, scanner_version
        FROM scan_reports
        ${where}
        ORDER BY ${sort}
@@ -417,6 +415,7 @@ scan.get('/', async (c) => {
         critical_high_count: criticalHigh,
         scanned_at: row.scanned_at,
         submitted_by: row.submitted_by,
+        scanner_version: row.scanner_version ?? 1,
         report_url: makeReportUrl(src, row.package_name),
       };
     });
@@ -486,6 +485,7 @@ scan.get('/:package', async (c) => {
       scanned_at: string;
       submitted_by: string | null;
       created_at: string;
+      scanner_version: number | null;
     } | null = null;
 
     
@@ -549,10 +549,201 @@ scan.get('/:package', async (c) => {
       scanned_at: row.scanned_at,
       submitted_by: row.submitted_by,
       created_at: row.created_at,
+      scanner_version: row.scanner_version ?? 1,
     });
   } catch (err) {
     console.error('[scan] Get error:', err);
     return c.json({ error: 'internal_error', message: 'Failed to retrieve scan report' }, 500);
+  }
+});
+
+// ─── POST /v1/scan/:package/rescan — Trigger a re-scan ───
+scan.post('/:package/rescan', async (c) => {
+  const ip =
+    c.req.header('cf-connecting-ip') ||
+    c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
+    'unknown';
+
+  const db = c.get('db');
+  if (!db) return c.json({ error: 'db_unavailable', message: 'Database not available' }, 503);
+
+  // D1-based rate limit: 5 scans/min per IP (HIGH-1)
+  const rl = await d1CheckRateLimit(db, `scan:${ip}`, 5, 60_000);
+  if (!rl.allowed) {
+    const retryAfterSec = rl.retryAfterMs ? Math.ceil(rl.retryAfterMs / 1000) : 60;
+    c.header('Retry-After', String(retryAfterSec));
+    return c.json({
+      error: 'rate_limited',
+      message: 'Too many scan requests. Limit: 5 scans per minute per IP.',
+    }, 429);
+  }
+
+  const rawPkg = decodeURIComponent(c.req.param('package'));
+
+  // Resolve identifier
+  let resolvedSource: string;
+  let resolvedName: string;
+
+  if (rawPkg.startsWith('github:')) {
+    resolvedSource = 'github';
+    resolvedName   = rawPkg.slice('github:'.length);
+  } else if (rawPkg.startsWith('pypi:')) {
+    resolvedSource = 'pypi';
+    resolvedName   = rawPkg.slice('pypi:'.length);
+  } else if (rawPkg.startsWith('npm:')) {
+    resolvedSource = 'npm';
+    resolvedName   = rawPkg.slice('npm:'.length);
+  } else {
+    resolvedSource = 'npm';
+    resolvedName   = rawPkg;
+  }
+
+  // Look up existing report
+  let existingReport: {
+    id: string;
+    source: string;
+    package_name: string;
+    package_version: string;
+    ref: string | null;
+  } | null = null;
+
+  try {
+    existingReport = await db.get(
+      `SELECT id, source, package_name, package_version, ref FROM scan_reports
+       WHERE source = ? AND package_name = ?
+       ORDER BY scanned_at DESC LIMIT 1`,
+      resolvedSource, resolvedName,
+    );
+
+    // Backward compat fallback
+    if (!existingReport && resolvedSource === 'npm') {
+      existingReport = await db.get(
+        `SELECT id, source, package_name, package_version, ref FROM scan_reports
+         WHERE package_name = ?
+         ORDER BY scanned_at DESC LIMIT 1`,
+        resolvedName,
+      );
+    }
+  } catch (err) {
+    console.error('[scan/rescan] DB lookup error:', err);
+    return c.json({ error: 'internal_error', message: 'Failed to look up scan report' }, 500);
+  }
+
+  if (!existingReport) {
+    return c.json({
+      error: 'not_found',
+      message: `No existing scan report found for "${resolvedName}". Run a scan first.`,
+    }, 404);
+  }
+
+  // Perform synchronous rescan (scans typically complete in <10s)
+  try {
+    let report;
+
+    if (existingReport.source === 'github') {
+      const { owner, repo } = parseGitHubTarget(existingReport.package_name);
+      report = await scanGitHub(owner, repo, {
+        db,
+        ref: existingReport.ref ?? undefined,
+        githubToken: (c.env as Record<string, string>)?.GITHUB_TOKEN,
+      });
+    } else if (existingReport.source === 'pypi') {
+      report = await scanPyPI(existingReport.package_name, {
+        db,
+        version: existingReport.package_version === 'latest' ? undefined : existingReport.package_version || undefined,
+      });
+    } else {
+      report = await workerScan(existingReport.package_name, {
+        db,
+        version: existingReport.package_version || 'latest',
+      });
+    }
+
+    const scannedAt = new Date().toISOString();
+    await db.run(
+      `UPDATE scan_reports
+       SET score = ?,
+           grade = ?,
+           findings_json = ?,
+           metadata_json = ?,
+           basedagents_json = ?,
+           scanned_at = ?,
+           scanner_version = ?
+       WHERE id = ?`,
+      Math.round(report.score),
+      report.grade,
+      JSON.stringify(report.findings || []),
+      JSON.stringify(report.metadata || {}),
+      JSON.stringify(report.basedagents || {}),
+      scannedAt,
+      SCANNER_VERSION,
+      existingReport.id,
+    );
+
+    return c.json({
+      ok: true,
+      message: 'Re-scan complete',
+      package_name: report.package,
+      source: report.source,
+      score: Math.round(report.score),
+      grade: report.grade,
+      finding_count: report.findings.length,
+      scanner_version: SCANNER_VERSION,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+
+    // On scan failure, fall back to queueing
+    if (msg === 'SCAN_TIMEOUT' || msg.startsWith('TARBALL_TOO_LARGE')) {
+      const { queued } = await queueSingleReport(db, existingReport.id);
+      return c.json({
+        ok: true,
+        message: queued ? 'Re-scan queued' : 'Already queued for re-scan',
+        package_name: existingReport.package_name,
+        source: existingReport.source,
+      });
+    }
+
+    if (msg === 'PACKAGE_NOT_FOUND' || msg === 'GITHUB_REPO_NOT_FOUND') {
+      return c.json({ error: 'not_found', message: `Package "${resolvedName}" not found` }, 404);
+    }
+
+    console.error('[scan/rescan] Rescan error:', err);
+    return c.json({ error: 'internal_error', message: 'Re-scan failed unexpectedly' }, 500);
+  }
+});
+
+// ─── GET /v1/scan/queue/status — Queue status (admin/debug) ───
+scan.get('/queue/status', async (c) => {
+  const db = c.get('db');
+  if (!db) return c.json({ error: 'db_unavailable', message: 'Database not available' }, 503);
+
+  try {
+    const statusRows = await db.all<{ status: string; count: number }>(
+      `SELECT status, COUNT(*) as count FROM rescan_queue GROUP BY status`,
+    );
+
+    const counts: Record<string, number> = {};
+    for (const row of statusRows) {
+      counts[row.status] = row.count;
+    }
+
+    const staleRow = await db.get<{ count: number }>(
+      `SELECT COUNT(*) as count FROM scan_reports WHERE scanner_version < ?`,
+      SCANNER_VERSION,
+    );
+
+    return c.json({
+      pending: counts['pending'] ?? 0,
+      processing: counts['processing'] ?? 0,
+      completed: counts['completed'] ?? 0,
+      failed: counts['failed'] ?? 0,
+      scanner_version: SCANNER_VERSION,
+      stale_reports: staleRow?.count ?? 0,
+    });
+  } catch (err) {
+    console.error('[scan/queue/status] Error:', err);
+    return c.json({ error: 'internal_error', message: 'Failed to retrieve queue status' }, 500);
   }
 });
 

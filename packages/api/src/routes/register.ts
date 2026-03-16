@@ -3,6 +3,7 @@ import type { AppEnv, Challenge } from '../types/index.js';
 import { postTweet, registrationTweet } from '../lib/twitter.js';
 import { RegisterInitSchema, RegisterCompleteSchema } from '../types/index.js';
 import { fireWebhook } from '../lib/webhooks.js';
+import { isSafeUrl } from '../lib/url-validator.js';
 import {
   base58Decode,
   publicKeyToAgentId,
@@ -221,6 +222,20 @@ register.post('/complete', async (c) => {
     return c.json({
       error: 'bad_request',
       message: 'contact_endpoint is required when the registry has 100+ active agents',
+    }, 400);
+  }
+
+  // SSRF protection: validate contact_endpoint and webhook_url (CRIT-1, CRIT-2)
+  if (profile.contact_endpoint && !isSafeUrl(profile.contact_endpoint)) {
+    return c.json({
+      error: 'bad_request',
+      message: 'contact_endpoint must be a safe HTTPS URL (no private/internal addresses)',
+    }, 400);
+  }
+  if (profile.webhook_url && !isSafeUrl(profile.webhook_url)) {
+    return c.json({
+      error: 'bad_request',
+      message: 'webhook_url must be a safe HTTPS URL (no private/internal addresses)',
     }, 400);
   }
 

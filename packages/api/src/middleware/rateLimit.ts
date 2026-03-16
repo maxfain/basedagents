@@ -1,25 +1,36 @@
 import { createMiddleware } from 'hono/factory';
 
 /**
- * Simple in-memory rate limiter using a sliding window.
- * Not suitable for distributed deployments — replace with Redis-based solution later.
+ * @deprecated HIGH-1: In-memory rate limiters are ineffective on Cloudflare Workers because
+ * each isolate has its own memory — limits don't survive across requests.
+ * Use the D1-based rate limiter at src/lib/rate-limiter.ts instead.
+ *
+ * This middleware is kept for reference but should not be used in production.
  */
 export const rateLimit = (opts: { windowMs: number; max: number }) => {
   const { windowMs, max } = opts;
   const hits = new Map<string, number[]>();
 
-  // Periodic cleanup every 60 seconds
-  setInterval(() => {
-    const now = Date.now();
-    for (const [key, timestamps] of hits) {
-      const filtered = timestamps.filter((t) => now - t < windowMs);
-      if (filtered.length === 0) {
-        hits.delete(key);
-      } else {
-        hits.set(key, filtered);
+  // Periodic cleanup every 60 seconds (note: setInterval is unreliable in CF Workers)
+  try {
+    const timer = setInterval(() => {
+      const now = Date.now();
+      for (const [key, timestamps] of hits) {
+        const filtered = timestamps.filter((t) => now - t < windowMs);
+        if (filtered.length === 0) {
+          hits.delete(key);
+        } else {
+          hits.set(key, filtered);
+        }
       }
+    }, 60_000);
+    // Node.js: allow process to exit even if timer is pending
+    if (timer && typeof (timer as NodeJS.Timeout).unref === 'function') {
+      (timer as NodeJS.Timeout).unref();
     }
-  }, 60_000).unref();
+  } catch {
+    // setInterval may not be available in all runtimes
+  }
 
   return createMiddleware(async (c, next) => {
     // Use IP + path prefix as the rate limit key

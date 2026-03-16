@@ -220,6 +220,22 @@ export const api = {
     return res.json();
   },
 
+  async rescanPackage(identifier: string): Promise<{
+    ok: boolean;
+    package_name?: string;
+    score?: number;
+    grade?: string;
+    finding_count?: number;
+    scanner_version?: number;
+    error?: string;
+    message?: string;
+  }> {
+    const res = await fetch(`${API_BASE}/v1/scan/${encodeURIComponent(identifier)}/rescan`, {
+      method: 'POST',
+    });
+    return res.json();
+  },
+
   async probeAgent(agentId: string, method: string, params: Record<string, unknown> = {}): Promise<{
     ok: boolean;
     response_time_ms?: number;

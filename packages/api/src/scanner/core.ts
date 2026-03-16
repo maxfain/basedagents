@@ -7,6 +7,9 @@
  * Works in Cloudflare Workers (no fs, no child_process).
  */
 
+/** Bump this whenever patterns, scoring, or grading logic changes. */
+export const SCANNER_VERSION = 2;
+
 import type { DBAdapter } from '../db/adapter.js';
 import { PATTERNS as JS_PATTERNS }          from './patterns/javascript.js';
 import { PATTERNS as PYTHON_PATTERNS }      from './patterns/python.js';

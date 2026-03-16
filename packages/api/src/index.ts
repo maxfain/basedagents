@@ -17,6 +17,7 @@ import messageRoutes, { messageActions } from './routes/messages.js';
 import taskRoutes from './routes/tasks.js';
 import scanRoutes from './routes/scan.js';
 import probeRoutes from './routes/probe.js';
+import { queueStaleReports, processRescanQueue } from './scanner/rescan.js';
 
 const app = new Hono<AppEnv>();
 
@@ -297,6 +298,19 @@ app.route('/v1/scan', scanRoutes);
 // MCP Probe: /v1/agents/:id/probe
 app.route('/v1/agents', probeRoutes);
 
+/**
+ * MED-5: Constant-time string comparison to prevent timing attacks on admin tokens.
+ */
+async function constantTimeEqual(a: string, b: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const aBuf = encoder.encode(a);
+  const bBuf = encoder.encode(b);
+  if (aBuf.length !== bBuf.length) return false;
+  // timingSafeEqual is a Cloudflare Workers extension on SubtleCrypto
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (crypto.subtle as any).timingSafeEqual(aBuf, bBuf);
+}
+
 // ─── Admin: Manual Bootstrap Probe Trigger ───
 // Protected by ADMIN_SECRET env var. Set via: wrangler secret put ADMIN_SECRET
 app.post('/v1/admin/bootstrap-probe', async (c) => {
@@ -305,7 +319,8 @@ app.post('/v1/admin/bootstrap-probe', async (c) => {
     return c.json({ error: 'forbidden', message: 'Admin endpoint disabled — ADMIN_SECRET not configured' }, 403);
   }
   const authHeader = c.req.header('Authorization');
-  if (!authHeader || authHeader !== `Bearer ${adminSecret}`) {
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!token || !(await constantTimeEqual(token, adminSecret))) {
     return c.json({ error: 'unauthorized', message: 'Invalid admin token' }, 401);
   }
   const db = c.get('db');
@@ -343,6 +358,15 @@ const scheduled = async (_event: unknown, env: any, _ctx: unknown) => {
   console.log('[cron] Computing skill reputations (inverted: agent rep → skill rep)...');
   await computeSkillReputations(db);
   console.log('[cron] Skill reputation computation done.');
+
+  // ─── Rescan queue: auto-queue stale reports and process pending items ───
+  console.log('[cron] Queuing stale scan reports...');
+  const queueResult = await queueStaleReports(db);
+  console.log(`[cron] Stale report queuing done: queued=${queueResult.queued}`);
+
+  console.log('[cron] Processing rescan queue (up to 5 items)...');
+  const rescanResult = await processRescanQueue(db, 5, { githubToken: env.GITHUB_TOKEN });
+  console.log(`[cron] Rescan queue done: processed=${rescanResult.processed} succeeded=${rescanResult.succeeded} failed=${rescanResult.failed}`);
 
   // ─── Auto-release: settle payments for tasks past auto_release_at ───
   console.log('[cron] Checking for auto-release payment settlements...');
