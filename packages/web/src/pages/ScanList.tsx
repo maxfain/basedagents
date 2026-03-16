@@ -3,6 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import type { ApiScanListItem } from '../api/types';
 
+type SourceFilter = 'all' | 'npm' | 'github' | 'pypi';
+type SearchSource = 'npm' | 'github' | 'pypi';
+
 function formatTimeAgo(dateStr: string): string {
   const now = Date.now();
   const date = new Date(dateStr).getTime();
@@ -19,6 +22,15 @@ function scoreColor(score: number): string {
   if (score >= 60) return '#F59E0B';
   if (score >= 40) return '#F97316';
   return '#EF4444';
+}
+
+function sourceIcon(source?: string): string {
+  switch (source) {
+    case 'github': return '🐙';
+    case 'pypi':   return '🐍';
+    case 'npm':
+    default:       return '📦';
+  }
 }
 
 function ScoreCircle({ score, grade, size = 56 }: { score: number; grade: string; size?: number }) {
@@ -49,6 +61,124 @@ function ScoreCircle({ score, grade, size = 56 }: { score: number; grade: string
   );
 }
 
+const SOURCE_FILTER_LABELS: Record<SourceFilter, string> = {
+  all: 'All',
+  npm: '📦 npm',
+  github: '🐙 GitHub',
+  pypi: '🐍 PyPI',
+};
+
+const SEARCH_SOURCE_LABELS: Record<SearchSource, string> = {
+  npm: '📦 npm',
+  github: '🐙 GitHub',
+  pypi: '🐍 PyPI',
+};
+
+function SourceFilterTabs({
+  active,
+  onChange,
+}: {
+  active: SourceFilter;
+  onChange: (s: SourceFilter) => void;
+}) {
+  const tabs: SourceFilter[] = ['all', 'npm', 'github', 'pypi'];
+  return (
+    <div style={{
+      display: 'inline-flex',
+      background: 'var(--bg-tertiary)',
+      border: '1px solid var(--border)',
+      borderRadius: 8,
+      padding: 3,
+      gap: 2,
+    }}>
+      {tabs.map(tab => {
+        const isActive = tab === active;
+        const isDisabled = tab === 'pypi';
+        return (
+          <button
+            key={tab}
+            title={isDisabled ? 'Coming soon' : undefined}
+            disabled={isDisabled}
+            onClick={() => !isDisabled && onChange(tab)}
+            style={{
+              background: isActive ? 'rgba(99,102,241,0.15)' : 'transparent',
+              color: isDisabled
+                ? 'var(--text-tertiary)'
+                : isActive
+                  ? 'var(--accent)'
+                  : 'var(--text-tertiary)',
+              border: isActive ? '1px solid rgba(99,102,241,0.3)' : '1px solid transparent',
+              borderRadius: 6,
+              padding: '5px 14px',
+              fontSize: 13,
+              fontWeight: isActive ? 600 : 400,
+              cursor: isDisabled ? 'not-allowed' : 'pointer',
+              opacity: isDisabled ? 0.45 : 1,
+              transition: 'all 0.15s',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {SOURCE_FILTER_LABELS[tab]}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function SearchSourceTabs({
+  active,
+  onChange,
+}: {
+  active: SearchSource;
+  onChange: (s: SearchSource) => void;
+}) {
+  const tabs: SearchSource[] = ['npm', 'github', 'pypi'];
+  return (
+    <div style={{
+      display: 'inline-flex',
+      background: 'var(--bg-tertiary)',
+      border: '1px solid var(--border)',
+      borderRadius: 8,
+      padding: 3,
+      gap: 2,
+      marginBottom: 10,
+    }}>
+      {tabs.map(tab => {
+        const isActive = tab === active;
+        const isDisabled = tab === 'pypi';
+        return (
+          <button
+            key={tab}
+            title={isDisabled ? 'Coming soon' : undefined}
+            disabled={isDisabled}
+            onClick={() => !isDisabled && onChange(tab)}
+            style={{
+              background: isActive ? 'rgba(99,102,241,0.15)' : 'transparent',
+              color: isDisabled
+                ? 'var(--text-tertiary)'
+                : isActive
+                  ? 'var(--accent)'
+                  : 'var(--text-tertiary)',
+              border: isActive ? '1px solid rgba(99,102,241,0.3)' : '1px solid transparent',
+              borderRadius: 6,
+              padding: '5px 14px',
+              fontSize: 13,
+              fontWeight: isActive ? 600 : 400,
+              cursor: isDisabled ? 'not-allowed' : 'pointer',
+              opacity: isDisabled ? 0.45 : 1,
+              transition: 'all 0.15s',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {SEARCH_SOURCE_LABELS[tab]}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ScanList(): React.ReactElement {
   const navigate = useNavigate();
   const [packages, setPackages] = useState<ApiScanListItem[]>([]);
@@ -57,46 +187,66 @@ export default function ScanList(): React.ReactElement {
   const [sort, setSort] = useState<'recent' | 'score'>('recent');
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
+  const [searchSource, setSearchSource] = useState<SearchSource>('npm');
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [scanningPkg, setScanningPkg] = useState<string | null>(null);
   const [scanMsg, setScanMsg] = useState<string | null>(null);
 
+  // Reload when sort or source filter changes
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    api.listScanReports({ limit: 50, sort })
+    const params: Parameters<typeof api.listScanReports>[0] = { limit: 50, sort };
+    if (sourceFilter !== 'all') params.source = sourceFilter;
+    api.listScanReports(params)
       .then(res => { if (!cancelled) setPackages(res.packages || []); })
       .catch(err => { if (!cancelled) setError(err.message || 'Failed to load scan reports'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [sort]);
+  }, [sort, sourceFilter]);
 
+  // Client-side filter by name search
   const filtered = packages.filter(p =>
     !search || p.package_name.toLowerCase().includes(search.toLowerCase())
   );
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
-    const pkg = searchInput.trim();
-    if (!pkg) return;
+    let target = searchInput.trim();
+    if (!target) return;
 
-    // Try to fetch existing report; if 404, auto-trigger a scan
     setScanMsg(null);
     setScanningPkg(null);
+
+    // For GitHub, build the prefixed identifier
+    let identifier: string;
+    if (searchSource === 'github') {
+      // Parse GitHub URL if pasted
+      const match = target.match(/github\.com\/([^/]+\/[^/?\s#]+)/);
+      if (match) target = match[1];
+      identifier = `github:${target}`;
+    } else {
+      identifier = target;
+    }
+
+    // Try to fetch existing report
     try {
-      await api.getScanReport(pkg);
-      // Report exists — navigate straight to it
-      navigate(`/scan/${encodeURIComponent(pkg)}`);
+      await api.getScanReport(identifier);
+      navigate(`/scan/${encodeURIComponent(identifier)}`);
     } catch (err: unknown) {
       const status = (err as { status?: number }).status;
       if (status === 404) {
         // Auto-trigger scan
-        setScanningPkg(pkg);
-        setScanMsg(`Scanning ${pkg}…`);
+        setScanningPkg(identifier);
+        setScanMsg(`Scanning ${identifier}…`);
         try {
-          const result = await api.triggerScan(pkg);
+          const triggerOpts = searchSource === 'github'
+            ? { source: 'github' as const, target }
+            : { target: identifier };
+          const result = await api.triggerScan(triggerOpts);
           if (result.ok) {
-            navigate(`/scan/${encodeURIComponent(pkg)}`);
+            navigate(`/scan/${encodeURIComponent(identifier)}`);
           } else {
             setScanMsg(result.message || result.error || 'Scan failed');
             setScanningPkg(null);
@@ -106,10 +256,21 @@ export default function ScanList(): React.ReactElement {
           setScanningPkg(null);
         }
       } else {
-        // Non-404 error — just navigate and let Scan page handle it
-        navigate(`/scan/${encodeURIComponent(pkg)}`);
+        navigate(`/scan/${encodeURIComponent(identifier)}`);
       }
     }
+  }
+
+  /** Build URL for a scan list item — handles source prefix */
+  function scanUrl(pkg: ApiScanListItem): string {
+    const src = pkg.source ?? 'npm';
+    if (src === 'github') {
+      return `/scan/${encodeURIComponent(`github:${pkg.package_name}`)}`;
+    }
+    if (src === 'pypi') {
+      return `/scan/${encodeURIComponent(`pypi:${pkg.package_name}`)}`;
+    }
+    return `/scan/${encodeURIComponent(pkg.package_name)}`;
   }
 
   const inputStyle: React.CSSProperties = {
@@ -149,6 +310,10 @@ export default function ScanList(): React.ReactElement {
     transition: 'border-color 0.15s',
   };
 
+  const searchPlaceholder = searchSource === 'github'
+    ? 'owner/repo or https://github.com/owner/repo'
+    : '@scope/package or package-name';
+
   return (
     <div style={{ padding: '48px 0' }}>
       <div className="container">
@@ -156,7 +321,7 @@ export default function ScanList(): React.ReactElement {
         <div style={{ marginBottom: 40 }}>
           <h1 style={{ marginBottom: 8 }}>Package Scanner</h1>
           <p style={{ color: 'var(--text-tertiary)', margin: 0 }}>
-            Security scan reports for npm packages. Powered by BasedAgents.
+            Security scan reports for npm packages, GitHub repos, and more. Powered by BasedAgents.
           </p>
         </div>
 
@@ -168,17 +333,22 @@ export default function ScanList(): React.ReactElement {
           padding: 24,
           marginBottom: 40,
         }}>
-          <p style={{ marginBottom: 12, fontWeight: 600, fontSize: 15 }}>Scan a package</p>
+          <p style={{ marginBottom: 10, fontWeight: 600, fontSize: 15 }}>Scan a package</p>
+
+          {/* Search source tabs */}
+          <SearchSourceTabs active={searchSource} onChange={src => { setSearchSource(src); setSearchInput(''); }} />
+
           <form onSubmit={handleSearch} style={{ display: 'flex', gap: 10 }}>
             <input
               style={inputStyle}
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
-              placeholder="@scope/package or package-name"
+              placeholder={searchPlaceholder}
               spellCheck={false}
             />
             <button type="submit" style={btnStyle}>View Report</button>
           </form>
+
           {/* Scanning state */}
           {scanningPkg && (
             <div style={{
@@ -214,14 +384,16 @@ export default function ScanList(): React.ReactElement {
         </div>
 
         {/* Filter bar */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 18 }}>
+            <h2 style={{ margin: '0 0 10px', fontSize: 18 }}>
               Recent Scans
               {!loading && <span style={{ color: 'var(--text-tertiary)', fontSize: 14, fontWeight: 400, marginLeft: 8 }}>
                 {filtered.length} package{filtered.length !== 1 ? 's' : ''}
               </span>}
             </h2>
+            {/* Source filter tabs */}
+            <SourceFilterTabs active={sourceFilter} onChange={setSourceFilter} />
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <input
@@ -281,7 +453,7 @@ export default function ScanList(): React.ReactElement {
             {filtered.map(pkg => (
               <Link
                 key={pkg.id}
-                to={`/scan/${encodeURIComponent(pkg.package_name)}`}
+                to={scanUrl(pkg)}
                 style={cardStyle}
                 onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
                 onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}
@@ -289,7 +461,8 @@ export default function ScanList(): React.ReactElement {
                 <ScoreCircle score={pkg.score} grade={pkg.grade} size={56} />
 
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 15, marginBottom: 4 }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 15, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 15 }}>{sourceIcon(pkg.source)}</span>
                     {pkg.package_name}
                   </div>
                   <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>

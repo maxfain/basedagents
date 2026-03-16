@@ -156,9 +156,11 @@ export const api = {
     return fetchJson<ApiTaskDetailResponse>(`/v1/tasks/${encodeURIComponent(id)}`);
   },
 
-  async getScanReport(packageName: string, version?: string): Promise<ApiScanReport> {
+  async getScanReport(identifier: string, version?: string): Promise<ApiScanReport> {
+    // identifier can be "lodash", "github:owner/repo", "pypi:requests", etc.
+    const encoded = encodeURIComponent(identifier);
     const qs = version ? `?version=${encodeURIComponent(version)}` : '';
-    return fetchJson<ApiScanReport>(`/v1/scan/${encodeURIComponent(packageName)}${qs}`);
+    return fetchJson<ApiScanReport>(`/v1/scan/${encoded}${qs}`);
   },
 
   async listScanReports(params: ScanSearchParams = {}): Promise<ApiScanListResponse> {
@@ -166,12 +168,22 @@ export const api = {
     if (params.limit) qs.set('limit', String(params.limit));
     if (params.offset) qs.set('offset', String(params.offset));
     if (params.sort) qs.set('sort', params.sort);
+    if (params.source) qs.set('source', params.source);
     const query = qs.toString();
     return fetchJson<ApiScanListResponse>(`/v1/scan${query ? '?' + query : ''}`);
   },
 
-  async triggerScan(packageName: string, version?: string): Promise<{
+  async triggerScan(
+    packageOrOptions: string | {
+      source?: 'npm' | 'github' | 'pypi';
+      target: string;
+      version?: string;
+      ref?: string;
+    },
+    version?: string,
+  ): Promise<{
     ok: boolean;
+    source?: string;
     id?: string;
     package_name?: string;
     package_version?: string;
@@ -183,10 +195,27 @@ export const api = {
     error?: string;
     message?: string;
   }> {
+    let body: Record<string, unknown>;
+
+    if (typeof packageOrOptions === 'string') {
+      // Legacy call: triggerScan(packageName, version?)
+      body = { package: packageOrOptions };
+      if (version) body.version = version;
+    } else {
+      const opts = packageOrOptions;
+      if (opts.source && opts.source !== 'npm') {
+        body = { source: opts.source, target: opts.target };
+        if (opts.ref) body.ref = opts.ref;
+      } else {
+        body = { package: opts.target };
+        if (opts.version) body.version = opts.version;
+      }
+    }
+
     const res = await fetch(`${API_BASE}/v1/scan/trigger`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ package: packageName, version }),
+      body: JSON.stringify(body),
     });
     return res.json();
   },

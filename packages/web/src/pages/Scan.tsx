@@ -3,6 +3,10 @@ import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { api, API_BASE } from '../api/client';
 import type { ApiScanReport, ScanFinding } from '../api/types';
 
+// ─── Types ───
+
+type SourceTab = 'npm' | 'github' | 'pypi';
+
 // ─── Helpers ───
 
 function formatTimeAgo(dateStr: string): string {
@@ -45,9 +49,208 @@ function severityIcon(severity: string): string {
   }
 }
 
+/** Parse a raw URL param like "github:owner%2Frepo" → { source, target } */
+function parseIdentifier(raw: string): { source: SourceTab; target: string } {
+  if (raw.startsWith('github:')) {
+    return { source: 'github', target: raw.slice('github:'.length) };
+  }
+  if (raw.startsWith('pypi:')) {
+    return { source: 'pypi', target: raw.slice('pypi:'.length) };
+  }
+  if (raw.startsWith('npm:')) {
+    return { source: 'npm', target: raw.slice('npm:'.length) };
+  }
+  return { source: 'npm', target: raw };
+}
+
+/** Build the URL identifier from source + target for navigation */
+function buildIdentifier(source: SourceTab, target: string): string {
+  if (source === 'npm') return target;
+  // For github/pypi encode the slash within owner/repo but keep prefix clean
+  // encodeURIComponent on the whole thing handles it
+  return `${source}:${target}`;
+}
+
+/** Parse GitHub URL or owner/repo string → owner/repo */
+function parseGitHubInput(input: string): string {
+  const trimmed = input.trim();
+  // https://github.com/owner/repo or https://github.com/owner/repo/...
+  const match = trimmed.match(/github\.com\/([^/]+\/[^/?\s#]+)/);
+  if (match) return match[1];
+  return trimmed;
+}
+
+const SOURCE_LABELS: Record<SourceTab, string> = {
+  npm: '📦 npm',
+  github: '🐙 GitHub',
+  pypi: '🐍 PyPI',
+};
+
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
 
 // ─── Sub-components ───
+
+function SourceTabs({
+  active,
+  onChange,
+}: {
+  active: SourceTab;
+  onChange: (s: SourceTab) => void;
+}) {
+  const tabs: SourceTab[] = ['npm', 'github', 'pypi'];
+  return (
+    <div style={{
+      display: 'inline-flex',
+      background: 'var(--bg-tertiary)',
+      border: '1px solid var(--border)',
+      borderRadius: 8,
+      padding: 3,
+      gap: 2,
+      marginBottom: 14,
+    }}>
+      {tabs.map(tab => {
+        const isActive = tab === active;
+        const isDisabled = tab === 'pypi';
+        return (
+          <button
+            key={tab}
+            title={isDisabled ? 'Coming soon' : undefined}
+            disabled={isDisabled}
+            onClick={() => !isDisabled && onChange(tab)}
+            style={{
+              background: isActive ? 'rgba(99,102,241,0.15)' : 'transparent',
+              color: isDisabled
+                ? 'var(--text-tertiary)'
+                : isActive
+                  ? 'var(--accent)'
+                  : 'var(--text-tertiary)',
+              border: isActive ? '1px solid rgba(99,102,241,0.3)' : '1px solid transparent',
+              borderRadius: 6,
+              padding: '5px 14px',
+              fontSize: 13,
+              fontWeight: isActive ? 600 : 400,
+              cursor: isDisabled ? 'not-allowed' : 'pointer',
+              opacity: isDisabled ? 0.45 : 1,
+              transition: 'all 0.15s',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {SOURCE_LABELS[tab]}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function SourceBadge({ source }: { source?: 'npm' | 'github' | 'pypi' }) {
+  if (!source) return null;
+  const label = SOURCE_LABELS[source] || source;
+  return (
+    <span style={{
+      display: 'inline-block',
+      padding: '2px 8px',
+      borderRadius: 6,
+      fontSize: 12,
+      fontWeight: 600,
+      background: 'var(--bg-tertiary)',
+      border: '1px solid var(--border)',
+      color: 'var(--text-secondary)',
+      marginLeft: 10,
+      verticalAlign: 'middle',
+    }}>
+      {label}
+    </span>
+  );
+}
+
+function GitHubMetaCard({ metadata, packageName }: {
+  metadata: ApiScanReport['metadata'];
+  packageName: string;
+}) {
+  const repoUrl = `https://github.com/${packageName}`;
+  const formatDate = (d?: string) => d ? new Date(d).toLocaleDateString() : '—';
+
+  return (
+    <div style={{
+      background: 'var(--bg-secondary)',
+      border: '1px solid var(--border)',
+      borderRadius: 12,
+      padding: '20px 24px',
+      marginBottom: 24,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+        <span style={{ fontSize: 18 }}>🐙</span>
+        <a
+          href={repoUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 16,
+            fontWeight: 700,
+            color: 'var(--accent)',
+            textDecoration: 'none',
+          }}
+        >
+          {packageName}
+        </a>
+        {metadata.license && (
+          <span style={{
+            padding: '1px 7px',
+            borderRadius: 4,
+            fontSize: 11,
+            fontWeight: 600,
+            background: 'rgba(99,102,241,0.12)',
+            color: 'var(--accent)',
+            border: '1px solid rgba(99,102,241,0.25)',
+            marginLeft: 4,
+          }}>
+            {metadata.license}
+          </span>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+        {metadata.stars !== undefined && (
+          <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+            ⭐ <strong>{metadata.stars.toLocaleString()}</strong> stars
+          </span>
+        )}
+        {metadata.forks !== undefined && (
+          <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+            🍴 <strong>{metadata.forks.toLocaleString()}</strong> forks
+          </span>
+        )}
+        {metadata.open_issues !== undefined && (
+          <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+            🐛 <strong>{metadata.open_issues.toLocaleString()}</strong> open issues
+          </span>
+        )}
+        {metadata.language && (
+          <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+            💬 <strong>{metadata.language}</strong>
+          </span>
+        )}
+        <span style={{
+          fontSize: 14,
+          color: metadata.has_ci ? '#22C55E' : '#EF4444',
+          fontWeight: 600,
+        }}>
+          {metadata.has_ci ? '✓ CI configured' : '✗ No CI detected'}
+        </span>
+      </div>
+
+      {(metadata.created_at || metadata.pushed_at) && (
+        <div style={{ marginTop: 10, fontSize: 13, color: 'var(--text-tertiary)' }}>
+          {metadata.created_at && <span>Created: {formatDate(metadata.created_at)}</span>}
+          {metadata.created_at && metadata.pushed_at && <span style={{ margin: '0 8px' }}>·</span>}
+          {metadata.pushed_at && <span>Last pushed: {formatDate(metadata.pushed_at)}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ScoreCircle({ score, grade }: { score: number; grade: string }) {
   const color = scoreColor(score);
@@ -236,23 +439,33 @@ export default function Scan(): React.ReactElement {
   const [searchParams] = useSearchParams();
   const version = searchParams.get('version') || undefined;
 
+  // Decode and parse the URL param to determine source + target
+  const rawIdentifier = pkgParam ? decodeURIComponent(pkgParam) : '';
+  const parsed = parseIdentifier(rawIdentifier);
+
+  const [activeSource, setActiveSource] = useState<SourceTab>(parsed.source);
+  const [searchInput, setSearchInput] = useState(parsed.target);
+  const [githubRef, setGithubRef] = useState('');
+
   const [report, setReport] = useState<ApiScanReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
-  const [searchInput, setSearchInput] = useState('');
   const [copied, setCopied] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
 
-  const packageName = pkgParam ? decodeURIComponent(pkgParam) : '';
+  // The full identifier for API calls (e.g. "lodash" or "github:owner/repo")
+  const identifier = rawIdentifier;
+  // The display name is just the target portion
+  const displayName = parsed.target;
 
-  const loadReport = useCallback((pkg: string, ver?: string) => {
+  const loadReport = useCallback((id: string, ver?: string) => {
     setLoading(true);
     setError(null);
     setNotFound(false);
     setReport(null);
-    api.getScanReport(pkg, ver)
+    api.getScanReport(id, ver)
       .then(r => setReport(r))
       .catch(err => {
         if (err.status === 404) {
@@ -265,20 +478,25 @@ export default function Scan(): React.ReactElement {
   }, []);
 
   useEffect(() => {
-    if (packageName) {
+    if (identifier) {
       setScanError(null);
-      loadReport(packageName, version);
+      setActiveSource(parsed.source);
+      loadReport(identifier, version);
     }
-  }, [packageName, version, loadReport]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identifier, version, loadReport]);
 
   async function handleScanNow() {
     setScanning(true);
     setScanError(null);
     try {
-      const result = await api.triggerScan(packageName, version);
+      const result = await api.triggerScan(
+        activeSource === 'github'
+          ? { source: 'github', target: displayName, ref: githubRef || undefined }
+          : { source: activeSource, target: displayName, version }
+      );
       if (result.ok) {
-        // Reload the report — it should now exist in the DB
-        loadReport(packageName, version);
+        loadReport(identifier, version);
       } else {
         setScanError(result.message || result.error || 'Scan failed');
       }
@@ -291,9 +509,22 @@ export default function Scan(): React.ReactElement {
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
-    const pkg = searchInput.trim();
-    if (!pkg) return;
-    navigate(`/scan/${encodeURIComponent(pkg)}`);
+    let target = searchInput.trim();
+    if (!target) return;
+
+    if (activeSource === 'github') {
+      target = parseGitHubInput(target);
+    }
+
+    const id = buildIdentifier(activeSource, target);
+    // encode the full identifier; slash within owner/repo gets encoded by encodeURIComponent
+    navigate(`/scan/${encodeURIComponent(id)}`);
+  }
+
+  function handleSourceChange(src: SourceTab) {
+    setActiveSource(src);
+    setSearchInput('');
+    setGithubRef('');
   }
 
   async function copyUrl() {
@@ -306,7 +537,8 @@ export default function Scan(): React.ReactElement {
 
   function tweetUrl() {
     if (!report) return;
-    const text = `Security scan for ${report.package_name}@${report.package_version}: ${report.grade} (${report.score}/100) — ${report.findings.length} finding${report.findings.length !== 1 ? 's' : ''}`;
+    const name = report.package_name;
+    const text = `Security scan for ${name}@${report.package_version}: ${report.grade} (${report.score}/100) — ${report.findings.length} finding${report.findings.length !== 1 ? 's' : ''}`;
     const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(window.location.href)}`;
     window.open(url, '_blank', 'noopener');
   }
@@ -356,6 +588,13 @@ export default function Scan(): React.ReactElement {
   const baScore = basedagents.reputation_score as number | undefined;
   const baAgentId = basedagents.agent_id as string | undefined;
 
+  const reportSource = report?.source ?? (parsed.source !== 'npm' ? parsed.source : undefined);
+
+  // Input placeholder based on active source
+  const inputPlaceholder = activeSource === 'github'
+    ? 'owner/repo or https://github.com/owner/repo'
+    : '@scope/package or package-name';
+
   return (
     <div style={{ padding: '48px 0' }}>
       <div className="container">
@@ -368,15 +607,31 @@ export default function Scan(): React.ReactElement {
               ← All scans
             </Link>
           </div>
-          <form onSubmit={handleSearch} style={{ display: 'flex', gap: 10 }}>
-            <input
-              style={inputStyle}
-              value={searchInput}
-              onChange={e => setSearchInput(e.target.value)}
-              placeholder="@scope/package or package-name"
-              spellCheck={false}
-            />
-            <button type="submit" style={btnStyle}>View Report</button>
+
+          {/* Source tabs */}
+          <SourceTabs active={activeSource} onChange={handleSourceChange} />
+
+          <form onSubmit={handleSearch} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <input
+                style={inputStyle}
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
+                placeholder={inputPlaceholder}
+                spellCheck={false}
+              />
+              <button type="submit" style={btnStyle}>View Report</button>
+            </div>
+            {/* GitHub ref input */}
+            {activeSource === 'github' && (
+              <input
+                style={{ ...inputStyle, flex: 'unset', width: 220, fontSize: 13, padding: '7px 12px' }}
+                value={githubRef}
+                onChange={e => setGithubRef(e.target.value)}
+                placeholder="Branch / Tag (e.g. main)"
+                spellCheck={false}
+              />
+            )}
           </form>
         </div>
 
@@ -403,10 +658,12 @@ export default function Scan(): React.ReactElement {
             ...sectionStyle,
             textAlign: 'center', padding: '48px 28px',
           }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>📦</div>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>
+              {activeSource === 'github' ? '🐙' : '📦'}
+            </div>
             <h2 style={{ marginBottom: 8 }}>Not yet scanned</h2>
             <p style={{ color: 'var(--text-tertiary)', marginBottom: 24 }}>
-              <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>{packageName}</strong>
+              <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>{displayName}</strong>
               {' '}hasn't been scanned yet.
             </p>
 
@@ -475,7 +732,9 @@ export default function Scan(): React.ReactElement {
                 background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
                 borderRadius: 4, padding: '2px 8px',
               }}>
-                npx basedagents scan {packageName}
+                {activeSource === 'github'
+                  ? `npx basedagents scan github:${displayName}`
+                  : `npx basedagents scan ${displayName}`}
               </code>
             </p>
 
@@ -486,7 +745,7 @@ export default function Scan(): React.ReactElement {
         )}
 
         {/* No package searched yet */}
-        {!packageName && !loading && (
+        {!identifier && !loading && (
           <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-tertiary)' }}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>🔍</div>
             <p style={{ margin: 0, fontSize: 16 }}>Enter a package name above to view its security report.</p>
@@ -499,6 +758,11 @@ export default function Scan(): React.ReactElement {
         {/* Report */}
         {report && !loading && (
           <>
+            {/* GitHub metadata card */}
+            {reportSource === 'github' && report.metadata && (
+              <GitHubMetaCard metadata={report.metadata} packageName={report.package_name} />
+            )}
+
             {/* Header */}
             <div style={{
               ...sectionStyle,
@@ -506,8 +770,9 @@ export default function Scan(): React.ReactElement {
             }}>
               <ScoreCircle score={report.score} grade={report.grade} />
               <div style={{ flex: 1, minWidth: 200 }}>
-                <h1 style={{ margin: '0 0 4px', fontFamily: 'var(--font-mono)', fontSize: 22 }}>
+                <h1 style={{ margin: '0 0 4px', fontFamily: 'var(--font-mono)', fontSize: 22, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
                   {report.package_name}
+                  <SourceBadge source={reportSource} />
                 </h1>
                 <div style={{ color: 'var(--text-tertiary)', fontSize: 14, marginBottom: 8 }}>
                   v{report.package_version}
@@ -640,7 +905,9 @@ export default function Scan(): React.ReactElement {
                 display: 'inline-block',
                 marginBottom: 20,
               }}>
-                npx basedagents scan {report.package_name}
+                {reportSource === 'github'
+                  ? `npx basedagents scan github:${report.package_name}`
+                  : `npx basedagents scan ${report.package_name}`}
               </code>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
                 <button onClick={copyUrl} style={{ ...btnStyle, background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>

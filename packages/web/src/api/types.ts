@@ -217,6 +217,15 @@ export interface ScanMetadata {
   install_scripts?: string[];
   total_size?: number;
   dependencies?: number;
+  // GitHub-specific fields
+  stars?: number;
+  forks?: number;
+  open_issues?: number;
+  language?: string;
+  license?: string;
+  has_ci?: boolean;
+  created_at?: string;
+  pushed_at?: string;
   [key: string]: unknown;
 }
 
@@ -243,6 +252,7 @@ export interface ApiScanReport {
   scanned_at: string;
   submitted_by: string | null;
   created_at: string;
+  source?: 'npm' | 'github' | 'pypi';
 }
 
 export interface ApiScanListItem {
@@ -256,6 +266,7 @@ export interface ApiScanListItem {
   scanned_at: string;
   submitted_by: string | null;
   report_url: string;
+  source?: 'npm' | 'github' | 'pypi';
 }
 
 export interface ApiScanListResponse {
@@ -272,4 +283,5 @@ export interface ScanSearchParams {
   limit?: number;
   offset?: number;
   sort?: 'recent' | 'score';
+  source?: string;
 }
