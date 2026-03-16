@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../types/index.js';
 import { scan as workerScan, scanGitHub, scanPyPI, parseGitHubTarget } from '../scanner/index.js';
 import { SCANNER_VERSION } from '../scanner/core.js';
+import { computeProvenanceBonus } from '../scanner/provenance.js';
 import { queueSingleReport, processRescanQueue } from '../scanner/rescan.js';
 import { checkRateLimit as d1CheckRateLimit } from '../lib/rate-limiter.js';
 
@@ -550,6 +551,21 @@ scan.get('/:package', async (c) => {
       submitted_by: row.submitted_by,
       created_at: row.created_at,
       scanner_version: row.scanner_version ?? 1,
+      provenance: (() => {
+        try {
+          const meta = JSON.parse(row.metadata_json || '{}');
+          const p = computeProvenanceBonus({
+            source: (row.source ?? 'npm') as 'npm' | 'github' | 'pypi',
+            name: row.package_name,
+            version: row.package_version,
+            total_size: 0,
+            total_files: 0,
+            scannable_files: 0,
+            extra: meta,
+          });
+          return p.bonus > 0 ? p : null;
+        } catch { return null; }
+      })(),
     });
   } catch (err) {
     console.error('[scan] Get error:', err);
