@@ -554,6 +554,7 @@ scan.get('/:package', async (c) => {
       provenance: (() => {
         try {
           const meta = JSON.parse(row.metadata_json || '{}');
+          const extra = meta?.source_metadata?.extra ?? meta;
           const p = computeProvenanceBonus({
             source: (row.source ?? 'npm') as 'npm' | 'github' | 'pypi',
             name: row.package_name,
@@ -561,7 +562,7 @@ scan.get('/:package', async (c) => {
             total_size: 0,
             total_files: 0,
             scannable_files: 0,
-            extra: meta,
+            extra,
           });
           return p.bonus > 0 ? p : null;
         } catch { return null; }
