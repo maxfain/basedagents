@@ -79,7 +79,9 @@ async function fetchPyPIMetadata(packageName: string, version?: string): Promise
     ? `https://pypi.org/pypi/${encodeURIComponent(packageName)}/${encodeURIComponent(version)}/json`
     : `https://pypi.org/pypi/${encodeURIComponent(packageName)}/json`;
 
-  const res = await fetch(url);
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'BasedAgents-Scanner/1.0 (https://basedagents.ai)', 'Accept': 'application/json' },
+  });
   if (res.status === 404) throw new Error('PACKAGE_NOT_FOUND');
   if (!res.ok) throw new Error(`PYPI_REGISTRY_ERROR:${res.status}`);
 
@@ -115,7 +117,7 @@ export async function resolvePyPI(
 
   // Also do a HEAD check for size if sdist.size is 0
   if (sdist.size === 0) {
-    const headRes = await fetch(sdist.url, { method: 'HEAD' });
+    const headRes = await fetch(sdist.url, { method: 'HEAD', headers: { 'User-Agent': 'BasedAgents-Scanner/1.0' } });
     const contentLength = parseInt(headRes.headers.get('content-length') || '0', 10);
     if (contentLength > MAX_TARBALL_BYTES) {
       throw new Error(`TARBALL_TOO_LARGE:${contentLength}`);
@@ -123,7 +125,7 @@ export async function resolvePyPI(
   }
 
   // 4. Download the sdist
-  const tgzRes = await fetch(sdist.url);
+  const tgzRes = await fetch(sdist.url, { headers: { 'User-Agent': 'BasedAgents-Scanner/1.0' } });
   if (!tgzRes.ok) throw new Error(`TARBALL_FETCH_ERROR:${tgzRes.status}`);
   if (!tgzRes.body) throw new Error('TARBALL_FETCH_ERROR:no_body');
 
