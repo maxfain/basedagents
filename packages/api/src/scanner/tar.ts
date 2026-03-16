@@ -22,11 +22,13 @@ function readString(buf: Uint8Array, offset: number, length: number): string {
   return new TextDecoder('utf-8', { fatal: false }).decode(buf.slice(offset, end));
 }
 
-/** Parse an octal string to a number. */
-function parseOctal(buf: Uint8Array, offset: number, length: number): number {
+/** Parse an octal string to a number. Returns null on invalid input. */
+function parseOctal(buf: Uint8Array, offset: number, length: number): number | null {
   const s = readString(buf, offset, length).trim();
   if (!s) return 0;
-  return parseInt(s, 8) || 0;
+  if (!/^[0-7]+$/.test(s)) return null; // non-octal characters — malformed header
+  const n = parseInt(s, 8);
+  return isNaN(n) ? null : n;
 }
 
 /** Check if a 512-byte block is all zeros (end-of-archive marker). */
@@ -95,7 +97,9 @@ export async function* parseTar(
 
     // Header fields (POSIX ustar)
     const name      = readString(header, 0,   100);
-    const size      = parseOctal(header, 124,  12);
+    const rawSize   = parseOctal(header, 124,  12);
+    if (rawSize === null) continue; // LOW-9: malformed size field — skip entry to avoid misalignment
+    const size      = rawSize;
     const typeFlag  = String.fromCharCode(header[156]);
 
     // ustar prefix (offset 345, length 155) for long names
