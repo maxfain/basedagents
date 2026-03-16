@@ -68,38 +68,41 @@ export const PATTERNS: PatternDef[] = [
     description: 'Shell execution function — can run arbitrary system commands',
   },
 
-  // ── High: destructive file ops ──
+  // ── Low: file write/delete ops ──
+  // These are standard filesystem operations used by countless legitimate tools
+  // (MCP servers, build tools, CLI utilities, editors). Flagged for awareness
+  // but not inherently malicious — context matters more than presence.
   {
-    severity: 'high',
-    category: 'Destructive File Operation',
+    severity: 'low',
+    category: 'File System Write',
     pattern: 'fs.writeFile',
     regex: /\bfs(?:Promises)?\.writeFile\s*\(/g,
-    description: 'fs.writeFile() — can overwrite files on disk',
+    description: 'fs.writeFile() — writes or overwrites files on disk',
   },
   {
-    severity: 'high',
-    category: 'Destructive File Operation',
+    severity: 'low',
+    category: 'File System Write',
     pattern: 'fs.unlink',
     regex: /\bfs(?:Promises)?\.unlink\s*\(/g,
     description: 'fs.unlink() — deletes files from disk',
   },
   {
-    severity: 'high',
-    category: 'Destructive File Operation',
+    severity: 'low',
+    category: 'File System Write',
     pattern: 'fs.rmdir / rm',
     regex: /\bfs(?:Promises)?\.(?:rmdir|rm)\s*\(/g,
-    description: 'fs.rmdir()/rm() — deletes directories from disk',
+    description: 'fs.rmdir()/rm() — removes directories',
   },
   {
-    severity: 'high',
-    category: 'Destructive File Operation',
+    severity: 'low',
+    category: 'File System Write',
     pattern: 'fs.chmod',
     regex: /\bfs(?:Promises)?\.chmod\s*\(/g,
     description: 'fs.chmod() — modifies file permissions',
   },
   {
-    severity: 'high',
-    category: 'Destructive File Operation',
+    severity: 'low',
+    category: 'File System Write',
     pattern: 'fs.rename',
     regex: /\bfs(?:Promises)?\.rename\s*\(/g,
     description: 'fs.rename() — moves or renames files',
@@ -146,96 +149,98 @@ export const PATTERNS: PatternDef[] = [
     description: 'UDP datagram socket usage — can exfiltrate data over UDP',
   },
 
-  // ── Medium: environment access ──
+  // ── Low: environment access ──
   {
-    severity: 'medium',
+    severity: 'low',
     category: 'Environment Access',
     pattern: 'process.env access',
     regex: /\bprocess\.env\b/g,
     description: 'Accesses environment variables — common for configuration',
   },
 
-  // ── Medium: network calls ──
+  // ── Low: network calls ──
+  // Outbound HTTP is normal for any API client, tool, or MCP server.
+  // Only flag high when combined with credential exfiltration (handled above).
   {
-    severity: 'medium',
+    severity: 'low',
     category: 'Network Call',
     pattern: 'http.request',
     regex: /\bhttp\.request\s*\(/g,
     description: 'http.request() — makes outbound HTTP connections',
   },
   {
-    severity: 'medium',
+    severity: 'low',
     category: 'Network Call',
     pattern: 'https.request',
     regex: /\bhttps\.request\s*\(/g,
     description: 'https.request() — makes outbound HTTPS connections',
   },
   {
-    severity: 'medium',
+    severity: 'low',
     category: 'Network Call',
     pattern: 'fetch()',
     regex: /\bfetch\s*\(\s*(?!['"](?:https?:\/\/(?:localhost|127\.0\.0\.1)))[^)]{1,200}\)/g,
     description: 'fetch() to a non-localhost URL — makes outbound HTTP requests',
   },
 
-  // ── Medium: file reads ──
+  // ── Info: file reads ──
   {
-    severity: 'medium',
+    severity: 'info',
     category: 'File System Read',
     pattern: 'fs.readFile',
     regex: /\bfs(?:Promises)?\.readFile\s*\(/g,
     description: 'fs.readFile() — reads files from disk',
   },
   {
-    severity: 'medium',
+    severity: 'info',
     category: 'File System Read',
     pattern: 'fs.readdir',
     regex: /\bfs(?:Promises)?\.readdir\s*\(/g,
     description: 'fs.readdir() — lists directory contents',
   },
   {
-    severity: 'medium',
+    severity: 'info',
     category: 'File System Read',
     pattern: 'fs.stat',
     regex: /\bfs(?:Promises)?\.stat\s*\(/g,
     description: 'fs.stat() — reads file metadata',
   },
 
-  // ── Medium: system info ──
+  // ── Low: system info ──
   {
-    severity: 'medium',
+    severity: 'low',
     category: 'System Info',
     pattern: 'os.homedir',
     regex: /\bos\.homedir\s*\(/g,
     description: "os.homedir() — discovers the current user's home directory",
   },
   {
-    severity: 'medium',
+    severity: 'low',
     category: 'System Info',
     pattern: 'os.userInfo',
     regex: /\bos\.userInfo\s*\(/g,
     description: 'os.userInfo() — fetches username, uid, shell and other user details',
   },
   {
-    severity: 'medium',
+    severity: 'low',
     category: 'System Info',
     pattern: 'os.hostname',
     regex: /\bos\.hostname\s*\(/g,
     description: 'os.hostname() — reads the machine hostname',
   },
 
-  // ── Low: crypto ──
+  // ── Info: crypto ──
   {
-    severity: 'low',
+    severity: 'info',
     category: 'Crypto Usage',
     pattern: 'crypto module',
     regex: /require\s*\(\s*['"]crypto['"]\s*\)|from\s+['"](?:node:)?crypto['"]/g,
     description: 'Uses the crypto module — standard for encryption or key generation',
   },
 
-  // ── Medium: WebSocket ──
+  // ── Low: WebSocket ──
   {
-    severity: 'medium',
+    severity: 'low',
     category: 'WebSocket',
     pattern: 'WebSocket connection',
     regex: /\bnew\s+WebSocket\s*\(/g,
@@ -258,16 +263,16 @@ export const PATTERNS: PatternDef[] = [
     description: 'console.error() — benign error output',
   },
 
-  // ── Low: path ops ──
+  // ── Info: path ops ──
   {
-    severity: 'low',
+    severity: 'info',
     category: 'Path Construction',
     pattern: 'path.join',
     regex: /\bpath\.join\s*\(/g,
     description: 'path.join() — constructs file paths',
   },
   {
-    severity: 'low',
+    severity: 'info',
     category: 'Path Construction',
     pattern: 'path.resolve',
     regex: /\bpath\.resolve\s*\(/g,

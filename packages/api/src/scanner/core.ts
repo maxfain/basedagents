@@ -8,7 +8,7 @@
  */
 
 /** Bump this whenever patterns, scoring, or grading logic changes. */
-export const SCANNER_VERSION = 2;
+export const SCANNER_VERSION = 3;
 
 import type { DBAdapter } from '../db/adapter.js';
 import { PATTERNS as JS_PATTERNS }          from './patterns/javascript.js';
