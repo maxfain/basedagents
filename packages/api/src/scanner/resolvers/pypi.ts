@@ -46,6 +46,7 @@ interface PyPIRelease {
   url: string;
   size: number;
   digests: { md5: string; sha256: string };
+  upload_time?: string;
 }
 
 interface PyPIInfo {
@@ -197,6 +198,7 @@ export async function resolvePyPI(
       has_setup_py: hasSetupPy,
       has_setup_cfg: hasSetupCfg,
       has_pyproject_toml: hasPyprojectToml,
+      upload_time: sdist.upload_time,
     },
   };
 

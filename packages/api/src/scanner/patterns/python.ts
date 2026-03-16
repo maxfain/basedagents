@@ -20,9 +20,9 @@ export const PATTERNS: PatternDef[] = [
   { severity: 'critical', category: 'Code Execution', pattern: 'compile()',
     regex: /\bcompile\s*\([^)]*,\s*[^)]*,\s*['"]exec['"]/g,
     description: 'compile() with exec mode — compiles code for execution' },
-  { severity: 'critical', category: 'Obfuscation', pattern: '__import__',
+  { severity: 'high', category: 'Dynamic Import', pattern: '__import__',
     regex: /__import__\s*\(/g,
-    description: '__import__() — dynamic module import, common in obfuscated code' },
+    description: '__import__() — dynamic module import, may be used for compatibility or obfuscation' },
   { severity: 'critical', category: 'Obfuscation', pattern: 'marshal.loads',
     regex: /\bmarshal\.loads?\s*\(/g,
     description: 'marshal.loads() — deserializes bytecode, used to hide malicious code' },
@@ -55,7 +55,7 @@ export const PATTERNS: PatternDef[] = [
     description: 'setup.py imports system modules — code runs during pip install' },
 
   // ── High: destructive file ops ──
-  { severity: 'high', category: 'Destructive File Operation', pattern: 'os.remove',
+  { severity: 'medium', category: 'Destructive File Operation', pattern: 'os.remove',
     regex: /\bos\.(?:remove|unlink)\s*\(/g,
     description: 'os.remove()/unlink() — deletes files' },
   { severity: 'high', category: 'Destructive File Operation', pattern: 'shutil.rmtree',
@@ -86,7 +86,7 @@ export const PATTERNS: PatternDef[] = [
   { severity: 'medium', category: 'File System Read', pattern: 'open()',
     regex: /\bopen\s*\([^)]*['"][rwa]/g,
     description: 'File open — reads or writes files on disk' },
-  { severity: 'medium', category: 'Crypto Usage', pattern: 'cryptography/hashlib',
+  { severity: 'info', category: 'Crypto Usage', pattern: 'cryptography/hashlib',
     regex: /\b(?:from\s+cryptography|import\s+hashlib|from\s+Crypto)\b/g,
     description: 'Crypto library usage' },
 ];

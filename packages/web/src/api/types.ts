@@ -267,6 +267,10 @@ export interface ApiScanReport {
   findings: ScanFinding[];
   metadata: ScanMetadata;
   basedagents: ScanBasedAgents;
+  provenance?: {
+    bonus: number;
+    signals: string[];
+  };
   scanned_at: string;
   submitted_by: string | null;
   created_at: string;

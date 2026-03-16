@@ -122,6 +122,24 @@ export async function resolveNpm(
     Object.keys(pkgJson?.dependencies ?? meta.dependencies ?? {}).length +
     Object.keys(pkgJson?.devDependencies ?? meta.devDependencies ?? {}).length;
 
+  // Fetch monthly download count for provenance bonus
+  let downloadsLastMonth: number | undefined;
+  try {
+    const encodedName = packageName.startsWith('@')
+      ? packageName.replace('/', '%2F')
+      : packageName;
+    const dlRes = await fetch(
+      `https://api.npmjs.org/downloads/point/last-month/${encodedName}`,
+      { headers: { 'User-Agent': 'BasedAgents-Scanner/1.0' } },
+    );
+    if (dlRes.ok) {
+      const dlData = await dlRes.json() as { downloads?: number };
+      if (typeof dlData.downloads === 'number') {
+        downloadsLastMonth = dlData.downloads;
+      }
+    }
+  } catch { /* non-fatal */ }
+
   const sourceMeta: SourceMetadata = {
     source: 'npm',
     name: packageName,
@@ -134,6 +152,7 @@ export async function resolveNpm(
       dependency_count: depCount,
       bin: pkgJson?.bin ?? meta.bin,
       scripts: pkgJson?.scripts ?? meta.scripts,
+      ...(downloadsLastMonth !== undefined ? { downloads_last_month: downloadsLastMonth } : {}),
     },
   };
 

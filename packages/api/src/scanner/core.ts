@@ -17,6 +17,7 @@ import { PATTERNS as RUST_PATTERNS }        from './patterns/rust.js';
 import { PATTERNS as SHELL_PATTERNS }       from './patterns/shell.js';
 import { PATTERNS as YAML_PATTERNS }        from './patterns/yaml.js';
 import { PATTERNS as DOCKERFILE_PATTERNS }  from './patterns/dockerfile.js';
+import { computeProvenanceBonus }           from './provenance.js';
 
 // ─── Public types ───
 
@@ -50,6 +51,10 @@ export interface ScanReport {
     verified: boolean;
     reputation_score: number | null;
     agent_id: string | null;
+  };
+  provenance?: {
+    bonus: number;
+    signals: string[];
   };
   scanned_at: string;
 }
@@ -119,6 +124,19 @@ const MAX_FINDINGS: Record<Finding['severity'], number> = {
   info: 20,
 };
 
+// ─── Setup file severity overrides ───
+// When scanning setup.py / setup.cfg, common patterns like exec() and open()
+// are expected (e.g., reading version from file). Downgrade their severity.
+
+const SETUP_FILE_OVERRIDES: Record<string, Finding['severity']> = {
+  'exec()': 'medium',
+  'eval()': 'medium',
+  'os.system': 'medium',
+  'os.popen': 'medium',
+  'open()': 'info',
+  'setup.py with os/subprocess': 'info',
+};
+
 // ─── Scan a single file ───
 
 function scanFileContent(
@@ -130,15 +148,26 @@ function scanFileContent(
   const findings: Finding[] = [];
   const lines = text.split('\n');
 
+  // Detect setup files for severity downgrade
+  const lastSlash = relPath.lastIndexOf('/');
+  const basename = lastSlash >= 0 ? relPath.slice(lastSlash + 1) : relPath;
+  const isSetupFile = basename === 'setup.py' || basename === 'setup.cfg';
+
   for (const def of patterns) {
-    const maxCount = MAX_FINDINGS[def.severity];
-    if ((severityCounts[def.severity] ?? 0) >= maxCount) continue;
+    // Compute effective severity (may be downgraded for setup files)
+    const effectiveSeverity: Finding['severity'] =
+      isSetupFile && SETUP_FILE_OVERRIDES[def.pattern] !== undefined
+        ? SETUP_FILE_OVERRIDES[def.pattern]
+        : def.severity;
+
+    const maxCount = MAX_FINDINGS[effectiveSeverity];
+    if ((severityCounts[effectiveSeverity] ?? 0) >= maxCount) continue;
 
     def.regex.lastIndex = 0;
     const seenLines = new Set<number>();
 
     for (let i = 0; i < lines.length; i++) {
-      if ((severityCounts[def.severity] ?? 0) >= maxCount) break;
+      if ((severityCounts[effectiveSeverity] ?? 0) >= maxCount) break;
 
       const line = lines[i];
       def.regex.lastIndex = 0;
@@ -150,7 +179,7 @@ function scanFileContent(
       const context = line.trim().slice(0, 120);
 
       findings.push({
-        severity: def.severity,
+        severity: effectiveSeverity,
         category: def.category,
         pattern: def.pattern,
         file: relPath,
@@ -159,7 +188,7 @@ function scanFileContent(
         description: def.description,
       });
 
-      severityCounts[def.severity] = (severityCounts[def.severity] ?? 0) + 1;
+      severityCounts[effectiveSeverity] = (severityCounts[effectiveSeverity] ?? 0) + 1;
     }
   }
 
@@ -277,6 +306,12 @@ export async function scanFiles(
   // Score (exclude info findings)
   let score = computeScore(findings.filter(f => f.severity !== 'info'));
 
+  // Provenance bonus
+  const provenance = computeProvenanceBonus(metadata);
+  if (provenance.bonus > 0) {
+    score = Math.min(100, score + provenance.bonus);
+  }
+
   // BasedAgents lookup
   const ba = await lookupBasedAgents(metadata.name, db);
   if (ba.registered) score = Math.min(100, score + 10);
@@ -300,6 +335,7 @@ export async function scanFiles(
       source_metadata: metadata,
     },
     basedagents: ba,
+    provenance: provenance.bonus > 0 ? provenance : undefined,
     scanned_at: new Date().toISOString(),
   };
 }

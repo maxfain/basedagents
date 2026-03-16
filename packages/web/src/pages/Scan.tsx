@@ -332,6 +332,25 @@ function PyPIMetaCard({ metadata, packageName }: {
   );
 }
 
+function ProvenanceTag({ label }: { label: string }) {
+  return (
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      padding: '3px 10px',
+      borderRadius: 20,
+      fontSize: 12,
+      fontWeight: 500,
+      background: 'rgba(34,197,94,0.1)',
+      border: '1px solid rgba(34,197,94,0.25)',
+      color: '#22C55E',
+      whiteSpace: 'nowrap',
+    }}>
+      {label}
+    </span>
+  );
+}
+
 function ScoreCircle({ score, grade }: { score: number; grade: string }) {
   const color = scoreColor(score);
   const size = 120;
@@ -671,6 +690,7 @@ export default function Scan(): React.ReactElement {
   const baAgentId = basedagents.agent_id as string | undefined;
 
   const reportSource = report?.source ?? (parsed.source !== 'npm' ? parsed.source : undefined);
+  const provenance = report?.provenance;
 
   // Input placeholder based on active source
   const inputPlaceholder = activeSource === 'github'
@@ -859,7 +879,23 @@ export default function Scan(): React.ReactElement {
               ...sectionStyle,
               display: 'flex', alignItems: 'center', gap: 28, flexWrap: 'wrap',
             }}>
-              <ScoreCircle score={report.score} grade={report.grade} />
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                <ScoreCircle score={report.score} grade={report.grade} />
+                {provenance && provenance.bonus > 0 && (
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: '#22C55E',
+                    background: 'rgba(34,197,94,0.1)',
+                    border: '1px solid rgba(34,197,94,0.25)',
+                    borderRadius: 10,
+                    padding: '2px 8px',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    +{provenance.bonus} provenance
+                  </span>
+                )}
+              </div>
               <div style={{ flex: 1, minWidth: 200 }}>
                 <h1 style={{ margin: '0 0 4px', fontFamily: 'var(--font-mono)', fontSize: 22, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
                   {report.package_name}
@@ -907,6 +943,30 @@ export default function Scan(): React.ReactElement {
                 color={hasInstallScripts ? '#F97316' : '#22C55E'}
               />
             </div>
+
+            {/* Provenance signals */}
+            {provenance && provenance.bonus > 0 && provenance.signals.length > 0 && (
+              <div style={{
+                background: 'rgba(34,197,94,0.05)',
+                border: '1px solid rgba(34,197,94,0.2)',
+                borderRadius: 10,
+                padding: '14px 20px',
+                marginBottom: 24,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#22C55E', whiteSpace: 'nowrap' }}>
+                  ✓ Provenance (+{provenance.bonus}):
+                </span>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {provenance.signals.map((signal, i) => (
+                    <ProvenanceTag key={i} label={signal} />
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Findings */}
             <div style={sectionStyle}>
