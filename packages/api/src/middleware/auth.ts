@@ -63,11 +63,11 @@ export async function agentAuth(c: Context, next: Next): Promise<Response | void
     return c.json({ error: 'unauthorized', message: 'Missing X-Timestamp header' }, 401);
   }
 
-  // Verify timestamp is within 30 seconds
+  // Verify timestamp is within 15 seconds (MED-1: tightened from 30s)
   const now = Math.floor(Date.now() / 1000);
   const ts = parseInt(timestamp, 10);
-  if (isNaN(ts) || Math.abs(now - ts) > 30) {
-    return c.json({ error: 'unauthorized', message: 'Timestamp out of range (must be within 30 seconds)' }, 401);
+  if (isNaN(ts) || Math.abs(now - ts) > 15) {
+    return c.json({ error: 'unauthorized', message: 'Timestamp out of range (must be within 15 seconds)' }, 401);
   }
 
   // Compute body hash
@@ -131,6 +131,10 @@ export async function agentAuth(c: Context, next: Next): Promise<Response | void
  * Optional auth — sets agent context ONLY if signature fully verifies.
  * Never sets context from an unverified public key.
  * If header is present but invalid, silently skips (does not set context, does not reject).
+ *
+ * MED-3: Body double-read safety — Hono buffers the request body on first access,
+ * so subsequent calls to c.req.text() / c.req.json() return the same cached result.
+ * This means reading the body here does not interfere with downstream handlers.
  */
 export async function optionalAuth(c: Context, next: Next): Promise<void> {
   const authHeader = c.req.header('Authorization');
@@ -156,8 +160,9 @@ export async function optionalAuth(c: Context, next: Next): Promise<void> {
       if (!timestamp) { await next(); return; }
       const ts = parseInt(timestamp, 10);
       const now = Math.floor(Date.now() / 1000);
-      if (isNaN(ts) || Math.abs(now - ts) > 30) { await next(); return; }
+      if (isNaN(ts) || Math.abs(now - ts) > 15) { await next(); return; }
 
+      // Hono caches the body after first read, so this is safe for downstream handlers (MED-3)
       const body = await c.req.text();
       const bodyHash = bytesToHex(sha256(new TextEncoder().encode(body)));
       const method = c.req.method;

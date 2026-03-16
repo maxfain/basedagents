@@ -120,31 +120,32 @@ agents.get('/search', async (c) => {
     params.push(`%${safe}%`, `%${safe}%`);
   }
 
+  // MED-4: Use json_each() instead of LIKE to prevent cross-JSON-boundary matches
   if (capabilities) {
     for (const cap of capabilities.split(',')) {
-      conditions.push('capabilities LIKE ? ESCAPE \'\\\'');
-      params.push(`%"${escapeLike(cap.trim())}"%`);
+      conditions.push('EXISTS (SELECT 1 FROM json_each(capabilities) WHERE json_each.value = ?)');
+      params.push(cap.trim());
     }
   }
 
   if (protocols) {
     for (const proto of protocols.split(',')) {
-      conditions.push('protocols LIKE ? ESCAPE \'\\\'');
-      params.push(`%"${escapeLike(proto.trim())}"%`);
+      conditions.push('EXISTS (SELECT 1 FROM json_each(protocols) WHERE json_each.value = ?)');
+      params.push(proto.trim());
     }
   }
 
   if (offers) {
     for (const offer of offers.split(',')) {
-      conditions.push('offers LIKE ? ESCAPE \'\\\'');
-      params.push(`%"${escapeLike(offer.trim())}"%`);
+      conditions.push('EXISTS (SELECT 1 FROM json_each(offers) WHERE json_each.value = ?)');
+      params.push(offer.trim());
     }
   }
 
   if (needs) {
     for (const need of needs.split(',')) {
-      conditions.push('needs LIKE ? ESCAPE \'\\\'');
-      params.push(`%"${escapeLike(need.trim())}"%`);
+      conditions.push('EXISTS (SELECT 1 FROM json_each(needs) WHERE json_each.value = ?)');
+      params.push(need.trim());
     }
   }
 
@@ -280,8 +281,20 @@ async function handleProfileUpdate(c: Context<AppEnv>): Promise<Response> {
         const h = updates[field] as string;
         params.push(h.startsWith('@') ? h : `@${h}`);
       } else if (field === 'webhook_url' && (!updates[field] || updates[field] === '')) {
-        // Empty string or null clears the webhook
+        // Empty string or null clears the webhook and secret
         params.push(null);
+        setClauses.push('webhook_secret = ?');
+        params.push(null);
+      } else if (field === 'webhook_url' && updates[field]) {
+        // MED-6: Generate a new webhook_secret whenever webhook_url is set/changed
+        params.push(updates[field]);
+        const bytes = new Uint8Array(32);
+        crypto.getRandomValues(bytes);
+        let binary = '';
+        for (const b of bytes) binary += String.fromCharCode(b);
+        const newSecret = btoa(binary);
+        setClauses.push('webhook_secret = ?');
+        params.push(newSecret);
       } else {
         params.push(updates[field]);
       }

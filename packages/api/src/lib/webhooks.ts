@@ -1,6 +1,12 @@
 /**
  * Fire-and-forget webhook delivery module.
  * Never throws — errors are swallowed after logging to console.error.
+ *
+ * MED-6: All webhook deliveries include an HMAC-SHA256 signature header:
+ *   X-BasedAgents-Signature: sha256=<hex_hmac>
+ * Recipients should verify this header using their webhook_secret to ensure
+ * the payload was sent by BasedAgents and has not been tampered with.
+ * The HMAC is computed over the raw JSON body using the agent's webhook_secret.
  */
 
 export type WebhookEvent =
@@ -71,23 +77,52 @@ export type WebhookEvent =
     };
 
 /**
+ * Compute HMAC-SHA256 hex digest using Web Crypto API.
+ */
+async function hmacSha256Hex(secret: string, payload: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
+  return Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/**
  * POST a webhook event to the given URL.
  * Fire-and-forget: always resolves without throwing.
  * 5-second timeout via AbortController.
+ *
+ * If a webhookSecret is provided, the request includes:
+ *   X-BasedAgents-Signature: sha256=<hmac_hex>
  */
-export async function fireWebhook(url: string, event: WebhookEvent): Promise<void> {
+export async function fireWebhook(url: string, event: WebhookEvent, webhookSecret?: string | null): Promise<void> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
 
   try {
+    const body = JSON.stringify(event);
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-BasedAgents-Event': event.type,
+      'User-Agent': 'BasedAgents-Webhook/1.0',
+    };
+
+    if (webhookSecret) {
+      const hmac = await hmacSha256Hex(webhookSecret, body);
+      headers['X-BasedAgents-Signature'] = `sha256=${hmac}`;
+    }
+
     await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-BasedAgents-Event': event.type,
-        'User-Agent': 'BasedAgents-Webhook/1.0',
-      },
-      body: JSON.stringify(event),
+      headers,
+      body,
       signal: controller.signal,
     });
   } catch (err) {

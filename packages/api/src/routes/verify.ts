@@ -296,7 +296,7 @@ verify.post('/submit', agentAuth, async (c) => {
   const verifierDelta = Math.round(((postVerifier?.reputation_score ?? verifierRep.final_score) - (prevVerifier?.reputation_score ?? 0)) * 1000) / 1000;
 
   // ── Webhook: verification.received → target agent ──
-  const targetAgent = await db.get<{ webhook_url: string | null }>('SELECT webhook_url FROM agents WHERE id = ?', target_id);
+  const targetAgent = await db.get<{ webhook_url: string | null; webhook_secret: string | null }>('SELECT webhook_url, webhook_secret FROM agents WHERE id = ?', target_id);
   if (targetAgent?.webhook_url) {
     fireWebhook(targetAgent.webhook_url, {
       type: 'verification.received',
@@ -307,30 +307,30 @@ verify.post('/submit', agentAuth, async (c) => {
       coherence_score: coherence_score ?? null,
       reputation_delta: targetDelta,
       new_reputation: postTarget?.reputation_score ?? targetRep.final_score,
-    }); // intentionally not awaited
+    }, targetAgent.webhook_secret); // intentionally not awaited
   }
 
   // ── Webhook: status.changed → affected agents ──
   if (targetStatusChange) {
-    const tAgentWh = targetAgent ?? await db.get<{ webhook_url: string | null }>('SELECT webhook_url FROM agents WHERE id = ?', target_id);
+    const tAgentWh = targetAgent ?? await db.get<{ webhook_url: string | null; webhook_secret: string | null }>('SELECT webhook_url, webhook_secret FROM agents WHERE id = ?', target_id);
     if (tAgentWh?.webhook_url) {
       fireWebhook(tAgentWh.webhook_url, {
         type: 'status.changed',
         agent_id: target_id,
         old_status: targetStatusChange.oldStatus,
         new_status: targetStatusChange.newStatus,
-      }); // intentionally not awaited
+      }, tAgentWh.webhook_secret); // intentionally not awaited
     }
   }
   if (verifierStatusChange) {
-    const vAgentWh = await db.get<{ webhook_url: string | null }>('SELECT webhook_url FROM agents WHERE id = ?', verifierId);
+    const vAgentWh = await db.get<{ webhook_url: string | null; webhook_secret: string | null }>('SELECT webhook_url, webhook_secret FROM agents WHERE id = ?', verifierId);
     if (vAgentWh?.webhook_url) {
       fireWebhook(vAgentWh.webhook_url, {
         type: 'status.changed',
         agent_id: verifierId,
         old_status: verifierStatusChange.oldStatus,
         new_status: verifierStatusChange.newStatus,
-      }); // intentionally not awaited
+      }, vAgentWh.webhook_secret); // intentionally not awaited
     }
   }
 

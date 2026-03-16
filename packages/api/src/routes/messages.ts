@@ -68,8 +68,8 @@ messages.post('/:id/messages', agentAuth, async (c) => {
   }
 
   // Recipient must exist and be active
-  const recipient = await db.get<{ id: string; name: string; status: string; webhook_url: string | null }>(
-    'SELECT id, name, status, webhook_url FROM agents WHERE id = ?', recipientId
+  const recipient = await db.get<{ id: string; name: string; status: string; webhook_url: string | null; webhook_secret: string | null }>(
+    'SELECT id, name, status, webhook_url, webhook_secret FROM agents WHERE id = ?', recipientId
   );
   if (!recipient) {
     return c.json({ error: 'not_found', message: 'Recipient agent not found' }, 404);
@@ -108,7 +108,7 @@ messages.post('/:id/messages', agentAuth, async (c) => {
         sent_at: createdAt,
       },
       reply_url: `https://api.basedagents.ai/v1/messages/${messageId}/reply`,
-    }); // intentionally not awaited
+    }, recipient.webhook_secret); // intentionally not awaited
   }
 
   return c.json({
@@ -293,8 +293,8 @@ messageActions.post('/:id/reply', agentAuth, async (c) => {
   const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
   // Determine delivery status for the reply
-  const originalSender = await db.get<{ id: string; name: string; webhook_url: string | null }>(
-    'SELECT id, name, webhook_url FROM agents WHERE id = ?', original.from_agent_id
+  const originalSender = await db.get<{ id: string; name: string; webhook_url: string | null; webhook_secret: string | null }>(
+    'SELECT id, name, webhook_url, webhook_secret FROM agents WHERE id = ?', original.from_agent_id
   );
   const deliveryUrl = original.callback_url || originalSender?.webhook_url;
   const status = deliveryUrl ? 'delivered' : 'pending';
@@ -330,7 +330,7 @@ messageActions.post('/:id/reply', agentAuth, async (c) => {
       },
       reply_to_message_id: originalMessageId,
       reply_url: `https://api.basedagents.ai/v1/messages/${replyId}/reply`,
-    }); // intentionally not awaited
+    }, originalSender?.webhook_secret); // intentionally not awaited
   }
 
   return c.json({

@@ -299,7 +299,13 @@ scan.post('/', async (c) => {
     return c.json({ error: 'bad_request', message: 'findings must be an array' }, 400);
   }
 
-  const source = (report.source as SourceType) || 'npm';
+  // MED-8: Validate source against allowed enum
+  const ALLOWED_SOURCES: SourceType[] = ['npm', 'github', 'pypi'];
+  const rawSource = report.source || 'npm';
+  if (!ALLOWED_SOURCES.includes(rawSource as SourceType)) {
+    return c.json({ error: 'bad_request', message: `Invalid source "${rawSource}". Must be one of: ${ALLOWED_SOURCES.join(', ')}` }, 400);
+  }
+  const source = rawSource as SourceType;
   const id = report.id || crypto.randomUUID();
   const now = new Date().toISOString();
   const scannedAt = report.scanned_at || now;

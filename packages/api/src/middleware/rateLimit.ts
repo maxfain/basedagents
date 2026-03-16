@@ -11,26 +11,9 @@ export const rateLimit = (opts: { windowMs: number; max: number }) => {
   const { windowMs, max } = opts;
   const hits = new Map<string, number[]>();
 
-  // Periodic cleanup every 60 seconds (note: setInterval is unreliable in CF Workers)
-  try {
-    const timer = setInterval(() => {
-      const now = Date.now();
-      for (const [key, timestamps] of hits) {
-        const filtered = timestamps.filter((t) => now - t < windowMs);
-        if (filtered.length === 0) {
-          hits.delete(key);
-        } else {
-          hits.set(key, filtered);
-        }
-      }
-    }, 60_000);
-    // Node.js: allow process to exit even if timer is pending
-    if (timer && typeof (timer as NodeJS.Timeout).unref === 'function') {
-      (timer as NodeJS.Timeout).unref();
-    }
-  } catch {
-    // setInterval may not be available in all runtimes
-  }
+  // LOW-1: Removed setInterval (not supported on Workers). Cleanup is lazy —
+  // stale entries are pruned on each request when the map exceeds a threshold.
+  let lastCleanup = Date.now();
 
   return createMiddleware(async (c, next) => {
     // Use IP + path prefix as the rate limit key
@@ -39,6 +22,19 @@ export const rateLimit = (opts: { windowMs: number; max: number }) => {
       || 'unknown';
     const key = `${ip}`;
     const now = Date.now();
+
+    // Lazy cleanup: prune stale entries every 60 seconds
+    if (now - lastCleanup > 60_000) {
+      lastCleanup = now;
+      for (const [k, timestamps] of hits) {
+        const filtered = timestamps.filter((t) => now - t < windowMs);
+        if (filtered.length === 0) {
+          hits.delete(k);
+        } else {
+          hits.set(k, filtered);
+        }
+      }
+    }
 
     const timestamps = hits.get(key) || [];
     // Filter to current window

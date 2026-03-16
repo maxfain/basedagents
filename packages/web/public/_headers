@@ -1,6 +1,7 @@
 /*
   X-Agent-Instructions: https://basedagents.ai/.well-known/agent.json
   X-Robots-Tag: index, follow
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.basedagents.ai; img-src 'self' https://api.basedagents.ai data: blob:; font-src 'self' data:; frame-ancestors 'none'
 
 /
   X-Agent-Instructions: https://basedagents.ai/.well-known/agent.json

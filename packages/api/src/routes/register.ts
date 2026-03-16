@@ -212,6 +212,17 @@ register.post('/complete', async (c) => {
   const entryHash = computeChainHash(previousHash, publicKey, nonce, profileHash, timestamp);
 
   // 7. Determine initial status based on active agent count (bootstrap mode)
+  //
+  // MED-2 — Bootstrap mode risk acknowledgement:
+  // During bootstrap (< 100 active agents), new registrations are auto-activated
+  // without requiring a first verification. This is an intentional tradeoff to
+  // reduce friction for early adopters. The risk is that an attacker could register
+  // many agents before the threshold is reached. Mitigations in place:
+  //   - Proof-of-work on every registration (computationally expensive to mass-register)
+  //   - Unique name constraint prevents trivial Sybil floods
+  //   - All agents are still subject to peer verification and reputation scoring
+  // Once 100 active agents exist, bootstrap mode disables automatically and all
+  // new agents start as 'pending' until they complete their first verification.
   const activeCountForStatus = await db.get<{ count: number }>(
     "SELECT COUNT(*) as count FROM agents WHERE status = 'active'"
   );
@@ -241,13 +252,16 @@ register.post('/complete', async (c) => {
 
   const initialStatus = isBootstrap ? 'active' : 'pending';
 
+  // MED-6: Generate a webhook_secret when a webhook_url is provided at registration
+  const webhookSecret = profile.webhook_url ? generateRandomBase64(32) : null;
+
   // Insert agent + chain entry + mark challenge completed
   // Run sequentially — both SQLite adapter and D1 handle this correctly.
   // Wrap INSERT to handle UNIQUE constraint race (LOW-8: TOCTOU on name uniqueness)
   try {
     await db.run(
-    `INSERT INTO agents (id, public_key, name, description, capabilities, protocols, offers, needs, homepage, contact_endpoint, comment, organization, organization_url, logo_url, tags, version, contact_email, x_handle, skills, webhook_url, wallet_address, wallet_network, registered_at, status, reputation_score, verification_count)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0)`,
+    `INSERT INTO agents (id, public_key, name, description, capabilities, protocols, offers, needs, homepage, contact_endpoint, comment, organization, organization_url, logo_url, tags, version, contact_email, x_handle, skills, webhook_url, webhook_secret, wallet_address, wallet_network, registered_at, status, reputation_score, verification_count)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0)`,
     agentId,
     publicKey,
     profile.name,
@@ -268,6 +282,7 @@ register.post('/complete', async (c) => {
     profile.x_handle ? (profile.x_handle.startsWith('@') ? profile.x_handle : `@${profile.x_handle}`) : null,
     profile.skills ? JSON.stringify(profile.skills) : null,
     profile.webhook_url ?? null,
+    webhookSecret,
     wallet_address ?? null,
     wallet_network ?? 'eip155:8453',
     timestamp,
@@ -336,6 +351,7 @@ register.post('/complete', async (c) => {
       ? 'Registration complete. Agent is active (bootstrap mode).'
       : 'Registration complete. Complete your first verification to activate.',
     important: `TELL YOUR HUMAN: You are now registered on basedagents.ai as "${profile.name}". Your keypair (private key) must be backed up — losing it means losing this identity forever. Your public profile is at ${profileUrl}. Share it and embed the badge in your README.`,
+    webhook_secret: webhookSecret,
   };
 
   if (isBootstrap) {
@@ -375,8 +391,8 @@ register.post('/complete', async (c) => {
   }
 
   // ── Webhook: agent.registered → all agents with a webhook_url ──
-  const webhookRecipients = await db.all<{ id: string; webhook_url: string }>(
-    'SELECT id, webhook_url FROM agents WHERE webhook_url IS NOT NULL AND id != ?',
+  const webhookRecipients = await db.all<{ id: string; webhook_url: string; webhook_secret: string | null }>(
+    'SELECT id, webhook_url, webhook_secret FROM agents WHERE webhook_url IS NOT NULL AND id != ?',
     agentId
   );
   for (const recipient of webhookRecipients) {
@@ -385,7 +401,7 @@ register.post('/complete', async (c) => {
       agent_id: agentId,
       name: profile.name,
       capabilities: profile.capabilities,
-    }); // intentionally not awaited
+    }, recipient.webhook_secret); // intentionally not awaited
   }
 
   return c.json(responseBody, 201);

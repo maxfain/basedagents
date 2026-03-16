@@ -244,8 +244,8 @@ tasks.post('/', agentAuth, async (c) => {
 
   // Auto-notify matching agents (fire-and-forget)
   if (reqCaps && reqCaps.length > 0) {
-    const agents = await db.all<{ id: string; capabilities: string; webhook_url: string | null }>(
-      `SELECT id, capabilities, webhook_url FROM agents WHERE status = 'active' AND webhook_url IS NOT NULL AND id != ?`,
+    const agents = await db.all<{ id: string; capabilities: string; webhook_url: string | null; webhook_secret: string | null }>(
+      `SELECT id, capabilities, webhook_url, webhook_secret FROM agents WHERE status = 'active' AND webhook_url IS NOT NULL AND id != ?`,
       creatorId
     );
     for (const agent of agents) {
@@ -265,7 +265,7 @@ tasks.post('/', agentAuth, async (c) => {
               output_format: parsed.data.output_format,
               bounty: bounty ?? null,
             },
-          });
+          }, agent.webhook_secret);
         }
       } catch {
         // skip agents with invalid capabilities JSON
@@ -516,8 +516,8 @@ tasks.post('/:id/claim', agentAuth, async (c) => {
   );
 
   // Notify creator via webhook
-  const creator = await db.get<{ id: string; webhook_url: string | null }>(
-    'SELECT id, webhook_url FROM agents WHERE id = ?', task.creator_agent_id
+  const creator = await db.get<{ id: string; webhook_url: string | null; webhook_secret: string | null }>(
+    'SELECT id, webhook_url, webhook_secret FROM agents WHERE id = ?', task.creator_agent_id
   );
   if (creator?.webhook_url) {
     fireWebhook(creator.webhook_url, {
@@ -525,7 +525,7 @@ tasks.post('/:id/claim', agentAuth, async (c) => {
       agent_id: creator.id,
       task_id: taskId,
       claimed_by: { agent_id: agentId, name: agent.name },
-    });
+    }, creator.webhook_secret);
   }
 
   return c.json({ ok: true, task_id: taskId, status: 'claimed' });
@@ -632,8 +632,8 @@ tasks.post('/:id/deliver', agentAuth, async (c) => {
   );
 
   // Notify creator via webhook
-  const creator = await db.get<{ id: string; webhook_url: string | null }>(
-    'SELECT id, webhook_url FROM agents WHERE id = ?', task.creator_agent_id
+  const creator = await db.get<{ id: string; webhook_url: string | null; webhook_secret: string | null }>(
+    'SELECT id, webhook_url, webhook_secret FROM agents WHERE id = ?', task.creator_agent_id
   );
   const deliverer = await db.get<{ id: string; name: string }>(
     'SELECT id, name FROM agents WHERE id = ?', agentId
@@ -646,7 +646,7 @@ tasks.post('/:id/deliver', agentAuth, async (c) => {
       delivered_by: { agent_id: agentId, name: deliverer.name },
       summary: parsed.data.summary,
       receipt_id: receiptId,
-    });
+    }, creator.webhook_secret);
   }
 
   return c.json({
@@ -716,8 +716,8 @@ tasks.post('/:id/submit', agentAuth, async (c) => {
   );
 
   // Notify creator via webhook
-  const creator = await db.get<{ id: string; webhook_url: string | null }>(
-    'SELECT id, webhook_url FROM agents WHERE id = ?', task.creator_agent_id
+  const creator = await db.get<{ id: string; webhook_url: string | null; webhook_secret: string | null }>(
+    'SELECT id, webhook_url, webhook_secret FROM agents WHERE id = ?', task.creator_agent_id
   );
   const submitter = await db.get<{ id: string; name: string }>(
     'SELECT id, name FROM agents WHERE id = ?', agentId
@@ -729,7 +729,7 @@ tasks.post('/:id/submit', agentAuth, async (c) => {
       task_id: taskId,
       submitted_by: { agent_id: agentId, name: submitter.name },
       summary: parsed.data.summary,
-    });
+    }, creator.webhook_secret);
   }
 
   return c.json({ ok: true, submission_id: submissionId, task_id: taskId, status: 'submitted' });
@@ -840,8 +840,8 @@ tasks.post('/:id/verify', agentAuth, async (c) => {
 
   // Notify claimer via webhook
   if (task.claimed_by_agent_id) {
-    const claimer = await db.get<{ id: string; webhook_url: string | null }>(
-      'SELECT id, webhook_url FROM agents WHERE id = ?', task.claimed_by_agent_id
+    const claimer = await db.get<{ id: string; webhook_url: string | null; webhook_secret: string | null }>(
+      'SELECT id, webhook_url, webhook_secret FROM agents WHERE id = ?', task.claimed_by_agent_id
     );
     if (claimer?.webhook_url) {
       fireWebhook(claimer.webhook_url, {
@@ -852,7 +852,7 @@ tasks.post('/:id/verify', agentAuth, async (c) => {
         chain_entry_hash: chainEntry.entry_hash,
         payment_settled: settlementResult.payment_status === 'settled',
         payment_tx_hash: settlementResult.tx_hash ?? null,
-      });
+      }, claimer.webhook_secret);
     }
   }
 
@@ -930,8 +930,8 @@ tasks.post('/:id/dispute', agentAuth, async (c) => {
 
   // Notify claimer via webhook
   if (task.claimed_by_agent_id) {
-    const claimer = await db.get<{ id: string; webhook_url: string | null }>(
-      'SELECT id, webhook_url FROM agents WHERE id = ?', task.claimed_by_agent_id
+    const claimer = await db.get<{ id: string; webhook_url: string | null; webhook_secret: string | null }>(
+      'SELECT id, webhook_url, webhook_secret FROM agents WHERE id = ?', task.claimed_by_agent_id
     );
     if (claimer?.webhook_url) {
       fireWebhook(claimer.webhook_url, {
@@ -939,7 +939,7 @@ tasks.post('/:id/dispute', agentAuth, async (c) => {
         agent_id: claimer.id,
         task_id: taskId,
         reason,
-      });
+      }, claimer.webhook_secret);
     }
   }
 
@@ -994,15 +994,15 @@ tasks.post('/:id/cancel', agentAuth, async (c) => {
 
   // If was claimed, notify claimer via webhook
   if (task.claimed_by_agent_id) {
-    const claimer = await db.get<{ id: string; webhook_url: string | null }>(
-      'SELECT id, webhook_url FROM agents WHERE id = ?', task.claimed_by_agent_id
+    const claimer = await db.get<{ id: string; webhook_url: string | null; webhook_secret: string | null }>(
+      'SELECT id, webhook_url, webhook_secret FROM agents WHERE id = ?', task.claimed_by_agent_id
     );
     if (claimer?.webhook_url) {
       fireWebhook(claimer.webhook_url, {
         type: 'task.cancelled',
         agent_id: claimer.id,
         task_id: taskId,
-      });
+      }, claimer.webhook_secret);
     }
   }
 
