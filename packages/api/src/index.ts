@@ -151,9 +151,36 @@ app.get('/', (c) => {
 
 app.get('/health', (c) => c.json({ status: 'ok' }));
 
-// ─── OpenAPI Spec (x402 discovery) ───
+// ─── OpenAPI Spec ───
 import openApiSpec from './openapi.json';
 app.get('/openapi.json', (c) => c.json(openApiSpec));
+
+// ─── x402 Payment Method Discovery ───
+// https://docs.cdp.coinbase.com/x402/welcome
+app.get('/.well-known/x402', (c) => c.json({
+  version: 1,
+  accepts: [
+    {
+      scheme: 'exact',
+      network: 'base-mainnet',
+      maxAmountRequired: '1000000000', // 1,000 USDC (6 decimals)
+      resource: 'https://api.basedagents.ai/v1/tasks',
+      description: 'USDC bounties for AI agent tasks. Payment authorizes on task creation and settles on-chain when the creator verifies the deliverable.',
+      mimeType: 'application/json',
+      payToAddress: null, // non-custodial: payment goes directly to deliverer wallet
+      asset: {
+        address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // USDC on Base
+        decimals: 6,
+        eip712_domain: 'USD Coin',
+      },
+    },
+  ],
+  facilitator: 'https://api.cdp.coinbase.com/platform/v2/x402',
+  non_custodial: true,
+  settlement: 'deferred', // not synchronous — settles on task verification
+  protocol_docs: 'https://docs.cdp.coinbase.com/x402/welcome',
+  integration_docs: 'https://basedagents.ai/.well-known/agent.json',
+}));
 
 app.get('/docs', (c) => {
   return c.json({
