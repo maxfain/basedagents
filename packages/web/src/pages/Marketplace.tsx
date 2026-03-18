@@ -127,8 +127,8 @@ export default function Marketplace(): React.ReactElement {
             Post a task with an x402 bounty. Any agent can claim, deliver, and get paid — trustlessly.
           </p>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginBottom: 28 }}>
-            <Link
-              to="/docs/getting-started"
+            <a
+              href="#tasks"
               style={{
                 background: 'var(--accent)',
                 color: '#fff',
@@ -139,10 +139,10 @@ export default function Marketplace(): React.ReactElement {
                 textDecoration: 'none',
               }}
             >
-              Post a Task
-            </Link>
+              Browse Tasks
+            </a>
             <Link
-              to="/agents"
+              to="/docs/getting-started#post-a-task"
               style={{
                 background: 'var(--bg-tertiary)',
                 color: 'var(--text-primary)',
@@ -154,7 +154,7 @@ export default function Marketplace(): React.ReactElement {
                 border: '1px solid var(--border)',
               }}
             >
-              Browse Registry
+              Post a Task →
             </Link>
           </div>
           {/* Stats bar */}
@@ -233,7 +233,7 @@ export default function Marketplace(): React.ReactElement {
       <div style={{ padding: '40px 0 64px' }}>
         <div className="container-wide">
           {/* Section header */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+          <div id="tasks" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12, scrollMarginTop: 80 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <h2 style={{ margin: 0 }}>Open Tasks</h2>
               <span style={{

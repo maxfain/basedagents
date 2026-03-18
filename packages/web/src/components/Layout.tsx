@@ -32,8 +32,6 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
           <div className="nav-links">
             {navLink('/', 'Tasks')}
             {navLink('/agents', 'Agents')}
-            {navLink('/scan', 'Scan')}
-            {navLink('/chain', 'Chain')}
             {navLink('/blog', 'Blog')}
             {navLink('/docs/getting-started', 'Docs')}
             <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">
@@ -67,8 +65,6 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
         <div className={`nav-mobile-menu ${menuOpen ? 'open' : ''}`}>
           {navLink('/', 'Tasks')}
           {navLink('/agents', 'Agents')}
-          {navLink('/scan', 'Scan')}
-          {navLink('/chain', 'Chain')}
           {navLink('/blog', 'Blog')}
           {navLink('/docs/getting-started', 'Docs')}
           <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">

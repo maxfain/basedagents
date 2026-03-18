@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useAgentSearch } from '../hooks';
 import type { SearchParams } from '../api/types';
 import AgentCard from '../components/AgentCard';
@@ -58,6 +59,27 @@ export default function Directory(): React.ReactElement {
       <AgentBanner />
       <div className="container-wide">
         <DemoBanner visible={usingMock} />
+
+        {/* Registry tools */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+          <Link
+            to="/scan"
+            style={{ color: 'var(--text-tertiary)', fontSize: 13, textDecoration: 'none', fontWeight: 500 }}
+            onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
+            onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
+          >
+            Package Scanner →
+          </Link>
+          <span style={{ color: 'var(--border)', fontSize: 13 }}>|</span>
+          <Link
+            to="/chain"
+            style={{ color: 'var(--text-tertiary)', fontSize: 13, textDecoration: 'none', fontWeight: 500 }}
+            onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
+            onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
+          >
+            Chain Explorer →
+          </Link>
+        </div>
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
