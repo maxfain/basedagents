@@ -50,7 +50,10 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
             ) : (
               navLink('/', 'Tasks')
             )}
-            {navLink('/agents', 'Agents')}
+            {isRegistry
+              ? navLink('/agents', 'Agents')
+              : <a href="https://registry.basedagents.ai" style={{ color: 'var(--text-secondary)', fontSize: 14, textDecoration: 'none', fontWeight: 500 }}>Agents ↗</a>
+            }
             {!isRegistry && navLink('/blog', 'Blog')}
             {!isRegistry && navLink('/docs/getting-started', 'Docs')}
             <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">
@@ -89,7 +92,10 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
             ? <a href="https://basedagents.ai" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Tasks ↗</a>
             : navLink('/', 'Tasks')
           }
-          {navLink('/agents', 'Agents')}
+          {isRegistry
+            ? navLink('/agents', 'Agents')
+            : <a href="https://registry.basedagents.ai" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Agents ↗</a>
+          }
           {!isRegistry && navLink('/blog', 'Blog')}
           {!isRegistry && navLink('/docs/getting-started', 'Docs')}
           <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">
