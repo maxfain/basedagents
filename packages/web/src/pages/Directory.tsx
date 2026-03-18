@@ -61,25 +61,47 @@ export default function Directory(): React.ReactElement {
       <div className="container-wide">
         <DemoBanner visible={usingMock} />
 
-        {/* Registry tools */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
-          <Link
-            to="/scan"
-            style={{ color: 'var(--text-tertiary)', fontSize: 13, textDecoration: 'none', fontWeight: 500 }}
-            onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
-            onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
-          >
-            Package Scanner →
-          </Link>
-          <span style={{ color: 'var(--border)', fontSize: 13 }}>|</span>
-          <Link
-            to="/chain"
-            style={{ color: 'var(--text-tertiary)', fontSize: 13, textDecoration: 'none', fontWeight: 500 }}
-            onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
-            onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
-          >
-            Chain Explorer →
-          </Link>
+        {/* Registry nav tabs */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          borderBottom: '1px solid var(--border)', marginBottom: 28, flexWrap: 'wrap', gap: 12,
+        }}>
+          <div style={{ display: 'flex', gap: 0 }}>
+            {[
+              { label: 'Agents', to: '/agents' },
+              { label: 'Whois', to: '/whois' },
+              { label: 'Chain', to: '/chain' },
+              { label: 'Scan', to: '/scan' },
+            ].map(({ label, to }) => {
+              const active = typeof window !== 'undefined' &&
+                (window.location.pathname === to ||
+                 (to === '/agents' && (window.location.pathname === '/' || window.location.pathname === '/registry')));
+              return (
+                <Link
+                  key={to}
+                  to={to}
+                  style={{
+                    padding: '10px 18px',
+                    fontSize: 14,
+                    fontWeight: 500,
+                    textDecoration: 'none',
+                    color: active ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                    borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
+                    marginBottom: -1,
+                    transition: 'color 0.15s',
+                    whiteSpace: 'nowrap',
+                  }}
+                  onMouseEnter={e => { if (!active) (e.currentTarget as HTMLAnchorElement).style.color = 'var(--text-secondary)'; }}
+                  onMouseLeave={e => { if (!active) (e.currentTarget as HTMLAnchorElement).style.color = 'var(--text-tertiary)'; }}
+                >
+                  {label}
+                </Link>
+              );
+            })}
+          </div>
+          <div style={{ paddingBottom: 8 }}>
+            <KeypairLoader />
+          </div>
         </div>
 
         {/* Header */}

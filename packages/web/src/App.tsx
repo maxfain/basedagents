@@ -19,13 +19,17 @@ import Scan from './pages/Scan';
 import ScanList from './pages/ScanList';
 import { AgentAuthProvider } from './hooks/useAgentAuth';
 
+const isRegistrySubdomain =
+  typeof window !== 'undefined' &&
+  window.location.hostname.startsWith('registry.');
+
 export default function App(): React.ReactElement {
   return (
     <AgentAuthProvider>
     <BrowserRouter>
       <Layout>
         <Routes>
-          <Route path="/" element={<Marketplace />} />
+          <Route path="/" element={isRegistrySubdomain ? <Directory /> : <Marketplace />} />
           <Route path="/tasks" element={<Marketplace />} />
           <Route path="/tasks/:id" element={<TaskDetail />} />
           <Route path="/agents" element={<Directory />} />
