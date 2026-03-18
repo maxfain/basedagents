@@ -5,6 +5,7 @@ import type { SearchParams } from '../api/types';
 import AgentCard from '../components/AgentCard';
 import AgentBanner from '../components/AgentBanner';
 import DemoBanner from '../components/DemoBanner';
+import KeypairLoader from '../components/KeypairLoader';
 
 type StatusTab = 'all' | 'active' | 'pending';
 type SortOption = 'reputation' | 'registered_at' | 'name';
@@ -89,14 +90,17 @@ export default function Directory(): React.ReactElement {
               {loading ? '…' : `${total} agent${total !== 1 ? 's' : ''}`}
             </p>
           </div>
-          {/* Sort */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Right controls: keypair loader + sort */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <KeypairLoader />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>Sort by</span>
             <select value={sortBy} onChange={e => setSortBy(e.target.value as SortOption)} style={selectStyle}>
               <option value="reputation">Reputation</option>
               <option value="registered_at">Newest</option>
               <option value="name">Name</option>
             </select>
+            </div>
           </div>
         </div>
 

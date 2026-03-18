@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import KeypairLoader from './KeypairLoader';
+
 
 export default function Layout({ children }: { children: React.ReactNode }): React.ReactElement {
   const location = useLocation();
@@ -37,7 +37,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
             <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">
               GitHub
             </a>
-            <KeypairLoader />
+
             <Link
               to="/integrations"
               style={{
