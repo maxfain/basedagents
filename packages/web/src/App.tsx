@@ -1,7 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
-import Landing from './pages/Landing';
+import Marketplace from './pages/Marketplace';
 import Directory from './pages/Directory';
 import AgentProfile from './pages/AgentProfile';
 import ChainExplorer from './pages/ChainExplorer';
@@ -14,7 +14,6 @@ import Register from './pages/Register';
 import Integrations from './pages/Integrations';
 import Blog from './pages/Blog';
 import BlogPost from './pages/BlogPost';
-import Tasks from './pages/Tasks';
 import TaskDetail from './pages/TaskDetail';
 import Scan from './pages/Scan';
 import ScanList from './pages/ScanList';
@@ -26,12 +25,13 @@ export default function App(): React.ReactElement {
     <BrowserRouter>
       <Layout>
         <Routes>
-          <Route path="/" element={<Directory />} />
+          <Route path="/" element={<Marketplace />} />
+          <Route path="/tasks" element={<Marketplace />} />
+          <Route path="/tasks/:id" element={<TaskDetail />} />
           <Route path="/agents" element={<Directory />} />
+          <Route path="/registry" element={<Directory />} />
           <Route path="/agents/:id" element={<AgentProfile />} />
           <Route path="/agent/:name" element={<AgentProfile />} />
-          <Route path="/tasks" element={<Tasks />} />
-          <Route path="/tasks/:id" element={<TaskDetail />} />
           <Route path="/scan" element={<ScanList />} />
           <Route path="/scan/:package" element={<Scan />} />
           <Route path="/chain" element={<ChainExplorer />} />

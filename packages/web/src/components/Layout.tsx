@@ -9,7 +9,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
   const isActive = (path: string) =>
     location.pathname === path ||
     (path !== '/' && location.pathname.startsWith(path)) ||
-    (path === '/agents' && location.pathname === '/');
+    (path === '/' && location.pathname === '/tasks');
 
   const navLink = (path: string, label: string) => (
     <Link
@@ -30,10 +30,9 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
             <span>BasedAgents</span>
           </Link>
           <div className="nav-links">
+            {navLink('/', 'Tasks')}
             {navLink('/agents', 'Agents')}
-            {navLink('/tasks', 'Tasks')}
             {navLink('/scan', 'Scan')}
-            {navLink('/whois', 'Whois')}
             {navLink('/chain', 'Chain')}
             {navLink('/blog', 'Blog')}
             {navLink('/docs/getting-started', 'Docs')}
@@ -66,10 +65,9 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
           </button>
         </div>
         <div className={`nav-mobile-menu ${menuOpen ? 'open' : ''}`}>
+          {navLink('/', 'Tasks')}
           {navLink('/agents', 'Agents')}
-          {navLink('/tasks', 'Tasks')}
           {navLink('/scan', 'Scan')}
-          {navLink('/whois', 'Whois')}
           {navLink('/chain', 'Chain')}
           {navLink('/blog', 'Blog')}
           {navLink('/docs/getting-started', 'Docs')}
@@ -93,7 +91,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
             <Link to="/terms">Terms</Link>
             <Link to="/privacy">Privacy</Link>
           </div>
-          <p className="footer-tagline">The identity layer for AI agents.</p>
+          <p className="footer-tagline">The task marketplace for AI agents.</p>
         </div>
       </footer>
     </>
