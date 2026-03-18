@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
 
+const isRegistry = typeof window !== 'undefined' && window.location.hostname.startsWith('registry.');
+
 export default function Layout({ children }: { children: React.ReactNode }): React.ReactElement {
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -25,53 +27,76 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
     <>
       <nav className="nav">
         <div className="nav-inner">
-          <Link to="/" className="nav-logo">
-            <span className="nav-logo-mark">&lt;&gt;</span>
-            <span>BasedAgents</span>
-          </Link>
+          {isRegistry ? (
+            <a href="https://registry.basedagents.ai" className="nav-logo">
+              <span className="nav-logo-mark">&lt;&gt;</span>
+              <span>BasedAgents Registry</span>
+            </a>
+          ) : (
+            <Link to="/" className="nav-logo">
+              <span className="nav-logo-mark">&lt;&gt;</span>
+              <span>BasedAgents</span>
+            </Link>
+          )}
           <div className="nav-links">
-            {navLink('/', 'Tasks')}
+            {isRegistry ? (
+              // Registry subdomain nav — Tasks goes to main site
+              <a
+                href="https://basedagents.ai"
+                style={{ color: 'var(--text-secondary)', fontSize: 14, textDecoration: 'none', fontWeight: 500 }}
+              >
+                Tasks ↗
+              </a>
+            ) : (
+              navLink('/', 'Tasks')
+            )}
             {navLink('/agents', 'Agents')}
-            {navLink('/blog', 'Blog')}
-            {navLink('/docs/getting-started', 'Docs')}
+            {!isRegistry && navLink('/blog', 'Blog')}
+            {!isRegistry && navLink('/docs/getting-started', 'Docs')}
             <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">
               GitHub
             </a>
-
-            <Link
-              to="/integrations"
-              style={{
-                color: 'var(--text-secondary)', fontSize: 14,
-                textDecoration: 'none', fontWeight: 500,
-              }}
-            >
-              Integrations
-            </Link>
-            <Link
-              to="/docs/getting-started#post-a-task"
-              style={{
-                background: 'var(--accent)', color: '#fff',
-                padding: '6px 14px', borderRadius: 6,
-                fontWeight: 600, fontSize: 14, textDecoration: 'none',
-              }}
-            >
-              Post a Task
-            </Link>
+            {!isRegistry && (
+              <Link
+                to="/integrations"
+                style={{
+                  color: 'var(--text-secondary)', fontSize: 14,
+                  textDecoration: 'none', fontWeight: 500,
+                }}
+              >
+                Integrations
+              </Link>
+            )}
+            {!isRegistry && (
+              <Link
+                to="/docs/getting-started#post-a-task"
+                style={{
+                  background: 'var(--accent)', color: '#fff',
+                  padding: '6px 14px', borderRadius: 6,
+                  fontWeight: 600, fontSize: 14, textDecoration: 'none',
+                }}
+              >
+                Post a Task
+              </Link>
+            )}
           </div>
           <button className="nav-hamburger" onClick={() => setMenuOpen(!menuOpen)}>
             {menuOpen ? '✕' : '☰'}
           </button>
         </div>
         <div className={`nav-mobile-menu ${menuOpen ? 'open' : ''}`}>
-          {navLink('/', 'Tasks')}
+          {isRegistry
+            ? <a href="https://basedagents.ai" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Tasks ↗</a>
+            : navLink('/', 'Tasks')
+          }
           {navLink('/agents', 'Agents')}
-          {navLink('/blog', 'Blog')}
-          {navLink('/docs/getting-started', 'Docs')}
+          {!isRegistry && navLink('/blog', 'Blog')}
+          {!isRegistry && navLink('/docs/getting-started', 'Docs')}
           <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">
             GitHub
           </a>
-          {navLink('/integrations', 'Integrations')}
-          {navLink('/docs/getting-started#post-a-task', 'Post a Task')}
+          {!isRegistry && navLink('/integrations', 'Integrations')}
+          {!isRegistry && navLink('/docs/getting-started#post-a-task', 'Post a Task')}
         </div>
       </nav>
 

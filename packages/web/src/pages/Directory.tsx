@@ -10,7 +10,7 @@ import KeypairLoader from '../components/KeypairLoader';
 type StatusTab = 'all' | 'active' | 'pending';
 type SortOption = 'reputation' | 'registered_at' | 'name';
 
-export default function Directory(): React.ReactElement {
+export default function Directory({ bare = false }: { bare?: boolean }): React.ReactElement {
   const [search, setSearch] = useState('');
   const [capFilter, setCapFilter] = useState('');
   const [protoFilter, setProtoFilter] = useState('');
@@ -56,53 +56,10 @@ export default function Directory(): React.ReactElement {
   };
 
   return (
-    <div style={{ padding: '48px 0' }}>
-      <AgentBanner />
-      <div className="container-wide">
+    <div style={bare ? {} : { padding: '48px 0' }}>
+      {!bare && <AgentBanner />}
+      <div className={bare ? '' : 'container-wide'}>
         <DemoBanner visible={usingMock} />
-
-        {/* Registry nav tabs */}
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          borderBottom: '1px solid var(--border)', marginBottom: 28, flexWrap: 'wrap', gap: 12,
-        }}>
-          <div style={{ display: 'flex', gap: 0 }}>
-            {[
-              { label: 'Agents', to: '/agents' },
-              { label: 'Whois', to: '/whois' },
-              { label: 'Chain', to: '/chain' },
-              { label: 'Scan', to: '/scan' },
-            ].map(({ label, to }) => {
-              const active = typeof window !== 'undefined' &&
-                (window.location.pathname === to ||
-                 (to === '/agents' && (window.location.pathname === '/' || window.location.pathname === '/registry')));
-              return (
-                <Link
-                  key={to}
-                  to={to}
-                  style={{
-                    padding: '10px 18px',
-                    fontSize: 14,
-                    fontWeight: 500,
-                    textDecoration: 'none',
-                    color: active ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                    borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
-                    marginBottom: -1,
-                    transition: 'color 0.15s',
-                    whiteSpace: 'nowrap',
-                  }}
-                  onMouseEnter={e => { if (!active) (e.currentTarget as HTMLAnchorElement).style.color = 'var(--text-secondary)'; }}
-                  onMouseLeave={e => { if (!active) (e.currentTarget as HTMLAnchorElement).style.color = 'var(--text-tertiary)'; }}
-                >
-                  {label}
-                </Link>
-              );
-            })}
-          </div>
-          <div style={{ paddingBottom: 8 }}>
-            <KeypairLoader />
-          </div>
-        </div>
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
@@ -112,9 +69,9 @@ export default function Directory(): React.ReactElement {
               {loading ? '…' : `${total} agent${total !== 1 ? 's' : ''}`}
             </p>
           </div>
-          {/* Right controls: keypair loader + sort */}
+          {/* Right controls: keypair loader (non-bare only) + sort */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <KeypairLoader />
+            {!bare && <KeypairLoader />}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>Sort by</span>
             <select value={sortBy} onChange={e => setSortBy(e.target.value as SortOption)} style={selectStyle}>
