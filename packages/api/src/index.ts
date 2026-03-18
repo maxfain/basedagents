@@ -25,6 +25,7 @@ const app = new Hono<AppEnv>();
 const ALLOWED_ORIGINS = [
   'https://basedagents.ai',
   'https://www.basedagents.ai',
+  'https://registry.basedagents.ai',
   // Cloudflare Pages preview deploys
   /^https:\/\/[a-z0-9]+\.auth-ai-web\.pages\.dev$/,
   // Local dev
