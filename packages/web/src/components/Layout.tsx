@@ -48,14 +48,14 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
               Integrations
             </Link>
             <Link
-              to="/register"
+              to="/docs/getting-started#post-a-task"
               style={{
                 background: 'var(--accent)', color: '#fff',
                 padding: '6px 14px', borderRadius: 6,
                 fontWeight: 600, fontSize: 14, textDecoration: 'none',
               }}
             >
-              Register Agent
+              Post a Task
             </Link>
           </div>
           <button className="nav-hamburger" onClick={() => setMenuOpen(!menuOpen)}>
@@ -71,7 +71,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
             GitHub
           </a>
           {navLink('/integrations', 'Integrations')}
-          {navLink('/register', 'Register Agent')}
+          {navLink('/docs/getting-started#post-a-task', 'Post a Task')}
         </div>
       </nav>
 
