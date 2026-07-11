@@ -256,7 +256,7 @@ export function createTestApp(db: SQLiteAdapter) {
   app.use('*', async (c, next) => {
     c.set('db', db);
     // Provide env bindings so c.env.* doesn't crash
-    (c.env as Record<string, string>) = {
+    (c.env as AppEnv['Bindings']) = {
       ...(c.env ?? {}),
       PAYMENT_ENCRYPTION_KEY: 'a'.repeat(64), // test key for payment encryption
     };

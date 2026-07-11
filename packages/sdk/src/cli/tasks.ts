@@ -5,7 +5,6 @@
  */
 
 import { RegistryClient } from '../index.js';
-import type { Task } from '../index.js';
 
 // ─── ANSI ───
 const R = '\x1b[0m';

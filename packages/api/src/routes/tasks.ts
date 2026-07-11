@@ -1,10 +1,11 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../types/index.js';
+import type { DBAdapter } from '../db/adapter.js';
 import { CreateTaskSchema, SubmitDeliverableSchema, DeliverTaskSchema, TaskQuerySchema } from '../types/index.js';
 import type { PaymentStatus } from '../types/index.js';
 import { agentAuth } from '../middleware/auth.js';
 import { fireWebhook } from '../lib/webhooks.js';
-import { computeChainHash, hashProfile, GENESIS_HASH, sha256, bytesToHex, canonicalJsonStringify } from '../crypto/index.js';
+import { computeChainHash, GENESIS_HASH, sha256, bytesToHex, canonicalJsonStringify } from '../crypto/index.js';
 import { computeReputation } from '../reputation/calculator.js';
 import { CdpPaymentProvider } from '../payments/cdp-provider.js';
 import { encryptPaymentSignature, decryptPaymentSignature } from '../payments/crypto.js';
@@ -58,7 +59,7 @@ function canonicalJson(obj: Record<string, unknown>): string {
  * Log a payment event to the audit table.
  */
 async function logPaymentEvent(
-  db: any,
+  db: DBAdapter,
   taskId: string,
   eventType: string,
   details?: Record<string, unknown>
@@ -76,13 +77,7 @@ async function logPaymentEvent(
  * Create a chain entry for task events (task_delivered, task_verified, task_payment_settled).
  */
 async function createTaskChainEntry(
-  db: ReturnType<Hono<AppEnv>['request']> extends Promise<infer _> ? never : never,
-  agentId: string,
-  entryType: string,
-  dataHash: string,
-): Promise<{ sequence: number; entry_hash: string }>;
-async function createTaskChainEntry(
-  db: any,
+  db: DBAdapter,
   agentId: string,
   entryType: string,
   dataHash: string,
@@ -971,8 +966,6 @@ tasks.post('/:id/dispute', agentAuth, async (c) => {
   let body: Record<string, unknown> = {};
   try { body = JSON.parse(await c.req.text()) as Record<string, unknown>; } catch { /* no body required */ }
   const reason = typeof body.reason === 'string' ? body.reason : null;
-
-  const now = new Date().toISOString();
 
   // Update payment status to disputed if there's an authorized payment
   if (task.payment_status === 'authorized') {

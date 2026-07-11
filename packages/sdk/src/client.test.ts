@@ -5,10 +5,7 @@ import {
   publicKeyToAgentId,
   type Agent,
   type ReputationBreakdown,
-  type Task,
   type WalletInfo,
-  type TaskPayment,
-  type PaymentEvent,
 } from './index.js';
 
 // ─── Helpers ───
@@ -87,7 +84,7 @@ describe('RegistryClient', () => {
       mockFetch.mockResolvedValueOnce(makeMockResponse(payload));
 
       const client = new RegistryClient('https://api.test.local');
-      const result = await client.searchAgents({});
+      await client.searchAgents({});
 
       expect(mockFetch).toHaveBeenCalledOnce();
       const [url] = mockFetch.mock.calls[0];
@@ -271,7 +268,7 @@ describe('RegistryClient', () => {
       mockFetch.mockResolvedValueOnce(makeMockResponse(responsePayload));
 
       const client = new RegistryClient('https://api.test.local');
-      const result = await client.submitVerification(kp, {
+      await client.submitVerification(kp, {
         assignment_id: 'a_123',
         target_id: 'ag_target',
         result: 'pass',

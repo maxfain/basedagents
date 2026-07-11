@@ -289,7 +289,7 @@ export function validate(filePath: string): ValidateResult {
   // 3. Schema validation
   const ajv = new Ajv({ allErrors: true, strict: false });
   addFormats(ajv as Parameters<typeof addFormats>[0]);
-  const valid = ajv.validate(SCHEMA, manifest);
+  ajv.validate(SCHEMA, manifest);
   const errors = ajv.errors ?? [];
 
   console.log('');

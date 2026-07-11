@@ -72,7 +72,17 @@ async function buildVerificationBody(
 
   // Build the signed fields — must match the server's reconstruction order.
   // All fields including structured_report are covered by the inner signature (M4).
-  const signedFields: Record<string, unknown> = {
+  const signedFields: {
+    assignment_id: string;
+    target_id: string;
+    result: 'pass' | 'fail' | 'timeout';
+    nonce: string;
+    timestamp: string;
+    coherence_score?: number;
+    notes?: string;
+    response_time_ms?: number;
+    structured_report?: Record<string, unknown>;
+  } = {
     assignment_id: assignmentId,
     target_id: targetId,
     result,
@@ -300,7 +310,7 @@ describe('POST /v1/verify/submit', () => {
 
     // fetch should have been called with the webhook URL
     const webhookCalls = mockFetch.mock.calls.filter(
-      ([url]: [string]) => url === 'https://webhook.example.com/events'
+      ([url]: string[]) => url === 'https://webhook.example.com/events'
     );
     expect(webhookCalls.length).toBeGreaterThan(0);
   });

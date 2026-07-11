@@ -168,7 +168,7 @@ describe('Task Marketplace', () => {
     });
 
     it('notifies matching agents via webhook on create', async () => {
-      const matchingAgent = await createTestAgent(db, {
+      await createTestAgent(db, {
         status: 'active',
         capabilities: ['research'],
         webhookUrl: 'https://webhook.example.com/tasks',
@@ -190,7 +190,7 @@ describe('Task Marketplace', () => {
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(
-        ([url]: [string]) => url === 'https://webhook.example.com/tasks'
+        ([url]: string[]) => url === 'https://webhook.example.com/tasks'
       );
       expect(webhookCalls.length).toBe(1);
       const webhookBody = JSON.parse(webhookCalls[0][1].body);
@@ -418,7 +418,7 @@ describe('Task Marketplace', () => {
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(
-        ([url]: [string]) => url === 'https://creator-webhook.example.com/events'
+        ([url]: string[]) => url === 'https://creator-webhook.example.com/events'
       );
       expect(webhookCalls.length).toBeGreaterThan(0);
       const lastCall = webhookCalls[webhookCalls.length - 1];
@@ -495,9 +495,9 @@ describe('Task Marketplace', () => {
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(
-        ([url]: [string]) => url === 'https://creator-webhook.example.com/events'
+        ([url]: string[]) => url === 'https://creator-webhook.example.com/events'
       );
-      const submitCalls = webhookCalls.filter(([, opts]: [string, { body: string }]) => {
+      const submitCalls = webhookCalls.filter(([, opts]) => {
         const b = JSON.parse(opts.body);
         return b.type === 'task.submitted';
       });
@@ -576,9 +576,9 @@ describe('Task Marketplace', () => {
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(
-        ([url]: [string]) => url === 'https://claimer-webhook.example.com/events'
+        ([url]: string[]) => url === 'https://claimer-webhook.example.com/events'
       );
-      const verifyCalls = webhookCalls.filter(([, opts]: [string, { body: string }]) => {
+      const verifyCalls = webhookCalls.filter(([, opts]) => {
         const b = JSON.parse(opts.body);
         return b.type === 'task.verified';
       });
@@ -655,9 +655,9 @@ describe('Task Marketplace', () => {
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(
-        ([url]: [string]) => url === 'https://claimer-webhook.example.com/events'
+        ([url]: string[]) => url === 'https://claimer-webhook.example.com/events'
       );
-      const cancelCalls = webhookCalls.filter(([, opts]: [string, { body: string }]) => {
+      const cancelCalls = webhookCalls.filter(([, opts]) => {
         const b = JSON.parse(opts.body);
         return b.type === 'task.cancelled';
       });
@@ -826,9 +826,9 @@ describe('Task Marketplace', () => {
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(
-        ([url]: [string]) => url === 'https://creator-webhook.example.com/events'
+        ([url]: string[]) => url === 'https://creator-webhook.example.com/events'
       );
-      const deliverCalls = webhookCalls.filter(([, opts]: [string, { body: string }]) => {
+      const deliverCalls = webhookCalls.filter(([, opts]) => {
         const b = JSON.parse(opts.body);
         return b.type === 'task.delivered';
       });
@@ -919,9 +919,9 @@ describe('Task Marketplace', () => {
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(
-        ([url]: [string]) => url === 'https://claimer-webhook.example.com/events'
+        ([url]: string[]) => url === 'https://claimer-webhook.example.com/events'
       );
-      const verifyCalls = webhookCalls.filter(([, opts]: [string, { body: string }]) => {
+      const verifyCalls = webhookCalls.filter(([, opts]) => {
         const b = JSON.parse(opts.body);
         return b.type === 'task.verified';
       });

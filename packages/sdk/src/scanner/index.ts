@@ -519,7 +519,7 @@ export interface ScanOptions {
   apiUrl?: string;
 }
 
-export async function scan(packageSpec: string, options: ScanOptions = {}): Promise<ScanReport> {
+export async function scan(packageSpec: string, _options: ScanOptions = {}): Promise<ScanReport> {
   const tmpDir = `/tmp/basedagents-scan-${Date.now()}-${randomBytes(8).toString('hex')}`;
 
   try {
@@ -553,7 +553,6 @@ export async function scan(packageSpec: string, options: ScanOptions = {}): Prom
       throw err;
     }
 
-    const tarballSize = fs.statSync(tarballPath).size;
 
     // 2. Extract tarball
     const extractDir = path.join(tmpDir, 'extracted');

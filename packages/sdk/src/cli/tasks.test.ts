@@ -4,7 +4,7 @@
  * Tests that --status and --category flags validate against allowlists
  * and that the CLI exits with code 1 on invalid values.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 // We test the argument parsing logic extracted from tasks.ts
 // by checking the allowlists and validation behaviour.

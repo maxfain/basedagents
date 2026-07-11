@@ -11,12 +11,9 @@ import {
   createTestApp,
   createTestAgent,
   signRequest,
-  makeEligibleVerifier,
 } from '../test-helpers.js';
 import type { SQLiteAdapter } from '../db/sqlite-adapter.js';
 import type { TestKeypair } from '../test-helpers.js';
-import { canonicalJsonStringify } from '../crypto/index.js';
-import { sign } from '@noble/ed25519';
 
 // Mock twitter
 vi.mock('../lib/twitter.js', () => ({
@@ -241,9 +238,6 @@ describe('E2E Smoke — Full Agent Lifecycle', () => {
     expect(getData.wallet_network).toBe('eip155:8453');
 
     // Set wallet
-    const setBody = JSON.stringify({
-      wallet_address: '0xSmokeTest1234567890abcdef1234567890abcd'.toLowerCase().replace('0xsmoketest', '0x1234abcd'),
-    });
     // Use a valid checksummed address
     const validAddress = '0xabcdef1234567890abcdef1234567890abcdef12';
     const patchBody = JSON.stringify({ wallet_address: validAddress });

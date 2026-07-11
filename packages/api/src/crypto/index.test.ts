@@ -11,7 +11,6 @@ import {
   agentIdToPublicKey,
   verifySignature,
   GENESIS_HASH,
-  bytesToHex,
   sha256,
 } from './index.js';
 

@@ -9,7 +9,7 @@ import { createInterface } from 'readline';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import { generateKeypair, serializeKeypair, publicKeyToAgentId } from '../index.js';
+import { generateKeypair, serializeKeypair } from '../index.js';
 import { RegistryClient } from '../index.js';
 
 // ─── ANSI ───
@@ -17,7 +17,6 @@ const R = '\x1b[0m';
 const bold   = (s: string) => `\x1b[1m${s}${R}`;
 const dim    = (s: string) => `\x1b[2m${s}${R}`;
 const red    = (s: string) => `\x1b[31m${s}${R}`;
-const yellow = (s: string) => `\x1b[33m${s}${R}`;
 const green  = (s: string) => `\x1b[32m${s}${R}`;
 const cyan   = (s: string) => `\x1b[36m${s}${R}`;
 
@@ -150,7 +149,6 @@ export async function init(args: string[]): Promise<void> {
     console.log('');
     process.stdout.write('  Generating Ed25519 keypair...');
     const keypair = await generateKeypair();
-    const agentId = publicKeyToAgentId(keypair.publicKey);
     console.log(` ${green('✓')}`);
 
     // ── Register ──

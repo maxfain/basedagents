@@ -133,7 +133,7 @@ export const DeliverTaskSchema = z.object({
 });
 
 export const TaskQuerySchema = z.object({
-  status: z.enum(['open', 'claimed', 'submitted', 'verified', 'closed', 'cancelled']).optional(),
+  status: z.enum(['open', 'claimed', 'submitted', 'verified', 'closed', 'cancelled', 'all']).optional(),
   category: z.enum(['research', 'code', 'content', 'data', 'automation']).optional(),
   capability: z.string().optional(),
   limit: z.number().int().min(1).max(100).optional(),
@@ -360,6 +360,7 @@ export type Bindings = {
   // x402 payment integration
   PAYMENT_ENCRYPTION_KEY?: string; // hex-encoded 32-byte AES-256 key
   CDP_API_KEY?: string;            // CDP API key for facilitator calls
+  GITHUB_TOKEN?: string;           // raises GitHub API rate limits for repo scans
 };
 
 /** Hono env type combining Bindings and Variables */

@@ -128,7 +128,7 @@ probe.post('/:id/probe', async (c) => {
     body = text || null;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   return c.json({
     ok: agentRes.ok,
     response_time_ms: responseTimeMs,

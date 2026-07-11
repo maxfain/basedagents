@@ -1,6 +1,6 @@
-import type { Context, Next } from 'hono';
+import { createMiddleware } from 'hono/factory';
 import { sha256, bytesToHex, verifySignature, base58Decode, publicKeyToAgentId } from '../crypto/index.js';
-import type { DBAdapter } from '../db/adapter.js';
+import type { AppEnv } from '../types/index.js';
 
 /**
  * AgentSig authentication middleware.
@@ -15,7 +15,7 @@ import type { DBAdapter } from '../db/adapter.js';
  *
  * Sets c.set('agentId', ...) and c.set('publicKey', ...) on success.
  */
-export async function agentAuth(c: Context, next: Next): Promise<Response | void> {
+export const agentAuth = createMiddleware<AppEnv>(async (c, next) => {
   const authHeader = c.req.header('Authorization');
 
   if (!authHeader?.startsWith('AgentSig ')) {
@@ -92,7 +92,7 @@ export async function agentAuth(c: Context, next: Next): Promise<Response | void
   }
 
   // Replay protection: check if this signature has been used before
-  const db = c.get('db') as DBAdapter;
+  const db = c.get('db');
   const sigHash = bytesToHex(sha256(signature));
 
   // Cleanup expired signatures
@@ -125,7 +125,7 @@ export async function agentAuth(c: Context, next: Next): Promise<Response | void
   c.set('agentStatus', agent.status);
 
   await next();
-}
+});
 
 /**
  * Optional auth — sets agent context ONLY if signature fully verifies.
@@ -136,7 +136,7 @@ export async function agentAuth(c: Context, next: Next): Promise<Response | void
  * so subsequent calls to c.req.text() / c.req.json() return the same cached result.
  * This means reading the body here does not interfere with downstream handlers.
  */
-export async function optionalAuth(c: Context, next: Next): Promise<void> {
+export const optionalAuth = createMiddleware<AppEnv>(async (c, next) => {
   const authHeader = c.req.header('Authorization');
 
   if (authHeader?.startsWith('AgentSig ')) {
@@ -176,7 +176,7 @@ export async function optionalAuth(c: Context, next: Next): Promise<void> {
 
       // Only set context after full verification
       const agentId = publicKeyToAgentId(publicKey);
-      const db = c.get('db') as DBAdapter;
+      const db = c.get('db');
       if (db) {
         const agent = await db.get<{ id: string; status: string }>('SELECT id, status FROM agents WHERE id = ?', agentId);
         if (agent) {
@@ -191,4 +191,4 @@ export async function optionalAuth(c: Context, next: Next): Promise<void> {
   }
 
   await next();
-}
+});

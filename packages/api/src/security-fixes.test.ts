@@ -279,7 +279,6 @@ describe('MED-6: webhook_secret generated on profile update', () => {
 describe('MED-8: scan source validation', () => {
   let db: SQLiteAdapter;
   let app: InstanceType<typeof Hono<AppEnv>>;
-  let agent: Awaited<ReturnType<typeof createTestAgent>>;
 
   beforeEach(async () => {
     db = setupTestDb();
@@ -300,13 +299,13 @@ describe('MED-8: scan source validation', () => {
     app = new Hono<AppEnv>();
     app.use('*', async (c, next) => {
       c.set('db', db);
-      (c.env as Record<string, string>) = { ...(c.env ?? {}) };
+      (c.env as AppEnv['Bindings']) = { ...(c.env ?? {}) };
       await next();
     });
     app.route('/v1/scan', scanRoutes);
 
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
-    agent = await createTestAgent(db, { status: 'active' });
+    await createTestAgent(db, { status: 'active' });
   });
 
   afterEach(() => {
@@ -485,7 +484,6 @@ describe('HIGH-4: readAll enforces decompressed size limit', () => {
     });
 
     const drain = async () => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       for await (const _entry of parseTar(stream, smallLimit)) { /* drain */ }
     };
     await expect(drain()).rejects.toThrow('TARBALL_TOO_LARGE');

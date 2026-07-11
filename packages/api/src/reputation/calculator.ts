@@ -24,7 +24,6 @@
 import type { DBAdapter } from '../db/adapter.js';
 
 const DECAY_CONSTANT = 60; // half-life ~42 days
-const MIN_VERIFIER_REP = 0.10; // verifiers below this threshold get reduced weight (Phase 2: EigenTrust)
 
 interface VerificationRow {
   result: 'pass' | 'fail' | 'timeout';

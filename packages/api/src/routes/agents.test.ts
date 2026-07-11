@@ -225,7 +225,7 @@ describe('PATCH /v1/agents/:id/profile', () => {
   });
 
   it('name already taken → 409', async () => {
-    const other = await createTestAgent(db, { name: 'OtherAgent', status: 'active' });
+    await createTestAgent(db, { name: 'OtherAgent', status: 'active' });
 
     const patch = { name: 'OtherAgent' }; // same name as other agent
     const bodyStr = JSON.stringify(patch);

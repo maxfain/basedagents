@@ -4,7 +4,7 @@
  * Tests the keypair serialization/deserialization used by the CLI,
  * simulating the multi-keypair selection logic from wallet.ts.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { generateKeypair, serializeKeypair, deserializeKeypair, publicKeyToAgentId } from '../index.js';
 
 describe('loadKeypair — keypair round-trip (NEW-2)', () => {

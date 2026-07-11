@@ -58,32 +58,6 @@ async function getKeypair() {
 function sha256hex(data) {
     return createHash('sha256').update(data).digest('hex');
 }
-// Base58 alphabet (Bitcoin)
-const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-function base58Decode(str) {
-    let num = 0n;
-    for (const c of str) {
-        const idx = B58.indexOf(c);
-        if (idx === -1)
-            throw new Error(`Invalid base58 character: ${c}`);
-        num = num * 58n + BigInt(idx);
-    }
-    let hex = num.toString(16);
-    if (hex.length % 2)
-        hex = '0' + hex;
-    let leadingZeros = 0;
-    for (const c of str) {
-        if (c === '1')
-            leadingZeros++;
-        else
-            break;
-    }
-    const bytes = new Uint8Array(leadingZeros + hex.length / 2);
-    for (let i = 0; i < hex.length; i += 2) {
-        bytes[leadingZeros + i / 2] = parseInt(hex.slice(i, i + 2), 16);
-    }
-    return bytes;
-}
 async function signRequest(kp, method, path, body) {
     const timestamp = String(Math.floor(Date.now() / 1000));
     const bodyHash = sha256hex(body);

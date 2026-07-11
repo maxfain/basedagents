@@ -87,7 +87,7 @@ describe('A2A Messaging', () => {
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(
-        ([url]: [string]) => url === 'https://webhook.example.com/events'
+        ([url]: string[]) => url === 'https://webhook.example.com/events'
       );
       expect(webhookCalls.length).toBe(1);
       const webhookBody = JSON.parse(webhookCalls[0][1].body);
@@ -265,7 +265,7 @@ describe('A2A Messaging', () => {
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(
-        ([url]: [string]) => url === 'https://sender-webhook.example.com/events'
+        ([url]: string[]) => url === 'https://sender-webhook.example.com/events'
       );
       expect(webhookCalls.length).toBeGreaterThan(0);
       const webhookBody = JSON.parse(webhookCalls[webhookCalls.length - 1][1].body);

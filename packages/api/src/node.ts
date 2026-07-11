@@ -19,7 +19,6 @@ const sqliteDb = initDatabase(dbPath);
 
 // Inject the adapter into the app's middleware
 // We do this by setting a module-level ref that index.ts checks
-import type { DBAdapter } from './db/adapter.js';
 
 // @ts-expect-error — reaching into app internals for local dev
 app._nodeAdapter = new SQLiteAdapter(sqliteDb);

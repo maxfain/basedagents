@@ -328,10 +328,6 @@ register.post('/complete', async (c) => {
     entryHash
   );
 
-  // 8. Determine first verification assignment
-  const activeCount = await db.get<{ count: number }>(
-    "SELECT COUNT(*) as count FROM agents WHERE status = 'active'"
-  );
 
   const profileUrl = `https://basedagents.ai/agent/${encodeURIComponent(profile.name)}`;
   const badgeUrl = `https://api.basedagents.ai/v1/agents/${agentId}/badge`;

@@ -10,8 +10,8 @@
   "scripts": {
     "build": "npm run build --workspaces",
     "typecheck": "tsc --build",
-    "lint": "eslint packages/*/src/**/*.ts",
-    "test": "vitest run",
+    "lint": "eslint .",
+    "test": "npm run test --workspaces --if-present",
     "dev:api": "npm run dev --workspace=packages/api",
     "dev:web": "npm run dev --workspace=packages/web"
   },
@@ -21,8 +21,5 @@
     "eslint": "^9.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
-  },
-  "dependencies": {
-    "basedagents": "^0.1.2"
   }
 }

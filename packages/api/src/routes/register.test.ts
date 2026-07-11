@@ -1,9 +1,8 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { getPublicKey, sign, utils } from '@noble/ed25519';
 import {
   setupTestDb,
   createTestApp,
-  createTestKeypair,
 } from '../test-helpers.js';
 import {
   base58Encode,
@@ -120,7 +119,7 @@ describe('POST /v1/register/init', () => {
   });
 
   it('returns 409 for already-registered agent', async () => {
-    const { agentId, publicKeyB58, publicKey } = await doFullRegistration(app);
+    const { publicKeyB58 } = await doFullRegistration(app);
 
     // Now try to init again with the same key
     const res = await app.request('/v1/register/init', {
@@ -165,7 +164,7 @@ describe('POST /v1/register/complete', () => {
   });
 
   it('full registration flow succeeds (201)', async () => {
-    const { completeRes } = await doFullRegistration(app, { overrideDifficulty: true });
+    const { completeRes } = await doFullRegistration(app);
     expect(completeRes.status).toBe(201);
     const data = await completeRes.json() as Record<string, unknown>;
     expect(data.agent_id).toBeDefined();
@@ -175,7 +174,7 @@ describe('POST /v1/register/complete', () => {
   });
 
   it('chain entry is created on registration', async () => {
-    const { completeRes, agentId } = await doFullRegistration(app, { overrideDifficulty: true });
+    const { completeRes, agentId } = await doFullRegistration(app);
     expect(completeRes.status).toBe(201);
 
     const chainEntry = await db.get<{ agent_id: string }>(
@@ -189,6 +188,7 @@ describe('POST /v1/register/complete', () => {
     const privateKey = utils.randomPrivateKey();
     const publicKey = await getPublicKey(privateKey);
     const publicKeyB58 = base58Encode(publicKey);
+
     const agentId = publicKeyToAgentId(publicKey);
 
     // Manually insert an expired challenge
@@ -234,7 +234,6 @@ describe('POST /v1/register/complete', () => {
     const privateKey = utils.randomPrivateKey();
     const publicKey = await getPublicKey(privateKey);
     const publicKeyB58 = base58Encode(publicKey);
-    const agentId = publicKeyToAgentId(publicKey);
 
     // Get a valid challenge
     const initRes = await app.request('/v1/register/init', {

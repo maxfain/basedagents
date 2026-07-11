@@ -9,7 +9,7 @@ import { createInterface } from 'readline';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import { generateKeypair, serializeKeypair, publicKeyToAgentId, solveProofOfWorkAsync } from '../index.js';
+import { generateKeypair, serializeKeypair } from '../index.js';
 import { RegistryClient } from '../index.js';
 
 // ─── ANSI ───
@@ -116,7 +116,6 @@ async function registerFromManifest(manifestPath: string, apiUrl: string, dryRun
   // Keypair
   process.stdout.write('  Generating Ed25519 keypair...');
   const keypair = await generateKeypair();
-  const agentId = publicKeyToAgentId(keypair.publicKey);
   console.log(` ${green('✓')}`);
 
   const { mkdirSync, writeFileSync, existsSync } = await import('fs');
@@ -296,7 +295,6 @@ export async function register(args: string[]): Promise<void> {
     console.log('');
     process.stdout.write('  Generating Ed25519 keypair...');
     const keypair = await generateKeypair();
-    const agentId = publicKeyToAgentId(keypair.publicKey);
     console.log(` ${green('✓')}`);
 
     // Save keypair

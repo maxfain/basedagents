@@ -3,7 +3,7 @@ import type { AppEnv } from '../types/index.js';
 import { scan as workerScan, scanGitHub, scanPyPI, parseGitHubTarget } from '../scanner/index.js';
 import { SCANNER_VERSION } from '../scanner/core.js';
 import { computeProvenanceBonus } from '../scanner/provenance.js';
-import { queueSingleReport, processRescanQueue } from '../scanner/rescan.js';
+import { queueSingleReport } from '../scanner/rescan.js';
 import { checkRateLimit as d1CheckRateLimit } from '../lib/rate-limiter.js';
 
 const scan = new Hono<AppEnv>();

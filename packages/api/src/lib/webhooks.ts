@@ -50,7 +50,15 @@ export type WebhookEvent =
   | {
       type: 'task.available';
       agent_id: string;
-      task: { task_id: string; title: string; description: string; category: string | null; required_capabilities: string[] | null; output_format: string };
+      task: {
+        task_id: string;
+        title: string;
+        description: string;
+        category: string | null;
+        required_capabilities: string[] | null;
+        output_format: string;
+        bounty: { amount: string; token: string; network: string } | null;
+      };
     }
   | {
       type: 'task.claimed';
@@ -66,9 +74,27 @@ export type WebhookEvent =
       summary: string;
     }
   | {
+      type: 'task.delivered';
+      agent_id: string;
+      task_id: string;
+      delivered_by: { agent_id: string; name: string };
+      summary: string;
+      receipt_id: string;
+    }
+  | {
       type: 'task.verified';
       agent_id: string;
       task_id: string;
+      chain_sequence: number;
+      chain_entry_hash: string;
+      payment_settled: boolean;
+      payment_tx_hash: string | null;
+    }
+  | {
+      type: 'task.disputed';
+      agent_id: string;
+      task_id: string;
+      reason: string | null;
     }
   | {
       type: 'task.cancelled';

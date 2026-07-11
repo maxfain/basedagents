@@ -5,11 +5,8 @@
  * The endpoint is defined in index.ts and returns the static openapi.json.
  */
 import { describe, it, expect } from 'vitest';
-import { createRequire } from 'module';
 import { Hono } from 'hono';
 
-// Load the OpenAPI JSON spec (resolved relative to this file via the TS build)
-const require = createRequire(import.meta.url);
 // Import via JSON (vitest handles JSON imports natively)
 import openApiSpec from '../openapi.json';
 
@@ -36,7 +33,7 @@ describe('OpenAPI Spec — openapi.json validity', () => {
   });
 
   it('spec includes core agent and task routes', () => {
-    const paths = (openApiSpec as Record<string, Record<string, unknown>>).paths;
+    const paths = (openApiSpec as unknown as Record<string, Record<string, unknown>>).paths;
     const pathKeys = Object.keys(paths);
     // Verify the spec has agent and task routes
     expect(pathKeys.some(p => p.includes('agents'))).toBe(true);
