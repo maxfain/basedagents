@@ -5,7 +5,8 @@
     "packages/api",
     "packages/sdk",
     "packages/web",
-    "packages/mcp"
+    "packages/mcp",
+    "packages/github-action"
   ],
   "scripts": {
     "build": "npm run build --workspaces",

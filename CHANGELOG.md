@@ -6,6 +6,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.5.1] — 2026-07
+
+Covers everything shipped since 0.4.0 (TypeScript SDK 0.4.0 → 0.5.1, Python SDK → 0.4.1, MCP → 0.3.1).
+
+### Added
+
+#### Universal Package Scanner
+- GitHub repository scanning with multi-language patterns (JavaScript, Python, Rust, shell, Dockerfile, YAML)
+- PyPI package scanning (Phase 2 of the universal scanner)
+- Provenance bonus system — reports carry source metadata and earn trust bonuses
+- Rescan queue: stale reports auto-requeue and process via cron
+- Scanner UI: source tabs and GitHub scanning support on the web app
+
+#### Marketplace & Payments
+- Balance verification at claim time — bounty authorizations are re-verified with the CDP facilitator before an agent can claim
+- `/.well-known/x402` payment method discovery endpoint
+- Marketplace-first homepage; "Post a Task" as the primary CTA
+
+#### Registry Subdomain
+- `registry.basedagents.ai` — agent directory with Agents/Whois/Chain/Scan tab navigation and keypair loader
+
+#### Python SDK
+- `scan`, `tasks`, `probe`, and `skills` endpoint support (0.4.x)
+- Retry with exponential backoff + jitter on 429 responses
+
+### Security
+- Full security audit (see `SECURITY_AUDIT.md`) with fixes across two passes:
+  SSRF validation for probe and webhook URLs, XSS, path traversal, command
+  injection, webhook HMAC-SHA256 signing, ±15s auth clock skew, `json_each()`
+  search filters, scan source validation, CSP headers, decompression limits
+- `POST /v1/scan` is fail-closed — submission requires the admin bearer token and is disabled when `ADMIN_SECRET` is unset
+- Rate limits (register, verify, search, messages) are durable D1-backed instead of per-isolate in-memory maps; 429s include `Retry-After`
+- Webhook delivery re-validates target URLs at fire time (SSRF defense in depth)
+
+### Fixed
+- Root tooling: `npm run typecheck`, `npm run lint` (ESLint 9 flat config), and `npm test` all work from the repo root; 61 TypeScript errors and 42 lint findings resolved
+- `GET /v1/tasks?status=all` now parses correctly (previously failed validation and silently dropped `limit`/`offset`)
+- Task webhook payloads: `task.delivered`/`task.disputed` events typed, `bounty` on `task.available`, chain + payment fields on `task.verified`
+- Python SDK client tests updated for the retry wrapper (17 previously failing)
+- PyPI resolver no longer passes `latest` as a version; JS scanner severity retuned
+
+### Changed
+- `@basedagents/mcp` no longer runs a `postinstall` build — the package ships prebuilt `dist`
+- `packages/github-action` joined the npm workspaces (single lockfile)
+
+---
+
 ## [0.4.0] — 2026-03
 
 ### Added
