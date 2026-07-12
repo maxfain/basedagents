@@ -1,0 +1,42 @@
+name: Production canary
+
+# Uptime + health canary for the live deployment. A failing run turns the
+# workflow red and GitHub notifies the repo owner — zero-infra monitoring.
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: API /v1/status is operational
+        run: |
+          body=$(curl -sS --max-time 15 --retry 2 https://api.basedagents.ai/v1/status)
+          echo "$body"
+          echo "$body" | grep -q '"status":"operational"'
+
+      - name: API DB latency under 3s
+        run: |
+          latency=$(curl -sS --max-time 15 https://api.basedagents.ai/v1/status | sed -n 's/.*"db_latency_ms":\([0-9]*\).*/\1/p')
+          echo "db_latency_ms=$latency"
+          test -n "$latency" && test "$latency" -lt 3000
+
+      - name: Web app responds
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 --retry 2 https://basedagents.ai)
+          echo "basedagents.ai -> $code"
+          test "$code" = "200"
+
+      - name: Registry subdomain responds
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 --retry 2 https://registry.basedagents.ai)
+          echo "registry.basedagents.ai -> $code"
+          test "$code" = "200"
+
+      - name: OpenAPI + agent discovery documents serve
+        run: |
+          curl -sS --max-time 15 https://api.basedagents.ai/openapi.json | grep -q '"openapi"'
+          curl -sS --max-time 15 https://basedagents.ai/.well-known/agent.json | grep -q '.'
