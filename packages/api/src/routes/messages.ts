@@ -3,24 +3,12 @@ import type { AppEnv } from '../types/index.js';
 import { SendMessageSchema, MessageQuerySchema } from '../types/index.js';
 import { agentAuth } from '../middleware/auth.js';
 import { fireWebhook } from '../lib/webhooks.js';
+import { checkRateLimit } from '../lib/rate-limiter.js';
 
 const messages = new Hono<AppEnv>();
 
-// In-memory rate limiter: sender → { count, resetAt }
-const messageLimitStore = new Map<string, { count: number; resetAt: number }>();
-const MESSAGE_RATE_LIMIT = { max: 10, windowMs: 3_600_000 }; // 10/hr
-
-function checkMessageRateLimit(senderId: string): boolean {
-  const now = Date.now();
-  const entry = messageLimitStore.get(senderId);
-  if (!entry || now > entry.resetAt) {
-    messageLimitStore.set(senderId, { count: 1, resetAt: now + MESSAGE_RATE_LIMIT.windowMs });
-    return true;
-  }
-  if (entry.count >= MESSAGE_RATE_LIMIT.max) return false;
-  entry.count++;
-  return true;
-}
+// Durable (D1-backed) rate limit — in-memory maps reset per Worker isolate
+const MESSAGE_RATE_LIMIT = { max: 10, windowMs: 3_600_000 }; // 10/hr per sender
 
 function generateMessageId(): string {
   const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
@@ -45,7 +33,8 @@ messages.post('/:id/messages', agentAuth, async (c) => {
   }
 
   // Rate limit per sender
-  if (!checkMessageRateLimit(senderId)) {
+  const senderLimit = await checkRateLimit(db, `msg:${senderId}`, MESSAGE_RATE_LIMIT.max, MESSAGE_RATE_LIMIT.windowMs);
+  if (!senderLimit.allowed) {
     return c.json({ error: 'rate_limited', message: 'Message rate limit exceeded (10 per hour)' }, 429);
   }
 
@@ -251,7 +240,8 @@ messageActions.post('/:id/reply', agentAuth, async (c) => {
   const db = c.get('db');
 
   // Rate limit per sender
-  if (!checkMessageRateLimit(agentId)) {
+  const replyLimit = await checkRateLimit(db, `msg:${agentId}`, MESSAGE_RATE_LIMIT.max, MESSAGE_RATE_LIMIT.windowMs);
+  if (!replyLimit.allowed) {
     return c.json({ error: 'rate_limited', message: 'Message rate limit exceeded (10 per hour)' }, 429);
   }
 

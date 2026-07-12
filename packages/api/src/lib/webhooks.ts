@@ -8,6 +8,7 @@
  * the payload was sent by BasedAgents and has not been tampered with.
  * The HMAC is computed over the raw JSON body using the agent's webhook_secret.
  */
+import { isSafeUrl } from './url-validator.js';
 
 export type WebhookEvent =
   | {
@@ -129,6 +130,13 @@ async function hmacSha256Hex(secret: string, payload: string): Promise<string> {
  *   X-BasedAgents-Signature: sha256=<hmac_hex>
  */
 export async function fireWebhook(url: string, event: WebhookEvent, webhookSecret?: string | null): Promise<void> {
+  // Defense in depth: webhook URLs are validated at registration/update time,
+  // but re-validate at delivery time so rows stored before validation existed
+  // (or mutated out of band) can't turn webhook delivery into blind SSRF.
+  if (!isSafeUrl(url)) {
+    console.error(`[webhook] blocked delivery to unsafe URL (event: ${event.type})`);
+    return;
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
 

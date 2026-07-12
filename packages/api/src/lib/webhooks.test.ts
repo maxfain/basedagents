@@ -33,6 +33,19 @@ describe('fireWebhook', () => {
     expect(opts.method).toBe('POST');
   });
 
+  it('blocks delivery to non-HTTPS URLs (fire-time SSRF re-validation)', async () => {
+    await fireWebhook('http://example.com/hook', sampleEvent);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('blocks delivery to private/metadata addresses', async () => {
+    await fireWebhook('https://169.254.169.254/latest/meta-data/', sampleEvent);
+    await fireWebhook('https://localhost:8787/v1/admin/bootstrap-probe', sampleEvent);
+    await fireWebhook('https://192.168.1.10/hook', sampleEvent);
+    await fireWebhook('https://[::1]/hook', sampleEvent);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it('sends correct Content-Type header', async () => {
     await fireWebhook('https://example.com/hook', sampleEvent);
     const [, opts] = mockFetch.mock.calls[0];

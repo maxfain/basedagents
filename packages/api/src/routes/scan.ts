@@ -262,13 +262,16 @@ scan.post('/trigger', async (c) => {
 
 // ─── POST /v1/scan — Submit a scan report ───
 scan.post('/', async (c) => {
-  // HIGH-3: Require admin bearer token for external scan report submission
-  const adminSecret = (c.env as Record<string, string>)?.ADMIN_SECRET;
-  if (adminSecret) {
-    const auth = c.req.header('authorization');
-    if (!auth || auth !== `Bearer ${adminSecret}`) {
-      return c.json({ error: 'unauthorized', message: 'Scan report submission requires authentication' }, 401);
-    }
+  // HIGH-3: External scan report submission requires the admin bearer token.
+  // Fail closed: on deployments without ADMIN_SECRET, submission is disabled
+  // entirely rather than silently open (reports overwrite via ON CONFLICT).
+  const adminSecret = c.env?.ADMIN_SECRET;
+  if (!adminSecret) {
+    return c.json({ error: 'forbidden', message: 'Scan report submission is disabled — ADMIN_SECRET not configured' }, 403);
+  }
+  const auth = c.req.header('authorization');
+  if (!auth || auth !== `Bearer ${adminSecret}`) {
+    return c.json({ error: 'unauthorized', message: 'Scan report submission requires authentication' }, 401);
   }
 
   const db = c.get('db');

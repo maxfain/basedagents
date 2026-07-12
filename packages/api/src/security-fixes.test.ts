@@ -295,11 +295,12 @@ describe('MED-8: scan source validation', () => {
       )`);
     } catch { /* already exists */ }
 
-    // Build a custom app that includes scan routes
+    // Build a custom app that includes scan routes.
+    // ADMIN_SECRET is required: POST /v1/scan is fail-closed (HIGH-3).
     app = new Hono<AppEnv>();
     app.use('*', async (c, next) => {
       c.set('db', db);
-      (c.env as AppEnv['Bindings']) = { ...(c.env ?? {}) };
+      (c.env as AppEnv['Bindings']) = { ...(c.env ?? {}), ADMIN_SECRET: 'test-admin-secret' };
       await next();
     });
     app.route('/v1/scan', scanRoutes);
@@ -326,7 +327,7 @@ describe('MED-8: scan source validation', () => {
       const body = JSON.stringify(makeReport(validSource));
       const res = await app.request('/v1/scan', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-admin-secret' },
         body,
       });
       // Should not be 400 (invalid source) — should be accepted
@@ -339,7 +340,7 @@ describe('MED-8: scan source validation', () => {
       const body = JSON.stringify(makeReport(invalidSource));
       const res = await app.request('/v1/scan', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-admin-secret' },
         body,
       });
       expect(res.status).toBe(400);
@@ -353,11 +354,37 @@ describe('MED-8: scan source validation', () => {
     const body = JSON.stringify(report);
     const res = await app.request('/v1/scan', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-admin-secret' },
       body,
     });
     // npm is valid so should not be 400
     expect(res.status).not.toBe(400);
+  });
+
+  it('rejects submission with a wrong bearer token (401)', async () => {
+    const res = await app.request('/v1/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer wrong-token' },
+      body: JSON.stringify(makeReport('npm')),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('fails closed when ADMIN_SECRET is not configured (403)', async () => {
+    const openApp = new Hono<AppEnv>();
+    openApp.use('*', async (c, next) => {
+      c.set('db', db);
+      (c.env as AppEnv['Bindings']) = { ...(c.env ?? {}) }; // no ADMIN_SECRET
+      await next();
+    });
+    openApp.route('/v1/scan', scanRoutes);
+
+    const res = await openApp.request('/v1/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(makeReport('npm')),
+    });
+    expect(res.status).toBe(403);
   });
 });
 

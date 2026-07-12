@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import type { AppEnv } from './types/index.js';
 import { D1Adapter } from './db/d1-adapter.js';
+import { checkRateLimit } from './lib/rate-limiter.js';
 import { runBootstrapProber } from './bootstrap/prober.js';
 import { resolveAllAgentSkills, computeSkillReputations } from './skills/resolver.js';
 
@@ -34,27 +35,15 @@ const ALLOWED_ORIGINS = [
   'http://localhost:4000',
 ];
 
-// ─── In-memory rate limiter (per-isolate; acceptable for single-worker deploy) ───
-// Key: `${route}:${ip}`, Value: { count, resetAt }
-const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+// ─── Rate limits (durable, D1-backed — shared across Worker isolates) ───
+// In-memory counters reset whenever an isolate is recycled and are not shared
+// between isolates, so limits are enforced via the rate_limit_log table.
 const RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
   '/v1/register/init':     { max: 5,  windowMs: 60_000 },   // 5 init attempts/min per IP
   '/v1/register/complete': { max: 5,  windowMs: 60_000 },
   '/v1/verify/submit':     { max: 20, windowMs: 60_000 },   // 20 verifications/min
   '/v1/agents/search':     { max: 60, windowMs: 60_000 },   // 60 searches/min
 };
-
-function checkRateLimit(key: string, max: number, windowMs: number): boolean {
-  const now = Date.now();
-  const entry = rateLimitStore.get(key);
-  if (!entry || now > entry.resetAt) {
-    rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
-    return true;
-  }
-  if (entry.count >= max) return false;
-  entry.count++;
-  return true;
-}
 
 // ─── Global Middleware ───
 app.use('*', logger());
@@ -73,25 +62,32 @@ app.use('*', cors({
   maxAge: 86400,
 }));
 
-// ─── Rate limiting middleware ───
+// ─── Database Adapter Middleware ───
+// Wraps the D1 binding from Cloudflare Workers environment.
+// Must run before rate limiting, which needs the DB.
 app.use('*', async (c, next) => {
-  const path = new URL(c.req.url).pathname;
-  const limit = RATE_LIMITS[path];
-  if (limit) {
-    const ip = c.req.header('CF-Connecting-IP') ?? c.req.header('X-Forwarded-For') ?? 'unknown';
-    const key = `${path}:${ip}`;
-    if (!checkRateLimit(key, limit.max, limit.windowMs)) {
-      return c.json({ error: 'rate_limited', message: 'Too many requests. Please slow down.' }, 429);
-    }
+  if (c.env?.DB) {
+    c.set('db', new D1Adapter(c.env.DB));
   }
   await next();
 });
 
-// ─── Database Adapter Middleware ───
-// Wraps the D1 binding from Cloudflare Workers environment.
+// ─── Rate limiting middleware (durable) ───
 app.use('*', async (c, next) => {
-  if (c.env?.DB) {
-    c.set('db', new D1Adapter(c.env.DB));
+  const path = new URL(c.req.url).pathname;
+  const limit = RATE_LIMITS[path];
+  if (limit) {
+    const db = c.get('db');
+    // Fail open if the DB binding is missing (local misconfig) — availability
+    // over enforcement; every real deployment has the binding.
+    if (db) {
+      const ip = c.req.header('CF-Connecting-IP') ?? c.req.header('X-Forwarded-For') ?? 'unknown';
+      const result = await checkRateLimit(db, `${path}:${ip}`, limit.max, limit.windowMs);
+      if (!result.allowed) {
+        c.header('Retry-After', String(Math.ceil((result.retryAfterMs ?? limit.windowMs) / 1000)));
+        return c.json({ error: 'rate_limited', message: 'Too many requests. Please slow down.' }, 429);
+      }
+    }
   }
   await next();
 });

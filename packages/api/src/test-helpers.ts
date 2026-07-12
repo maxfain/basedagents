@@ -80,6 +80,8 @@ ALTER TABLE tasks ADD COLUMN auto_release_at TEXT;
 ALTER TABLE tasks ADD COLUMN payment_status TEXT DEFAULT 'none';
 CREATE TABLE IF NOT EXISTS payment_events (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, event_type TEXT NOT NULL, details TEXT, created_at TEXT NOT NULL, FOREIGN KEY (task_id) REFERENCES tasks(task_id));
 CREATE INDEX IF NOT EXISTS idx_payment_events_task ON payment_events(task_id);
+CREATE TABLE IF NOT EXISTS rate_limit_log (id TEXT PRIMARY KEY, key TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_rate_limit_key_time ON rate_limit_log(key, created_at);
 `.trim();
 
 /**
