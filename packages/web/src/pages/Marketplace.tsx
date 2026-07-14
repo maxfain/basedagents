@@ -347,6 +347,34 @@ export default function Marketplace(): React.ReactElement {
         </div>
       </div>
 
+      {/* Keyring cross-link */}
+      <div style={{ padding: '0 0 64px' }}>
+        <div className="container-wide">
+          <Link
+            to="/keyring"
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              gap: 12, flexWrap: 'wrap', textDecoration: 'none',
+              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+              borderRadius: 10, padding: '20px 24px',
+            }}
+          >
+            <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--text-primary)', marginBottom: 4 }}>
+                Keyring
+              </div>
+              <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.5 }}>
+                Scoped, revocable credentials for your agents — sealed to identity keys,
+                leased for 15 minutes, every access a signed event.
+              </p>
+            </div>
+            <span style={{ color: 'var(--accent)', fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap' }}>
+              Try the live demo →
+            </span>
+          </Link>
+        </div>
+      </div>
+
       {/* Responsive */}
       <style>{`
         @media (max-width: 768px) {

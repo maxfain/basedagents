@@ -297,3 +297,102 @@ h3 {
   color: var(--text-tertiary);
   font-size: 13px;
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Keyring page (/keyring) — added for the live demo layout.
+   New rules only; nothing above this line was modified.
+   ───────────────────────────────────────────────────────────── */
+
+.keyring-demo-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.keyring-three-col {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.keyring-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.keyring-input {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  padding: 8px 12px;
+  font-size: 14px;
+  font-family: var(--font-mono);
+  width: 100%;
+  outline: none;
+}
+
+.keyring-input:focus {
+  border-color: var(--accent);
+}
+
+.keyring-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  transition: background 150ms ease, opacity 150ms ease;
+}
+
+.keyring-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.keyring-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.keyring-btn-danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--status-suspended);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.keyring-btn-danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.25);
+}
+
+.keyring-btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.keyring-btn-ghost:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+@media (max-width: 900px) {
+  .keyring-demo-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .keyring-three-col,
+  .keyring-two-col {
+    grid-template-columns: 1fr;
+  }
+}

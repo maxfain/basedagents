@@ -13,6 +13,7 @@ import Terms from './pages/Terms';
 import Privacy from './pages/Privacy';
 import Register from './pages/Register';
 import Integrations from './pages/Integrations';
+import Keyring from './pages/Keyring';
 import Blog from './pages/Blog';
 import BlogPost from './pages/BlogPost';
 import TaskDetail from './pages/TaskDetail';
@@ -71,6 +72,7 @@ export default function App(): React.ReactElement {
               <Route path="/scan/:package"       element={<Scan />} />
               <Route path="/chain"               element={<ChainExplorer />} />
               <Route path="/docs/getting-started" element={<GettingStarted />} />
+              <Route path="/keyring"             element={<Keyring />} />
               <Route path="/status"              element={<Status />} />
               <Route path="/register"            element={<Register />} />
               <Route path="/blog"                element={<Blog />} />
