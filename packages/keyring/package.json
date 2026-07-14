@@ -19,12 +19,12 @@
     "dist",
     "bin",
     "README.md",
-    "!dist/**/*.test.js",
-    "!dist/**/*.test.d.ts"
+    "!dist/**/*.test.*"
   ],
   "scripts": {
     "build": "tsc",
-    "prepublishOnly": "npm run build",
+    "build:dist": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build:dist",
     "test": "vitest run"
   },
   "keywords": [
