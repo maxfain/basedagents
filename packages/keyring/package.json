@@ -1,0 +1,66 @@
+{
+  "name": "@basedagents/keyring",
+  "version": "0.1.0",
+  "description": "Scoped, revocable credentials bound to cryptographic agent identities — local-first encrypted vault, identity-bound grants, short-lived leases, signed access log",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "bin": {
+    "based": "./bin/based.mjs",
+    "basedagents-keyring-mcp": "./bin/keyring-mcp.mjs"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.d.ts"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "secrets",
+    "credentials",
+    "vault",
+    "keyring",
+    "mcp",
+    "ed25519",
+    "basedagents"
+  ],
+  "author": "BasedAgents",
+  "license": "Apache-2.0",
+  "homepage": "https://basedagents.ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maxfain/basedagents.git",
+    "directory": "packages/keyring"
+  },
+  "bugs": {
+    "url": "https://github.com/maxfain/basedagents/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@noble/ciphers": "^1.3.0",
+    "@noble/curves": "^1.9.0",
+    "@noble/ed25519": "^2.2.0",
+    "@noble/hashes": "^1.7.0",
+    "zod": "^3.24.0"
+  }
+}
