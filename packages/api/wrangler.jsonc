@@ -1,5 +1,8 @@
 {
-  "name": "basedagents-api",
+  // Worker name must stay "agent-registry-api" — that's the live worker holding
+  // the api.basedagents.ai route, the cron trigger, and all wrangler secrets.
+  // (A stray "basedagents-api" worker from 2026-03-10 is an unused orphan.)
+  "name": "agent-registry-api",
   "main": "src/index.ts",
   "compatibility_date": "2024-12-01",
   "compatibility_flags": ["nodejs_compat"],
