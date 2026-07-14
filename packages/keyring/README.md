@@ -19,18 +19,21 @@ Keyring fixes 1 and 2 today and is honest about 3 (see [Security model](#securit
 ## Quick start
 
 ```bash
-npm install -g @basedagents/keyring    # or use npx @basedagents/keyring
+npm install -g @basedagents/keyring    # or: npx -y --package=@basedagents/keyring based <args>
 based init                             # create the vault + owner keypair
 
 # Add a secret (hidden prompt; or pipe via stdin, or --value)
 based add "Supabase service-role key (acme-prod)"
 
-# Register an agent identity and grant it the credential
-based identity add ag_7xKpQ3... --name ci-bot
+# Register the agent identity WITH its keypair, then grant by name.
+# ci-bot.key.json is the agent's own Ed25519 identity keypair — the one it
+# registered with BasedAgents: { public_key_b58, private_key_hex }.
+based identity add ag_7xKpQ3... --name ci-bot --keypair ./ci-bot.key.json
 based grant "Supabase service-role key (acme-prod)" ci-bot --expires 7d --max-uses 100
 
-# Run a command as the agent: leases everything it holds, injects env vars,
-# writes nothing to disk. Leases die with the process or their TTL.
+# Run a command as the agent. `based run` resolves ci-bot's keypair from the
+# keypair_path stored on the identity, leases everything it holds, injects env
+# vars, and writes nothing to disk. Leases die with the process or their TTL.
 based run --agent ci-bot -- npm run deploy
 ```
 
@@ -57,12 +60,14 @@ The MCP server gives Claude Code, Claude Desktop, Codex, and Cursor lease access
       "command": "npx",
       "args": ["-y", "--package=@basedagents/keyring", "basedagents-keyring-mcp"],
       "env": {
-        "BASEDAGENTS_KEYPAIR_PATH": "~/.basedagents/agent-keypair.json"
+        "BASEDAGENTS_KEYPAIR_PATH": "/home/you/.basedagents/agent-keypair.json"
       }
     }
   }
 }
 ```
+
+Use an absolute path for `BASEDAGENTS_KEYPAIR_PATH`; a leading `~` is expanded, but an absolute path in JSON config is unambiguous.
 
 Tools exposed:
 
@@ -94,7 +99,7 @@ The agent keypair comes from `BASEDAGENTS_KEYPAIR_PATH` (JSON: `{ "public_key_b5
 | `based requests` | Pending grant requests |
 | `based approve <req> --credential <cred>` | Approve a request against an existing credential |
 | `based deny <req>` | Deny a request |
-| `based timeline` | The AccessEvent stream, filterable by agent/credential/type/project/time |
+| `based timeline` | The AccessEvent stream, filterable by agent, credential, type, project, and time range (since/until) |
 | `based export` | Export the signed access log (`basedagents-keyring-log/v1`) |
 | `based verify-log` | Verify the hash chain and every event signature offline |
 | `based run [--agent ref] [--keypair file] [--context c] [--ttl s] -- <cmd...>` | Lease all grants, inject env vars, run the command; nothing on disk |
@@ -107,7 +112,7 @@ Every command accepts `--dir` to point at a non-default vault.
 
 - **Sealed boxes.** Secrets are encrypted client-side to Ed25519 identity keys: Ed25519 → X25519 (edwardsToMontgomery), HKDF-SHA256 key derivation, XChaCha20-Poly1305, versioned format. Granting re-seals the secret to the grantee's public key.
 - **Ciphertext-only store.** `vault.json` contains sealed boxes, never plaintext. The only private key on disk is the owner's (`owner.json`, mode 0600).
-- **Signed access events.** Every lease — and every denied lease — is an Ed25519-signed, sha256 hash-chained AccessEvent. `based verify-log` detects edits, deletions, and reordering. Exports are owner-signed.
+- **Signed access events.** Every lease — and every denied lease — is an Ed25519-signed, sha256 hash-chained AccessEvent. Each signature binds the event's chain position, its event type, and the vault id, so `based verify-log` detects edits, reordering, duplication, relabeling, and cross-vault splicing. Trailing deletion is caught by a local head anchor and, definitively, by a retained signed export — detectable, not impossible. Exports are owner-signed.
 - **Leases, not copies.** Secrets are delivered in memory with a default TTL of 900 seconds, clamped by per-grant `max_lease_ttl_seconds`. Nothing is written to disk.
 - **What revoke does — and does not do.** `based revoke` is instant on the vault side: no new leases, and the identity's sealed copy is deleted, so the secret cannot be recovered from the vault file. Outstanding leases expire within their TTL (≤ 15 minutes by default). Revoke does **not** rotate or delete the key at the provider — in v0.1 that step is manual. If a key already leaked, rotate it upstream. Automated provider-side burns are the v0.2 Provisioner.
 - **Kill switch.** `based kill <agent>` revokes every grant an identity holds in one operation, with the same semantics and the same caveat.

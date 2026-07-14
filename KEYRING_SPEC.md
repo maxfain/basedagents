@@ -125,7 +125,7 @@ This candor is a feature. Every vault competitor implies revocation is instant; 
 | Keyring server compromise (hosted mode, v0.3) | Ciphertext only; server holds no decryption capability |
 | Malicious/compromised recipe (v0.2) | Recipes signed, domain-sandboxed, write-only into vault, human-visible execution |
 | Stolen agent private key | Same as any BasedAgents identity compromise: owner revokes the identity's grants (kill switch); sealed copies deleted, no new leases |
-| Tampered access log | Hash chain (sha256, genesis-anchored) + per-event Ed25519 signatures; `based verify-log` detects edits, deletions, reordering |
+| Tampered access log | Per-event Ed25519 signatures bind each event's chain position (`sequence` + `prev_hash`), its concrete `event_type`, and the vault id, over a sha256 hash chain; `based verify-log` detects edits, reordering, duplication, relabeling, and cross-vault splicing. Trailing deletion (truncation) is detected via the local `head.json` anchor and, definitively, by cross-checking a retained signed export used as an external anchor. Full offline proof against truncation requires keeping a signed export — a local attacker with write access could also rewrite the anchor — so deletion is made detectable, not impossible. |
 | Owner device compromise | Out of scope — equivalent to master-password compromise in any vault. `owner.json` holds the owner's private key |
 
 ## 9. Cutlines
@@ -186,7 +186,7 @@ key                   = HKDF-SHA256(shared,
 box                   = 0x01 ‖ ephPub(32) ‖ nonce(24) ‖ XChaCha20-Poly1305(key, nonce, plaintext)
 ```
 
-The leading version byte is `0x01`; unknown versions are rejected on open. Boxes are stored base64 in `vault.json`. Anyone can seal; only the holder of the matching Ed25519 private key can open. Plaintext buffers are zeroed after use.
+The leading version byte is `0x01`; unknown versions are rejected on open. Boxes are stored base64 in `vault.json`. Anyone can seal; only the holder of the matching Ed25519 private key can open. Sealed-box plaintext byte buffers are zeroed after sealing/opening (`Uint8Array.fill(0)`). The original secret string cannot be wiped from memory — JS strings are immutable — which is why leases are the delivery path rather than long-lived process env.
 
 ### Vault file layout
 
@@ -221,7 +221,7 @@ Writes are atomic (tmp + rename) and serialized through a lock file, so the CLI,
 }
 ```
 
-`signed_payload` is the canonical JSON of `{ action, agent_id, credential_id, grant_id, context, detail, timestamp, nonce }`. The envelope echoes the payload fields so filters work without parsing it; `based verify-log` cross-checks both. The actor is the agent for lease/request events and the owner for admin operations.
+`signed_payload` is the canonical JSON of `{ event_type, vault, agent_id, credential_id, grant_id, context, detail, sequence, prev_hash, timestamp, nonce }`. It commits to the event's chain position (`sequence`, `prev_hash`), its concrete `event_type`, and the vault id, so a signature cannot be replayed into a different slot, relabeled to another event type, or spliced into another vault. The envelope echoes the payload fields so filters work without parsing it; `based verify-log` cross-checks both. The actor is the agent for lease/request events and the owner for admin operations.
 
 Event types: `vault_created`, `identity_added`, `identity_removed`, `credential_added`, `credential_updated`, `credential_removed`, `grant_created`, `grant_revoked`, `kill_switch`, `lease`, `lease_denied`, `request_created`, `request_approved`, `request_denied`.
 

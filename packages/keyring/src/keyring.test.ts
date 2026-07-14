@@ -170,12 +170,13 @@ describe('addCredential', () => {
 
     const vaultRaw = fs.readFileSync(path.join(dir, 'vault.json'), 'utf-8');
     const eventsRaw = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf-8');
+    const headRaw = fs.readFileSync(path.join(dir, 'head.json'), 'utf-8');
     // …but the plaintext never touches disk, in any encoding we store.
-    expect(vaultRaw.includes(secret)).toBe(false);
-    expect(eventsRaw.includes(secret)).toBe(false);
     const secretB64 = bytesToBase64(new TextEncoder().encode(secret));
-    expect(vaultRaw.includes(secretB64)).toBe(false);
-    expect(eventsRaw.includes(secretB64)).toBe(false);
+    for (const raw of [vaultRaw, eventsRaw, headRaw]) {
+      expect(raw.includes(secret)).toBe(false);
+      expect(raw.includes(secretB64)).toBe(false);
+    }
     // Sanity check that we read the real files.
     expect(vaultRaw.includes('Stripe live key')).toBe(true);
     expect(eventsRaw.includes(cred.credential_id)).toBe(true);
@@ -220,11 +221,14 @@ describe('addIdentity', () => {
     await expectCode(keyring.addIdentity(owner, b.agentId, { name: 'CI-Bot' }), 'duplicate');
   });
 
-  it('rejects the reserved name "owner" in any casing', async () => {
+  it('rejects reserved names (owner, __proto__, constructor, prototype) in any casing', async () => {
     const { keyring, owner } = await initVault();
     const a = await newAgent();
-    await expectCode(keyring.addIdentity(owner, a.agentId, { name: 'owner' }), 'duplicate');
-    await expectCode(keyring.addIdentity(owner, a.agentId, { name: 'Owner' }), 'duplicate');
+    for (const name of ['owner', 'Owner', '__proto__', 'constructor', 'Constructor', 'prototype', 'PROTOTYPE']) {
+      await expectCode(keyring.addIdentity(owner, a.agentId, { name }), 'invalid_input');
+    }
+    // None of the rejected names leaked into the identity map.
+    expect(Object.keys(keyring.vault().identities)).toEqual([]);
   });
 
   it('rejects names starting with ag_', async () => {
@@ -412,6 +416,25 @@ describe('lease', () => {
     await keyring.lease(agent.keypair, cred.credential_id);
     await keyring.lease(agent.keypair, cred.credential_id);
     expect(keyring.vault().grants[grant.grant_id].use_count).toBe(2);
+  });
+
+  it('denies a non-finite TTL with invalid_input BEFORE mutating use_count (no successful lease)', async () => {
+    const { keyring, owner } = await initVault();
+    const cred = await keyring.addCredential(owner, { label: 'TTL guard' }, 's');
+    const agent = await newAgent();
+    const grant = await keyring.createGrant(owner, cred.credential_id, agent.agentId);
+
+    // NaN and -Infinity are not positive finite TTLs → denied before any state change.
+    for (const bad of [Number.NaN, Number.NEGATIVE_INFINITY, -5, 0]) {
+      await expectCode(keyring.lease(agent.keypair, cred.credential_id, { ttlSeconds: bad }), 'invalid_input');
+    }
+
+    // use_count is untouched and no `lease` (success) event was ever written…
+    expect(keyring.vault().grants[grant.grant_id].use_count).toBe(0);
+    expect(keyring.timeline({ event_type: 'lease' })).toHaveLength(0);
+    // …only signed denials.
+    expect(keyring.timeline({ event_type: 'lease_denied' })).toHaveLength(4);
+    expect((await keyring.verifyLog()).ok).toBe(true);
   });
 });
 
@@ -623,6 +646,39 @@ describe('updateCredentialSecret', () => {
     const cred = await keyring.addCredential(owner, { label: 'NoEmpty' }, 'v1');
     await expectCode(keyring.updateCredentialSecret(owner, cred.credential_id, ''), 'invalid_input');
   });
+
+  it('does NOT re-seal the rotated secret to expired or usage-capped grants', async () => {
+    const { keyring, owner } = await initVault();
+    const cred = await keyring.addCredential(owner, { label: 'Rotating' }, 'v1-old');
+    const active = await newAgent();
+    const expired = await newAgent();
+    const capped = await newAgent();
+
+    await keyring.createGrant(owner, cred.credential_id, active.agentId);
+    await keyring.createGrant(owner, cred.credential_id, expired.agentId, {
+      expires_at: new Date(Date.now() - 60_000).toISOString(),
+    });
+    await keyring.createGrant(owner, cred.credential_id, capped.agentId, { max_uses: 1 });
+    await keyring.lease(capped.keypair, cred.credential_id); // exhaust the cap
+
+    await keyring.updateCredentialSecret(owner, cred.credential_id, 'v2-new');
+
+    const vault = keyring.vault();
+    const sealed = vault.credentials[cred.credential_id].sealed;
+    // Only the owner and the still-authorizing grantee receive the rotated secret.
+    expect(Object.keys(sealed).sort()).toEqual([vault.owner.agent_id, active.agentId].sort());
+    // The expired and capped identities' sealed copies are dropped, not refreshed.
+    expect(sealed[expired.agentId]).toBeUndefined();
+    expect(sealed[capped.agentId]).toBeUndefined();
+
+    // The still-valid grantee leases the NEW value.
+    const lease = await keyring.lease(active.keypair, cred.credential_id);
+    expect(lease.value).toBe('v2-new');
+
+    // The expired/capped grantees are still denied — they never obtain the rotated secret.
+    await expectCode(keyring.lease(expired.keypair, cred.credential_id), 'grant_expired');
+    await expectCode(keyring.lease(capped.keypair, cred.credential_id), 'usage_cap');
+  });
 });
 
 // ─── killSwitch ───
@@ -663,6 +719,74 @@ describe('killSwitch', () => {
     await keyring.addIdentity(owner, agent.agentId, { name: 'idle' });
     const result = await keyring.killSwitch(owner, 'idle');
     expect(result.revoked_grant_ids).toEqual([]);
+  });
+});
+
+// ─── Prototype safety ───
+
+describe('prototype-pollution safety', () => {
+  it('resolveAgent on an inherited Object.prototype key throws unknown_identity (not a silent hit)', async () => {
+    const { keyring } = await initVault();
+    const vault = keyring.vault();
+    for (const ref of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'prototype']) {
+      const err = (() => { try { keyring.resolveAgent(vault, ref); return null; } catch (e) { return e; } })();
+      expect(err).toBeInstanceOf(KeyringError);
+      expect((err as KeyringError).code).toBe('unknown_identity');
+    }
+  });
+
+  it('resolveCredential on an inherited Object.prototype key throws unknown_credential', async () => {
+    const { keyring, owner } = await initVault();
+    await keyring.addCredential(owner, { label: 'Real cred' }, 's');
+    const vault = keyring.vault();
+    for (const ref of ['constructor', '__proto__', 'toString', 'prototype']) {
+      const err = (() => { try { keyring.resolveCredential(vault, ref); return null; } catch (e) { return e; } })();
+      expect(err).toBeInstanceOf(KeyringError);
+      expect((err as KeyringError).code).toBe('unknown_credential');
+    }
+  });
+
+  it('killSwitch on "constructor" throws unknown_identity rather than silently no-op-ing', async () => {
+    const { keyring, owner } = await initVault();
+    await expectCode(keyring.killSwitch(owner, 'constructor'), 'unknown_identity');
+    await expectCode(keyring.removeIdentity(owner, '__proto__'), 'unknown_identity');
+  });
+
+  it('addIdentity rejects reserved/prototype names', async () => {
+    const { keyring, owner } = await initVault();
+    const a = await newAgent();
+    for (const name of ['owner', '__proto__', 'constructor', 'prototype']) {
+      await expectCode(keyring.addIdentity(owner, a.agentId, { name }), 'invalid_input');
+    }
+    // The identity map stays clean and its prototype is not polluted.
+    expect(Object.keys(keyring.vault().identities)).toEqual([]);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+});
+
+// ─── Reference resolution ambiguity ───
+
+describe('resolveCredential ambiguity', () => {
+  it('rejects a cross-kind ambiguous reference (one credential label equals another credential env_var)', async () => {
+    const { keyring, owner } = await initVault();
+    // Credential A is named "TOKEN" (by label); its own env_var is something else.
+    const a = await keyring.addCredential(owner, { label: 'TOKEN', env_var: 'CRED_A_ENV' }, 'a-secret');
+    // Credential B exposes env_var "TOKEN".
+    const b = await keyring.addCredential(owner, { label: 'Bee cred', env_var: 'TOKEN' }, 'b-secret');
+    expect(a.credential_id).not.toBe(b.credential_id);
+
+    const vault = keyring.vault();
+    const err = (() => { try { keyring.resolveCredential(vault, 'TOKEN'); return null; } catch (e) { return e; } })();
+    expect(err).toBeInstanceOf(KeyringError);
+    expect((err as KeyringError).code).toBe('unknown_credential');
+    expect((err as KeyringError).message).toMatch(/ambiguous/);
+
+    // The same ambiguity surfaces through the lease path (recorded as a denial).
+    const agent = await newAgent();
+    await expectCode(keyring.lease(agent.keypair, 'TOKEN'), 'unknown_credential');
+    // …and each credential is still resolvable unambiguously by its own id.
+    expect(keyring.resolveCredential(vault, a.credential_id).credential_id).toBe(a.credential_id);
+    expect(keyring.resolveCredential(vault, b.credential_id).credential_id).toBe(b.credential_id);
   });
 });
 
@@ -831,6 +955,34 @@ describe('leaseAll', () => {
     expect(denied[0].credential_id).toBe(broken.credential_id);
     expect(denied[0].reason).toMatch(/no sealed copy/);
   });
+
+  it('attempts every active grant — expired/capped ones yield denials AND lease_denied events', async () => {
+    const { keyring, owner } = await initVault();
+    const agent = await newAgent();
+    const good = await keyring.addCredential(owner, { label: 'Good' }, 'g-value');
+    const expired = await keyring.addCredential(owner, { label: 'Expired' }, 'e-value');
+    const capped = await keyring.addCredential(owner, { label: 'Capped' }, 'c-value');
+    await keyring.createGrant(owner, good.credential_id, agent.agentId);
+    await keyring.createGrant(owner, expired.credential_id, agent.agentId, {
+      expires_at: new Date(Date.now() - 60_000).toISOString(),
+    });
+    await keyring.createGrant(owner, capped.credential_id, agent.agentId, { max_uses: 1 });
+    await keyring.lease(agent.keypair, capped.credential_id); // exhaust the cap
+
+    const { leases, denied } = await keyring.leaseAll(agent.keypair, { context: 'based run' });
+
+    // The healthy credential still leases; the expired/capped grants are NOT silently skipped.
+    expect(leases.map(l => l.credential.credential_id)).toEqual([good.credential_id]);
+    expect(denied.map(d => d.credential_id).sort()).toEqual([expired.credential_id, capped.credential_id].sort());
+    expect(denied.find(d => d.credential_id === expired.credential_id)?.reason).toMatch(/expired/);
+    expect(denied.find(d => d.credential_id === capped.credential_id)?.reason).toMatch(/usage cap/);
+
+    // Each denial is a signed, attributable lease_denied event in the log.
+    const deniedEvents = keyring.timeline({ event_type: 'lease_denied' });
+    expect(deniedEvents.some(e => e.credential_id === expired.credential_id)).toBe(true);
+    expect(deniedEvents.some(e => e.credential_id === capped.credential_id)).toBe(true);
+    expect((await keyring.verifyLog()).ok).toBe(true);
+  });
 });
 
 // ─── timeline ───
@@ -923,6 +1075,29 @@ describe('verifyLog', () => {
     const result = await keyring.verifyLog();
     expect(result.ok).toBe(false);
     expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  it('detects tail truncation of events.jsonl via the head.json anchor', async () => {
+    const { dir, keyring, owner } = await initVault();
+    const agent = await newAgent();
+    const cred = await keyring.addCredential(owner, { label: 'Anchored' }, 's');
+    await keyring.createGrant(owner, cred.credential_id, agent.agentId);
+    await keyring.lease(agent.keypair, cred.credential_id);
+    expect((await keyring.verifyLog()).ok).toBe(true);
+
+    const eventsPath = path.join(dir, 'events.jsonl');
+    const lines = fs.readFileSync(eventsPath, 'utf-8').trim().split('\n');
+    const anchor = JSON.parse(fs.readFileSync(path.join(dir, 'head.json'), 'utf-8')) as { count: number };
+    expect(anchor.count).toBe(lines.length);
+
+    // Drop the last complete event line, leaving head.json untouched.
+    fs.writeFileSync(eventsPath, lines.slice(0, -1).join('\n') + '\n');
+
+    // The surviving chain is internally valid, but the anchor still records the
+    // original length/head — so verifyLog flags the truncation.
+    const result = await keyring.verifyLog();
+    expect(result.ok).toBe(false);
+    expect(result.errors.some(e => /Log truncated/.test(e.error) || /does not reach recorded head/.test(e.error))).toBe(true);
   });
 });
 

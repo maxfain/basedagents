@@ -20,8 +20,10 @@ export {
   defaultVaultDir,
   loadKeypairFile,
   parseKeypairJson,
+  expandHome,
   GENESIS_HASH,
   type OwnerKeyFile,
+  type HeadAnchor,
 } from './store.js';
 
 export {
@@ -34,11 +36,11 @@ export {
 } from './crypto.js';
 
 export {
-  buildPayload,
   createEvent,
   computeEntryHash,
   verifyEventLog,
   type SignablePayload,
+  type VerifyOptions,
 } from './events.js';
 
 export {

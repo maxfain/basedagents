@@ -340,13 +340,20 @@ export class DemoVault {
     const head = this.events.length
       ? { sequence: this.events[this.events.length - 1].sequence, entry_hash: this.events[this.events.length - 1].entry_hash }
       : { sequence: 0, entry_hash: GENESIS_HASH };
+    // Same SignablePayload shape as the shipped package (events.ts): the
+    // signature commits to the event's chain position, its concrete
+    // event_type, and the vault id — so reordering, duplication, relabeling,
+    // and cross-vault splicing are all detectable.
     const payload = {
-      action: eventType === 'lease_denied' ? 'lease' : eventType,
+      event_type: eventType,
+      vault: this.owner.agent_id,
       agent_id: `ag_${base58Encode(actor.publicKey)}`,
       credential_id: input.credentialId ?? null,
       grant_id: input.grantId ?? null,
       context: input.context ?? null,
       detail: input.detail ?? null,
+      sequence: head.sequence + 1,
+      prev_hash: head.entry_hash,
       timestamp: new Date().toISOString(),
       nonce: randomId('nonce'),
     };
@@ -376,6 +383,8 @@ export class DemoVault {
     const errors: Array<{ sequence: number; error: string }> = [];
     let prevHash = GENESIS_HASH;
     let prevSequence = 0;
+    let vaultId: string | undefined;
+    const seenNonces = new Set<string>();
     for (const event of this.events) {
       if (event.sequence !== prevSequence + 1) errors.push({ sequence: event.sequence, error: `Sequence gap: expected ${prevSequence + 1}` });
       if (event.prev_hash !== prevHash) errors.push({ sequence: event.sequence, error: 'Chain break: prev_hash does not match previous entry_hash' });
@@ -390,11 +399,19 @@ export class DemoVault {
       ).catch(() => false);
       if (!valid) errors.push({ sequence: event.sequence, error: 'Invalid signature over signed_payload' });
       try {
-        const payload = JSON.parse(event.signed_payload) as { action: string; agent_id: string; context: string | null };
-        const expectedAction = event.event_type === 'lease_denied' ? 'lease' : event.event_type;
-        if (payload.action !== expectedAction) errors.push({ sequence: event.sequence, error: 'Payload action does not match event type' });
+        const payload = JSON.parse(event.signed_payload) as {
+          event_type: string; vault: string; agent_id: string;
+          sequence: number; prev_hash: string; context: string | null; nonce: string;
+        };
+        if (payload.event_type !== event.event_type) errors.push({ sequence: event.sequence, error: 'Signed event_type does not match envelope (relabeled)' });
+        if (payload.sequence !== event.sequence) errors.push({ sequence: event.sequence, error: 'Signed sequence does not match envelope (event moved)' });
+        if (payload.prev_hash !== event.prev_hash) errors.push({ sequence: event.sequence, error: 'Signed prev_hash does not match envelope (event re-chained)' });
         if (payload.context !== event.requesting_context) errors.push({ sequence: event.sequence, error: 'Payload context does not match event requesting_context' });
         if (payload.agent_id !== `ag_${event.agent_pubkey}`) errors.push({ sequence: event.sequence, error: 'Payload agent_id does not match event agent_pubkey' });
+        if (vaultId === undefined) vaultId = payload.vault;
+        else if (payload.vault !== vaultId) errors.push({ sequence: event.sequence, error: 'Event belongs to a different vault (cross-vault splice)' });
+        if (seenNonces.has(payload.nonce)) errors.push({ sequence: event.sequence, error: 'Duplicate nonce — event replayed' });
+        seenNonces.add(payload.nonce);
       } catch {
         errors.push({ sequence: event.sequence, error: 'signed_payload is not valid JSON' });
       }

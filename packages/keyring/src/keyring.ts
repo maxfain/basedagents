@@ -19,18 +19,17 @@ import type {
 } from './types.js';
 import { DEFAULT_LEASE_TTL_SECONDS } from './types.js';
 import { VaultStore } from './store.js';
+import type { AccessEventType } from './types.js';
 import {
-  sealToPublicKey, openSealedBox, signPayload, verifyPayload,
+  sealToPublicKey, openSealedBox, signPayload,
   generateKeypair, type AgentKeypair,
 } from './crypto.js';
-import { buildPayload, createEvent, verifyEventLog } from './events.js';
+import { createEvent, verifyEventLog } from './events.js';
 import {
   publicKeyToAgentId, agentIdToPublicKey, base58Encode,
   canonicalJsonStringify, sha256Hex, randomId, nowIso,
 } from './util.js';
 
-/** Max clock skew tolerated on signed lease/request payloads. */
-const PAYLOAD_TIMESTAMP_WINDOW_MS = 120_000;
 /** Days of history in the agents-view sparkline. */
 const SPARKLINE_DAYS = 14;
 
@@ -38,7 +37,7 @@ export class KeyringError extends Error {
   constructor(message: string, readonly code:
     | 'not_owner' | 'unknown_identity' | 'unknown_credential' | 'unknown_grant' | 'unknown_request'
     | 'duplicate' | 'no_grant' | 'grant_revoked' | 'grant_expired' | 'usage_cap'
-    | 'no_sealed_copy' | 'bad_signature' | 'stale_timestamp' | 'invalid_input'
+    | 'no_sealed_copy' | 'bad_signature' | 'invalid_input'
   ) {
     super(message);
     this.name = 'KeyringError';
@@ -49,6 +48,15 @@ function stripSealed(credential: Credential): CredentialPublic {
   const { sealed: _sealed, ...pub } = credential;
   return pub;
 }
+
+/** Own-property lookup on a JSON-derived map — never resolves inherited
+ * Object.prototype members (`constructor`, `toString`, …). */
+function pick<T>(map: Record<string, T>, key: string): T | undefined {
+  return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : undefined;
+}
+
+/** Reserved names that must not be usable as identity names or record keys. */
+const RESERVED_NAMES = new Set(['owner', '__proto__', 'constructor', 'prototype']);
 
 function grantIsExpired(grant: Grant, at: number): boolean {
   return grant.constraints.expires_at !== undefined && Date.parse(grant.constraints.expires_at) <= at;
@@ -92,12 +100,17 @@ export class Keyring {
     const owner = options?.ownerKeypair ?? await generateKeypair();
 
     return store.withLock(async () => {
+      // Re-check under the lock so a concurrent init can't clobber an existing vault.
+      if (store.exists() || store.ownerKeyExists()) {
+        throw new KeyringError(`A vault already exists at ${store.dir}`, 'duplicate');
+      }
+      const ownerAgentId = publicKeyToAgentId(owner.publicKey);
       store.writeOwnerKey(owner);
       const vault: VaultFile = {
         version: 1,
         created_at: nowIso(),
         owner: {
-          agent_id: publicKeyToAgentId(owner.publicKey),
+          agent_id: ownerAgentId,
           public_key_b58: base58Encode(owner.publicKey),
         },
         identities: {},
@@ -108,13 +121,39 @@ export class Keyring {
       store.writeVault(vault);
       const event = await createEvent({
         actor: owner,
+        vaultId: ownerAgentId,
         eventType: 'vault_created',
         head: store.chainHead(),
-        detail: { owner_agent_id: vault.owner.agent_id },
+        detail: { owner_agent_id: ownerAgentId },
       });
       store.appendEvent(event);
       return new Keyring(store);
     });
+  }
+
+  /**
+   * Build, sign, and append an AccessEvent under the current lock. The actor's
+   * signature commits to the vault id and the event's chain position; see
+   * events.ts. Returns the appended event.
+   */
+  private async emit(vault: VaultFile, actor: AgentKeypair, eventType: AccessEventType, fields?: {
+    credentialId?: string | null;
+    grantId?: string | null;
+    context?: string | null;
+    detail?: Record<string, unknown> | null;
+  }): Promise<AccessEvent> {
+    const event = await createEvent({
+      actor,
+      vaultId: vault.owner.agent_id,
+      eventType,
+      head: this.store.chainHead(),
+      credentialId: fields?.credentialId,
+      grantId: fields?.grantId,
+      context: fields?.context,
+      detail: fields?.detail,
+    });
+    this.store.appendEvent(event);
+    return event;
   }
 
   /** Load the owner keypair stored alongside the vault. */
@@ -136,7 +175,7 @@ export class Keyring {
 
   /** Resolve an agent reference — agent ID or local identity name. */
   resolveAgent(vault: VaultFile, ref: string): string {
-    if (vault.identities[ref]) return ref;
+    if (pick(vault.identities, ref)) return ref;
     if (ref === vault.owner.agent_id) return ref;
     const lower = ref.toLowerCase();
     const matches = Object.values(vault.identities).filter(i => i.name?.toLowerCase() === lower);
@@ -151,17 +190,27 @@ export class Keyring {
     throw new KeyringError(`Unknown identity: ${ref}`, 'unknown_identity');
   }
 
-  /** Resolve a credential reference — credential ID, env var name, or label. */
+  /**
+   * Resolve a credential reference — credential ID, env var name, or label.
+   * All three lookups are computed before returning, so a reference that could
+   * mean two different credentials (e.g. one credential's label equals
+   * another's env var) is rejected as ambiguous rather than silently picking one.
+   */
   resolveCredential(vault: VaultFile, ref: string): Credential {
-    if (vault.credentials[ref]) return vault.credentials[ref];
+    const byId = pick(vault.credentials, ref);
     const all = Object.values(vault.credentials);
-    const byEnv = all.filter(c => c.env_var === ref);
-    if (byEnv.length === 1) return byEnv[0];
     const lower = ref.toLowerCase();
+    const byEnv = all.filter(c => c.env_var === ref);
     const byLabel = all.filter(c => c.label.toLowerCase() === lower);
-    if (byLabel.length === 1) return byLabel[0];
-    if (byEnv.length + byLabel.length > 1) {
-      throw new KeyringError(`Credential reference "${ref}" is ambiguous`, 'unknown_credential');
+
+    const candidates = new Map<string, Credential>();
+    if (byId) candidates.set(byId.credential_id, byId);
+    for (const c of byEnv) candidates.set(c.credential_id, c);
+    for (const c of byLabel) candidates.set(c.credential_id, c);
+
+    if (candidates.size === 1) return [...candidates.values()][0];
+    if (candidates.size > 1) {
+      throw new KeyringError(`Credential reference "${ref}" is ambiguous — use the credential ID`, 'unknown_credential');
     }
     throw new KeyringError(`Unknown credential: ${ref}`, 'unknown_credential');
   }
@@ -179,16 +228,19 @@ export class Keyring {
       const vault = this.store.readVault();
       this.assertOwner(vault, owner);
       agentIdToPublicKey(agentId); // validates
-      if (vault.identities[agentId]) {
+      if (pick(vault.identities, agentId)) {
         throw new KeyringError(`Identity ${agentId} already added`, 'duplicate');
       }
       if (name) {
-        const clash = Object.values(vault.identities).some(i => i.name?.toLowerCase() === name.toLowerCase());
-        if (clash || name.toLowerCase() === 'owner') {
-          throw new KeyringError(`Identity name "${name}" is already in use`, 'duplicate');
-        }
         if (name.startsWith('ag_')) {
           throw new KeyringError('Identity names must not start with "ag_"', 'invalid_input');
+        }
+        if (RESERVED_NAMES.has(name.toLowerCase())) {
+          throw new KeyringError(`Identity name "${name}" is reserved`, 'invalid_input');
+        }
+        const clash = Object.values(vault.identities).some(i => i.name?.toLowerCase() === name.toLowerCase());
+        if (clash) {
+          throw new KeyringError(`Identity name "${name}" is already in use`, 'duplicate');
         }
       }
       const identity: KnownIdentity = {
@@ -199,12 +251,9 @@ export class Keyring {
       };
       vault.identities[agentId] = identity;
       this.store.writeVault(vault);
-      this.store.appendEvent(await createEvent({
-        actor: owner,
-        eventType: 'identity_added',
-        head: this.store.chainHead(),
+      await this.emit(vault, owner, 'identity_added', {
         detail: { agent_id: agentId, name: name ?? null },
-      }));
+      });
       return identity;
     });
   }
@@ -215,7 +264,7 @@ export class Keyring {
       const vault = this.store.readVault();
       this.assertOwner(vault, owner);
       const agentId = this.resolveAgent(vault, agentRef);
-      if (!vault.identities[agentId]) {
+      if (!pick(vault.identities, agentId)) {
         throw new KeyringError(`Unknown identity: ${agentRef}`, 'unknown_identity');
       }
       const active = Object.values(vault.grants).filter(g => g.agent_id === agentId && g.status === 'active');
@@ -227,12 +276,7 @@ export class Keyring {
       }
       delete vault.identities[agentId];
       this.store.writeVault(vault);
-      this.store.appendEvent(await createEvent({
-        actor: owner,
-        eventType: 'identity_removed',
-        head: this.store.chainHead(),
-        detail: { agent_id: agentId },
-      }));
+      await this.emit(vault, owner, 'identity_removed', { detail: { agent_id: agentId } });
     });
   }
 
@@ -247,6 +291,7 @@ export class Keyring {
       const vault = this.store.readVault();
       this.assertOwner(vault, owner);
       const now = nowIso();
+      const plaintext = new TextEncoder().encode(secret);
       const credential: Credential = {
         ...meta,
         label: meta.label.trim(),
@@ -255,26 +300,26 @@ export class Keyring {
         created_at: now,
         updated_at: now,
         sealed: {
-          [vault.owner.agent_id]: sealToPublicKey(owner.publicKey, new TextEncoder().encode(secret)),
+          [vault.owner.agent_id]: sealToPublicKey(owner.publicKey, plaintext),
         },
       };
+      plaintext.fill(0);
       vault.credentials[credential.credential_id] = credential;
       this.store.writeVault(vault);
-      this.store.appendEvent(await createEvent({
-        actor: owner,
-        eventType: 'credential_added',
-        head: this.store.chainHead(),
+      await this.emit(vault, owner, 'credential_added', {
         credentialId: credential.credential_id,
         detail: { label: credential.label, provider: credential.provider ?? null, env_var: credential.env_var ?? null },
-      }));
+      });
       return stripSealed(credential);
     });
   }
 
   /**
    * Replace a credential's secret value (e.g. after a manual rotation at the provider).
-   * Re-seals to the owner and to every identity with an active grant — this is the
-   * "re-encryption happens on next write" point from KEYRING_SPEC §3.
+   * Re-seals to the owner and to every identity whose grant currently authorizes a
+   * lease — the "re-encryption happens on next write" point from KEYRING_SPEC §3.
+   * Grants that are revoked, expired, or at their usage cap do NOT receive a fresh
+   * sealed copy of the rotated secret (and any stale copy is dropped).
    */
   async updateCredentialSecret(owner: AgentKeypair, credentialRef: string, secret: string): Promise<CredentialPublic> {
     if (!secret) throw new KeyringError('Secret value must not be empty', 'invalid_input');
@@ -283,24 +328,23 @@ export class Keyring {
       this.assertOwner(vault, owner);
       const credential = this.resolveCredential(vault, credentialRef);
       const plaintext = new TextEncoder().encode(secret);
+      const now = Date.now();
       const sealed: Record<string, string> = {
         [vault.owner.agent_id]: sealToPublicKey(owner.publicKey, plaintext),
       };
       for (const grant of Object.values(vault.grants)) {
-        if (grant.credential_id === credential.credential_id && grant.status === 'active') {
-          sealed[grant.agent_id] = sealToPublicKey(agentIdToPublicKey(grant.agent_id), plaintext);
-        }
+        if (grant.credential_id !== credential.credential_id) continue;
+        if (grant.status !== 'active' || grantIsExpired(grant, now) || grantAtUsageCap(grant)) continue;
+        sealed[grant.agent_id] = sealToPublicKey(agentIdToPublicKey(grant.agent_id), plaintext);
       }
+      plaintext.fill(0);
       credential.sealed = sealed;
       credential.updated_at = nowIso();
       this.store.writeVault(vault);
-      this.store.appendEvent(await createEvent({
-        actor: owner,
-        eventType: 'credential_updated',
-        head: this.store.chainHead(),
+      await this.emit(vault, owner, 'credential_updated', {
         credentialId: credential.credential_id,
         detail: { label: credential.label, resealed_to: Object.keys(sealed).length },
-      }));
+      });
       return stripSealed(credential);
     });
   }
@@ -317,13 +361,10 @@ export class Keyring {
       for (const grantId of removedGrants) delete vault.grants[grantId];
       delete vault.credentials[credential.credential_id];
       this.store.writeVault(vault);
-      this.store.appendEvent(await createEvent({
-        actor: owner,
-        eventType: 'credential_removed',
-        head: this.store.chainHead(),
+      await this.emit(vault, owner, 'credential_removed', {
         credentialId: credential.credential_id,
         detail: { label: credential.label, removed_grant_ids: removedGrants },
-      }));
+      });
     });
   }
 
@@ -352,7 +393,7 @@ export class Keyring {
     if (agentId === vault.owner.agent_id) {
       throw new KeyringError('The owner already holds every credential — grants are for agent identities', 'invalid_input');
     }
-    if (!vault.identities[agentId]) {
+    if (!pick(vault.identities, agentId)) {
       // Auto-register bare agent IDs so `based grant <cred> ag_xxx` just works.
       vault.identities[agentId] = { agent_id: agentId, added_at: nowIso() };
     }
@@ -401,10 +442,7 @@ export class Keyring {
       this.assertOwner(vault, owner);
       const { grant, credential } = this.applyGrant(vault, owner, credentialRef, agentRef, constraints);
       this.store.writeVault(vault);
-      this.store.appendEvent(await createEvent({
-        actor: owner,
-        eventType: 'grant_created',
-        head: this.store.chainHead(),
+      await this.emit(vault, owner, 'grant_created', {
         credentialId: credential.credential_id,
         grantId: grant.grant_id,
         detail: {
@@ -412,7 +450,7 @@ export class Keyring {
           label: credential.label,
           constraints: constraints as unknown as Record<string, unknown>,
         },
-      }));
+      });
       return grant;
     });
   }
@@ -426,7 +464,7 @@ export class Keyring {
     return this.store.withLock(async () => {
       const vault = this.store.readVault();
       this.assertOwner(vault, owner);
-      const grant = vault.grants[grantId];
+      const grant = pick(vault.grants, grantId);
       if (!grant) throw new KeyringError(`Unknown grant: ${grantId}`, 'unknown_grant');
       if (grant.status === 'revoked') {
         throw new KeyringError(`Grant ${grantId} is already revoked`, 'grant_revoked');
@@ -440,18 +478,15 @@ export class Keyring {
           && g.credential_id === grant.credential_id && g.status === 'active'
       );
       if (!stillActive) {
-        const credential = vault.credentials[grant.credential_id];
+        const credential = pick(vault.credentials, grant.credential_id);
         if (credential) delete credential.sealed[grant.agent_id];
       }
       this.store.writeVault(vault);
-      this.store.appendEvent(await createEvent({
-        actor: owner,
-        eventType: 'grant_revoked',
-        head: this.store.chainHead(),
+      await this.emit(vault, owner, 'grant_revoked', {
         credentialId: grant.credential_id,
         grantId: grant.grant_id,
         detail: { agent_id: grant.agent_id, reason: reason ?? null },
-      }));
+      });
       return grant;
     });
   }
@@ -473,16 +508,13 @@ export class Keyring {
         grant.revoked_at = now;
         grant.revoke_reason = reason ?? 'kill_switch';
         revoked.push(grant.grant_id);
-        const credential = vault.credentials[grant.credential_id];
+        const credential = pick(vault.credentials, grant.credential_id);
         if (credential) delete credential.sealed[agentId];
       }
       this.store.writeVault(vault);
-      this.store.appendEvent(await createEvent({
-        actor: owner,
-        eventType: 'kill_switch',
-        head: this.store.chainHead(),
+      await this.emit(vault, owner, 'kill_switch', {
         detail: { agent_id: agentId, revoked_grant_ids: revoked, reason: reason ?? null },
-      }));
+      });
       return { agent_id: agentId, revoked_grant_ids: revoked };
     });
   }
@@ -497,7 +529,7 @@ export class Keyring {
     return this.store.withLock(async () => {
       const vault = this.store.readVault();
       this.assertOwner(vault, owner);
-      const request = vault.requests[requestId];
+      const request = pick(vault.requests, requestId);
       if (!request) throw new KeyringError(`Unknown request: ${requestId}`, 'unknown_request');
       if (request.status !== 'pending') {
         throw new KeyringError(`Request ${requestId} is already ${request.status}`, 'duplicate');
@@ -508,10 +540,7 @@ export class Keyring {
       request.credential_id = grant.credential_id;
       request.grant_id = grant.grant_id;
       this.store.writeVault(vault);
-      this.store.appendEvent(await createEvent({
-        actor: owner,
-        eventType: 'grant_created',
-        head: this.store.chainHead(),
+      await this.emit(vault, owner, 'grant_created', {
         credentialId: credential.credential_id,
         grantId: grant.grant_id,
         detail: {
@@ -519,15 +548,12 @@ export class Keyring {
           label: credential.label,
           constraints: constraints as unknown as Record<string, unknown>,
         },
-      }));
-      this.store.appendEvent(await createEvent({
-        actor: owner,
-        eventType: 'request_approved',
-        head: this.store.chainHead(),
+      });
+      await this.emit(vault, owner, 'request_approved', {
         credentialId: grant.credential_id,
         grantId: grant.grant_id,
         detail: { request_id: requestId, agent_id: request.agent_id },
-      }));
+      });
       return { request, grant };
     });
   }
@@ -537,7 +563,7 @@ export class Keyring {
     return this.store.withLock(async () => {
       const vault = this.store.readVault();
       this.assertOwner(vault, owner);
-      const request = vault.requests[requestId];
+      const request = pick(vault.requests, requestId);
       if (!request) throw new KeyringError(`Unknown request: ${requestId}`, 'unknown_request');
       if (request.status !== 'pending') {
         throw new KeyringError(`Request ${requestId} is already ${request.status}`, 'duplicate');
@@ -546,12 +572,9 @@ export class Keyring {
       request.resolved_at = nowIso();
       if (reason) request.deny_reason = reason;
       this.store.writeVault(vault);
-      this.store.appendEvent(await createEvent({
-        actor: owner,
-        eventType: 'request_denied',
-        head: this.store.chainHead(),
+      await this.emit(vault, owner, 'request_denied', {
         detail: { request_id: requestId, agent_id: request.agent_id, reason: reason ?? null },
-      }));
+      });
       return request;
     });
   }
@@ -584,9 +607,10 @@ export class Keyring {
   }
 
   /**
-   * Lease a credential: verify the grant, verify the agent's signature over the
-   * request, append a signed AccessEvent, and return the decrypted value with
-   * TTL metadata. The value lives in memory only.
+   * Lease a credential: verify the grant and constraints, open the identity's
+   * sealed copy, append an AccessEvent the agent signs (binding the access to
+   * this vault and this chain position), and return the decrypted value with
+   * TTL metadata. The value lives in memory only — it is never written to disk.
    *
    * Denied attempts are also recorded (lease_denied) with the denial reason.
    */
@@ -606,7 +630,7 @@ export class Keyring {
       try {
         credential = this.resolveCredential(vault, credentialRef);
       } catch (err) {
-        await this.recordDenial(agentKeypair, null, null, context, `unknown credential: ${credentialRef}`);
+        await this.recordDenial(vault, agentKeypair, null, null, context, `unknown credential: ${credentialRef}`);
         throw err;
       }
 
@@ -616,7 +640,7 @@ export class Keyring {
       const active = grants.find(g => g.status === 'active');
 
       const deny = async (reason: string, code: ConstructorParameters<typeof KeyringError>[1], grantId?: string): Promise<never> => {
-        await this.recordDenial(agentKeypair, credential.credential_id, grantId ?? null, context, reason);
+        await this.recordDenial(vault, agentKeypair, credential.credential_id, grantId ?? null, context, reason);
         throw new KeyringError(`Lease denied for "${credential.label}": ${reason}`, code);
       };
 
@@ -632,34 +656,19 @@ export class Keyring {
       if (grantAtUsageCap(active)) {
         return deny(`usage cap reached (${active.constraints.max_uses})`, 'usage_cap', active.grant_id);
       }
-      const sealedBox = credential.sealed[agentId];
+      const sealedBox = pick(credential.sealed, agentId);
       if (!sealedBox) {
         return deny('no sealed copy for this identity (re-grant to re-seal)', 'no_sealed_copy', active.grant_id);
       }
 
-      // The agent proves key possession: sign the lease request, then verify.
       const maxTtl = active.constraints.max_lease_ttl_seconds ?? DEFAULT_LEASE_TTL_SECONDS;
-      const ttlSeconds = Math.min(options?.ttlSeconds ?? Math.min(DEFAULT_LEASE_TTL_SECONDS, maxTtl), maxTtl);
-      if (ttlSeconds <= 0) {
-        return deny('requested TTL must be positive', 'invalid_input', active.grant_id);
-      }
-      const { payload, canonical } = buildPayload({
-        action: 'lease',
-        agentId,
-        credentialId: credential.credential_id,
-        grantId: active.grant_id,
-        context,
-        detail: active.constraints.project ? { project: active.constraints.project } : null,
-      });
-      const signature = await signPayload(agentKeypair.privateKey, canonical);
-      const signatureOk = await verifyPayload(agentKeypair.publicKey, canonical, signature);
-      if (!signatureOk) {
-        return deny('signature verification failed (keypair mismatch?)', 'bad_signature', active.grant_id);
-      }
-      if (Math.abs(Date.now() - Date.parse(payload.timestamp)) > PAYLOAD_TIMESTAMP_WINDOW_MS) {
-        return deny('stale request timestamp', 'stale_timestamp', active.grant_id);
+      const requested = options?.ttlSeconds ?? Math.min(DEFAULT_LEASE_TTL_SECONDS, maxTtl);
+      const ttlSeconds = Math.min(requested, maxTtl);
+      if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {
+        return deny('requested TTL must be a positive number', 'invalid_input', active.grant_id);
       }
 
+      // The agent proves key possession by opening its sealed copy.
       let value: string;
       try {
         const plaintext = openSealedBox(agentKeypair.privateKey, sealedBox);
@@ -672,19 +681,15 @@ export class Keyring {
       active.use_count += 1;
       this.store.writeVault(vault);
 
-      const event = await createEvent({
-        actor: agentKeypair,
-        eventType: 'lease',
-        head: this.store.chainHead(),
+      // The agent signs the AccessEvent — attributable, and bound to this chain slot.
+      const event = await this.emit(vault, agentKeypair, 'lease', {
         credentialId: credential.credential_id,
         grantId: active.grant_id,
         context,
-        detail: payload.detail,
-        presigned: { canonical, signature, payload },
+        detail: active.constraints.project ? { project: active.constraints.project } : null,
       });
-      this.store.appendEvent(event);
 
-      const issuedAt = Date.parse(payload.timestamp);
+      const issuedAt = Date.parse(event.timestamp);
       return {
         lease_id: randomId('lease'),
         credential: stripSealed(credential),
@@ -692,7 +697,7 @@ export class Keyring {
         agent_id: agentId,
         value,
         ttl_seconds: ttlSeconds,
-        issued_at: payload.timestamp,
+        issued_at: event.timestamp,
         expires_at: new Date(issuedAt + ttlSeconds * 1000).toISOString(),
         access_event_id: event.event_id,
       };
@@ -700,50 +705,47 @@ export class Keyring {
   }
 
   private async recordDenial(
+    vault: VaultFile,
     agentKeypair: AgentKeypair,
     credentialId: string | null,
     grantId: string | null,
     context: string | null,
     reason: string
   ): Promise<void> {
-    const agentId = publicKeyToAgentId(agentKeypair.publicKey);
-    const { payload, canonical } = buildPayload({
-      action: 'lease',
-      agentId,
+    await this.emit(vault, agentKeypair, 'lease_denied', {
       credentialId,
       grantId,
       context,
       detail: { reason },
     });
-    const signature = await signPayload(agentKeypair.privateKey, canonical);
-    this.store.appendEvent(await createEvent({
-      actor: agentKeypair,
-      eventType: 'lease_denied',
-      head: this.store.chainHead(),
-      credentialId,
-      grantId,
-      context,
-      detail: { reason },
-      presigned: { canonical, signature, payload },
-    }));
   }
 
   /**
-   * Lease every credential this identity has an active grant for — the
-   * `based run` path. Returns successful leases plus per-credential denials.
+   * Lease every credential this identity has a grant for — the `based run` path.
+   * Every active grant is attempted (including expired / usage-capped ones) so
+   * that each failure produces a signed lease_denied event and a visible denial,
+   * rather than being silently skipped.
    */
   async leaseAll(
     agentKeypair: AgentKeypair,
     options?: { context?: string; ttlSeconds?: number }
   ): Promise<{ leases: Lease[]; denied: Array<{ credential_id: string; label: string; reason: string }> }> {
-    const grants = this.listForAgent(agentKeypair);
+    const agentId = publicKeyToAgentId(agentKeypair.publicKey);
+    const vault = this.store.readVault();
+    const targets = new Map<string, string>(); // credential_id -> label
+    for (const grant of Object.values(vault.grants)) {
+      if (grant.agent_id !== agentId || grant.status !== 'active') continue;
+      const credential = pick(vault.credentials, grant.credential_id);
+      if (credential) targets.set(credential.credential_id, credential.label);
+    }
+
     const leases: Lease[] = [];
     const denied: Array<{ credential_id: string; label: string; reason: string }> = [];
-    for (const view of grants) {
+    for (const [credentialId, label] of targets) {
       try {
-        leases.push(await this.lease(agentKeypair, view.credential_id, options));
+        leases.push(await this.lease(agentKeypair, credentialId, options));
       } catch (err) {
-        denied.push({ credential_id: view.credential_id, label: view.label, reason: (err as Error).message });
+        denied.push({ credential_id: credentialId, label, reason: (err as Error).message });
       }
     }
     return { leases, denied };
@@ -776,17 +778,14 @@ export class Keyring {
       };
       vault.requests[request.request_id] = request;
       this.store.writeVault(vault);
-      this.store.appendEvent(await createEvent({
-        actor: agentKeypair,
-        eventType: 'request_created',
-        head: this.store.chainHead(),
+      await this.emit(vault, agentKeypair, 'request_created', {
         detail: {
           request_id: request.request_id,
           provider: request.provider,
           scope: request.scope ?? null,
           note: request.note ?? null,
         },
-      }));
+      });
       return request;
     });
   }
@@ -893,8 +892,15 @@ export class Keyring {
   }
 
   /** Verify the whole event log: hash chain, signatures, payload consistency. */
-  async verifyLog(): Promise<VerifyLogResult> {
-    return verifyEventLog(this.store.readEvents());
+  async verifyLog(options?: { expectedHead?: { sequence: number; entry_hash: string } }): Promise<VerifyLogResult> {
+    const vault = this.store.readVault();
+    const anchor = this.store.readHeadAnchor();
+    return verifyEventLog(this.store.readEvents(), {
+      expectedVault: vault.owner.agent_id,
+      expectedCount: anchor?.count,
+      expectedHead: options?.expectedHead
+        ?? (anchor ? { sequence: anchor.sequence, entry_hash: anchor.entry_hash } : undefined),
+    });
   }
 
   /** Export the AccessEvent stream as signed JSON (Looptail ingestion format). */

@@ -60,8 +60,17 @@ function credentialLabel(vault: VaultFile, event: AccessEvent): string {
     ?? event.credential_id;
 }
 
+/** Validate an ISO-8601 timestamp flag; returns the raw value for lexicographic comparison. */
+function parseIsoFlag(value: string | undefined, flag: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (Number.isNaN(Date.parse(value))) {
+    throw new CliError(`${flag} must be an ISO-8601 timestamp (got "${value}")`);
+  }
+  return value;
+}
+
 export async function cmdTimeline(args: string[], dir: string | undefined): Promise<void> {
-  const flags = parseFlags(args, { value: ['agent', 'credential', 'type', 'limit'] });
+  const flags = parseFlags(args, { value: ['agent', 'credential', 'type', 'limit', 'project', 'since', 'until'] });
   const kr = Keyring.open(dir);
   const vault = kr.vault();
 
@@ -90,6 +99,9 @@ export async function cmdTimeline(args: string[], dir: string | undefined): Prom
     agent: flags.values['agent'],
     credential_id: credentialId,
     event_type: eventType,
+    project: flags.values['project'],
+    since: parseIsoFlag(flags.values['since'], '--since'),
+    until: parseIsoFlag(flags.values['until'], '--until'),
     limit: flags.values['limit'] !== undefined ? parsePositiveInt(flags.values['limit'], '--limit') : undefined,
   });
 

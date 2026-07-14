@@ -324,6 +324,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
     timeline: [],
     tlAgent: '',
     tlType: '',
+    tlProject: '',
     tlLimit: 200,
     expanded: {},     // agent_id -> true
     openForm: null,   // { kind: 'kill'|'approve'|'deny', id: string } — pauses auto-refresh
@@ -523,6 +524,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
     var q = [];
     if (state.tlAgent) q.push('agent=' + encodeURIComponent(state.tlAgent));
     if (state.tlType) q.push('event_type=' + encodeURIComponent(state.tlType));
+    if (state.tlProject) q.push('project=' + encodeURIComponent(state.tlProject));
     q.push('limit=' + (state.tlLimit || 200));
     return q.join('&');
   }
@@ -767,6 +769,10 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
       onchange: function () { state.tlType = typeSel.value; refreshTimeline(); }
     }, h('option', { value: '' }, 'All events'));
     EVENT_TYPES.forEach(function (t) { typeSel.appendChild(h('option', { value: t }, t)); });
+    var projectInput = h('input', {
+      class: 'input', type: 'text', placeholder: 'any', value: state.tlProject || '',
+      onchange: function () { state.tlProject = projectInput.value.trim(); refreshTimeline(); }
+    });
     var limitInput = h('input', {
       class: 'input num', type: 'number', min: '1', max: '10000', value: '200',
       onchange: function () {
@@ -778,6 +784,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
     });
     bar.appendChild(h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Agent'), agentSel));
     bar.appendChild(h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Event type'), typeSel));
+    bar.appendChild(h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Project'), projectInput));
     bar.appendChild(h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Limit'), limitInput));
   }
 

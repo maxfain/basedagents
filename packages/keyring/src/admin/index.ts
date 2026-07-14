@@ -175,7 +175,20 @@ function parseConstraints(raw: unknown): GrantConstraints {
   return out;
 }
 
+/** Filter query params the timeline endpoint understands — anything else is rejected. */
+const TIMELINE_PARAMS = new Set(['agent', 'credential_id', 'event_type', 'project', 'since', 'until', 'limit']);
+
+function parseIsoParam(params: URLSearchParams, name: string): string | undefined {
+  const raw = params.get(name);
+  if (!raw) return undefined;
+  if (Number.isNaN(Date.parse(raw))) throw new HttpError(400, `${name} must be an ISO-8601 timestamp`);
+  return raw;
+}
+
 function parseTimelineFilter(params: URLSearchParams): TimelineFilter {
+  for (const key of params.keys()) {
+    if (!TIMELINE_PARAMS.has(key)) throw new HttpError(400, `Unknown timeline filter: ${key}`);
+  }
   const filter: TimelineFilter = {};
   const agent = params.get('agent');
   if (agent) filter.agent = agent;
@@ -188,6 +201,12 @@ function parseTimelineFilter(params: URLSearchParams): TimelineFilter {
     }
     filter.event_type = eventType as AccessEventType;
   }
+  const project = params.get('project');
+  if (project) filter.project = project;
+  const since = parseIsoParam(params, 'since');
+  if (since) filter.since = since;
+  const until = parseIsoParam(params, 'until');
+  if (until) filter.until = until;
   const limitRaw = params.get('limit');
   let limit = DEFAULT_TIMELINE_LIMIT;
   if (limitRaw) {

@@ -58,7 +58,8 @@ Grants:
 Access:
   run [--agent <ref>] [--keypair <file>] [--context <c>] [--ttl <seconds>] -- <command...>
                                         Lease granted credentials, inject as env vars, run
-  timeline [--agent <ref>] [--credential <cred>] [--type <event_type>] [--limit <n>]
+  timeline [--agent <ref>] [--credential <cred>] [--project <tag>] [--type <event_type>]
+           [--since <iso>] [--until <iso>] [--limit <n>]
                                         Human-readable access event stream
 
 Servers:

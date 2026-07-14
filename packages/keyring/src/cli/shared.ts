@@ -89,15 +89,18 @@ export function agentDisplay(vault: VaultFile, agentId: string): string {
   return vault.identities[agentId]?.name ?? shortAgentId(agentId);
 }
 
-/** Render rows as aligned columns, two spaces between columns. */
-export function printTable(rows: string[][], indent = '  '): void {
+/**
+ * Render rows as aligned columns, two spaces between columns. `log` selects the
+ * output sink — pass `console.error` to keep stdout clean (e.g. for `based run`).
+ */
+export function printTable(rows: string[][], indent = '  ', log: (line: string) => void = console.log): void {
   const widths: number[] = [];
   for (const row of rows) {
     row.forEach((cell, i) => { widths[i] = Math.max(widths[i] ?? 0, cell.length); });
   }
   for (const row of rows) {
     const line = row.map((cell, i) => (i === row.length - 1 ? cell : cell.padEnd(widths[i]))).join('  ');
-    console.log((indent + line).trimEnd());
+    log((indent + line).trimEnd());
   }
 }
 
@@ -128,16 +131,35 @@ const DURATION_UNIT_MS: Record<string, number> = {
   w: 604_800_000,
 };
 
-/** Accept an ISO timestamp or a duration like 90m / 24h / 7d; return ISO. */
+/** Match a full ISO-8601 date or datetime (bare numbers deliberately excluded). */
+const ISO_8601_RE =
+  /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+
+/**
+ * Accept a duration like 30m / 24h / 7d / 2w or a full ISO-8601 timestamp, and
+ * return the resolved instant as ISO. Bare numbers are rejected (they parse to
+ * arbitrary past dates), and the result must be strictly in the future.
+ */
 export function parseExpires(value: string): string {
-  const match = /^(\d+)\s*([smhdw])$/.exec(value.trim());
+  const trimmed = value.trim();
+  let parsedMs: number;
+  const match = /^(\d+)\s*([smhdw])$/.exec(trimmed);
   if (match) {
-    const ms = parseInt(match[1], 10) * DURATION_UNIT_MS[match[2]];
-    return new Date(Date.now() + ms).toISOString();
+    parsedMs = Date.now() + parseInt(match[1], 10) * DURATION_UNIT_MS[match[2]];
+  } else if (ISO_8601_RE.test(trimmed)) {
+    parsedMs = Date.parse(trimmed);
+    if (Number.isNaN(parsedMs)) {
+      throw new CliError(`Invalid expiry "${value}" — use an ISO-8601 timestamp or a duration like 30m, 24h, 7d, 2w`);
+    }
+  } else {
+    throw new CliError(
+      `Invalid expiry "${value}" — use a duration like 30m, 24h, 7d, 2w or a full ISO-8601 timestamp (e.g. 2026-08-01T00:00:00Z)`
+    );
   }
-  const parsed = Date.parse(value);
-  if (!Number.isNaN(parsed)) return new Date(parsed).toISOString();
-  throw new CliError(`Invalid expiry "${value}" — use an ISO timestamp or a duration like 90m, 24h, 7d`);
+  if (parsedMs <= Date.now()) {
+    throw new CliError(`Expiry "${value}" must be in the future`);
+  }
+  return new Date(parsedMs).toISOString();
 }
 
 /** The honest revocation summary — what revoke/kill does and does not do. */

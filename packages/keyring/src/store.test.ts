@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { VaultStore, GENESIS_HASH, parseKeypairJson, loadKeypairFile } from './store.js';
+import { VaultStore, GENESIS_HASH, parseKeypairJson, loadKeypairFile, expandHome } from './store.js';
 import { generateKeypair } from './crypto.js';
 import { base58Encode, bytesToHex, publicKeyToAgentId, nowIso } from './util.js';
 import type { VaultFile, AccessEvent } from './types.js';
@@ -201,5 +201,86 @@ describe('event log', () => {
 
     expect(store.readEvents()).toEqual([e1, e2]);
     expect(store.chainHead()).toEqual({ sequence: 2, entry_hash: e2.entry_hash });
+  });
+});
+
+// ─── Head anchor ───
+
+describe('head anchor', () => {
+  it('is null before any append', () => {
+    const store = new VaultStore(path.join(tmpDir(), 'vault'));
+    expect(store.readHeadAnchor()).toBeNull();
+  });
+
+  it('after N appends, readHeadAnchor().count === N and entry_hash === last event hash', () => {
+    const store = new VaultStore(path.join(tmpDir(), 'vault'));
+    const e1 = fakeEvent(1, GENESIS_HASH);
+    const e2 = fakeEvent(2, e1.entry_hash);
+    const e3 = fakeEvent(3, e2.entry_hash);
+    store.appendEvent(e1);
+    store.appendEvent(e2);
+    store.appendEvent(e3);
+
+    const anchor = store.readHeadAnchor();
+    expect(anchor).not.toBeNull();
+    expect(anchor?.count).toBe(3);
+    expect(anchor?.sequence).toBe(3);
+    expect(anchor?.entry_hash).toBe(e3.entry_hash);
+    // The anchor agrees with the chain head derived from the log itself.
+    expect(store.chainHead()).toEqual({ sequence: 3, entry_hash: e3.entry_hash });
+  });
+
+  it('writeHeadAnchor round-trips and tolerates a corrupt anchor file (returns null)', () => {
+    const store = new VaultStore(path.join(tmpDir(), 'vault'));
+    store.appendEvent(fakeEvent(1, GENESIS_HASH)); // establishes the dir + an anchor
+    store.writeHeadAnchor({ count: 7, sequence: 7, entry_hash: 'abc' });
+    expect(store.readHeadAnchor()).toEqual({ count: 7, sequence: 7, entry_hash: 'abc' });
+    fs.writeFileSync(store.headAnchorPath, 'not json');
+    expect(store.readHeadAnchor()).toBeNull();
+  });
+});
+
+// ─── Torn trailing line tolerance ───
+
+describe('readEvents torn-line handling', () => {
+  it('tolerates a torn trailing line (an append interrupted by a crash)', () => {
+    const store = new VaultStore(path.join(tmpDir(), 'vault'));
+    const e1 = fakeEvent(1, GENESIS_HASH);
+    const e2 = fakeEvent(2, e1.entry_hash);
+    store.appendEvent(e1);
+    store.appendEvent(e2);
+    // A partial JSON fragment with no trailing newline — a half-written final append.
+    fs.appendFileSync(store.eventsPath, '{"broken');
+
+    const events = store.readEvents();
+    expect(events).toEqual([e1, e2]); // the torn last line is dropped, not thrown on
+  });
+
+  it('throws on an unparseable NON-final line (corruption/tampering)', () => {
+    const store = new VaultStore(path.join(tmpDir(), 'vault'));
+    const e1 = fakeEvent(1, GENESIS_HASH);
+    store.appendEvent(e1);
+    // Garbage in the middle, then a valid line after it → the garbage is not the last line.
+    fs.appendFileSync(store.eventsPath, 'GARBAGE-NOT-JSON\n');
+    fs.appendFileSync(store.eventsPath, JSON.stringify(fakeEvent(2, e1.entry_hash)) + '\n');
+
+    expect(() => store.readEvents()).toThrow(/Corrupt event log at line 2/);
+  });
+});
+
+// ─── expandHome ───
+
+describe('expandHome', () => {
+  it('expands a leading ~ (or ~/) to the home directory', () => {
+    expect(expandHome('~')).toBe(os.homedir());
+    expect(expandHome('~/x')).toBe(path.join(os.homedir(), 'x'));
+    expect(expandHome('~/nested/keypair.json')).toBe(path.join(os.homedir(), 'nested/keypair.json'));
+  });
+
+  it('leaves absolute, relative, and non-home ~ paths unchanged', () => {
+    expect(expandHome('/abs/path')).toBe('/abs/path');
+    expect(expandHome('relative/path')).toBe('relative/path');
+    expect(expandHome('')).toBe('');
+    expect(expandHome('~notme/x')).toBe('~notme/x');
   });
 });

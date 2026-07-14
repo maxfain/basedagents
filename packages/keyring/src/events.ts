@@ -1,13 +1,18 @@
 /**
  * AccessEvent construction and verification.
  *
- * Every event embeds:
- *   - the exact canonical payload string the actor signed (`signed_payload`)
- *   - the actor's pubkey + Ed25519 signature
- *   - hash-chain fields (prev_hash, entry_hash)
+ * Every event embeds the exact canonical payload string the actor signed
+ * (`signed_payload`), the actor's pubkey + Ed25519 signature, and hash-chain
+ * fields (prev_hash, entry_hash).
  *
- * so the log is independently verifiable offline: re-hash the chain, verify
- * every signature, and cross-check payload fields against the envelope.
+ * The signed payload commits to the event's chain position (sequence,
+ * prev_hash), its concrete event_type, and the vault it belongs to. This is
+ * what makes the log tamper-evident against an attacker who has write access
+ * to the vault files but does NOT hold a private key: they cannot reorder,
+ * duplicate, relabel, or splice events without invalidating a signature they
+ * cannot reproduce. (Deleting trailing events — truncation — is caught
+ * separately via the store's head anchor and signed exports; see store.ts and
+ * Keyring.verifyLog.)
  */
 
 import type { AccessEvent, AccessEventType } from './types.js';
@@ -15,38 +20,19 @@ import { GENESIS_HASH } from './store.js';
 import { canonicalJsonStringify, sha256Hex, randomId, nowIso, base58Decode, base58Encode } from './util.js';
 import { signPayload, verifyPayload, type AgentKeypair } from './crypto.js';
 
-/** Fields the actor signs. `action` is 'lease' for both lease and lease_denied events. */
+/** The exact fields an actor signs. Commits to chain position, type, and vault. */
 export interface SignablePayload {
-  action: string;
+  event_type: AccessEventType;
+  vault: string;
   agent_id: string;
   credential_id: string | null;
   grant_id: string | null;
   context: string | null;
   detail: Record<string, unknown> | null;
+  sequence: number;
+  prev_hash: string;
   timestamp: string;
   nonce: string;
-}
-
-export function buildPayload(input: {
-  action: string;
-  agentId: string;
-  credentialId?: string | null;
-  grantId?: string | null;
-  context?: string | null;
-  detail?: Record<string, unknown> | null;
-  timestamp?: string;
-}): { payload: SignablePayload; canonical: string } {
-  const payload: SignablePayload = {
-    action: input.action,
-    agent_id: input.agentId,
-    credential_id: input.credentialId ?? null,
-    grant_id: input.grantId ?? null,
-    context: input.context ?? null,
-    detail: input.detail ?? null,
-    timestamp: input.timestamp ?? nowIso(),
-    nonce: randomId('nonce'),
-  };
-  return { payload, canonical: canonicalJsonStringify(payload) };
 }
 
 /** Compute an event's chain hash: sha256 over the canonical event minus entry_hash. */
@@ -56,52 +42,74 @@ export function computeEntryHash(event: Omit<AccessEvent, 'entry_hash'>): string
 
 /**
  * Build a fully signed, chained AccessEvent.
- * The actor signs the canonical payload; the envelope echoes payload fields
- * so filters work without parsing signed_payload.
+ *
+ * The actor signs a payload that includes the chain position (sequence,
+ * prev_hash), the concrete event_type, and the vault id — so the signature
+ * binds the event to exactly this slot in exactly this vault. In this
+ * local-first library the acting keypair is always available at call time
+ * (the owner for admin ops, the agent for leases/requests), so signing happens
+ * here rather than being handed in pre-signed.
  */
 export async function createEvent(input: {
   actor: AgentKeypair;
+  vaultId: string;
   eventType: AccessEventType;
   head: { sequence: number; entry_hash: string };
   credentialId?: string | null;
   grantId?: string | null;
   context?: string | null;
   detail?: Record<string, unknown> | null;
-  /** Pre-signed payload (agent-side signature already produced), if any. */
-  presigned?: { canonical: string; signature: string; payload: SignablePayload };
+  timestamp?: string;
 }): Promise<AccessEvent> {
-  const agentId = `ag_${base58Encode(input.actor.publicKey)}`;
-  const action = input.eventType === 'lease_denied' ? 'lease' : input.eventType;
-  const { canonical, payload } = input.presigned ?? buildPayload({
-    action,
-    agentId,
-    credentialId: input.credentialId,
-    grantId: input.grantId,
-    context: input.context,
-    detail: input.detail,
-  });
-  const signature = input.presigned?.signature ?? await signPayload(input.actor.privateKey, canonical);
+  const agentPubkey = base58Encode(input.actor.publicKey);
+  const sequence = input.head.sequence + 1;
+  const prevHash = input.head.entry_hash;
+
+  const payload: SignablePayload = {
+    event_type: input.eventType,
+    vault: input.vaultId,
+    agent_id: `ag_${agentPubkey}`,
+    credential_id: input.credentialId ?? null,
+    grant_id: input.grantId ?? null,
+    context: input.context ?? null,
+    detail: input.detail ?? null,
+    sequence,
+    prev_hash: prevHash,
+    timestamp: input.timestamp ?? nowIso(),
+    nonce: randomId('nonce'),
+  };
+  const canonical = canonicalJsonStringify(payload);
+  const signature = await signPayload(input.actor.privateKey, canonical);
 
   const unhashed: Omit<AccessEvent, 'entry_hash'> = {
     event_id: randomId('evt'),
-    sequence: input.head.sequence + 1,
+    sequence,
     timestamp: payload.timestamp,
     event_type: input.eventType,
-    agent_pubkey: base58Encode(input.actor.publicKey),
+    agent_pubkey: agentPubkey,
     agent_signature: signature,
     signed_payload: canonical,
-    credential_id: input.credentialId ?? payload.credential_id,
-    grant_id: input.grantId ?? payload.grant_id,
-    requesting_context: input.context ?? payload.context,
-    detail: input.detail ?? payload.detail,
-    prev_hash: input.head.entry_hash,
+    credential_id: payload.credential_id,
+    grant_id: payload.grant_id,
+    requesting_context: payload.context,
+    detail: payload.detail,
+    prev_hash: prevHash,
   };
 
   return { ...unhashed, entry_hash: computeEntryHash(unhashed) };
 }
 
+export interface VerifyOptions {
+  /** If set, every event's signed vault id must equal this (cross-vault splice guard). */
+  expectedVault?: string;
+  /** If set, the log must still contain this head (truncation guard from a signed export). */
+  expectedHead?: { sequence: number; entry_hash: string };
+  /** If set, the live log must be at least this long (truncation guard from the store anchor). */
+  expectedCount?: number;
+}
+
 /** Verify a full event log: chain integrity + signatures + payload consistency. */
-export async function verifyEventLog(events: AccessEvent[]): Promise<{
+export async function verifyEventLog(events: AccessEvent[], options: VerifyOptions = {}): Promise<{
   ok: boolean;
   events_checked: number;
   head?: { sequence: number; entry_hash: string };
@@ -110,6 +118,8 @@ export async function verifyEventLog(events: AccessEvent[]): Promise<{
   const errors: Array<{ sequence: number; event_id?: string; error: string }> = [];
   let prevHash = GENESIS_HASH;
   let prevSequence = 0;
+  let vaultId: string | undefined = options.expectedVault;
+  const seenNonces = new Set<string>();
 
   for (const event of events) {
     const where = { sequence: event.sequence, event_id: event.event_id };
@@ -137,11 +147,21 @@ export async function verifyEventLog(events: AccessEvent[]): Promise<{
       errors.push({ ...where, error: `Signature check failed: ${(err as Error).message}` });
     }
 
+    let payload: SignablePayload | null = null;
     try {
-      const payload = JSON.parse(event.signed_payload) as SignablePayload;
-      const expectedAction = event.event_type === 'lease_denied' ? 'lease' : event.event_type;
-      if (payload.action !== expectedAction) {
-        errors.push({ ...where, error: `Payload action "${payload.action}" does not match event type "${event.event_type}"` });
+      payload = JSON.parse(event.signed_payload) as SignablePayload;
+    } catch {
+      errors.push({ ...where, error: 'signed_payload is not valid JSON' });
+    }
+    if (payload) {
+      if (payload.event_type !== event.event_type) {
+        errors.push({ ...where, error: `Signed event_type "${payload.event_type}" does not match envelope "${event.event_type}"` });
+      }
+      if (payload.sequence !== event.sequence) {
+        errors.push({ ...where, error: 'Signed sequence does not match envelope sequence (event moved)' });
+      }
+      if (payload.prev_hash !== event.prev_hash) {
+        errors.push({ ...where, error: 'Signed prev_hash does not match envelope prev_hash (event re-chained)' });
       }
       if (payload.timestamp !== event.timestamp) {
         errors.push({ ...where, error: 'Payload timestamp does not match event timestamp' });
@@ -155,15 +175,42 @@ export async function verifyEventLog(events: AccessEvent[]): Promise<{
       if (payload.context !== event.requesting_context) {
         errors.push({ ...where, error: 'Payload context does not match event requesting_context' });
       }
+      if (canonicalJsonStringify(payload.detail ?? null) !== canonicalJsonStringify(event.detail ?? null)) {
+        errors.push({ ...where, error: 'Payload detail does not match event detail' });
+      }
       if (`ag_${event.agent_pubkey}` !== payload.agent_id) {
         errors.push({ ...where, error: 'Payload agent_id does not match event agent_pubkey' });
       }
-    } catch {
-      errors.push({ ...where, error: 'signed_payload is not valid JSON' });
+      if (vaultId === undefined) {
+        vaultId = payload.vault; // pin to the first event's vault (the genesis owner)
+      } else if (payload.vault !== vaultId) {
+        errors.push({ ...where, error: 'Event belongs to a different vault (cross-vault splice)' });
+      }
+      if (seenNonces.has(payload.nonce)) {
+        errors.push({ ...where, error: 'Duplicate nonce — event replayed' });
+      }
+      seenNonces.add(payload.nonce);
     }
 
     prevHash = event.entry_hash;
     prevSequence = event.sequence;
+  }
+
+  // Truncation guards — the chain above is internally valid even after trailing
+  // events are deleted, so we cross-check length/head against external anchors.
+  if (options.expectedCount !== undefined && events.length < options.expectedCount) {
+    errors.push({
+      sequence: events.length,
+      error: `Log truncated: ${events.length} event(s) present, head anchor records ${options.expectedCount}`,
+    });
+  }
+  if (options.expectedHead) {
+    const match = events.find(e => e.sequence === options.expectedHead!.sequence);
+    if (!match) {
+      errors.push({ sequence: options.expectedHead.sequence, error: `Log truncated: does not reach recorded head #${options.expectedHead.sequence}` });
+    } else if (match.entry_hash !== options.expectedHead.entry_hash) {
+      errors.push({ sequence: options.expectedHead.sequence, error: `Event #${options.expectedHead.sequence} does not match the recorded head hash` });
+    }
   }
 
   return {

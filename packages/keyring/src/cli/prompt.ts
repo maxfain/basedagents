@@ -17,13 +17,22 @@ export async function readStdinAll(): Promise<string> {
   return Buffer.concat(chunks).toString('utf8').replace(/\r?\n$/, '');
 }
 
-/** Read one visible line (used for confirmations and non-TTY fallback). */
+/**
+ * Read one visible line (used for confirmations and non-TTY fallback).
+ * On EOF / closed stdin the interface emits 'close' without ever calling the
+ * question callback — resolve with '' there so callers don't hang forever.
+ */
 function readLine(question: string): Promise<string> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   return new Promise(resolve => {
+    let answered = false;
     rl.question(question, answer => {
+      answered = true;
       rl.close();
       resolve(answer);
+    });
+    rl.on('close', () => {
+      if (!answered) resolve('');
     });
   });
 }
@@ -38,19 +47,30 @@ export function promptHidden(question: string): Promise<string> {
   if (!input.isTTY) {
     return readLine(question); // not interactive — no raw-mode dance possible
   }
-  return new Promise<string>(resolve => {
+  return new Promise<string>((resolve, reject) => {
     process.stderr.write(question);
     readline.emitKeypressEvents(input);
     const wasRaw = input.isRaw === true;
     input.setRawMode(true);
     input.resume();
     let value = '';
+    let done = false;
 
     function finish(): void {
+      if (done) return;
+      done = true;
       input.off('keypress', onKeypress);
+      input.off('close', onClose);
+      input.off('end', onClose);
       input.setRawMode(wasRaw);
       input.pause();
       process.stderr.write('\n');
+    }
+
+    // Closed / ended stdin (EOF) — abort cleanly instead of hanging forever.
+    function onClose(): void {
+      finish();
+      reject(new CliError('Input closed before a secret was entered — aborted'));
     }
 
     function onKeypress(str: string | undefined, key: readline.Key | undefined): void {
@@ -74,6 +94,8 @@ export function promptHidden(question: string): Promise<string> {
     }
 
     input.on('keypress', onKeypress);
+    input.on('close', onClose);
+    input.on('end', onClose);
   });
 }
 

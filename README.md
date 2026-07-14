@@ -250,10 +250,11 @@ Your agents already have identities. Keyring is what those identities are truste
 
 ```bash
 npm install -g @basedagents/keyring
-based init                                                  # create the local vault
-based add "Supabase service-role key (acme-prod)"           # paste a secret (sealed on entry)
-based grant "Supabase service-role key (acme-prod)" ci-bot --expires 7d
-based run --agent ci-bot -- npm run deploy                  # lease + inject env vars, nothing on disk
+based init                                                             # create the local vault
+based add "Supabase service-role key (acme-prod)"                      # paste a secret (sealed on entry)
+based identity add ag_7xKpQ3... --name ci-bot --keypair ./ci-bot.key.json  # register the agent + its keypair
+based grant "Supabase service-role key (acme-prod)" ci-bot --expires 7d    # grant by name
+based run --agent ci-bot -- npm run deploy                             # resolves ci-bot's keypair, leases + injects env, nothing on disk
 ```
 
 MCP: `npx -y --package=@basedagents/keyring basedagents-keyring-mcp` gives Claude Code, Claude Desktop, and Cursor identity-bound lease access (`keyring_list`, `keyring_lease`, `keyring_request`, `keyring_whoami`).

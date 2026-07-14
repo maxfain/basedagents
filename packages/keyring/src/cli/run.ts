@@ -9,6 +9,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import * as os from 'node:os';
 import { Keyring } from '../keyring.js';
 import { publicKeyToAgentId } from '../util.js';
 import {
@@ -20,6 +21,13 @@ const USAGE = 'Usage: based run [--agent <ref>] [--keypair <file>] [--context <c
 
 export async function cmdRun(args: string[], dir: string | undefined): Promise<void> {
   const flags = parseFlags(args, { value: ['agent', 'keypair', 'context', 'ttl'] });
+  // The command must sit entirely after `--`. Positional words *before* a `--`
+  // section would otherwise be silently dropped, so reject the ambiguous case.
+  if (flags.rest.length > 0 && flags.positional.length > 0) {
+    throw new CliError(
+      `The command to run must follow \`--\`; unexpected arguments before \`--\`: ${flags.positional.join(' ')}\n${USAGE}`
+    );
+  }
   const command = flags.rest.length > 0 ? flags.rest : flags.positional;
   if (command.length === 0) throw new CliError(USAGE);
 
@@ -55,25 +63,27 @@ export async function cmdRun(args: string[], dir: string | undefined): Promise<v
   const { leases, denied } = await kr.leaseAll(keypair, { context, ttlSeconds });
 
   // ── Summary — labels and env var names only, NEVER values ──
-  console.log(`based run — acting as ${agentDisplay(vault, actingAgentId)} (${actingAgentId})`);
+  // Everything `based run` prints goes to STDERR; stdout belongs exclusively to
+  // the child process so piping the wrapped command's output stays clean.
+  console.error(`based run — acting as ${agentDisplay(vault, actingAgentId)} (${actingAgentId})`);
   if (leases.length > 0) {
-    console.log(`Leased ${leases.length} credential(s):`);
+    console.error(`Leased ${leases.length} credential(s):`);
     printTable(leases.map(lease => [
       '✓',
       lease.credential.env_var ?? '(no env var)',
       lease.credential.label,
       `TTL ${lease.ttl_seconds}s`,
       `expires ${formatTime(lease.expires_at)}`,
-    ]));
+    ]), '  ', console.error);
   }
   if (denied.length > 0) {
-    console.log(`Denied ${denied.length}:`);
-    printTable(denied.map(denial => ['✗', denial.label, denial.reason]));
+    console.error(`Denied ${denied.length}:`);
+    printTable(denied.map(denial => ['✗', denial.label, denial.reason]), '  ', console.error);
   }
   if (leases.length === 0) {
-    console.log('No credentials leased for this identity — running the command without injected secrets.');
+    console.error('No credentials leased for this identity — running the command without injected secrets.');
   } else {
-    console.log('Secrets are injected into the child process environment only — nothing is written to disk.');
+    console.error('Secrets are injected into the child process environment only — nothing is written to disk.');
   }
 
   // ── Env injection ──
@@ -93,8 +103,8 @@ export async function cmdRun(args: string[], dir: string | undefined): Promise<v
     env[name] = lease.value;
   }
 
-  console.log(`Running: ${command.join(' ')}`);
-  console.log('');
+  console.error(`Running: ${command.join(' ')}`);
+  console.error('');
 
   const exitCode = await new Promise<number>(resolve => {
     const child = spawn(command[0], command.slice(1), { stdio: 'inherit', env, shell: false });
@@ -102,7 +112,8 @@ export async function cmdRun(args: string[], dir: string | undefined): Promise<v
       console.error(`Error: could not start "${command[0]}": ${err.message}`);
       resolve(127);
     });
-    child.on('close', (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+    // A signal-terminated child exits with the shell convention 128 + signal number.
+    child.on('close', (code, signal) => resolve(code ?? (signal ? 128 + (os.constants.signals[signal] ?? 0) : 0)));
   });
   process.exitCode = exitCode;
 }
