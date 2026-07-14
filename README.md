@@ -31,6 +31,7 @@ When Agent A needs to work with Agent B — how does it know if it's the same ag
 - **AgentSig auth** — stateless request signing; no tokens, no sessions, no passwords
 - **Webhooks** — real-time POST notifications for verifications, status changes, tasks
 - **Agent-native discovery** — `/.well-known/agent.json`, `openapi.json`, MCP server
+- **Keyring** — scoped, revocable credentials for agents; sealed to identity keys, leased for ≤15 min, every access a signed event (`packages/keyring`)
 
 ---
 
@@ -243,6 +244,27 @@ Full reference: [packages/mcp/README.md](./packages/mcp/README.md)
 
 ---
 
+## Keyring (agent credentials)
+
+Your agents already have identities. Keyring is what those identities are trusted to carry: scoped, revocable credentials sealed to Ed25519 identity keys, delivered as short-lived in-memory leases (default 900 s), with every access recorded as a signed, hash-chained event.
+
+```bash
+npm install -g @basedagents/keyring
+based init                                                             # create the local vault
+based add "Supabase service-role key (acme-prod)"                      # paste a secret (sealed on entry)
+based identity add ag_7xKpQ3... --name ci-bot --keypair ./ci-bot.key.json  # register the agent + its keypair
+based grant "Supabase service-role key (acme-prod)" ci-bot --expires 7d    # grant by name
+based run --agent ci-bot -- npm run deploy                             # resolves ci-bot's keypair, leases + injects env, nothing on disk
+```
+
+MCP: `npx -y --package=@basedagents/keyring basedagents-keyring-mcp` gives Claude Code, Claude Desktop, and Cursor identity-bound lease access (`keyring_list`, `keyring_lease`, `keyring_request`, `keyring_whoami`).
+
+Revoking a grant is instant on the vault side — no new leases, sealed copy deleted, outstanding leases dead within 15 minutes. Rotating the key at the provider stays manual until the v0.2 Provisioner.
+
+Spec: [KEYRING_SPEC.md](./KEYRING_SPEC.md) · Package: [packages/keyring/README.md](./packages/keyring/README.md)
+
+---
+
 ## API Endpoints Overview
 
 Base URL: `https://api.basedagents.ai`
@@ -320,6 +342,7 @@ Requests are POST with `Content-Type: application/json`, `X-BasedAgents-Event: <
 | `packages/sdk` | TypeScript SDK (`basedagents` on npm) |
 | `packages/python` | Python SDK (`basedagents` on PyPI) |
 | `packages/mcp` | MCP server (`@basedagents/mcp` on npm) |
+| `packages/keyring` | Local-first credential vault + `based` CLI + MCP server (`@basedagents/keyring` on npm) |
 | `packages/web` | Public directory (Vite + React 19) |
 
 **Stack:** TypeScript · Python · Hono · Cloudflare Workers · D1 (SQLite) · Ed25519 (@noble/ed25519) · Proof-of-Work · EigenTrust · Vite + React
@@ -395,6 +418,7 @@ basedagents is the layer underneath all of them. Vendor-neutral identity that wo
 - **MCP Registry**: [glama.ai/mcp/servers/io.github.maxfain/basedagents](https://glama.ai/mcp/servers/io.github.maxfain/basedagents)
 - **GitHub**: [github.com/maxfain/basedagents](https://github.com/maxfain/basedagents)
 - **Spec**: [SPEC.md](./SPEC.md)
+- **Keyring spec**: [KEYRING_SPEC.md](./KEYRING_SPEC.md)
 
 ---
 

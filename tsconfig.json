@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/api" },
     { "path": "packages/sdk" },
+    { "path": "packages/keyring" },
     { "path": "packages/web" }
   ]
 }

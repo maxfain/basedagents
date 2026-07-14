@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.6.0] — 2026-07-14
+
+New package: `@basedagents/keyring` 0.1.0 — scoped, revocable credentials bound to cryptographic agent identities. Full specification in `KEYRING_SPEC.md`.
+
+### Added
+
+#### Keyring — `@basedagents/keyring` v0.1.0
+- Local-first encrypted vault at `~/.basedagents/keyring` (`BASEDAGENTS_KEYRING_DIR` override) — `vault.json` holds ciphertext only, `owner.json` is the sole private key on disk
+- Sealed-box crypto: secrets sealed client-side to Ed25519 identity keys (Ed25519→X25519 via edwardsToMontgomery, HKDF-SHA256, XChaCha20-Poly1305, versioned format)
+- Identity-bound grants with constraints: expiry, max lease TTL, usage caps, project tags; revoking a grant blocks new leases and deletes the identity's sealed copy
+- Short-lived leases: in-memory only, default TTL 900 s, clamped per grant; each lease is a signed AccessEvent
+- Append-only signed access log: per-event Ed25519 signatures over canonical payloads, sha256 hash chain, offline verification (`based verify-log`), owner-signed export (`basedagents-keyring-log/v1`, Looptail-compatible)
+- `based` CLI: `init`, `add`, `update-secret`, `rm`, `identity add/rm`, `identities`, `grant`, `revoke`, `kill` (per-agent kill switch), `agents`, `credentials`, `requests`, `approve`, `deny`, `timeline`, `export`, `verify-log`, `run` (lease + env injection into a child process, nothing on disk), `admin`, `mcp`
+- MCP server `basedagents-keyring-mcp` (also `based mcp`): `keyring_list`, `keyring_lease`, `keyring_request`, `keyring_whoami`; agent keypair via `BASEDAGENTS_KEYPAIR_PATH` or `BASEDAGENTS_PRIVATE_KEY_HEX` + `BASEDAGENTS_PUBLIC_KEY_B58`
+- Grant requests + approvals flow: agents ask via `keyring_request`, owners approve/deny from the CLI or admin UI
+- Local admin UI (`based admin`): localhost-only, token-authenticated; Agents (kill switch, lease sparklines), Credentials (reverse index), Timeline, Approvals; signed-log export
+- `KEYRING_SPEC.md` — repo-resident specification (object model, runtime delivery, revocation semantics, threat model, v0.1 implementation notes)
+
+---
+
 ## [0.5.1] — 2026-07
 
 Covers everything shipped since 0.4.0 (TypeScript SDK 0.4.0 → 0.5.1, Python SDK → 0.4.1, MCP → 0.3.1).
