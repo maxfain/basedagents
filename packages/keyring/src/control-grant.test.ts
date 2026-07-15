@@ -62,7 +62,7 @@ async function signApproval(
 ): Promise<GrantApproval> {
   const agentId = publicKeyToAgentId(agent.publicKey);
   const hash = grantApprovalHash({
-    owner_id: kr.vault().owner.agent_id,
+    owner_id: `ow_${kr.vault().owner.public_key_b58}`,
     nonce, agent_id: agentId, agent_pubkey: base58Encode(agent.publicKey),
     credential_id: credentialId, constraints,
   });
@@ -127,7 +127,7 @@ describe('applyApprovedGrant — daemon re-verifies owner passkey (CONTROL_PLANE
   it('REJECTS an assertion from a passkey that is not anchored', async () => {
     const stranger = await makePasskey();
     const agentId = publicKeyToAgentId(agentA.publicKey);
-    const hash = grantApprovalHash({ owner_id: kr.vault().owner.agent_id, nonce: 'n1', agent_id: agentId, agent_pubkey: base58Encode(agentA.publicKey), credential_id: credId, constraints: {} });
+    const hash = grantApprovalHash({ owner_id: `ow_${kr.vault().owner.public_key_b58}`, nonce: 'n1', agent_id: agentId, agent_pubkey: base58Encode(agentA.publicKey), credential_id: credId, constraints: {} });
     const assertion = await stranger.sign(hash);
     await expect(kr.applyApprovedGrant({ nonce: 'n1', credential_id: credId, agent_id: agentId, constraints: {}, assertion }))
       .rejects.toMatchObject({ code: 'not_anchored' });
@@ -139,7 +139,7 @@ describe('applyApprovedGrant — daemon re-verifies owner passkey (CONTROL_PLANE
     await kr.anchorOwnerPasskey(owner, { credentialId: anchored2.credentialId, publicKeyHex: anchored2.publicKeyHex, rpId: RP_ID, origins: [ORIGIN] });
     const imposter = await makePasskey();
     const agentId = publicKeyToAgentId(agentA.publicKey);
-    const hash = grantApprovalHash({ owner_id: kr.vault().owner.agent_id, nonce: 'n1', agent_id: agentId, agent_pubkey: base58Encode(agentA.publicKey), credential_id: credId, constraints: {} });
+    const hash = grantApprovalHash({ owner_id: `ow_${kr.vault().owner.public_key_b58}`, nonce: 'n1', agent_id: agentId, agent_pubkey: base58Encode(agentA.publicKey), credential_id: credId, constraints: {} });
     const sig = await imposter.sign(hash);
     // Present the imposter's signature under the anchored credential id.
     const assertion = { ...sig, credentialId: anchored2.credentialId };

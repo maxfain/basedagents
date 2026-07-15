@@ -112,13 +112,15 @@ async function parseJson(c: Context<AppEnv>): Promise<unknown> {
 
 // ─── validation schemas ───
 
-const AssertionSchema = z.object({
+// Exported so sibling control-plane sub-apps (e.g. ./approvals.ts) validate the
+// owner assertion identically instead of redeclaring the shape.
+export const AssertionSchema = z.object({
   credentialId: z.string().min(1),
   authenticatorData: z.string().min(1),
   clientDataJSON: z.string().min(1),
   signature: z.string().min(1),
 });
-type Assertion = z.infer<typeof AssertionSchema>;
+export type Assertion = z.infer<typeof AssertionSchema>;
 
 const RegisterBeginSchema = z.object({
   vault_public_key: z.string().min(1),
@@ -255,7 +257,7 @@ type ActionOutcome =
  *   6. bump the signature counter atomically — a clone (counter regression) fails.
  *   7. append the assertion to the owner's tamper-evident chain; return the row.
  */
-async function verifyAndRecordAction(
+export async function verifyAndRecordAction(
   c: Context<AppEnv>,
   ownerId: string,
   actionType: string,

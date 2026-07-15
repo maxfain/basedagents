@@ -76,7 +76,9 @@ statement the owner passkey signs is:
 ```
 canonicalJson({
   action_type: "approve_grant",
-  owner_id,          // the vault owner id — supplied by the DAEMON, not the approval
+  owner_id,          // the control-plane owner identity: "ow_" + base58(vault Ed25519 pubkey).
+                     // Supplied by the DAEMON (which stores the same key as ag_ internally,
+                     // but signs/verifies the CONTRACT with the ow_ form the console uses).
   nonce,             // server-issued, per-ceremony, single-use at the daemon
   agent_id,          // the grantee
   agent_pubkey,      // base58 Ed25519 — the pinned sealing target, DAEMON-derived from agent_id

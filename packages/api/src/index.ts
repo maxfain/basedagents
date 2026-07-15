@@ -21,6 +21,7 @@ import probeRoutes from './routes/probe.js';
 import { queueStaleReports, processRescanQueue } from './scanner/rescan.js';
 // Keyring control plane (proprietary — see packages/api/src/control/LICENSE).
 import ownerRoutes from './control/routes.js';
+import approvalRoutes from './control/approvals.js';
 
 const app = new Hono<AppEnv>();
 
@@ -325,6 +326,8 @@ app.route('/v1/scan', scanRoutes);
 app.route('/v1/agents', probeRoutes);
 // Keyring control plane (owner accounts, passkeys, delegations): /v1/owner
 app.route('/v1/owner', ownerRoutes);
+// Keyring approvals inbox + grant approvals + daemon pull/confirm: /v1/owner
+app.route('/v1/owner', approvalRoutes);
 
 /**
  * MED-5: Constant-time string comparison to prevent timing attacks on admin tokens.

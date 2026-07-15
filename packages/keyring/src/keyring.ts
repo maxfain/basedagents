@@ -537,8 +537,10 @@ export class Keyring {
       // Re-derive the exact action the owner must have signed. owner_id and
       // agent_pubkey come from the DAEMON, not the approval — so a substituted
       // owner or grantee produces a different hash the assertion cannot match.
+      // owner_id is the control-plane owner identity form (ow_<base58(vaultpub)>),
+      // matching what the console signs — NOT the vault's internal ag_ owner id.
       const actionHash = grantApprovalHash({
-        owner_id: vault.owner.agent_id,
+        owner_id: `ow_${vault.owner.public_key_b58}`,
         nonce: approval.nonce,
         agent_id: approval.agent_id,
         agent_pubkey: granteePubkeyB58,

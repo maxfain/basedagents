@@ -14,6 +14,7 @@
  * prefixed random id. Times are stored as ISO-8601 strings.
  */
 import type { DBAdapter } from '../db/adapter.js';
+import type { GrantConstraints } from './grant-actions.js';
 import {
   base58Encode,
   sha256,
@@ -110,6 +111,51 @@ export interface DelegationRow {
   revoke_assertion_id: string | null;
   created_at: string;
   revoked_at: string | null;
+}
+
+// ── Keyring approvals (migration 0024) ──
+
+export interface KeyringRequestRow {
+  id: string;
+  owner_id: string;
+  agent_id: string;
+  credential_id: string;
+  credential_label: string | null;
+  provider: string | null;
+  /** JSON text — the requested constraints (only the recognized keys). */
+  constraints: string;
+  note: string | null;
+  status: string; // pending | approved | denied
+  created_at: string;
+  decided_at: string | null;
+  decision_assertion_id: string | null;
+  deny_reason: string | null;
+}
+
+export interface GrantApprovalRow {
+  id: string;
+  owner_id: string;
+  request_id: string;
+  agent_id: string;
+  /** base58 Ed25519 — the pinned sealing target the owner signed. */
+  agent_pubkey: string;
+  credential_id: string;
+  /** JSON text — the exact approved constraints. */
+  constraints: string;
+  nonce: string;
+  action_hash: string;
+  /** WebAuthn credential id of the passkey that signed the approval. */
+  assertion_credential_id: string;
+  authenticator_data: string;
+  client_data_json: string;
+  signature: string;
+  /** action_assertions.id of the hash-chained assertion that authorized this. */
+  assertion_id: string;
+  status: string; // pending_daemon | confirmed | failed
+  created_at: string;
+  confirmed_at: string | null;
+  daemon_grant_id: string | null;
+  failure_reason: string | null;
 }
 
 // ─── local helpers ───
@@ -261,6 +307,48 @@ function mapDelegationRow(r: RawRow): DelegationRow {
   };
 }
 
+function mapKeyringRequestRow(r: RawRow): KeyringRequestRow {
+  return {
+    id: asStr(r.id),
+    owner_id: asStr(r.owner_id),
+    agent_id: asStr(r.agent_id),
+    credential_id: asStr(r.credential_id),
+    credential_label: asNullableStr(r.credential_label),
+    provider: asNullableStr(r.provider),
+    constraints: asStr(r.constraints),
+    note: asNullableStr(r.note),
+    status: asStr(r.status),
+    created_at: asStr(r.created_at),
+    decided_at: asNullableStr(r.decided_at),
+    decision_assertion_id: asNullableStr(r.decision_assertion_id),
+    deny_reason: asNullableStr(r.deny_reason),
+  };
+}
+
+function mapGrantApprovalRow(r: RawRow): GrantApprovalRow {
+  return {
+    id: asStr(r.id),
+    owner_id: asStr(r.owner_id),
+    request_id: asStr(r.request_id),
+    agent_id: asStr(r.agent_id),
+    agent_pubkey: asStr(r.agent_pubkey),
+    credential_id: asStr(r.credential_id),
+    constraints: asStr(r.constraints),
+    nonce: asStr(r.nonce),
+    action_hash: asStr(r.action_hash),
+    assertion_credential_id: asStr(r.assertion_credential_id),
+    authenticator_data: asStr(r.authenticator_data),
+    client_data_json: asStr(r.client_data_json),
+    signature: asStr(r.signature),
+    assertion_id: asStr(r.assertion_id),
+    status: asStr(r.status),
+    created_at: asStr(r.created_at),
+    confirmed_at: asNullableStr(r.confirmed_at),
+    daemon_grant_id: asNullableStr(r.daemon_grant_id),
+    failure_reason: asNullableStr(r.failure_reason),
+  };
+}
+
 /**
  * The canonical, hash-covered view of an action-assertion event: every stored
  * column EXCEPT entry_hash itself. entry_hash = sha256Hex(canonicalJson(this)).
@@ -345,6 +433,42 @@ export interface RevokeDelegationInput {
   delegationId: string;
   revokeAssertionId: string;
   nowIso: string;
+}
+
+export interface CreateKeyringRequestInput {
+  ownerId: string;
+  agentId: string;
+  credentialId: string;
+  credentialLabel?: string;
+  provider?: string;
+  /** Recognized constraint keys only — stored as JSON text. */
+  constraints: GrantConstraints;
+  note?: string;
+}
+
+export interface SetRequestDecisionInput {
+  id: string;
+  status: 'approved' | 'denied';
+  assertionId?: string;
+  denyReason?: string;
+  nowIso: string;
+}
+
+export interface CreateGrantApprovalInput {
+  ownerId: string;
+  requestId: string;
+  agentId: string;
+  agentPubkey: string;
+  credentialId: string;
+  /** Recognized constraint keys only — stored as JSON text. */
+  constraints: GrantConstraints;
+  nonce: string;
+  actionHash: string;
+  assertionCredentialId: string;
+  authenticatorData: string;
+  clientDataJson: string;
+  signature: string;
+  assertionId: string;
 }
 
 // ─── ControlStore ───
@@ -812,5 +936,176 @@ export class ControlStore {
     const row = await this.getDelegationByRowId(input.delegationId);
     if (!row) throw new Error(`revokeDelegation: delegation ${input.delegationId} not found`);
     return row;
+  }
+
+  // ── Agents (open registry — read-only cross-reference) ──
+
+  /**
+   * The grantee's Ed25519 public key from the open `agents` table, or null if the
+   * agent is unknown / has no key on file. Used to PIN the sealing target in the
+   * grant-approval action (CONTROL_PLANE.md §2.1): the owner signs base58(this).
+   */
+  async getAgentPublicKey(agentId: string): Promise<Uint8Array | null> {
+    const r = await this.db.get<RawRow>(
+      `SELECT public_key FROM agents WHERE id = ?`,
+      agentId
+    );
+    if (!r || r.public_key == null) return null;
+    return toUint8Array(r.public_key);
+  }
+
+  // ── Keyring requests (approvals inbox, migration 0024) ──
+
+  async createKeyringRequest(input: CreateKeyringRequestInput): Promise<KeyringRequestRow> {
+    const id = randomId('req_');
+    const now = nowIsoString();
+    await this.db.run(
+      `INSERT INTO keyring_requests
+         (id, owner_id, agent_id, credential_id, credential_label, provider,
+          constraints, note, status, created_at, decided_at, decision_assertion_id, deny_reason)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL, NULL)`,
+      id,
+      input.ownerId,
+      input.agentId,
+      input.credentialId,
+      input.credentialLabel ?? null,
+      input.provider ?? null,
+      JSON.stringify(input.constraints ?? {}),
+      input.note ?? null,
+      now
+    );
+    const row = await this.getKeyringRequest(id);
+    if (!row) throw new Error(`createKeyringRequest: request ${id} not found after insert`);
+    return row;
+  }
+
+  async getKeyringRequest(id: string): Promise<KeyringRequestRow | null> {
+    const r = await this.db.get<RawRow>(`SELECT * FROM keyring_requests WHERE id = ?`, id);
+    return r ? mapKeyringRequestRow(r) : null;
+  }
+
+  async listKeyringRequests(ownerId: string, status?: string): Promise<KeyringRequestRow[]> {
+    const rows = status
+      ? await this.db.all<RawRow>(
+          `SELECT * FROM keyring_requests
+           WHERE owner_id = ? AND status = ?
+           ORDER BY created_at DESC, id DESC`,
+          ownerId,
+          status
+        )
+      : await this.db.all<RawRow>(
+          `SELECT * FROM keyring_requests
+           WHERE owner_id = ?
+           ORDER BY created_at DESC, id DESC`,
+          ownerId
+        );
+    return rows.map(mapKeyringRequestRow);
+  }
+
+  /** Record an owner's approve/deny decision. Idempotency is enforced by the
+   * route (it only decides a request whose status is still 'pending'). */
+  async setRequestDecision(input: SetRequestDecisionInput): Promise<KeyringRequestRow> {
+    await this.db.run(
+      `UPDATE keyring_requests
+         SET status = ?, decided_at = ?, decision_assertion_id = ?, deny_reason = ?
+       WHERE id = ?`,
+      input.status,
+      input.nowIso,
+      input.assertionId ?? null,
+      input.denyReason ?? null,
+      input.id
+    );
+    const row = await this.getKeyringRequest(input.id);
+    if (!row) throw new Error(`setRequestDecision: request ${input.id} not found`);
+    return row;
+  }
+
+  // ── Grant approvals (ready for the daemon, migration 0024) ──
+
+  async createGrantApproval(input: CreateGrantApprovalInput): Promise<GrantApprovalRow> {
+    const id = randomId('gap_');
+    const now = nowIsoString();
+    await this.db.run(
+      `INSERT INTO grant_approvals
+         (id, owner_id, request_id, agent_id, agent_pubkey, credential_id, constraints,
+          nonce, action_hash, assertion_credential_id, authenticator_data,
+          client_data_json, signature, assertion_id, status, created_at,
+          confirmed_at, daemon_grant_id, failure_reason)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_daemon', ?, NULL, NULL, NULL)`,
+      id,
+      input.ownerId,
+      input.requestId,
+      input.agentId,
+      input.agentPubkey,
+      input.credentialId,
+      JSON.stringify(input.constraints ?? {}),
+      input.nonce,
+      input.actionHash,
+      input.assertionCredentialId,
+      input.authenticatorData,
+      input.clientDataJson,
+      input.signature,
+      input.assertionId,
+      now
+    );
+    const row = await this.getGrantApproval(id);
+    if (!row) throw new Error(`createGrantApproval: approval ${id} not found after insert`);
+    return row;
+  }
+
+  async getGrantApproval(id: string): Promise<GrantApprovalRow | null> {
+    const r = await this.db.get<RawRow>(`SELECT * FROM grant_approvals WHERE id = ?`, id);
+    return r ? mapGrantApprovalRow(r) : null;
+  }
+
+  /** The approvals the daemon still needs to apply for an owner. */
+  async listPendingApprovals(ownerId: string): Promise<GrantApprovalRow[]> {
+    const rows = await this.db.all<RawRow>(
+      `SELECT * FROM grant_approvals
+       WHERE owner_id = ? AND status = 'pending_daemon'
+       ORDER BY created_at ASC, id ASC`,
+      ownerId
+    );
+    return rows.map(mapGrantApprovalRow);
+  }
+
+  /**
+   * Mark an approval confirmed by the daemon — atomic conditional so a confirm
+   * can only transition a pending_daemon row (never resurrect a failed one or
+   * double-confirm). Returns the row iff it transitioned, else null.
+   */
+  async confirmGrantApproval(input: {
+    id: string;
+    daemonGrantId: string;
+    nowIso: string;
+  }): Promise<GrantApprovalRow | null> {
+    const res = await this.db.run(
+      `UPDATE grant_approvals
+         SET status = 'confirmed', confirmed_at = ?, daemon_grant_id = ?
+       WHERE id = ? AND status = 'pending_daemon'`,
+      input.nowIso,
+      input.daemonGrantId,
+      input.id
+    );
+    if (res.changes !== 1) return null;
+    return this.getGrantApproval(input.id);
+  }
+
+  /** Mark an approval failed (the daemon rejected/could not apply it). */
+  async failGrantApproval(input: {
+    id: string;
+    reason: string;
+    nowIso: string;
+  }): Promise<GrantApprovalRow | null> {
+    const res = await this.db.run(
+      `UPDATE grant_approvals
+         SET status = 'failed', confirmed_at = ?, failure_reason = ?
+       WHERE id = ? AND status = 'pending_daemon'`,
+      input.nowIso,
+      input.reason,
+      input.id
+    );
+    if (res.changes !== 1) return null;
+    return this.getGrantApproval(input.id);
   }
 }
