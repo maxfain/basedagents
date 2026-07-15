@@ -1,0 +1,731 @@
+/**
+ * Owner console HTTP routes for the Keyring control plane.
+ *
+ * PROPRIETARY control-plane code — see ./LICENSE and LICENSING.md.
+ *
+ * This is the security-critical COMPOSITION of the already-built primitives
+ * (ControlStore, identity, webauthn) into the authority model of CONTROL_PLANE.md:
+ *
+ *   §3  "sessions to look, signatures to act": passkey login mints a read-only
+ *       httpOnly SameSite=Strict session cookie ({@link ownerSession}); every
+ *       MUTATING action additionally requires a FRESH WebAuthn assertion whose
+ *       signed challenge is the hash of the exact action ({@link verifyAndRecordAction}).
+ *   §4  atomicity: single-use challenge consume + monotonic counter bump are the
+ *       store's atomic conditional writes; the routes only sequence them.
+ *   §5  every mutating row references the hash-chained action assertion that
+ *       authorized it.
+ *   §7  RP ID / origin allow-list from {@link rpConfig}.
+ *
+ * Mounted by the coordinator at /v1/owner.
+ */
+import { Hono } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
+import { setCookie, getCookie, deleteCookie } from 'hono/cookie';
+import { z } from 'zod';
+import type { AppEnv } from '../types/index.js';
+import type { DBAdapter } from '../db/adapter.js';
+import { ControlStore } from './store.js';
+import type { ActionAssertionRow } from './store.js';
+import { rpConfig } from './config.js';
+import { ownerIdFromVaultPubkey } from './identity.js';
+import {
+  actionChallenge,
+  verifyRegistration,
+  verifyAssertion,
+  base64urlEncode,
+  base64urlDecode,
+} from './webauthn.js';
+import { base58Encode, base58Decode, sha256, bytesToHex, canonicalJsonStringify } from '../crypto/index.js';
+
+// ─── small helpers ───
+
+const SESSION_COOKIE = 'ba_owner_session';
+const SESSION_TTL_SECONDS = 86_400; // 24h
+const CHALLENGE_TTL_SECONDS = 300; // 5m
+
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+
+/** sha256 hex of a utf-8 string (session token hashing, etc.). */
+function sha256hex(input: string): string {
+  return bytesToHex(sha256(textEncoder.encode(input)));
+}
+
+function randomBytes(n: number): Uint8Array {
+  const b = new Uint8Array(n);
+  crypto.getRandomValues(b);
+  return b;
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function getStore(c: Context<AppEnv>): ControlStore {
+  return new ControlStore(c.get('db'));
+}
+
+// ownerId is a control-plane-only context var. We keep it OUT of the shared
+// AppEnv Variables (src/types) and stash/read it with a cast (CONTROL_PLANE
+// scope stays local to this file).
+function setOwnerId(c: Context<AppEnv>, ownerId: string): void {
+  (c.set as (k: string, v: unknown) => void)('ownerId', ownerId);
+}
+function getOwnerId(c: Context<AppEnv>): string {
+  return (c.get as (k: string) => string)('ownerId');
+}
+
+function isUniqueViolation(e: unknown): boolean {
+  const err = e as { message?: unknown; code?: unknown };
+  const msg = typeof err?.message === 'string' ? err.message : '';
+  const code = typeof err?.code === 'string' ? err.code : '';
+  return msg.includes('UNIQUE constraint failed') || code.includes('SQLITE_CONSTRAINT');
+}
+
+/** base64url of the utf-8 bytes of a string (WebAuthn user.id). */
+function base64urlUtf8(s: string): string {
+  return base64urlEncode(textEncoder.encode(s));
+}
+
+/**
+ * Pull the `challenge` field out of a base64url clientDataJSON. Returns null on
+ * any decode/parse error or when `challenge` is not a string.
+ */
+function extractChallenge(clientDataJSONb64u: string): string | null {
+  try {
+    const obj = JSON.parse(textDecoder.decode(base64urlDecode(clientDataJSONb64u))) as {
+      challenge?: unknown;
+    };
+    return typeof obj.challenge === 'string' ? obj.challenge : null;
+  } catch {
+    return null;
+  }
+}
+
+function err(c: Context<AppEnv>, status: 400 | 401 | 404 | 409, error: string, message: string) {
+  return c.json({ error, message }, status);
+}
+
+async function parseJson(c: Context<AppEnv>): Promise<unknown> {
+  return c.req.json();
+}
+
+// ─── validation schemas ───
+
+const AssertionSchema = z.object({
+  credentialId: z.string().min(1),
+  authenticatorData: z.string().min(1),
+  clientDataJSON: z.string().min(1),
+  signature: z.string().min(1),
+});
+type Assertion = z.infer<typeof AssertionSchema>;
+
+const RegisterBeginSchema = z.object({
+  vault_public_key: z.string().min(1),
+  email: z.string().email().optional(),
+});
+
+const RegisterFinishSchema = z.object({
+  vault_public_key: z.string().min(1),
+  attestationObject: z.string().min(1),
+  clientDataJSON: z.string().min(1),
+  transports: z.array(z.string()).optional(),
+});
+
+const LoginBeginSchema = z
+  .object({ owner_id: z.string().min(1).optional(), email: z.string().email().optional() })
+  .refine((v) => !!v.owner_id || !!v.email, { message: 'owner_id or email required' });
+
+const LoginFinishSchema = z.object({
+  credentialId: z.string().min(1),
+  authenticatorData: z.string().min(1),
+  clientDataJSON: z.string().min(1),
+  signature: z.string().min(1),
+});
+
+const ActionBeginSchema = z.object({
+  action_type: z.string().min(1),
+  params: z.record(z.unknown()).default({}),
+});
+
+// Finish requests echo the server-issued per-ceremony `nonce` from /action/begin.
+// The nonce is folded into the signed canonical action so each ceremony's
+// action_hash is unique — single-use consumption then defeats assertion replay
+// even for authenticators that report a static signature counter of 0.
+const VaultBindingSchema = z.object({
+  vault_public_key: z.string().min(1),
+  nonce: z.string().min(1),
+  assertion: AssertionSchema,
+});
+
+const CreateDelegationSchema = z.object({
+  agent_id: z.string().min(1),
+  label: z.string().optional(),
+  nonce: z.string().min(1),
+  assertion: AssertionSchema,
+});
+
+const RevokeSchema = z.object({ nonce: z.string().min(1), assertion: AssertionSchema });
+
+// ─── owner id derivation ───
+
+/** Derive the owner id from a base58 Ed25519 vault pubkey; null on any error. */
+function ownerIdFromVaultB58(vaultPublicKey: string): string | null {
+  try {
+    return ownerIdFromVaultPubkey(base58Decode(vaultPublicKey));
+  } catch {
+    return null;
+  }
+}
+
+// ─── action-challenge arming (see note) ───
+//
+// NOTE / DELIBERATE DEVIATION: store.createChallenge() hardcodes a RANDOM
+// challenge value and exposes no override. For the action ceremony the stored
+// `challenge` column MUST equal the action_hash, because (a) that is the value
+// the authenticator signs (CONTROL_PLANE.md §2/§3 + webauthn.ts:actionChallenge,
+// "used as BOTH the WebAuthn challenge and webauthn_challenges.action_hash") and
+// (b) verifyAndRecordAction consumes by action_hash. So for purpose='action' we
+// insert the challenge row directly (challenge = action_hash), reusing the
+// store's ATOMIC single-use consumeChallenge for the security-critical guard.
+// register/login keep using store.createChallenge (random challenge is correct
+// there). DELETE-then-INSERT makes /action/begin idempotently re-armable and
+// sidesteps the UNIQUE(challenge) constraint on the deterministic action_hash.
+async function armActionChallenge(
+  db: DBAdapter,
+  ownerId: string,
+  actionType: string,
+  actionHash: string,
+): Promise<void> {
+  const id = 'chl_' + base58Encode(randomBytes(16));
+  const created = new Date();
+  const createdAt = created.toISOString();
+  const expiresAt = new Date(created.getTime() + CHALLENGE_TTL_SECONDS * 1000).toISOString();
+  await db.run('DELETE FROM webauthn_challenges WHERE challenge = ?', actionHash);
+  await db.run(
+    `INSERT INTO webauthn_challenges
+       (id, owner_id, challenge, purpose, action_type, action_hash, created_at, expires_at, consumed_at)
+     VALUES (?, ?, ?, 'action', ?, ?, ?, ?, NULL)`,
+    id,
+    ownerId,
+    actionHash,
+    actionType,
+    actionHash,
+    createdAt,
+    expiresAt,
+  );
+}
+
+// ─── ownerSession middleware ("sessions to look") ───
+
+/**
+ * Read the httpOnly session cookie, resolve a live (unrevoked, unexpired)
+ * session, touch it, and stash the owner id for the handler. 401 otherwise.
+ * This grants READ-ONLY authority only — every mutation additionally requires a
+ * fresh action assertion (CONTROL_PLANE.md §3).
+ */
+export const ownerSession: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const token = getCookie(c, SESSION_COOKIE);
+  if (!token) return err(c, 401, 'unauthorized', 'no session');
+  const store = getStore(c);
+  const session = await store.getSessionByTokenHash(sha256hex(token));
+  if (!session) return err(c, 401, 'unauthorized', 'invalid or expired session');
+  await store.touchSession(session.id, nowIso());
+  setOwnerId(c, session.owner_id);
+  await next();
+};
+
+// ─── the shared action ceremony ("signatures to act") ───
+
+type ActionOutcome =
+  | { ok: true; row: ActionAssertionRow }
+  | { ok: false; res: Response };
+
+/**
+ * Verify a fresh WebAuthn assertion authorizes EXACTLY `canonical`, then record
+ * it on the owner's hash chain. Ordering is security-critical:
+ *
+ *   1. action_hash = actionChallenge(canonical).
+ *   2. the assertion's signed challenge MUST equal action_hash (WYSIWYS) — else
+ *      400, WITHOUT consuming (a wrong-action assertion never burns the real
+ *      action's challenge).
+ *   3. CONSUME the single-use challenge FIRST (atomic) — a replay loses here.
+ *   4. the signing credential must exist AND belong to this session's owner.
+ *   5. verify the WebAuthn signature over action_hash (origin/rpId/UP/etc).
+ *   6. bump the signature counter atomically — a clone (counter regression) fails.
+ *   7. append the assertion to the owner's tamper-evident chain; return the row.
+ */
+async function verifyAndRecordAction(
+  c: Context<AppEnv>,
+  ownerId: string,
+  actionType: string,
+  canonical: string,
+  assertion: Assertion,
+): Promise<ActionOutcome> {
+  const store = getStore(c);
+  const { rpId, origins } = rpConfig(c.env);
+  const action_hash = actionChallenge(canonical);
+
+  // 2. WYSIWYS: the thing they signed must be THIS action's hash.
+  const signed = extractChallenge(assertion.clientDataJSON);
+  if (signed !== action_hash) {
+    return { ok: false, res: err(c, 400, 'bad_request', 'assertion does not authorize this action') };
+  }
+
+  // 3. Consume first (single-use, atomic) — replay-safe.
+  const consumed = await store.consumeChallenge(action_hash, 'action', nowIso());
+  if (!consumed) {
+    return { ok: false, res: err(c, 401, 'unauthorized', 'unknown or replayed action challenge') };
+  }
+
+  // 4. Credential must exist and be owned by the session owner.
+  const cred = await store.getCredentialByCredentialId(assertion.credentialId);
+  if (!cred || cred.owner_id !== ownerId) {
+    return { ok: false, res: err(c, 401, 'unauthorized', 'unknown credential for this owner') };
+  }
+
+  // 5. Verify the signature (throws on any mismatch).
+  let verified;
+  try {
+    verified = await verifyAssertion({
+      credentialId: assertion.credentialId,
+      authenticatorData: assertion.authenticatorData,
+      clientDataJSON: assertion.clientDataJSON,
+      signature: assertion.signature,
+      cosePublicKey: cred.public_key,
+      expectedChallenge: action_hash,
+      expectedOrigin: origins,
+      expectedRPID: rpId,
+    });
+  } catch {
+    return { ok: false, res: err(c, 401, 'unauthorized', 'assertion verification failed') };
+  }
+
+  // 6. Monotonic counter bump (atomic clone defense).
+  const advanced = await store.advanceCounter(cred.id, verified.newCounter);
+  if (!advanced) {
+    return {
+      ok: false,
+      res: err(c, 401, 'unauthorized', 'counter regression (possible cloned authenticator)'),
+    };
+  }
+
+  // 7. Record on the hash chain.
+  const row = await store.appendActionAssertion({
+    ownerId,
+    credentialId: assertion.credentialId,
+    actionType,
+    actionHash: action_hash,
+    authenticatorData: assertion.authenticatorData,
+    clientDataJson: assertion.clientDataJSON,
+    signature: assertion.signature,
+  });
+  return { ok: true, row };
+}
+
+// ─── the sub-app ───
+
+const app = new Hono<AppEnv>();
+
+// ── Registration ──
+
+app.post('/register/begin', async (c) => {
+  let body: unknown;
+  try {
+    body = await parseJson(c);
+  } catch {
+    return err(c, 400, 'bad_request', 'invalid JSON body');
+  }
+  const parsed = RegisterBeginSchema.safeParse(body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
+
+  const ownerId = ownerIdFromVaultB58(parsed.data.vault_public_key);
+  if (!ownerId) return err(c, 400, 'bad_request', 'invalid vault_public_key');
+
+  const store = getStore(c);
+  let owner = await store.getOwner(ownerId);
+  if (!owner) {
+    try {
+      owner = await store.createOwner({ ownerId, email: parsed.data.email });
+    } catch (e) {
+      if (isUniqueViolation(e)) return err(c, 409, 'conflict', 'email already in use');
+      throw e;
+    }
+  }
+
+  const { challenge } = await store.createChallenge({
+    ownerId,
+    purpose: 'register',
+    ttlSeconds: CHALLENGE_TTL_SECONDS,
+  });
+
+  const existing = await store.listCredentials(ownerId);
+  const name = parsed.data.email || ownerId;
+  const { rpId, rpName } = rpConfig(c.env);
+
+  return c.json({
+    owner_id: ownerId,
+    options: {
+      rp: { id: rpId, name: rpName },
+      user: { id: base64urlUtf8(ownerId), name, displayName: name },
+      challenge,
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+      authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
+      attestation: 'none',
+      excludeCredentials: existing.map((cr) => ({
+        type: 'public-key',
+        id: cr.credential_id,
+        transports: cr.transports ?? undefined,
+      })),
+      timeout: 60_000,
+    },
+  });
+});
+
+app.post('/register/finish', async (c) => {
+  let body: unknown;
+  try {
+    body = await parseJson(c);
+  } catch {
+    return err(c, 400, 'bad_request', 'invalid JSON body');
+  }
+  const parsed = RegisterFinishSchema.safeParse(body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
+
+  const ownerId = ownerIdFromVaultB58(parsed.data.vault_public_key);
+  if (!ownerId) return err(c, 400, 'bad_request', 'invalid vault_public_key');
+
+  const challenge = extractChallenge(parsed.data.clientDataJSON);
+  if (!challenge) return err(c, 400, 'bad_request', 'invalid clientDataJSON');
+
+  const store = getStore(c);
+  const consumed = await store.consumeChallenge(challenge, 'register', nowIso());
+  if (!consumed) return err(c, 401, 'unauthorized', 'unknown or replayed challenge');
+
+  const { rpId, origins } = rpConfig(c.env);
+  let reg;
+  try {
+    reg = await verifyRegistration({
+      attestationObject: parsed.data.attestationObject,
+      clientDataJSON: parsed.data.clientDataJSON,
+      expectedChallenge: challenge,
+      expectedOrigin: origins,
+      expectedRPID: rpId,
+    });
+  } catch {
+    return err(c, 401, 'unauthorized', 'registration verification failed');
+  }
+
+  try {
+    await store.addCredential({
+      ownerId,
+      credentialId: reg.credentialId,
+      publicKey: reg.cosePublicKey,
+      counter: reg.counter,
+      aaguid: reg.aaguid,
+      backedUp: reg.backedUp,
+      transports: parsed.data.transports ?? reg.transports,
+    });
+  } catch (e) {
+    if (isUniqueViolation(e)) return err(c, 409, 'conflict', 'credential already registered');
+    throw e;
+  }
+
+  return c.json({ owner_id: ownerId, credential_id: reg.credentialId });
+});
+
+// ── Login ("sessions to look") ──
+
+app.post('/login/begin', async (c) => {
+  let body: unknown;
+  try {
+    body = await parseJson(c);
+  } catch {
+    return err(c, 400, 'bad_request', 'invalid JSON body');
+  }
+  const parsed = LoginBeginSchema.safeParse(body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'owner_id or email required');
+
+  const store = getStore(c);
+  const owner = parsed.data.owner_id
+    ? await store.getOwner(parsed.data.owner_id)
+    : await store.getOwnerByEmail(parsed.data.email!);
+  if (!owner) return err(c, 404, 'not_found', 'owner not found');
+
+  const { challenge } = await store.createChallenge({
+    ownerId: owner.id,
+    purpose: 'login',
+    ttlSeconds: CHALLENGE_TTL_SECONDS,
+  });
+  const creds = await store.listCredentials(owner.id);
+  const { rpId } = rpConfig(c.env);
+
+  return c.json({
+    challenge,
+    rpId,
+    allowCredentials: creds.map((cr) => ({
+      type: 'public-key',
+      id: cr.credential_id,
+      transports: cr.transports ?? undefined,
+    })),
+    userVerification: 'preferred',
+    timeout: 60_000,
+  });
+});
+
+app.post('/login/finish', async (c) => {
+  let body: unknown;
+  try {
+    body = await parseJson(c);
+  } catch {
+    return err(c, 400, 'bad_request', 'invalid JSON body');
+  }
+  const parsed = LoginFinishSchema.safeParse(body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
+
+  const challenge = extractChallenge(parsed.data.clientDataJSON);
+  if (!challenge) return err(c, 400, 'bad_request', 'invalid clientDataJSON');
+
+  const store = getStore(c);
+  const consumed = await store.consumeChallenge(challenge, 'login', nowIso());
+  if (!consumed) return err(c, 401, 'unauthorized', 'unknown or replayed challenge');
+
+  const cred = await store.getCredentialByCredentialId(parsed.data.credentialId);
+  if (!cred) return err(c, 401, 'unauthorized', 'unknown credential');
+
+  const { rpId, origins } = rpConfig(c.env);
+  let verified;
+  try {
+    verified = await verifyAssertion({
+      credentialId: parsed.data.credentialId,
+      authenticatorData: parsed.data.authenticatorData,
+      clientDataJSON: parsed.data.clientDataJSON,
+      signature: parsed.data.signature,
+      cosePublicKey: cred.public_key,
+      expectedChallenge: challenge,
+      expectedOrigin: origins,
+      expectedRPID: rpId,
+    });
+  } catch {
+    return err(c, 401, 'unauthorized', 'assertion verification failed');
+  }
+
+  const advanced = await store.advanceCounter(cred.id, verified.newCounter);
+  if (!advanced) {
+    return err(c, 401, 'unauthorized', 'counter regression (possible cloned authenticator)');
+  }
+
+  const token = base64urlEncode(randomBytes(32));
+  await store.createSession({
+    ownerId: cred.owner_id,
+    tokenHash: sha256hex(token),
+    credentialId: parsed.data.credentialId,
+    ttlSeconds: SESSION_TTL_SECONDS,
+  });
+  setCookie(c, SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Strict',
+    path: '/',
+    maxAge: SESSION_TTL_SECONDS,
+  });
+
+  return c.json({ owner_id: cred.owner_id });
+});
+
+app.post('/logout', ownerSession, async (c) => {
+  const token = getCookie(c, SESSION_COOKIE);
+  if (token) {
+    const store = getStore(c);
+    const session = await store.getSessionByTokenHash(sha256hex(token));
+    if (session) await store.revokeSession(session.id, nowIso());
+  }
+  deleteCookie(c, SESSION_COOKIE, { path: '/' });
+  return c.json({ ok: true });
+});
+
+// ── Reads (session required) ──
+
+app.get('/me', ownerSession, async (c) => {
+  const ownerId = getOwnerId(c);
+  const store = getStore(c);
+  const owner = await store.getOwner(ownerId);
+  const creds = await store.listCredentials(ownerId);
+  const delegations = await store.listDelegationsByOwner(ownerId);
+  return c.json({
+    owner_id: ownerId,
+    email: owner?.email ?? null,
+    credentials: creds.map((cr) => ({
+      credential_id: cr.credential_id,
+      nickname: cr.nickname,
+      created_at: cr.created_at,
+      last_used_at: cr.last_used_at,
+      backed_up: cr.backed_up === 1,
+    })),
+    delegations,
+  });
+});
+
+app.get('/delegations', ownerSession, async (c) => {
+  const ownerId = getOwnerId(c);
+  const store = getStore(c);
+  return c.json({ delegations: await store.listDelegationsByOwner(ownerId) });
+});
+
+// ── Action ceremony ("signatures to act") ──
+
+app.post('/action/begin', ownerSession, async (c) => {
+  const ownerId = getOwnerId(c);
+  let body: unknown;
+  try {
+    body = await parseJson(c);
+  } catch {
+    return err(c, 400, 'bad_request', 'invalid JSON body');
+  }
+  const parsed = ActionBeginSchema.safeParse(body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
+
+  // Fresh per-ceremony nonce → unique action_hash per approval, so a captured
+  // assertion cannot be replayed after the challenge is re-armed (defends the
+  // §3 "a stolen look-session grants browsing, not authority" guarantee even on
+  // static-counter authenticators). The client echoes this nonce to the finish
+  // endpoint, which re-derives and re-checks the exact action.
+  const nonce = base64urlEncode(randomBytes(16));
+  const canonical = canonicalJsonStringify({
+    action_type: parsed.data.action_type,
+    owner_id: ownerId,
+    nonce,
+    ...parsed.data.params,
+  });
+  const action_hash = actionChallenge(canonical);
+
+  await armActionChallenge(c.get('db'), ownerId, parsed.data.action_type, action_hash);
+
+  const store = getStore(c);
+  const creds = await store.listCredentials(ownerId);
+  const { rpId } = rpConfig(c.env);
+
+  return c.json({
+    challenge: action_hash, // challenge IS the action hash — the authenticator signs the action.
+    nonce,
+    rpId,
+    allowCredentials: creds.map((cr) => ({
+      type: 'public-key',
+      id: cr.credential_id,
+      transports: cr.transports ?? undefined,
+    })),
+    action_canonical: canonical,
+    timeout: 60_000,
+  });
+});
+
+app.post('/vault-binding', ownerSession, async (c) => {
+  const ownerId = getOwnerId(c);
+  let body: unknown;
+  try {
+    body = await parseJson(c);
+  } catch {
+    return err(c, 400, 'bad_request', 'invalid JSON body');
+  }
+  const parsed = VaultBindingSchema.safeParse(body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
+
+  // The vault key MUST be the one this owner id is derived from.
+  if (ownerIdFromVaultB58(parsed.data.vault_public_key) !== ownerId) {
+    return err(c, 400, 'bad_request', 'vault_public_key does not match owner');
+  }
+
+  const canonical = canonicalJsonStringify({
+    action_type: 'bind_vault_key',
+    owner_id: ownerId,
+    nonce: parsed.data.nonce,
+    vault_public_key: parsed.data.vault_public_key,
+  });
+  const outcome = await verifyAndRecordAction(c, ownerId, 'bind_vault_key', canonical, parsed.data.assertion);
+  if (!outcome.ok) return outcome.res;
+
+  const store = getStore(c);
+  const binding = await store.createVaultBinding({
+    ownerId,
+    vaultPublicKey: parsed.data.vault_public_key,
+    bindingAssertionId: outcome.row.id,
+  });
+  return c.json(binding);
+});
+
+app.post('/delegations', ownerSession, async (c) => {
+  const ownerId = getOwnerId(c);
+  let body: unknown;
+  try {
+    body = await parseJson(c);
+  } catch {
+    return err(c, 400, 'bad_request', 'invalid JSON body');
+  }
+  const parsed = CreateDelegationSchema.safeParse(body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
+
+  const label = parsed.data.label ?? null;
+  const canonical = canonicalJsonStringify({
+    action_type: 'create_delegation',
+    owner_id: ownerId,
+    nonce: parsed.data.nonce,
+    agent_id: parsed.data.agent_id,
+    label,
+  });
+  const outcome = await verifyAndRecordAction(c, ownerId, 'create_delegation', canonical, parsed.data.assertion);
+  if (!outcome.ok) return outcome.res;
+
+  const store = getStore(c);
+  try {
+    const delegation = await store.createDelegation({
+      ownerId,
+      agentId: parsed.data.agent_id,
+      label: parsed.data.label,
+      authorizingAssertionId: outcome.row.id,
+    });
+    return c.json(delegation);
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('already delegated')) {
+      return err(c, 409, 'conflict', 'delegation already exists for this agent');
+    }
+    // e.g. agent FK violation — the agent does not exist.
+    return err(c, 400, 'bad_request', 'could not create delegation (unknown agent?)');
+  }
+});
+
+app.post('/delegations/:id/revoke', ownerSession, async (c) => {
+  const ownerId = getOwnerId(c);
+  const delegationId = c.req.param('id');
+  let body: unknown;
+  try {
+    body = await parseJson(c);
+  } catch {
+    return err(c, 400, 'bad_request', 'invalid JSON body');
+  }
+  const parsed = RevokeSchema.safeParse(body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
+
+  const store = getStore(c);
+  // Ownership check: only the owner's own delegations are listable this way.
+  const owned = await store.listDelegationsByOwner(ownerId);
+  const target = owned.find((d) => d.id === delegationId);
+  if (!target) return err(c, 404, 'not_found', 'delegation not found');
+
+  const canonical = canonicalJsonStringify({
+    action_type: 'revoke_delegation',
+    owner_id: ownerId,
+    nonce: parsed.data.nonce,
+    delegation_id: delegationId,
+  });
+  const outcome = await verifyAndRecordAction(c, ownerId, 'revoke_delegation', canonical, parsed.data.assertion);
+  if (!outcome.ok) return outcome.res;
+
+  const delegation = await store.revokeDelegation({
+    delegationId,
+    revokeAssertionId: outcome.row.id,
+    nowIso: nowIso(),
+  });
+  return c.json(delegation);
+});
+
+export default app;

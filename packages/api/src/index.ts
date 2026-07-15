@@ -19,6 +19,8 @@ import taskRoutes from './routes/tasks.js';
 import scanRoutes from './routes/scan.js';
 import probeRoutes from './routes/probe.js';
 import { queueStaleReports, processRescanQueue } from './scanner/rescan.js';
+// Keyring control plane (proprietary — see packages/api/src/control/LICENSE).
+import ownerRoutes from './control/routes.js';
 
 const app = new Hono<AppEnv>();
 
@@ -321,6 +323,8 @@ app.route('/v1/tasks', taskRoutes);
 app.route('/v1/scan', scanRoutes);
 // MCP Probe: /v1/agents/:id/probe
 app.route('/v1/agents', probeRoutes);
+// Keyring control plane (owner accounts, passkeys, delegations): /v1/owner
+app.route('/v1/owner', ownerRoutes);
 
 /**
  * MED-5: Constant-time string comparison to prevent timing attacks on admin tokens.
