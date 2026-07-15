@@ -30,10 +30,14 @@ const ALLOWED_ORIGINS = [
   'https://basedagents.ai',
   'https://www.basedagents.ai',
   'https://registry.basedagents.ai',
+  // Owner console (control plane) — needs credentialed CORS for the session cookie.
+  'https://app.basedagents.ai',
   // Cloudflare Pages preview deploys
   /^https:\/\/[a-z0-9]+\.auth-ai-web\.pages\.dev$/,
+  /^https:\/\/[a-z0-9]+\.basedagents-console\.pages\.dev$/,
   // Local dev
   'http://localhost:5173',
+  'http://localhost:5174', // console dev server
   'http://localhost:3000',
   'http://localhost:4000',
 ];
@@ -62,6 +66,10 @@ app.use('*', cors({
   allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-Timestamp', 'X-Nonce', 'X-PAYMENT-SIGNATURE'],
   exposeHeaders: ['X-RateLimit-Remaining'],
+  // The console authenticates with an httpOnly session cookie, so the browser
+  // needs Access-Control-Allow-Credentials. Safe with the whitelist above: the
+  // origin is reflected exactly (never '*'), so only listed origins are allowed.
+  credentials: true,
   maxAge: 86400,
 }));
 
