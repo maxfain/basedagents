@@ -46,11 +46,17 @@ The **hosted control plane** is closed source:
 - Owner authentication, account management, and recovery.
 - Billing and any hosted-only orchestration.
 
-These are being built per `KEYRING_SPEC.md` v0.2 (§5). The first control-plane
-code has landed as a **proprietary subtree inside the otherwise-open `packages/api`**:
+These are being built per `KEYRING_SPEC.md` v0.2 (§5). The control-plane code
+lives in two proprietary places:
 
-- **`packages/api/src/control/`** — owner accounts, WebAuthn/passkey authority,
-  sessions, delegations, and (later) approvals/billing. Carries its own
+- **`packages/console/`** — the owner console web app (`app.basedagents.ai`):
+  passkey sign-in, the approvals inbox, and (later) delegations, recovery, and
+  billing screens. A standalone package so the closed console is cleanly
+  separated from the open, Apache-2.0 public site (`packages/web`). Carries its
+  own proprietary `LICENSE` (`packages/console/LICENSE`). All rights reserved.
+- **`packages/api/src/control/`** — the control-plane API: owner accounts,
+  WebAuthn/passkey authority, sessions, delegations, and approvals. A
+  proprietary subtree inside the otherwise-open `packages/api`. Carries its own
   proprietary `LICENSE` (`packages/api/src/control/LICENSE`). All rights reserved.
 - The control-plane D1 migrations it depends on (`packages/api/migrations/0023_owner_accounts.sql`
   onward) are covered by the same proprietary terms — they live in the shared
@@ -74,10 +80,10 @@ local data plane).
 
 > Scope of the api relicensing: only `packages/api/src/control/` and the
 > control-plane migrations (`0023_owner_accounts.sql` onward) are proprietary.
-> The rest of `packages/api` and all of `packages/web` remain Apache-2.0. If
-> future console UI is added to `packages/web`, only the added control-plane
-> screens move to the proprietary license — the public directory/registry UI
-> stays open.
+> The rest of `packages/api` and all of `packages/web` remain Apache-2.0. The
+> owner console is its own proprietary package (`packages/console`), kept
+> separate from the public directory/registry UI in `packages/web` so the open
+> site stays entirely open — no relicensing of any existing open code.
 
 ## Contributors & consent
 

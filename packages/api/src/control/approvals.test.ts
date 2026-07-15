@@ -444,6 +444,73 @@ describe('owner: request → approve queues a daemon-ready grant_approval', () =
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SERVER-ARMED CEREMONY — /approve/begin (what the console calls)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('owner: /approve/begin arms the exact grant-approval challenge', () => {
+  it('arms a challenge the console can WYSIWYS-check, then /approve accepts the assertion over it', async () => {
+    const auth = await Authenticator.create();
+    await register(auth);
+    const cookie = await login(auth);
+    const agent = await makeAgent();
+    await delegate(auth, cookie, agent.agentId, 2);
+
+    const constraints: GrantConstraints = { max_uses: 5, max_lease_ttl_seconds: 600, project: 'acme' };
+    const reqId = await createRequest(cookie, agent.agentId, 'cred_stripe_1', constraints, {
+      credential_label: 'Stripe', provider: 'stripe',
+    });
+
+    // 1. The SERVER arms the challenge from the request's own stored data — the
+    //    browser passes no params it could get wrong.
+    const beginRes = await post(`/v1/owner/requests/${reqId}/approve/begin`, {}, cookie);
+    expect(beginRes.status).toBe(200);
+    const begin = (await beginRes.json()) as {
+      challenge: string; nonce: string; action_canonical: string;
+      agent_pubkey: string; allowCredentials: Array<{ id: string }>;
+    };
+
+    // 2. Client-side WYSIWYS: the challenge is exactly the hash of the canonical
+    //    the console shows the human. The console refuses to sign if these differ.
+    expect(base64urlEncode(sha256(te.encode(begin.action_canonical)))).toBe(begin.challenge);
+
+    // 3. The armed challenge pins the grantee's on-file pubkey + the request's
+    //    constraints — exactly what the daemon re-derives before it seals (§2.1).
+    expect(begin.agent_pubkey).toBe(agent.publicKeyB58);
+    expect(begin.challenge).toBe(
+      grantApprovalHash({
+        owner_id: auth.ownerId, nonce: begin.nonce, agent_id: agent.agentId,
+        agent_pubkey: agent.publicKeyB58, credential_id: 'cred_stripe_1', constraints,
+      }),
+    );
+    expect(begin.allowCredentials.map((a) => a.id)).toContain(auth.credentialId);
+
+    // 4. Sign the server-armed challenge; approve echoes the SAME nonce.
+    const assertion = await auth.assert(begin.challenge, 3);
+    const res = await post(`/v1/owner/requests/${reqId}/approve`, { nonce: begin.nonce, assertion }, cookie);
+    expect(res.status).toBe(200);
+    const out = (await res.json()) as { request: { status: string }; approval_id: string };
+    expect(out.request.status).toBe('approved');
+
+    // 5. The queued approval's action_hash IS the armed challenge.
+    const approval = await store.getGrantApproval(out.approval_id);
+    expect(approval!.action_hash).toBe(begin.challenge);
+    expect(approval!.status).toBe('pending_daemon');
+
+    // 6. Re-arming a now-decided request is refused.
+    const beginAgain = await post(`/v1/owner/requests/${reqId}/approve/begin`, {}, cookie);
+    expect(beginAgain.status).toBe(400);
+  });
+
+  it('404s a begin for a request the caller does not own', async () => {
+    const a1 = await Authenticator.create();
+    await register(a1);
+    const c1 = await login(a1);
+    const res = await post('/v1/owner/requests/req_does_not_exist/approve/begin', {}, c1);
+    expect(res.status).toBe(404);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // INTEROP — the whole point of the increment
 // ─────────────────────────────────────────────────────────────────────────────
 

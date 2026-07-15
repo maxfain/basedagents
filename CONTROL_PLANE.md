@@ -172,7 +172,27 @@ Tested, including the redirect attack §2 exists to stop.
 An interop test drives the console-produced approval through the daemon's
 `applyApprovedGrant`; the grant goes active and the grantee leases the secret.
 
-**Increment 3.** Console UI (React screens), recovery flow, billing.
+**Increment 3a (shipped).** The owner console — a new proprietary package
+`packages/console` (Vite + React, `app.basedagents.ai`), kept separate from the
+open public site (`packages/web`) so no open code is relicensed:
+- Passkey **sign-up / sign-in** ("sessions to look" §3): register binds a passkey
+  to the `ow_` identity derived from the vault key; login mints the read-only
+  session cookie. Browser WebAuthn plumbing (`lib/webauthn.ts`) is the tested,
+  byte-exact base64url bridge to what the control plane verifies.
+- The **approvals inbox** ("signatures to act" §3): the server arms the exact
+  challenge from the request's own stored data via a new
+  `POST /requests/:id/approve/begin` (so the browser never reconstructs the
+  §2.1 canonical and can't get the pinned pubkey or constraints wrong); the
+  console **re-hashes the returned canonical and refuses to sign unless it equals
+  the challenge** — client-side WYSIWYS — then runs the passkey assertion and
+  posts it to `/approve`. A grant is shown `active` only after the daemon
+  confirms; the console can queue an approval but never seals a secret.
+
+**Increment 3b.** Delegations + vault-binding management screens.
+
+**Increment 3c.** Recovery flow (email magic link + recovery code → passkey rotation).
+
+**Increment 3d.** Billing.
 
 **Deliberately deferred / not built as a hosted firehose.** The high-volume
 AccessEvent stream is **not** mirrored wholesale into D1 (that would drag in

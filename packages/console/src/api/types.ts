@@ -1,0 +1,87 @@
+/** Shapes the control plane (packages/api/src/control) returns to the console. */
+
+export interface RegistrationOptionsResponse {
+  owner_id: string;
+  options: {
+    rp: { id: string; name: string };
+    user: { id: string; name: string; displayName: string };
+    challenge: string;
+    pubKeyCredParams: Array<{ type: 'public-key'; alg: number }>;
+    authenticatorSelection?: AuthenticatorSelectionCriteria;
+    attestation?: AttestationConveyancePreference;
+    excludeCredentials?: Array<{ type: 'public-key'; id: string; transports?: string[] }>;
+    timeout?: number;
+  };
+}
+
+export interface LoginOptionsResponse {
+  challenge: string;
+  rpId: string;
+  allowCredentials?: Array<{ type: 'public-key'; id: string; transports?: string[] }>;
+  userVerification?: UserVerificationRequirement;
+  timeout?: number;
+}
+
+export interface OwnerCredential {
+  credential_id: string;
+  nickname: string | null;
+  created_at: string;
+  last_used_at: string | null;
+  backed_up: boolean;
+}
+
+export interface Delegation {
+  id: string;
+  owner_id: string;
+  agent_id: string;
+  label: string | null;
+  status: string;
+  created_at: string;
+}
+
+export interface OwnerMe {
+  owner_id: string;
+  email: string | null;
+  credentials: OwnerCredential[];
+  delegations: Delegation[];
+}
+
+export interface GrantConstraints {
+  expires_at?: string;
+  max_lease_ttl_seconds?: number;
+  max_uses?: number;
+  project?: string;
+}
+
+export interface KeyringRequest {
+  id: string;
+  owner_id: string;
+  agent_id: string;
+  credential_id: string;
+  credential_label: string | null;
+  provider: string | null;
+  constraints: GrantConstraints;
+  note: string | null;
+  status: 'pending' | 'approved' | 'denied';
+  created_at: string;
+  decided_at: string | null;
+  deny_reason: string | null;
+}
+
+/** The server-armed challenge for the approve_grant ceremony. */
+export interface ApproveBeginResponse {
+  challenge: string;
+  nonce: string;
+  rpId: string;
+  allowCredentials?: Array<{ type: 'public-key'; id: string; transports?: string[] }>;
+  action_canonical: string;
+  agent_pubkey: string;
+  timeout?: number;
+}
+
+export interface OwnerAssertion {
+  credentialId: string;
+  authenticatorData: string;
+  clientDataJSON: string;
+  signature: string;
+}

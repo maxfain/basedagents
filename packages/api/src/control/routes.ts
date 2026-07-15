@@ -193,7 +193,7 @@ function ownerIdFromVaultB58(vaultPublicKey: string): string | null {
 // register/login keep using store.createChallenge (random challenge is correct
 // there). DELETE-then-INSERT makes /action/begin idempotently re-armable and
 // sidesteps the UNIQUE(challenge) constraint on the deterministic action_hash.
-async function armActionChallenge(
+export async function armActionChallenge(
   db: DBAdapter,
   ownerId: string,
   actionType: string,
