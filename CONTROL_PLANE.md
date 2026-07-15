@@ -159,11 +159,18 @@ verification before sealing (§2 step 3): owner-passkey anchoring
 redirected seal targets, tampered constraints, unanchored passkeys, and replays.
 Tested, including the redirect attack §2 exists to stop.
 
-**Increment 2b.** The control-plane `approve_grant` action endpoint (produces the
-assertion the daemon consumes) + `keyring_requests`/`grants_meta` tables, and the
-daemon HTTP pull/confirm loop (`based link` to anchor, a sync that pulls approved
-requests, applies them locally, and confirms back); the console surfaces `active`
-only on daemon confirmation.
+**Increment 2b (shipped).** The full approval loop, end to end:
+- Control plane: `keyring_requests` (approvals inbox) + `grant_approvals`, the
+  `approve_grant` action (produces the assertion the daemon consumes), and
+  daemon-facing `GET /daemon/passkeys`, `GET /daemon/approvals`,
+  `POST /daemon/approvals/:id/confirm` — authenticated by the owner's Ed25519
+  vault key (`daemonAuth`, verified against an active `owner_vault_keys` binding).
+- Daemon (`packages/keyring` CLI): `based link` anchors the console passkey(s)
+  after the owner confirms the fingerprints; `based sync [--watch]` pulls approved
+  grants, runs each through `applyApprovedGrant` (re-verify + re-seal), and
+  confirms back — so the console shows `active` only on daemon confirmation.
+An interop test drives the console-produced approval through the daemon's
+`applyApprovedGrant`; the grant goes active and the grantee leases the secret.
 
 **Increment 3.** Console UI (React screens), recovery flow, billing.
 

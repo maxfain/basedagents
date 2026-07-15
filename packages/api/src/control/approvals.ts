@@ -50,6 +50,8 @@ import {
   bytesToHex,
   verifySignature,
 } from '../crypto/index.js';
+import { convertCOSEtoPKCS } from '@simplewebauthn/server/helpers';
+import { rpConfig } from './config.js';
 
 // ─── small helpers (kept local; mirror ./routes.ts conventions) ───
 
@@ -453,6 +455,29 @@ app.post('/requests/:id/deny', ownerSession, async (c) => {
 });
 
 // ── Daemon: pull pending approvals ──
+
+// ── Daemon: fetch the owner's registered passkeys (to anchor via `based link`) ──
+//
+// The daemon shows these to the owner and anchors on confirmation (CONTROL_PLANE
+// §2: the anchor is trusted because the human confirms it, not because it was
+// fetched). COSE keys are converted to the uncompressed P-256 point the daemon's
+// verifier expects; rp_id + origins come from server config.
+app.get('/daemon/passkeys', daemonAuth, async (c) => {
+  const ownerId = getOwnerId(c);
+  const store = getStore(c);
+  const { rpId, origins } = rpConfig(c.env);
+  const creds = await store.listCredentials(ownerId);
+  return c.json({
+    rp_id: rpId,
+    origins,
+    passkeys: creds.map((cr) => ({
+      credential_id: cr.credential_id,
+      public_key_hex: bytesToHex(Uint8Array.from(convertCOSEtoPKCS(Uint8Array.from(cr.public_key)))),
+      nickname: cr.nickname ?? null,
+      created_at: cr.created_at,
+    })),
+  });
+});
 
 app.get('/daemon/approvals', daemonAuth, async (c) => {
   const ownerId = getOwnerId(c);
