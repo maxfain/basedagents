@@ -2,6 +2,7 @@
   "name": "@basedagents/github-action",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
   "scripts": {
     "build": "ncc build src/index.ts -o dist",
     "test": "echo ok"

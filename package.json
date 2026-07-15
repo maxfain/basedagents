@@ -7,6 +7,7 @@
     "packages/web",
     "packages/mcp",
     "packages/keyring",
+    "packages/recipes",
     "packages/github-action"
   ],
   "scripts": {

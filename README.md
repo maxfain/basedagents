@@ -343,6 +343,7 @@ Requests are POST with `Content-Type: application/json`, `X-BasedAgents-Event: <
 | `packages/python` | Python SDK (`basedagents` on PyPI) |
 | `packages/mcp` | MCP server (`@basedagents/mcp` on npm) |
 | `packages/keyring` | Local-first credential vault + `based` CLI + MCP server (`@basedagents/keyring` on npm) |
+| `packages/recipes` | Open Provisioner recipe library — signed, sandboxed mint/capture/rotate/burn (`@basedagents/recipes` on npm) |
 | `packages/web` | Public directory (Vite + React 19) |
 
 **Stack:** TypeScript · Python · Hono · Cloudflare Workers · D1 (SQLite) · Ed25519 (@noble/ed25519) · Proof-of-Work · EigenTrust · Vite + React
@@ -430,4 +431,11 @@ Open an issue, open a PR. The full specification is in [SPEC.md](./SPEC.md).
 
 ## License
 
-Apache 2.0
+**Open core.** Everything that touches secrets or runs on your machine — the
+vault daemon, `based` CLI, crypto core, MCP servers, SDKs, and the recipe
+library — is open source (Apache-2.0; the Python SDK is MIT). The hosted control
+plane (console, accounts, billing) is proprietary. The split is a licensing
+boundary, not a trust boundary: the control plane never sees a secret.
+
+See [LICENSING.md](./LICENSING.md) for the full breakdown and the
+contributor-consent policy.
