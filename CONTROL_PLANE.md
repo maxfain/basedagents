@@ -66,6 +66,31 @@ what-you-sign is mitigated (not eliminated — a platform limit) by putting the
 full action, including the grantee pubkey, inside the signed payload and having
 the daemon re-derive and surface it.
 
+### 2.1 Grant-approval action contract
+
+Both sides must produce byte-identical canonical JSON or the hashes won't agree.
+The single source of truth is `packages/keyring/src/control-actions.ts`
+(`grantApprovalCanonical`); the control plane implements the matching side. The
+statement the owner passkey signs is:
+
+```
+canonicalJson({
+  action_type: "approve_grant",
+  owner_id,          // the vault owner id — supplied by the DAEMON, not the approval
+  nonce,             // server-issued, per-ceremony, single-use at the daemon
+  agent_id,          // the grantee
+  agent_pubkey,      // base58 Ed25519 — the pinned sealing target, DAEMON-derived from agent_id
+  credential_id,
+  constraints,       // only the set keys: expires_at, max_lease_ttl_seconds, max_uses, project
+})
+```
+
+The WebAuthn challenge is `base64url(sha256(canonical))`. On apply, the daemon
+recomputes this from its own `owner_id` and the grantee pubkey it is about to
+seal to; any control-plane substitution of owner, grantee, credential, or
+constraints changes the hash and the anchored-passkey assertion fails to verify.
+`nonce` is recorded in the vault so a relayed approval is single-use daemon-side.
+
 ## 3. Sessions to look, signatures to act
 
 - **Look:** passkey login mints an httpOnly, `SameSite=Strict` session cookie.
@@ -124,9 +149,19 @@ authentication verification on Workers, the atomic single-use-challenge and
 monotonic-counter primitives, sessions-to-look + signatures-to-act guards, the
 owner binding, and the owner→agent delegation edge — control-plane side, tested.
 
-**Increment 2.** Daemon-side (`packages/keyring`) owner-assertion verification
-before sealing (§2 step 3) and the approvals pull/confirm loop; the console
-surfaces `active` only on daemon confirmation.
+**Increment 2a (shipped).** Daemon-side (`packages/keyring`) owner-assertion
+verification before sealing (§2 step 3): owner-passkey anchoring
+(`anchorOwnerPasskey`), the ES256 assertion verifier (`webauthn-verify.ts`, pure
+`@noble` — no library on the user's machine), the shared grant-approval contract
+(§2.1), and `applyApprovedGrant` — which re-derives the action hash and rejects
+redirected seal targets, tampered constraints, unanchored passkeys, and replays.
+Tested, including the redirect attack §2 exists to stop.
+
+**Increment 2b.** The control-plane `approve_grant` action endpoint (produces the
+assertion the daemon consumes) + `keyring_requests`/`grants_meta` tables, and the
+daemon HTTP pull/confirm loop (`based link` to anchor, a sync that pulls approved
+requests, applies them locally, and confirms back); the console surfaces `active`
+only on daemon confirmation.
 
 **Increment 3.** Console UI (React screens), recovery flow, billing.
 

@@ -53,4 +53,15 @@ export {
   randomId,
 } from './util.js';
 
+export {
+  grantApprovalCanonical,
+  grantApprovalHash,
+  actionChallenge,
+  base64urlEncode,
+  base64urlDecode,
+  type GrantApprovalStatement,
+} from './control-actions.js';
+
+export { verifyOwnerAssertion, type OwnerAssertionInput } from './webauthn-verify.js';
+
 export * from './types.js';

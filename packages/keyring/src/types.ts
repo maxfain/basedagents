@@ -135,7 +135,9 @@ export type AccessEventType =
   | 'lease_denied'
   | 'request_created'
   | 'request_approved'
-  | 'request_denied';
+  | 'request_denied'
+  | 'passkey_anchored'
+  | 'passkey_removed';
 
 /**
  * Append-only signed record (KEYRING_SPEC §3):
@@ -163,6 +165,56 @@ export interface AccessEvent {
   entry_hash: string;
 }
 
+// ─── Owner passkey anchor (control plane, KEYRING_SPEC §5 / CONTROL_PLANE.md §2) ───
+
+/**
+ * A locally-anchored owner WebAuthn passkey — the *authority* root the daemon
+ * trusts when applying a control-plane-relayed approval. Anchored at a trusted
+ * moment (the owner runs `based link` and confirms), NOT silently fetched from
+ * the control plane, so a compromised control plane cannot substitute it.
+ * Only the public key is stored; the passkey's private key never leaves the
+ * authenticator.
+ */
+export interface OwnerPasskey {
+  /** base64url WebAuthn credential id. */
+  credential_id: string;
+  /** Uncompressed P-256 public key (0x04‖x‖y), hex-encoded. */
+  public_key_hex: string;
+  /** WebAuthn RP ID this passkey verifies under, e.g. "basedagents.ai". */
+  rp_id: string;
+  /** Allowed WebAuthn origins, e.g. ["https://app.basedagents.ai"]. */
+  origins: string[];
+  nickname?: string;
+  anchored_at: string;
+}
+
+/** A WebAuthn assertion produced by the owner's passkey in the console/browser. */
+export interface OwnerAssertion {
+  /** base64url WebAuthn credential id — must match an anchored passkey. */
+  credentialId: string;
+  authenticatorData: string; // base64url
+  clientDataJSON: string;    // base64url
+  signature: string;         // base64url (ASN.1 DER ECDSA)
+}
+
+/**
+ * A control-plane-relayed grant approval the daemon applies. Every field is
+ * bound by the owner's passkey signature: the daemon re-derives the action hash
+ * from these values (plus its own owner id and the grantee's on-file pubkey) and
+ * rejects the approval unless the assertion signed exactly that hash. So a
+ * tampered agent, credential, or constraint set fails verification.
+ */
+export interface GrantApproval {
+  /** Server-issued per-ceremony nonce (single-use at the daemon). */
+  nonce: string;
+  /** The exact credential the owner approved (must exist in the vault). */
+  credential_id: string;
+  /** The grantee agent id the owner approved. */
+  agent_id: string;
+  constraints: GrantConstraints;
+  assertion: OwnerAssertion;
+}
+
 // ─── Vault file ───
 
 export interface VaultFile {
@@ -176,6 +228,10 @@ export interface VaultFile {
   credentials: Record<string, Credential>;
   grants: Record<string, Grant>;
   requests: Record<string, GrantRequest>;
+  /** Anchored owner passkeys (control plane authority roots). Absent in pre-§5 vaults. */
+  owner_passkeys?: Record<string, OwnerPasskey>;
+  /** Approval nonces already applied — single-use guard against replaying a relayed approval. */
+  applied_approval_nonces?: string[];
 }
 
 // ─── Views ───
