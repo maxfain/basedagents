@@ -4,6 +4,7 @@
     { "path": "packages/api" },
     { "path": "packages/sdk" },
     { "path": "packages/keyring" },
+    { "path": "packages/recipes" },
     { "path": "packages/web" }
   ]
 }
