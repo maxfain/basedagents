@@ -1,6 +1,9 @@
 # BasedAgents Keyring — Specification
 
-**Status:** v0.1 shipped · July 2026
+**Status:** v0.1 shipped · July 2026. The v0.2 **hosted control plane** (owner
+accounts, passkey authority, remote approvals, recovery) has since shipped —
+its architecture of record is [`CONTROL_PLANE.md`](./CONTROL_PLANE.md); §5
+below describes the v0.1 local admin plane it extends.
 **One-liner:** Scoped, revocable credentials bound to cryptographic agent identities.
 **Package:** [`@basedagents/keyring`](./packages/keyring) (npm) · CLI `based` · MCP server `basedagents-keyring-mcp`
 
@@ -78,6 +81,16 @@ The agent's keypair comes from `BASEDAGENTS_KEYPAIR_PATH` (JSON, either `{ publi
 Design rule: **the agent never sees more than it leased, and never for longer than the TTL.** Prompt-injection blast radius is one scoped key for fifteen minutes, with a signed record of the access.
 
 ## 5. Admin control plane
+
+> **Update (July 2026):** the hosted half of this section shipped. Owner
+> accounts with WebAuthn passkey authority, the remote approvals inbox
+> (`app.basedagents.ai`), owner→agent delegations, vault-key binding,
+> `based link` / `based sync` on the daemon side, and account recovery are
+> implemented — see [`CONTROL_PLANE.md`](./CONTROL_PLANE.md) for the authority
+> model (the daemon independently re-verifies every console approval against a
+> locally anchored passkey before sealing; the control plane is never trusted
+> for authority or confidentiality). Mobile push approvals and billing remain
+> pending. The local admin plane below still works standalone.
 
 The 1Password-style piece, but agent-first. In v0.1 this is a local, localhost-only web server started with `based admin` — token-authenticated, no remote access. Four tabs:
 

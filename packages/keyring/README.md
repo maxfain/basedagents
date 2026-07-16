@@ -105,6 +105,8 @@ The agent keypair comes from `BASEDAGENTS_KEYPAIR_PATH` (JSON: `{ "public_key_b5
 | `based run [--agent ref] [--keypair file] [--context c] [--ttl s] -- <cmd...>` | Lease all grants, inject env vars, run the command; nothing on disk |
 | `based admin [--port]` | Start the local admin UI |
 | `based mcp` | Run the MCP server (same as `basedagents-keyring-mcp`) |
+| `based link [--api url] [--yes]` | Anchor your hosted-console passkey(s) as the local authority root — you confirm the fingerprints |
+| `based sync [--api url] [--watch s]` | Pull console-approved grants, re-verify each against the anchored passkey, seal, and confirm back |
 
 Every command accepts `--dir` to point at a non-default vault.
 
@@ -116,6 +118,7 @@ Every command accepts `--dir` to point at a non-default vault.
 - **Leases, not copies.** Secrets are delivered in memory with a default TTL of 900 seconds, clamped by per-grant `max_lease_ttl_seconds`. Nothing is written to disk.
 - **What revoke does — and does not do.** `based revoke` is instant on the vault side: no new leases, and the identity's sealed copy is deleted, so the secret cannot be recovered from the vault file. Outstanding leases expire within their TTL (≤ 15 minutes by default). Revoke does **not** rotate or delete the key at the provider — in v0.1 that step is manual. If a key already leaked, rotate it upstream. Automated provider-side burns are the v0.2 Provisioner.
 - **Kill switch.** `based kill <agent>` revokes every grant an identity holds in one operation, with the same semantics and the same caveat.
+- **Console approvals are re-verified locally.** A grant approved in the hosted console is applied only after the daemon verifies the owner's passkey assertion against a **locally anchored** passkey (`based link`) over a statement that pins the grantee's public key, the credential, and the constraints. The console is never trusted for authority or confidentiality.
 
 Condensed threat table:
 
@@ -125,6 +128,7 @@ Condensed threat table:
 | Vault file read by another process | Ciphertext only; opens require a granted private key |
 | Tampered access log | Hash chain + per-event signatures; `based verify-log` |
 | Stolen agent private key | Kill switch: all grants die, sealed copies deleted |
+| Compromised hosted control plane | Daemon re-verifies approvals against the anchored passkey; seal-target substitution changes the signed hash and is refused; ciphertext never leaves the machine |
 | Owner device compromise | Out of scope — equivalent to master-password compromise in any vault |
 
 ## Admin UI
@@ -137,6 +141,53 @@ Condensed threat table:
 - **Approvals** — pending `keyring_request`s, approve or deny in one click
 
 Plus a signed-log export button (same format as `based export`).
+
+## Hosted console (approve grants from anywhere)
+
+The local vault pairs with an optional hosted console at
+[app.basedagents.ai](https://app.basedagents.ai): sign in with a passkey,
+review the credentials your agents request, and approve each one with a
+passkey signature — from your phone if that's where you are. The daemon stays
+the enforcement point; the console is a projection and a request queue.
+
+One-time setup:
+
+```bash
+based init                       # if you haven't already
+# 1. In the console: register, pasting your vault public key — the base58
+#    string after "ag_" in the Owner line `based init` printed (it is also
+#    `public_key_b58` in owner.json).
+# 2. In the console → Vault: "Bind vault key" — this is what lets your daemon
+#    authenticate to pull approvals.
+based link                       # 3. anchor the console passkey(s) locally —
+                                 #    CONFIRM THE FINGERPRINTS match what you registered
+```
+
+Daily loop:
+
+```bash
+# In the console: delegate your agent (Agents tab), then approve its requests
+# (Approvals tab) with your passkey.
+based sync                       # pull approved grants, verify, seal, confirm
+based sync --watch 30            # or keep a loop running
+```
+
+What makes this safe (`CONTROL_PLANE.md` has the full authority model):
+
+- **The console never sees a secret.** Sealing happens only in the daemon;
+  the control plane stores metadata and grant records, ciphertext never.
+- **The daemon re-verifies every approval** against the passkey you anchored
+  with `based link` — not a key fetched at sync time. The signed approval pins
+  the grantee's public key, the credential, and the constraints; if any of it
+  was substituted, the hash changes and the daemon refuses to seal.
+- **The console shows a grant as active only after your daemon confirms it.**
+  A compromised control plane can delay or drop a grant; it cannot forge one,
+  redirect its seal target, or read anything.
+- **Recovery rotates authority, never secrets.** Losing your passkeys is
+  recoverable with your account email plus a one-time recovery code (generate
+  it in the console → Vault, save it offline). Recovery enrolls a new passkey
+  and revokes all others — then you re-run `based link` to anchor the new one.
+  Your vault key and ciphertext are untouched.
 
 ## Vault layout and environment variables
 
@@ -155,8 +206,9 @@ Plus a signed-log export button (same format as `based export`).
 
 ## Roadmap
 
-- **v0.2 — Provisioner.** Mint, rotate, and burn keys at the provider itself via versioned, open-source recipes (API-first, browser fallback). Kill switch wired to provider-side burns. First recipes: Vercel, Supabase, Railway, Neon, GitHub PAT.
-- **v0.3 — Hosted + shared.** Encrypted ciphertext sync, mobile approvals, rotate recipes, OAuth refresh-token management, team grants.
+- **Hosted console — shipped.** Owner accounts with passkey authority, remote approvals (`based link` / `based sync`), delegations, vault binding, and account recovery. See [Hosted console](#hosted-console-approve-grants-from-anywhere) above and `CONTROL_PLANE.md` at the repo root for the authority model. Billing is pending.
+- **Provisioner.** Mint, rotate, and burn keys at the provider itself via versioned, open-source recipes (API-first, browser fallback; recipe library shipped in `@basedagents/recipes`, execution pending). Kill switch wired to provider-side burns. First recipes: Vercel, Supabase, Railway, Neon, GitHub PAT.
+- **Shared vaults.** Encrypted ciphertext sync, rotate recipes, OAuth refresh-token management, team grants.
 
 Full specification: [KEYRING_SPEC.md](../../KEYRING_SPEC.md)
 

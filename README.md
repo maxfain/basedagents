@@ -259,9 +259,11 @@ based run --agent ci-bot -- npm run deploy                             # resolve
 
 MCP: `npx -y --package=@basedagents/keyring basedagents-keyring-mcp` gives Claude Code, Claude Desktop, and Cursor identity-bound lease access (`keyring_list`, `keyring_lease`, `keyring_request`, `keyring_whoami`).
 
-Revoking a grant is instant on the vault side — no new leases, sealed copy deleted, outstanding leases dead within 15 minutes. Rotating the key at the provider stays manual until the v0.2 Provisioner.
+Revoking a grant is instant on the vault side — no new leases, sealed copy deleted, outstanding leases dead within 15 minutes. Rotating the key at the provider stays manual until the Provisioner ships.
 
-Spec: [KEYRING_SPEC.md](./KEYRING_SPEC.md) · Package: [packages/keyring/README.md](./packages/keyring/README.md)
+**Hosted console.** The vault pairs with [app.basedagents.ai](https://app.basedagents.ai): sign in with a passkey, delegate agents, and approve their credential requests from anywhere — each approval is a passkey signature over the exact grant (grantee key, credential, constraints). The daemon stays the enforcement point: `based link` anchors your console passkeys locally, `based sync` pulls approved grants and **re-verifies each against that anchor before sealing**, so a compromised control plane can delay a grant but cannot forge one, redirect it, or read a secret. Recovery (email magic link + one-time code) rotates passkeys only — never keys or ciphertext.
+
+Spec: [KEYRING_SPEC.md](./KEYRING_SPEC.md) · Authority model: [CONTROL_PLANE.md](./CONTROL_PLANE.md) · Package: [packages/keyring/README.md](./packages/keyring/README.md)
 
 ---
 
@@ -345,6 +347,7 @@ Requests are POST with `Content-Type: application/json`, `X-BasedAgents-Event: <
 | `packages/keyring` | Local-first credential vault + `based` CLI + MCP server (`@basedagents/keyring` on npm) |
 | `packages/recipes` | Open Provisioner recipe library — signed, sandboxed mint/capture/rotate/burn (`@basedagents/recipes` on npm) |
 | `packages/web` | Public directory (Vite + React 19) |
+| `packages/console` | Keyring owner console — passkey auth, approvals, recovery (proprietary, see `LICENSING.md`) |
 
 **Stack:** TypeScript · Python · Hono · Cloudflare Workers · D1 (SQLite) · Ed25519 (@noble/ed25519) · Proof-of-Work · EigenTrust · Vite + React
 
@@ -420,6 +423,8 @@ basedagents is the layer underneath all of them. Vendor-neutral identity that wo
 - **GitHub**: [github.com/maxfain/basedagents](https://github.com/maxfain/basedagents)
 - **Spec**: [SPEC.md](./SPEC.md)
 - **Keyring spec**: [KEYRING_SPEC.md](./KEYRING_SPEC.md)
+- **Keyring control plane (authority model)**: [CONTROL_PLANE.md](./CONTROL_PLANE.md)
+- **Licensing (open-core boundary)**: [LICENSING.md](./LICENSING.md)
 
 ---
 

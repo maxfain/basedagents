@@ -6,6 +6,84 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.7.0] — 2026-07-16
+
+The Keyring hosted control plane (KEYRING_SPEC.md v0.2 §5): owner accounts with
+passkey authority, remote grant approvals, and account recovery — with the local
+vault daemon as the enforcement point throughout. Architecture of record:
+`CONTROL_PLANE.md`. Open-core boundary: `LICENSING.md`.
+
+### Added
+
+#### Control plane — `packages/api/src/control/` (proprietary)
+- Owner identity (`ow_` + base58 of the vault Ed25519 key) with WebAuthn/passkey
+  ceremonies on Workers (`@simplewebauthn/server` v13, Web-Crypto only)
+- "Sessions to look, signatures to act": passkey login mints a read-only
+  httpOnly `SameSite=Strict` cookie; every mutation requires a fresh WebAuthn
+  assertion whose challenge is the hash of the exact canonical action, with a
+  per-ceremony nonce (replay-proof even on counter-0 authenticators)
+- Atomic security primitives (no-transaction D1): single-use challenge consume,
+  monotonic signature-counter bump, delegation uniqueness — all conditional
+  writes verified by `.changes`
+- Owner action assertions recorded on a per-owner hash chain (`prev_hash` /
+  `entry_hash`), verified end-to-end in tests
+- Owner→agent delegations (create/revoke, each a signed action)
+- Vault-key binding: `daemonAuth` — the local daemon authenticates as the owner
+  by Ed25519-signing requests (`AgentSig`), accepted only against an active
+  vault-key binding
+- Approvals inbox: `keyring_requests` + `grant_approvals`; `approve_grant`
+  signs the §2.1 canonical statement that pins the grantee's public key, the
+  credential, and the normalized constraints — not just a request id;
+  `approve/begin` arms the exact challenge server-side so the browser never
+  reconstructs the canonical
+- Daemon endpoints: `GET /daemon/passkeys`, `GET /daemon/approvals`,
+  `POST /daemon/approvals/:id/confirm` — the console shows a grant `active`
+  only after the daemon confirms the seal
+- Account recovery (CONTROL_PLANE.md §6): emailed magic-link token (sha256-
+  stored, 15-min TTL, fragment-carried) **plus** offline one-time recovery code
+  (issued via its own passkey ceremony, shown once, sha256-stored) — both
+  required; completing recovery enrolls a new passkey and revokes every other
+  passkey and live session; vault key and ciphertext untouched. Anti-enumeration
+  begin, uniform 401s, per-IP rate limits. Provider-pluggable email
+  (Resend or log-only)
+- Migrations `0023` (owners, credentials, challenges, sessions, assertions,
+  delegations), `0024` (requests + approvals), `0025` (recovery, credential
+  revocation)
+- Credentialed CORS for the console origins (exact-origin reflection, never `*`)
+
+#### Keyring daemon — `@basedagents/keyring` (Apache-2.0)
+- Owner-passkey anchoring (`anchorOwnerPasskey`) — the daemon pins the console
+  passkeys it trusts, because the human confirmed the fingerprints
+- Pure-`@noble` ES256 WebAuthn assertion verifier (no WebAuthn library on the
+  user's machine)
+- Shared grant-approval contract (`control-actions.ts`) — byte-identical
+  canonical JSON + action hash on both sides, proven by cross-package interop
+  tests
+- `applyApprovedGrant`: re-derives the action hash from the daemon's own owner
+  id and the grantee key it is about to seal to; rejects redirected seal
+  targets, tampered constraints, unanchored passkeys, and replays (single-use
+  approval nonces recorded in the vault)
+- `based link` — fetch + human-confirm + anchor the console passkeys
+- `based sync [--watch]` — pull approved grants, re-verify, seal, confirm back;
+  failures are reported so the console never shows them active
+
+#### Owner console — `packages/console` (proprietary, new package)
+- Passkey sign-up/sign-in, approvals inbox, delegations manager, vault-key
+  binding, recovery-code issuance, and the public `/recover` page
+  (Vite + React 19, `app.basedagents.ai`)
+- Client-side WYSIWYS on every ceremony: the console re-hashes the server's
+  canonical action, verifies it says exactly what was requested (action type,
+  owner, nonce, byte-identical params), and refuses to sign otherwise
+
+### Changed
+- `packages/api` is now mixed-license: the registry API stays Apache-2.0; the
+  `src/control/` subtree and control-plane migrations are proprietary
+  (`LICENSING.md`, after the contributor-consent check)
+- Root/`keyring`/`api` READMEs and `KEYRING_SPEC.md` §5 updated for the hosted
+  console; `CONTROL_PLANE.md` added as the authority model
+
+---
+
 ## [0.6.0] — 2026-07-14
 
 New package: `@basedagents/keyring` 0.1.0 — scoped, revocable credentials bound to cryptographic agent identities. Full specification in `KEYRING_SPEC.md`.

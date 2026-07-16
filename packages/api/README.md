@@ -20,6 +20,7 @@ REST API for the [BasedAgents](https://basedagents.ai) identity and reputation r
 - [Messaging](#messaging)
 - [Skills](#skills)
 - [Discovery](#discovery)
+- [Keyring Control Plane](#keyring-control-plane)
 - [Error Codes](#error-codes)
 - [Running Locally](#running-locally)
 
@@ -792,6 +793,54 @@ Full OpenAPI 3.0 specification.
 ### `X-Agent-Instructions` Header
 
 Every response includes this header with brief instructions for agent clients consuming the API.
+
+---
+
+## Keyring Control Plane
+
+Owner accounts, passkey authority, delegations, grant approvals, and recovery
+for the [Keyring](../keyring/README.md) — mounted at `/v1/owner`. This subtree
+(`src/control/`, migrations `0023`+) is **proprietary** (see `LICENSING.md`);
+it is documented here because the endpoints are part of this Worker.
+
+The full authority model — why the daemon re-verifies everything, the
+grant-approval action contract, atomicity rules — is
+[`CONTROL_PLANE.md`](../../CONTROL_PLANE.md). Summary of the surface:
+
+**Auth models.** *Sessions to look:* passkey login mints an httpOnly
+`SameSite=Strict` cookie that authorizes reads only. *Signatures to act:* every
+mutation carries a fresh WebAuthn assertion whose challenge is the hash of the
+exact action. *Daemon auth:* the local vault daemon authenticates as the owner
+by signing requests with the owner's Ed25519 vault key (`AgentSig`), accepted
+only against an active vault-key binding.
+
+| Endpoint | Auth | Does |
+|---|---|---|
+| `POST /v1/owner/register/begin` / `finish` | — | Bind a passkey to the owner id derived from the vault public key |
+| `POST /v1/owner/login/begin` / `finish` | — | Passkey login → read-only session cookie |
+| `POST /v1/owner/logout` | session | Revoke the session |
+| `GET /v1/owner/me` | session | Owner, passkeys, delegations, vault-key binding, recovery-code status |
+| `GET /v1/owner/delegations` | session | List owner→agent delegations |
+| `POST /v1/owner/action/begin` | session | Arm a single-use challenge over a canonical action (generic ceremony) |
+| `POST /v1/owner/vault-binding` | session + assertion | Bind the Ed25519 vault key (unlocks daemon auth) |
+| `POST /v1/owner/delegations` | session + assertion | Create a delegation (`create_delegation` action) |
+| `POST /v1/owner/delegations/:id/revoke` | session + assertion | Revoke a delegation |
+| `POST /v1/owner/requests` | session | File a keyring request (grantee must be delegated) |
+| `GET /v1/owner/requests` | session | List requests (`?status=`) |
+| `POST /v1/owner/requests/:id/approve/begin` | session | Server-arms the exact grant-approval challenge (pins grantee pubkey + constraints) |
+| `POST /v1/owner/requests/:id/approve` | session + assertion | The `approve_grant` action — queues a daemon-ready approval |
+| `POST /v1/owner/requests/:id/deny` | session | Deny a request |
+| `POST /v1/owner/recovery-code` | session + assertion | Issue the one-time recovery code (shown once, stored hashed) |
+| `POST /v1/owner/recover/begin` | — (rate-limited) | Email a magic link; uniform response (no enumeration) |
+| `POST /v1/owner/recover/options` | — (rate-limited) | Both factors valid → registration options for the new passkey |
+| `POST /v1/owner/recover/finish` | — (rate-limited) | Verify enrollment, consume factors, revoke all other passkeys + sessions |
+| `GET /v1/owner/daemon/passkeys` | daemon (AgentSig) | Registered passkeys + RP config, for `based link` anchoring |
+| `GET /v1/owner/daemon/approvals` | daemon (AgentSig) | Pending approvals shaped as keyring `GrantApproval` |
+| `POST /v1/owner/daemon/approvals/:id/confirm` | daemon (AgentSig) | Report the applied grant (or failure) — console shows `active` only after this |
+
+Config: `KEYRING_RP_ID`, `KEYRING_ORIGINS`, `KEYRING_CONSOLE_ORIGIN` (vars);
+`RESEND_API_KEY`, `EMAIL_FROM` (optional secrets — without them, recovery
+emails go to the log-only sender).
 
 ---
 
