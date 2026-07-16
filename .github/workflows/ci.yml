@@ -184,12 +184,21 @@ jobs:
             fail=1
           fi
           [ "$fail" = "1" ] && exit 1
-          code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $CF_TOKEN" https://api.cloudflare.com/client/v4/user/tokens/verify)
-          if [ "$code" != "200" ]; then
-            echo "::error::Cloudflare rejected the token (verify endpoint returned $code) — wrong value, revoked, or expired."
-            exit 1
+          # USER-owned tokens verify at /user/tokens/verify; ACCOUNT-owned
+          # tokens (cfat_…, created under "Account API Tokens") only verify at
+          # /accounts/{id}/tokens/verify. Wrangler accepts both — so must we.
+          user_code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $CF_TOKEN" https://api.cloudflare.com/client/v4/user/tokens/verify)
+          if [ "$user_code" = "200" ]; then
+            echo "Cloudflare credentials present; user-owned token verifies (HTTP 200)."
+            exit 0
           fi
-          echo "Cloudflare credentials present; token verifies (HTTP 200)."
+          acct_code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/tokens/verify")
+          if [ "$acct_code" = "200" ]; then
+            echo "Cloudflare credentials present; account-owned token verifies (HTTP 200)."
+            exit 0
+          fi
+          echo "::error::Cloudflare rejected the token (user verify: $user_code, account verify: $acct_code) — wrong value, revoked, expired, or the account id does not match the token's account."
+          exit 1
 
       # Migrations FIRST — new code must never run against an old schema.
       # wrangler tracks applied migrations in the d1_migrations table; see
