@@ -219,6 +219,36 @@ export async function armActionChallenge(
   );
 }
 
+// ─── session minting (shared by passkey login and the ladder's magic links) ───
+
+/**
+ * Mint a look-session for `ownerId` and set the httpOnly cookie. `method`
+ * records the ladder rung ('passkey' | 'email') — both rungs LOOK identically;
+ * every act still requires a fresh WebAuthn assertion regardless.
+ */
+export async function mintSession(
+  c: Context<AppEnv>,
+  ownerId: string,
+  opts: { method: 'passkey' | 'email'; credentialId?: string },
+): Promise<void> {
+  const store = getStore(c);
+  const token = base64urlEncode(randomBytes(32));
+  await store.createSession({
+    ownerId,
+    tokenHash: sha256hex(token),
+    credentialId: opts.credentialId,
+    method: opts.method,
+    ttlSeconds: SESSION_TTL_SECONDS,
+  });
+  setCookie(c, SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Strict',
+    path: '/',
+    maxAge: SESSION_TTL_SECONDS,
+  });
+}
+
 // ─── ownerSession middleware ("sessions to look") ───
 
 /**
@@ -235,6 +265,7 @@ export const ownerSession: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (!session) return err(c, 401, 'unauthorized', 'invalid or expired session');
   await store.touchSession(session.id, nowIso());
   setOwnerId(c, session.owner_id);
+  (c.set as (k: string, v: unknown) => void)('sessionMethod', session.method);
   await next();
 };
 
@@ -518,20 +549,7 @@ app.post('/login/finish', async (c) => {
     return err(c, 401, 'unauthorized', 'counter regression (possible cloned authenticator)');
   }
 
-  const token = base64urlEncode(randomBytes(32));
-  await store.createSession({
-    ownerId: cred.owner_id,
-    tokenHash: sha256hex(token),
-    credentialId: parsed.data.credentialId,
-    ttlSeconds: SESSION_TTL_SECONDS,
-  });
-  setCookie(c, SESSION_COOKIE, token, {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'Strict',
-    path: '/',
-    maxAge: SESSION_TTL_SECONDS,
-  });
+  await mintSession(c, cred.owner_id, { method: 'passkey', credentialId: parsed.data.credentialId });
 
   return c.json({ owner_id: cred.owner_id });
 });
@@ -575,6 +593,10 @@ app.get('/me', ownerSession, async (c) => {
       ? { id: vaultKey.id, vault_public_key: vaultKey.vault_public_key, bound_at: vaultKey.bound_at }
       : null,
     recovery_code: recoveryCode ? { created_at: recoveryCode.created_at } : null,
+    // The ladder rung of THIS session + whether the first approval must mint
+    // a passkey (credentials.length === 0 conveys it too; explicit is kinder).
+    session_method: (c.get as (k: string) => string)('sessionMethod') ?? 'passkey',
+    has_passkey: creds.length > 0,
   });
 });
 

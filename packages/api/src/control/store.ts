@@ -78,6 +78,8 @@ export interface SessionRow {
   owner_id: string;
   token_hash: string;
   credential_id: string | null;
+  /** 'passkey' | 'email' — the ladder rung that minted this session. */
+  method: string;
   created_at: string;
   expires_at: string;
   revoked_at: string | null;
@@ -117,7 +119,9 @@ export interface DelegationRow {
   agent_id: string;
   label: string | null;
   status: string;
-  authorizing_assertion_id: string;
+  /** 'assertion' (passkey ceremony) | 'claim' (ladder magic-link ratification). */
+  authorized_via: string;
+  authorizing_assertion_id: string | null;
   revoke_assertion_id: string | null;
   created_at: string;
   revoked_at: string | null;
@@ -272,6 +276,7 @@ function mapSessionRow(r: RawRow): SessionRow {
     owner_id: asStr(r.owner_id),
     token_hash: asStr(r.token_hash),
     credential_id: asNullableStr(r.credential_id),
+    method: asStr(r.method ?? 'passkey'),
     created_at: asStr(r.created_at),
     expires_at: asStr(r.expires_at),
     revoked_at: asNullableStr(r.revoked_at),
@@ -317,7 +322,8 @@ function mapDelegationRow(r: RawRow): DelegationRow {
     agent_id: asStr(r.agent_id),
     label: asNullableStr(r.label),
     status: asStr(r.status),
-    authorizing_assertion_id: asStr(r.authorizing_assertion_id),
+    authorized_via: asStr(r.authorized_via ?? 'assertion'),
+    authorizing_assertion_id: asNullableStr(r.authorizing_assertion_id),
     revoke_assertion_id: asNullableStr(r.revoke_assertion_id),
     created_at: asStr(r.created_at),
     revoked_at: asNullableStr(r.revoked_at),
@@ -418,6 +424,8 @@ export interface CreateSessionInput {
   ownerId: string;
   tokenHash: string;
   credentialId?: string;
+  /** 'passkey' (default) | 'email' — which ladder rung minted the session. */
+  method?: 'passkey' | 'email';
   ttlSeconds: number;
   userAgent?: string;
   ipHash?: string;
@@ -436,14 +444,17 @@ export interface AppendActionAssertionInput {
 export interface CreateVaultBindingInput {
   ownerId: string;
   vaultPublicKey: string;
-  bindingAssertionId: string;
+  /** Absent for ladder-claimed bindings (ratified by the magic-link claim). */
+  bindingAssertionId?: string;
 }
 
 export interface CreateDelegationInput {
   ownerId: string;
   agentId: string;
   label?: string;
-  authorizingAssertionId: string;
+  /** Absent for ladder-claimed delegations (authorized_via = 'claim'). */
+  authorizingAssertionId?: string;
+  authorizedVia?: 'assertion' | 'claim';
 }
 
 export interface RevokeDelegationInput {
@@ -704,13 +715,14 @@ export class ControlStore {
     const expiresAt = new Date(now.getTime() + input.ttlSeconds * 1000).toISOString();
     await this.db.run(
       `INSERT INTO owner_sessions
-         (id, owner_id, token_hash, credential_id, created_at, expires_at,
+         (id, owner_id, token_hash, credential_id, method, created_at, expires_at,
           revoked_at, last_seen_at, user_agent, ip_hash)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
       id,
       input.ownerId,
       input.tokenHash,
       input.credentialId ?? null,
+      input.method ?? 'passkey',
       createdAt,
       expiresAt,
       createdAt,
@@ -922,6 +934,304 @@ export class ControlStore {
     }
   }
 
+  // ── Authority ladder (migration 0027): link codes, magic links, invites ──
+
+  /**
+   * Ensure a registry row exists for a keyring-first agent (created by
+   * `keyring init`, claimed via email — the ladder's abuse brake replaces
+   * proof-of-work for these). No-op when the agent is already registered.
+   */
+  async ensureAgent(agentId: string, publicKey: Uint8Array, name: string): Promise<void> {
+    try {
+      await this.db.run(
+        `INSERT INTO agents (id, public_key, name, description, capabilities, protocols, status)
+         VALUES (?, ?, ?, 'Registered via Keyring link claim', '[]', '["mcp"]', 'active')`,
+        agentId,
+        publicKey,
+        name
+      );
+    } catch (e) {
+      if (!isUniqueViolation(e)) throw e;
+    }
+  }
+
+  async createLinkCode(input: {
+    vaultPublicKey: string;
+    agentId: string;
+    agentPublicKey: string;
+    agentName?: string;
+    ttlSeconds: number;
+  }): Promise<{ id: string; code: string }> {
+    const id = randomId('lnk_');
+    // Short, URL-safe, unambiguous (no lookalike chars in base58).
+    const code = base58Encode(randomBytes(8));
+    const now = new Date();
+    await this.db.run(
+      `INSERT INTO link_codes
+         (id, code, vault_public_key, agent_id, agent_public_key, agent_name,
+          email, status, created_at, expires_at, claimed_at)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, 'pending', ?, ?, NULL)`,
+      id,
+      code,
+      input.vaultPublicKey,
+      input.agentId,
+      input.agentPublicKey,
+      input.agentName ?? null,
+      now.toISOString(),
+      new Date(now.getTime() + input.ttlSeconds * 1000).toISOString()
+    );
+    return { id, code };
+  }
+
+  async getLinkCode(code: string): Promise<{
+    id: string; code: string; vault_public_key: string; agent_id: string;
+    agent_public_key: string; agent_name: string | null; email: string | null;
+    status: string; expires_at: string;
+  } | null> {
+    const r = await this.db.get<RawRow>(`SELECT * FROM link_codes WHERE code = ?`, code);
+    if (!r) return null;
+    return {
+      id: asStr(r.id), code: asStr(r.code),
+      vault_public_key: asStr(r.vault_public_key),
+      agent_id: asStr(r.agent_id), agent_public_key: asStr(r.agent_public_key),
+      agent_name: asNullableStr(r.agent_name), email: asNullableStr(r.email),
+      status: asStr(r.status), expires_at: asStr(r.expires_at),
+    };
+  }
+
+  async getLinkCodeById(id: string): Promise<{
+    id: string; code: string; vault_public_key: string; agent_id: string;
+    agent_public_key: string; agent_name: string | null; email: string | null;
+    status: string; expires_at: string;
+  } | null> {
+    const r = await this.db.get<RawRow>(`SELECT * FROM link_codes WHERE id = ?`, id);
+    if (!r) return null;
+    return {
+      id: asStr(r.id), code: asStr(r.code),
+      vault_public_key: asStr(r.vault_public_key),
+      agent_id: asStr(r.agent_id), agent_public_key: asStr(r.agent_public_key),
+      agent_name: asNullableStr(r.agent_name), email: asNullableStr(r.email),
+      status: asStr(r.status), expires_at: asStr(r.expires_at),
+    };
+  }
+
+  /** The claim click IS the email verification. */
+  async setEmailVerified(ownerId: string): Promise<void> {
+    await this.db.run(
+      `UPDATE owners SET email_verified = 1, updated_at = ? WHERE id = ?`,
+      nowIsoString(),
+      ownerId
+    );
+  }
+
+  /** Record the claim email + move pending → email_sent (idempotent re-send allowed). */
+  async markLinkEmailSent(linkCodeId: string, email: string): Promise<void> {
+    await this.db.run(
+      `UPDATE link_codes SET email = ?, status = 'email_sent'
+       WHERE id = ? AND status IN ('pending','email_sent')`,
+      email,
+      linkCodeId
+    );
+  }
+
+  /** ATOMICALLY claim a link code — single-use, unexpired (§4 discipline). */
+  async claimLinkCode(linkCodeId: string, nowIso: string): Promise<boolean> {
+    const res = await this.db.run(
+      `UPDATE link_codes SET status = 'claimed', claimed_at = ?
+       WHERE id = ? AND status IN ('pending','email_sent') AND expires_at > ?`,
+      nowIso,
+      linkCodeId,
+      nowIso
+    );
+    return res.changes === 1;
+  }
+
+  async createMagicLinkToken(input: {
+    tokenHash: string;
+    purpose: 'claim' | 'login';
+    email: string;
+    linkCodeId?: string;
+    ownerId?: string;
+    ttlSeconds: number;
+  }): Promise<void> {
+    const now = new Date();
+    await this.db.run(
+      `INSERT INTO magic_link_tokens
+         (id, token_hash, purpose, email, link_code_id, owner_id, created_at, expires_at, consumed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      randomId('mlt_'),
+      input.tokenHash,
+      input.purpose,
+      input.email,
+      input.linkCodeId ?? null,
+      input.ownerId ?? null,
+      now.toISOString(),
+      new Date(now.getTime() + input.ttlSeconds * 1000).toISOString()
+    );
+  }
+
+  /** ATOMICALLY consume a magic-link token (single-use, unexpired). Returns the row or null. */
+  async consumeMagicLinkToken(tokenHash: string, purpose: string, nowIso: string): Promise<{
+    email: string; link_code_id: string | null; owner_id: string | null;
+  } | null> {
+    const r = await this.db.get<RawRow>(
+      `SELECT email, link_code_id, owner_id FROM magic_link_tokens
+       WHERE token_hash = ? AND purpose = ? AND consumed_at IS NULL AND expires_at > ?`,
+      tokenHash,
+      purpose,
+      nowIso
+    );
+    if (!r) return null;
+    const res = await this.db.run(
+      `UPDATE magic_link_tokens SET consumed_at = ?
+       WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?`,
+      nowIso,
+      tokenHash,
+      nowIso
+    );
+    if (res.changes !== 1) return null; // a concurrent consume won the race
+    return {
+      email: asStr(r.email),
+      link_code_id: asNullableStr(r.link_code_id),
+      owner_id: asNullableStr(r.owner_id),
+    };
+  }
+
+  // ── Owner invites (agent-first entry; claim-pending = structurally nothing) ──
+
+  async countRecentInvitesByAgent(agentId: string, sinceIso: string): Promise<number> {
+    const r = await this.db.get<RawRow>(
+      `SELECT COUNT(*) AS n FROM owner_invites WHERE agent_id = ? AND created_at > ?`,
+      agentId,
+      sinceIso
+    );
+    return Number(r?.n ?? 0);
+  }
+
+  async getOpenInvite(email: string, agentId: string): Promise<{
+    id: string; invite_count: number; last_sent_at: string | null;
+  } | null> {
+    const r = await this.db.get<RawRow>(
+      `SELECT id, invite_count, last_sent_at FROM owner_invites
+       WHERE email = ? AND agent_id = ? AND status = 'pending' AND expires_at > ?`,
+      email,
+      agentId,
+      nowIsoString()
+    );
+    return r
+      ? { id: asStr(r.id), invite_count: Number(r.invite_count), last_sent_at: asNullableStr(r.last_sent_at) }
+      : null;
+  }
+
+  async createInvite(input: { email: string; agentId: string; agentName?: string; ttlSeconds: number }): Promise<string> {
+    const id = randomId('inv_');
+    const now = new Date();
+    await this.db.run(
+      `INSERT INTO owner_invites
+         (id, email, agent_id, agent_name, invite_count, status, created_at, last_sent_at, expires_at, claimed_at)
+       VALUES (?, ?, ?, ?, 1, 'pending', ?, ?, ?, NULL)`,
+      id,
+      input.email,
+      input.agentId,
+      input.agentName ?? null,
+      now.toISOString(),
+      now.toISOString(),
+      new Date(now.getTime() + input.ttlSeconds * 1000).toISOString()
+    );
+    return id;
+  }
+
+  /** Bump the re-send counter (backoff bookkeeping for unresponsive emails). */
+  async touchInvite(id: string, nowIso: string): Promise<void> {
+    await this.db.run(
+      `UPDATE owner_invites SET invite_count = invite_count + 1, last_sent_at = ? WHERE id = ?`,
+      nowIso,
+      id
+    );
+  }
+
+  async markInviteClaimed(email: string, nowIso: string): Promise<void> {
+    await this.db.run(
+      `UPDATE owner_invites SET status = 'claimed', claimed_at = ?
+       WHERE email = ? AND status = 'pending'`,
+      nowIso,
+      email
+    );
+  }
+
+  // ── Pending connections (connect card: browser-sealed, daemon-resolved) ──
+
+  async createPendingConnection(input: {
+    ownerId: string;
+    agentId: string;
+    provider: string;
+    label?: string;
+    envVar?: string;
+    sealedSecret: string;
+  }): Promise<string> {
+    const id = randomId('pcx_');
+    await this.db.run(
+      `INSERT INTO pending_connections
+         (id, owner_id, agent_id, provider, label, env_var, sealed_secret, status, created_at, resolved_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)`,
+      id,
+      input.ownerId,
+      input.agentId,
+      input.provider,
+      input.label ?? null,
+      input.envVar ?? null,
+      input.sealedSecret,
+      nowIsoString()
+    );
+    return id;
+  }
+
+  async listPendingConnections(ownerId: string, status?: string): Promise<Array<{
+    id: string; agent_id: string; provider: string; label: string | null;
+    env_var: string | null; sealed_secret: string; status: string;
+    failure_reason: string | null; daemon_credential_id: string | null; created_at: string;
+  }>> {
+    const rows = status
+      ? await this.db.all<RawRow>(
+          `SELECT * FROM pending_connections WHERE owner_id = ? AND status = ? ORDER BY created_at ASC`,
+          ownerId, status)
+      : await this.db.all<RawRow>(
+          `SELECT * FROM pending_connections WHERE owner_id = ? ORDER BY created_at ASC`,
+          ownerId);
+    return rows.map((r) => ({
+      id: asStr(r.id), agent_id: asStr(r.agent_id), provider: asStr(r.provider),
+      label: asNullableStr(r.label), env_var: asNullableStr(r.env_var),
+      sealed_secret: asStr(r.sealed_secret), status: asStr(r.status),
+      failure_reason: asNullableStr(r.failure_reason),
+      daemon_credential_id: asNullableStr(r.daemon_credential_id),
+      created_at: asStr(r.created_at),
+    }));
+  }
+
+  /** Daemon resolution — ATOMIC single transition out of 'pending'. */
+  async resolvePendingConnection(input: {
+    id: string;
+    ownerId: string;
+    outcome: 'stored' | 'failed';
+    daemonCredentialId?: string;
+    failureReason?: string;
+  }): Promise<boolean> {
+    const res = await this.db.run(
+      `UPDATE pending_connections
+       SET status = ?, daemon_credential_id = ?, failure_reason = ?, resolved_at = ?,
+           sealed_secret = CASE WHEN ? = 'stored' THEN '' ELSE sealed_secret END
+       WHERE id = ? AND owner_id = ? AND status = 'pending'`,
+      input.outcome,
+      input.daemonCredentialId ?? null,
+      input.failureReason ?? null,
+      nowIsoString(),
+      input.outcome,
+      input.id,
+      input.ownerId
+    );
+    return res.changes === 1;
+  }
+
   // ── E2E test outbox (Task 2 — only ever written in E2E=1 environments) ──
 
   async appendTestOutbox(recipient: string, subject: string, body: string): Promise<void> {
@@ -1113,14 +1423,15 @@ export class ControlStore {
     try {
       await this.db.run(
         `INSERT INTO delegations
-           (id, owner_id, agent_id, label, status,
+           (id, owner_id, agent_id, label, status, authorized_via,
             authorizing_assertion_id, revoke_assertion_id, created_at, revoked_at)
-         VALUES (?, ?, ?, ?, 'active', ?, NULL, ?, NULL)`,
+         VALUES (?, ?, ?, ?, 'active', ?, ?, NULL, ?, NULL)`,
         id,
         input.ownerId,
         input.agentId,
         input.label ?? null,
-        input.authorizingAssertionId,
+        input.authorizedVia ?? (input.authorizingAssertionId ? 'assertion' : 'claim'),
+        input.authorizingAssertionId ?? null,
         now
       );
     } catch (e) {

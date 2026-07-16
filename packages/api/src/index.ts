@@ -26,6 +26,7 @@ import approvalRoutes from './control/approvals.js';
 import recoveryRoutes from './control/recovery.js';
 import { billingRoutes, stripeWebhookRoutes } from './control/billing.js';
 import testingRoutes from './control/testing.js';
+import ladderRoutes from './control/ladder.js';
 
 const app = new Hono<AppEnv>();
 
@@ -59,6 +60,11 @@ const RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
   '/v1/owner/recover/begin':   { max: 3,  windowMs: 60_000 },
   '/v1/owner/recover/options': { max: 10, windowMs: 60_000 },
   '/v1/owner/recover/finish':  { max: 10, windowMs: 60_000 },
+  // Authority ladder: link creation and email-sending endpoints are abuse targets.
+  '/v1/owner/link':            { max: 10, windowMs: 60_000 },
+  '/v1/owner/login/email':     { max: 3,  windowMs: 60_000 },
+  '/v1/owner/claim/finish':    { max: 10, windowMs: 60_000 },
+  '/v1/owner/invites':         { max: 10, windowMs: 60_000 },
 };
 
 // ─── Global Middleware ───
@@ -362,6 +368,8 @@ app.route('/v1/owner', billingRoutes);
 app.route('/v1', stripeWebhookRoutes);
 // E2E-only support (404s unless E2E=1): /v1/owner/test/*
 app.route('/v1/owner', testingRoutes);
+// The authority ladder (link codes, magic-link claim/login, invites, connect cards): /v1/owner
+app.route('/v1/owner', ladderRoutes);
 
 /**
  * MED-5: Constant-time string comparison to prevent timing attacks on admin tokens.
