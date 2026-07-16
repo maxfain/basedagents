@@ -27,6 +27,8 @@ export default function Vault() {
   const { owner, refresh } = useOwner();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Shown exactly once, right after generation — never persisted client-side.
+  const [freshCode, setFreshCode] = useState<string | null>(null);
 
   if (!owner) return null; // Protected route guarantees a session; satisfies TS.
   const vaultPub = vaultKeyFromOwnerId(owner.owner_id);
@@ -41,6 +43,28 @@ export default function Vault() {
         vault_public_key: vaultPub,
       });
       await control.bindVaultKey(vaultPub, nonce, assertion);
+      await refresh();
+    } catch (err) {
+      setError(errText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onGenerateCode(): Promise<void> {
+    if (!owner) return;
+    if (
+      owner.recovery_code &&
+      !window.confirm('Generating a new code invalidates your current one. Continue?')
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const { nonce, assertion } = await runAction(owner.owner_id, 'generate_recovery_code', {});
+      const { recovery_code } = await control.generateRecoveryCode(nonce, assertion);
+      setFreshCode(recovery_code);
       await refresh();
     } catch (err) {
       setError(errText(err));
@@ -95,6 +119,48 @@ based sync    # pull + verify + seal approved grants (add --watch 30 to keep it 
             </p>
             <button className="btn btn-primary" disabled={busy} onClick={() => void onBind()}>
               {busy ? 'Waiting for passkey…' : 'Bind vault key with passkey'}
+            </button>
+          </>
+        )}
+      </section>
+
+      <section className="panel">
+        <h2>Recovery</h2>
+        <p className="muted panel-note">
+          If you lose every passkey, recovery needs your email <em>and</em> this one-time code —
+          neither works alone. Completing a recovery enrolls a new passkey and revokes all others.
+        </p>
+        {freshCode ? (
+          <>
+            <div className="banner banner-warn">
+              Save this code now — it is shown only once and never stored:
+            </div>
+            <pre className="code-block code-block-select">{freshCode}</pre>
+            <button className="btn btn-ghost btn-sm" onClick={() => setFreshCode(null)}>
+              I saved it
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="kv">
+              <span className="kv-key">Recovery code</span>
+              {owner.recovery_code ? (
+                <span>
+                  <span className="status status-approved">issued</span>{' '}
+                  <span className="muted">
+                    {new Date(owner.recovery_code.created_at).toLocaleDateString()}
+                  </span>
+                </span>
+              ) : (
+                <span className="status status-denied">none</span>
+              )}
+            </div>
+            <button className="btn btn-ghost" disabled={busy} onClick={() => void onGenerateCode()}>
+              {busy
+                ? 'Waiting for passkey…'
+                : owner.recovery_code
+                  ? 'Regenerate recovery code'
+                  : 'Generate recovery code'}
             </button>
           </>
         )}

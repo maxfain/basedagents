@@ -16,6 +16,8 @@ import type {
   OwnerAssertion,
   Delegation,
   VaultKeyBinding,
+  RecoverOptionsResponse,
+  RecoverFinishResponse,
 } from './types.js';
 import type { RegistrationResult } from '../lib/webauthn.js';
 
@@ -113,6 +115,30 @@ export const control = {
   // ── Vault-key binding (unlocks daemonAuth for `based sync`) ──
   bindVaultKey(vaultPublicKey: string, nonce: string, assertion: OwnerAssertion): Promise<VaultKeyBinding> {
     return request('POST', '/vault-binding', { vault_public_key: vaultPublicKey, nonce, assertion });
+  },
+
+  // ── Recovery (CONTROL_PLANE.md §6) ──
+  generateRecoveryCode(nonce: string, assertion: OwnerAssertion): Promise<{ recovery_code: string; created_at: string }> {
+    return request('POST', '/recovery-code', { nonce, assertion });
+  },
+  recoverBegin(email: string): Promise<{ ok: true }> {
+    return request('POST', '/recover/begin', { email });
+  },
+  recoverOptions(token: string, recoveryCode: string): Promise<RecoverOptionsResponse> {
+    return request('POST', '/recover/options', { token, recovery_code: recoveryCode });
+  },
+  recoverFinish(
+    token: string,
+    recoveryCode: string,
+    reg: RegistrationResult,
+  ): Promise<RecoverFinishResponse> {
+    return request('POST', '/recover/finish', {
+      token,
+      recovery_code: recoveryCode,
+      attestationObject: reg.attestationObject,
+      clientDataJSON: reg.clientDataJSON,
+      transports: reg.transports,
+    });
   },
 
   // ── Approve ceremony ("signature to act") ──

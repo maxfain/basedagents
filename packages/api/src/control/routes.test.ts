@@ -26,8 +26,10 @@ import { ControlStore } from './store.js';
 import ownerRoutes from './routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MIGRATION_PATH = join(__dirname, '..', '..', 'migrations', '0023_owner_accounts.sql');
-const MIGRATION_SQL = readFileSync(MIGRATION_PATH, 'utf-8');
+const MIGRATIONS_DIR = join(__dirname, '..', '..', 'migrations');
+const MIGRATION_SQL =
+  readFileSync(join(MIGRATIONS_DIR, '0023_owner_accounts.sql'), 'utf-8') +
+  readFileSync(join(MIGRATIONS_DIR, '0025_owner_recovery.sql'), 'utf-8');
 
 const te = new TextEncoder();
 const RP_ID = 'basedagents.ai';

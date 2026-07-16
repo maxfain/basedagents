@@ -205,7 +205,21 @@ swapped-params / swapped-type / smuggled-field / wrong-owner canonicals.
   `based sync`; passkey list + daemon instructions. `GET /me` now reports the
   active vault-key binding.
 
-**Increment 3c.** Recovery flow (email magic link + recovery code → passkey rotation).
+**Increment 3c (shipped).** Recovery (§6) — authority rotation, never secrets.
+Two factors, both required, neither sufficient alone: the emailed magic-link
+token (mailbox; sha256-stored, 15-min TTL, single-use, fragment-carried so it
+never hits server logs) and the offline recovery code (possession; issued to a
+signed-in owner via its own passkey ceremony, shown exactly once, sha256-stored,
+superseded by regeneration). `/recover/finish` consumes the WebAuthn challenge,
+verifies the new passkey enrollment, atomically consumes both factors, then
+revokes every other passkey and every live session. The Ed25519 vault key,
+binding, and ciphertext are untouched — `daemonAuth` keeps working; the daemon's
+passkey anchor goes stale by design and the owner re-runs `based link` (§2: the
+anchor is trusted because the human confirms it). Anti-enumeration on
+`/recover/begin` (uniform response), uniform 401s elsewhere, per-IP rate limits
+on all three endpoints. Email is provider-pluggable (Resend if RESEND_API_KEY
+is set; log-only sender otherwise). Console: recovery-code panel on Vault
+(display-once) + the public `/recover` page.
 
 **Increment 3d.** Billing.
 

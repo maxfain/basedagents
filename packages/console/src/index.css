@@ -145,6 +145,8 @@ code { font-family: var(--mono); font-size: 0.9em; }
   background: var(--bg); border: 1px solid var(--border); border-radius: 9px;
   padding: 0.8rem 1rem; overflow-x: auto; color: #cfd6e6;
 }
+.code-block-select { user-select: all; font-size: 1rem; letter-spacing: 0.04em; }
+.auth-sep { color: var(--muted); margin: 0 0.5rem; }
 
 /* ── inline form (Agents page) ── */
 .form-inline { grid-template-columns: 2fr 1fr auto; align-items: end; gap: 0.75rem; margin: 1.25rem 0 1.75rem; }

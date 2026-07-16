@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { control, ControlApiError } from '../api/control.js';
 import { createPasskey, getAssertion, passkeysSupported } from '../lib/webauthn.js';
 import { useOwner } from '../state/session.js';
@@ -158,6 +158,8 @@ export default function Login() {
               Already have a passkey? Sign in
             </button>
           )}
+          <span className="auth-sep">·</span>
+          <Link className="link" to="/recover">Lost your passkeys?</Link>
         </div>
       </div>
     </div>

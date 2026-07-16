@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { OwnerProvider, useOwner } from './state/session.js';
 import Layout from './components/Layout.js';
 import Login from './pages/Login.js';
+import Recover from './pages/Recover.js';
 import Approvals from './pages/Approvals.js';
 import Agents from './pages/Agents.js';
 import Vault from './pages/Vault.js';
@@ -20,6 +21,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/recover" element={<Recover />} />
           <Route element={<Protected />}>
             <Route path="/" element={<Navigate to="/approvals" replace />} />
             <Route path="/approvals" element={<Approvals />} />

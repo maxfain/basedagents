@@ -52,6 +52,8 @@ export interface OwnerMe {
   delegations: Delegation[];
   /** The active vault-key binding — null until bind_vault_key has run. */
   vault_key: VaultKeyBinding | null;
+  /** Metadata of the open recovery code (the code itself is never stored). */
+  recovery_code: { created_at: string } | null;
 }
 
 export interface GrantConstraints {
@@ -102,4 +104,17 @@ export interface OwnerAssertion {
   authenticatorData: string;
   clientDataJSON: string;
   signature: string;
+}
+
+/** Registration options for the recovery passkey (same shape as register/begin). */
+export interface RecoverOptionsResponse {
+  owner_id: string;
+  options: RegistrationOptionsResponse['options'];
+}
+
+export interface RecoverFinishResponse {
+  owner_id: string;
+  credential_id: string;
+  revoked_passkeys: number;
+  next_step: string;
 }

@@ -557,6 +557,8 @@ app.get('/me', ownerSession, async (c) => {
   // Binding status only — lets the console show whether the local daemon can
   // authenticate (daemonAuth requires an active owner_vault_keys row).
   const vaultKey = await store.getActiveVaultKey(ownerId);
+  // Metadata only (created_at) — the code itself was shown once and never stored.
+  const recoveryCode = await store.getOpenRecoveryCode(ownerId);
   return c.json({
     owner_id: ownerId,
     email: owner?.email ?? null,
@@ -571,6 +573,7 @@ app.get('/me', ownerSession, async (c) => {
     vault_key: vaultKey
       ? { id: vaultKey.id, vault_public_key: vaultKey.vault_public_key, bound_at: vaultKey.bound_at }
       : null,
+    recovery_code: recoveryCode ? { created_at: recoveryCode.created_at } : null,
   });
 });
 
