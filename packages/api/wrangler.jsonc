@@ -25,7 +25,8 @@
     "ENVIRONMENT": "production",
     "REGISTRY_SIGNING_PUBLIC_KEY": "9827a77ffa3bbddff01444277707271838098f3e8f2d29a200054cc0bca308d0",
     "KEYRING_RP_ID": "basedagents.ai",
-    "KEYRING_ORIGINS": "https://app.basedagents.ai"
+    "KEYRING_ORIGINS": "https://app.basedagents.ai",
+    "KEYRING_CONSOLE_ORIGIN": "https://app.basedagents.ai"
   },
 
   // Custom domain route

@@ -1,0 +1,20 @@
+BasedAgents Keyring Owner Console — Proprietary
+
+Copyright (c) 2026 BasedAgents. All rights reserved.
+
+This package (packages/console/) is the hosted owner console for the Keyring
+control plane (app.basedagents.ai) — owner accounts, the fleet/agent/credential
+screens, the approvals inbox, and recovery/billing UI described in
+KEYRING_SPEC.md §5. It is PROPRIETARY and is NOT licensed under the Apache
+License 2.0 that covers the open components of this repository.
+
+No license is granted to use, copy, modify, or distribute this code. It is
+published for transparency and auditability only.
+
+The open-source components — everything that touches secrets or runs on a
+user's machine (the vault daemon, `based` CLI, crypto core, MCP servers, SDKs,
+and the recipe library) — remain Apache-2.0. The console can never read a
+secret: it holds only metadata and grant records, and every grant is sealed by
+the local vault daemon after the daemon independently re-verifies the owner's
+passkey assertion (CONTROL_PLANE.md §2). See LICENSING.md at the repository
+root for the full boundary and rationale.

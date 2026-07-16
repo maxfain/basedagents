@@ -49,6 +49,9 @@ export interface CredentialRow {
   nickname: string | null;
   created_at: string;
   last_used_at: string | null;
+  /** 'active' | 'revoked' — revoked passkeys fail login and every action. */
+  status: string;
+  revoked_at: string | null;
 }
 
 export interface ChallengeRow {
@@ -232,6 +235,8 @@ function mapCredentialRow(r: RawRow): CredentialRow {
     nickname: asNullableStr(r.nickname),
     created_at: asStr(r.created_at),
     last_used_at: asNullableStr(r.last_used_at),
+    status: asStr(r.status ?? 'active'),
+    revoked_at: asNullableStr(r.revoked_at),
   };
 }
 
@@ -391,7 +396,7 @@ export interface AddCredentialInput {
 
 export interface CreateChallengeInput {
   ownerId?: string;
-  purpose: 'register' | 'login' | 'action';
+  purpose: 'register' | 'login' | 'action' | 'recovery';
   actionType?: string;
   actionHash?: string;
   ttlSeconds: number;
@@ -538,20 +543,44 @@ export class ControlStore {
     return r ? mapCredentialRow(r) : null;
   }
 
+  /**
+   * ACTIVE credentials only — this getter is the authority lookup for login
+   * and every action ceremony, so a passkey revoked by recovery rotation must
+   * be invisible here (it would otherwise keep authorizing actions).
+   */
   async getCredentialByCredentialId(credentialId: string): Promise<CredentialRow | null> {
     const r = await this.db.get<RawRow>(
-      `SELECT * FROM owner_webauthn_credentials WHERE credential_id = ?`,
+      `SELECT * FROM owner_webauthn_credentials WHERE credential_id = ? AND status = 'active'`,
       credentialId
     );
     return r ? mapCredentialRow(r) : null;
   }
 
+  /** Active credentials only (login/action allowCredentials, /me, daemon anchor list). */
   async listCredentials(ownerId: string): Promise<CredentialRow[]> {
     const rows = await this.db.all<RawRow>(
-      `SELECT * FROM owner_webauthn_credentials WHERE owner_id = ? ORDER BY created_at ASC, id ASC`,
+      `SELECT * FROM owner_webauthn_credentials
+       WHERE owner_id = ? AND status = 'active'
+       ORDER BY created_at ASC, id ASC`,
       ownerId
     );
     return rows.map(mapCredentialRow);
+  }
+
+  /**
+   * Recovery rotation: revoke every OTHER credential of this owner in one
+   * conditional write. Returns how many were revoked.
+   */
+  async revokeOtherCredentials(ownerId: string, keepRowId: string, nowIso: string): Promise<number> {
+    const res = await this.db.run(
+      `UPDATE owner_webauthn_credentials
+       SET status = 'revoked', revoked_at = ?
+       WHERE owner_id = ? AND id != ? AND status = 'active'`,
+      nowIso,
+      ownerId,
+      keepRowId
+    );
+    return res.changes;
   }
 
   /**
@@ -704,6 +733,115 @@ export class ControlStore {
 
   async revokeSession(id: string, nowIso: string): Promise<void> {
     await this.db.run(`UPDATE owner_sessions SET revoked_at = ? WHERE id = ?`, nowIso, id);
+  }
+
+  /** Recovery rotation: kill every live look-session for this owner. */
+  async revokeAllSessionsForOwner(ownerId: string, nowIso: string): Promise<number> {
+    const res = await this.db.run(
+      `UPDATE owner_sessions SET revoked_at = ? WHERE owner_id = ? AND revoked_at IS NULL`,
+      nowIso,
+      ownerId
+    );
+    return res.changes;
+  }
+
+  // ── Recovery (CONTROL_PLANE.md §6 — authority rotation, never secrets) ──
+
+  /**
+   * Store a new recovery code (sha256 hex of the normalized plaintext). Any
+   * previously open code is superseded first, so at most one is redeemable.
+   */
+  async createRecoveryCode(ownerId: string, codeHash: string): Promise<{ id: string; created_at: string }> {
+    const now = nowIsoString();
+    await this.db.run(
+      `UPDATE owner_recovery_codes SET superseded_at = ?
+       WHERE owner_id = ? AND used_at IS NULL AND superseded_at IS NULL`,
+      now,
+      ownerId
+    );
+    const id = randomId('rc_');
+    await this.db.run(
+      `INSERT INTO owner_recovery_codes (id, owner_id, code_hash, created_at, used_at, superseded_at)
+       VALUES (?, ?, ?, ?, NULL, NULL)`,
+      id,
+      ownerId,
+      codeHash,
+      now
+    );
+    return { id, created_at: now };
+  }
+
+  /** The open (unused, unsuperseded) code's metadata — for /me status display. */
+  async getOpenRecoveryCode(ownerId: string): Promise<{ id: string; created_at: string } | null> {
+    const r = await this.db.get<RawRow>(
+      `SELECT id, created_at FROM owner_recovery_codes
+       WHERE owner_id = ? AND used_at IS NULL AND superseded_at IS NULL
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
+      ownerId
+    );
+    return r ? { id: asStr(r.id), created_at: asStr(r.created_at) } : null;
+  }
+
+  /**
+   * ATOMICALLY consume the recovery code (single-use, §4): the conditional
+   * UPDATE only matches an open code with exactly this hash for this owner.
+   */
+  async consumeRecoveryCode(ownerId: string, codeHash: string, nowIso: string): Promise<boolean> {
+    const res = await this.db.run(
+      `UPDATE owner_recovery_codes SET used_at = ?
+       WHERE owner_id = ? AND code_hash = ? AND used_at IS NULL AND superseded_at IS NULL`,
+      nowIso,
+      ownerId,
+      codeHash
+    );
+    return res.changes === 1;
+  }
+
+  /** True iff an open code with this hash exists (pre-check only — finish consumes). */
+  async peekRecoveryCode(ownerId: string, codeHash: string): Promise<boolean> {
+    const r = await this.db.get<RawRow>(
+      `SELECT id FROM owner_recovery_codes
+       WHERE owner_id = ? AND code_hash = ? AND used_at IS NULL AND superseded_at IS NULL`,
+      ownerId,
+      codeHash
+    );
+    return r != null;
+  }
+
+  async createRecoveryToken(ownerId: string, tokenHash: string, ttlSeconds: number): Promise<void> {
+    const now = new Date();
+    await this.db.run(
+      `INSERT INTO owner_recovery_tokens (id, owner_id, token_hash, created_at, expires_at, consumed_at)
+       VALUES (?, ?, ?, ?, ?, NULL)`,
+      randomId('rt_'),
+      ownerId,
+      tokenHash,
+      now.toISOString(),
+      new Date(now.getTime() + ttlSeconds * 1000).toISOString()
+    );
+  }
+
+  /** The live (unconsumed, unexpired) token row, or null. Does NOT consume. */
+  async getLiveRecoveryToken(tokenHash: string): Promise<{ owner_id: string } | null> {
+    const r = await this.db.get<RawRow>(
+      `SELECT owner_id FROM owner_recovery_tokens
+       WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?`,
+      tokenHash,
+      nowIsoString()
+    );
+    return r ? { owner_id: asStr(r.owner_id) } : null;
+  }
+
+  /** ATOMICALLY consume the magic-link token (single-use, unexpired). */
+  async consumeRecoveryToken(tokenHash: string, nowIso: string): Promise<boolean> {
+    const res = await this.db.run(
+      `UPDATE owner_recovery_tokens SET consumed_at = ?
+       WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?`,
+      nowIso,
+      tokenHash,
+      nowIso
+    );
+    return res.changes === 1;
   }
 
   // ── Action assertions (hash-chained, CONTROL_PLANE.md §5) ──

@@ -22,6 +22,7 @@ import { queueStaleReports, processRescanQueue } from './scanner/rescan.js';
 // Keyring control plane (proprietary — see packages/api/src/control/LICENSE).
 import ownerRoutes from './control/routes.js';
 import approvalRoutes from './control/approvals.js';
+import recoveryRoutes from './control/recovery.js';
 
 const app = new Hono<AppEnv>();
 
@@ -30,10 +31,14 @@ const ALLOWED_ORIGINS = [
   'https://basedagents.ai',
   'https://www.basedagents.ai',
   'https://registry.basedagents.ai',
+  // Owner console (control plane) — needs credentialed CORS for the session cookie.
+  'https://app.basedagents.ai',
   // Cloudflare Pages preview deploys
   /^https:\/\/[a-z0-9]+\.auth-ai-web\.pages\.dev$/,
+  /^https:\/\/[a-z0-9]+\.basedagents-console\.pages\.dev$/,
   // Local dev
   'http://localhost:5173',
+  'http://localhost:5174', // console dev server
   'http://localhost:3000',
   'http://localhost:4000',
 ];
@@ -46,6 +51,11 @@ const RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
   '/v1/register/complete': { max: 5,  windowMs: 60_000 },
   '/v1/verify/submit':     { max: 20, windowMs: 60_000 },   // 20 verifications/min
   '/v1/agents/search':     { max: 60, windowMs: 60_000 },   // 60 searches/min
+  // Account recovery: begin sends email (abuse target), options/finish take
+  // factor guesses — keep all three tight per IP.
+  '/v1/owner/recover/begin':   { max: 3,  windowMs: 60_000 },
+  '/v1/owner/recover/options': { max: 10, windowMs: 60_000 },
+  '/v1/owner/recover/finish':  { max: 10, windowMs: 60_000 },
 };
 
 // ─── Global Middleware ───
@@ -62,6 +72,10 @@ app.use('*', cors({
   allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-Timestamp', 'X-Nonce', 'X-PAYMENT-SIGNATURE'],
   exposeHeaders: ['X-RateLimit-Remaining'],
+  // The console authenticates with an httpOnly session cookie, so the browser
+  // needs Access-Control-Allow-Credentials. Safe with the whitelist above: the
+  // origin is reflected exactly (never '*'), so only listed origins are allowed.
+  credentials: true,
   maxAge: 86400,
 }));
 
@@ -328,6 +342,8 @@ app.route('/v1/agents', probeRoutes);
 app.route('/v1/owner', ownerRoutes);
 // Keyring approvals inbox + grant approvals + daemon pull/confirm: /v1/owner
 app.route('/v1/owner', approvalRoutes);
+// Keyring account recovery (magic link + recovery code → passkey rotation): /v1/owner
+app.route('/v1/owner', recoveryRoutes);
 
 /**
  * MED-5: Constant-time string comparison to prevent timing attacks on admin tokens.

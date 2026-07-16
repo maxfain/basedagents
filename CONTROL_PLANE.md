@@ -172,7 +172,56 @@ Tested, including the redirect attack §2 exists to stop.
 An interop test drives the console-produced approval through the daemon's
 `applyApprovedGrant`; the grant goes active and the grantee leases the secret.
 
-**Increment 3.** Console UI (React screens), recovery flow, billing.
+**Increment 3a (shipped).** The owner console — a new proprietary package
+`packages/console` (Vite + React, `app.basedagents.ai`), kept separate from the
+open public site (`packages/web`) so no open code is relicensed:
+- Passkey **sign-up / sign-in** ("sessions to look" §3): register binds a passkey
+  to the `ow_` identity derived from the vault key; login mints the read-only
+  session cookie. Browser WebAuthn plumbing (`lib/webauthn.ts`) is the tested,
+  byte-exact base64url bridge to what the control plane verifies.
+- The **approvals inbox** ("signatures to act" §3): the server arms the exact
+  challenge from the request's own stored data via a new
+  `POST /requests/:id/approve/begin` (so the browser never reconstructs the
+  §2.1 canonical and can't get the pinned pubkey or constraints wrong); the
+  console **re-hashes the returned canonical and refuses to sign unless it equals
+  the challenge** — client-side WYSIWYS — then runs the passkey assertion and
+  posts it to `/approve`. A grant is shown `active` only after the daemon
+  confirms; the console can queue an approval but never seals a secret.
+
+**Increment 3b (shipped).** Delegations + vault-binding screens, built on a
+shared console-side action ceremony (`lib/ceremony.ts`): every mutation runs
+`/action/begin` → **client-side WYSIWYS** → passkey assertion. The WYSIWYS step
+is stronger than hash parity alone — it parses the server's canonical and
+requires it to say *exactly* what the console asked for (action type, the
+signed-in owner, the ceremony nonce, byte-identical params), refusing to sign
+otherwise. For actions with no daemon re-verification (delegations, vault
+binding) this check is the only thing standing between a compromised control
+plane and the owner's passkey signing a swapped action — tested against
+swapped-params / swapped-type / smuggled-field / wrong-owner canonicals.
+- **Agents**: create (`create_delegation`) and revoke (`revoke_delegation`)
+  owner→agent edges.
+- **Vault**: `bind_vault_key` over the key derived from the signed-in owner id
+  itself (nothing to type or mistype) — the step that unlocks `daemonAuth` for
+  `based sync`; passkey list + daemon instructions. `GET /me` now reports the
+  active vault-key binding.
+
+**Increment 3c (shipped).** Recovery (§6) — authority rotation, never secrets.
+Two factors, both required, neither sufficient alone: the emailed magic-link
+token (mailbox; sha256-stored, 15-min TTL, single-use, fragment-carried so it
+never hits server logs) and the offline recovery code (possession; issued to a
+signed-in owner via its own passkey ceremony, shown exactly once, sha256-stored,
+superseded by regeneration). `/recover/finish` consumes the WebAuthn challenge,
+verifies the new passkey enrollment, atomically consumes both factors, then
+revokes every other passkey and every live session. The Ed25519 vault key,
+binding, and ciphertext are untouched — `daemonAuth` keeps working; the daemon's
+passkey anchor goes stale by design and the owner re-runs `based link` (§2: the
+anchor is trusted because the human confirms it). Anti-enumeration on
+`/recover/begin` (uniform response), uniform 401s elsewhere, per-IP rate limits
+on all three endpoints. Email is provider-pluggable (Resend if RESEND_API_KEY
+is set; log-only sender otherwise). Console: recovery-code panel on Vault
+(display-once) + the public `/recover` page.
+
+**Increment 3d.** Billing.
 
 **Deliberately deferred / not built as a hosted firehose.** The high-volume
 AccessEvent stream is **not** mirrored wholesale into D1 (that would drag in

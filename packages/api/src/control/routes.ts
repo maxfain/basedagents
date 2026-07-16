@@ -193,7 +193,7 @@ function ownerIdFromVaultB58(vaultPublicKey: string): string | null {
 // register/login keep using store.createChallenge (random challenge is correct
 // there). DELETE-then-INSERT makes /action/begin idempotently re-armable and
 // sidesteps the UNIQUE(challenge) constraint on the deterministic action_hash.
-async function armActionChallenge(
+export async function armActionChallenge(
   db: DBAdapter,
   ownerId: string,
   actionType: string,
@@ -554,6 +554,11 @@ app.get('/me', ownerSession, async (c) => {
   const owner = await store.getOwner(ownerId);
   const creds = await store.listCredentials(ownerId);
   const delegations = await store.listDelegationsByOwner(ownerId);
+  // Binding status only — lets the console show whether the local daemon can
+  // authenticate (daemonAuth requires an active owner_vault_keys row).
+  const vaultKey = await store.getActiveVaultKey(ownerId);
+  // Metadata only (created_at) — the code itself was shown once and never stored.
+  const recoveryCode = await store.getOpenRecoveryCode(ownerId);
   return c.json({
     owner_id: ownerId,
     email: owner?.email ?? null,
@@ -565,6 +570,10 @@ app.get('/me', ownerSession, async (c) => {
       backed_up: cr.backed_up === 1,
     })),
     delegations,
+    vault_key: vaultKey
+      ? { id: vaultKey.id, vault_public_key: vaultKey.vault_public_key, bound_at: vaultKey.bound_at }
+      : null,
+    recovery_code: recoveryCode ? { created_at: recoveryCode.created_at } : null,
   });
 });
 

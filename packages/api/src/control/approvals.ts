@@ -41,6 +41,7 @@ import type { GrantConstraints } from './grant-actions.js';
 import {
   ownerSession,
   verifyAndRecordAction,
+  armActionChallenge,
   AssertionSchema,
 } from './routes.js';
 import {
@@ -50,6 +51,7 @@ import {
   bytesToHex,
   verifySignature,
 } from '../crypto/index.js';
+import { base64urlEncode } from './webauthn.js';
 import { convertCOSEtoPKCS } from '@simplewebauthn/server/helpers';
 import { rpConfig } from './config.js';
 
@@ -66,6 +68,12 @@ function getStore(c: Context<AppEnv>): ControlStore {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function randomBytes(n: number): Uint8Array {
+  const b = new Uint8Array(n);
+  crypto.getRandomValues(b);
+  return b;
 }
 
 // ownerId is a control-plane-only context var (kept OUT of the shared AppEnv
@@ -336,6 +344,70 @@ app.get('/requests', ownerSession, async (c) => {
   const store = getStore(c);
   const rows = await store.listKeyringRequests(ownerId, status);
   return c.json({ requests: rows.map(requestResponse) });
+});
+
+// ── Owner: begin the approve_grant ceremony (arm the exact challenge) ──
+//
+// The browser cannot be trusted to reconstruct the grant-approval canonical
+// (§2.1) — the pinned grantee pubkey and the normalized constraints must be
+// byte-identical to what /approve will re-derive, or the assertion won't verify.
+// So the SERVER arms the challenge from the request's own stored data plus a
+// fresh per-ceremony nonce, and returns both the challenge (the action hash the
+// authenticator must sign) and the canonical it was hashed from. The console
+// re-hashes `action_canonical`, asserts it equals `challenge` (client-side
+// WYSIWYS), shows the human exactly what they are signing, then calls /approve
+// with the SAME nonce — which rebuilds the identical statement and verifies.
+app.post('/requests/:id/approve/begin', ownerSession, async (c) => {
+  const ownerId = getOwnerId(c);
+  const requestId = c.req.param('id');
+  const store = getStore(c);
+
+  const request = await store.getKeyringRequest(requestId);
+  if (!request || request.owner_id !== ownerId) {
+    return err(c, 404, 'not_found', 'request not found');
+  }
+  if (request.status !== 'pending') {
+    return err(c, 400, 'bad_request', `request is already ${request.status}`);
+  }
+
+  const agentPub = await store.getAgentPublicKey(request.agent_id);
+  if (!agentPub) {
+    return err(c, 400, 'bad_request', 'grantee agent has no public key on file');
+  }
+  const agentPubkey = base58Encode(agentPub);
+  const constraints = parseConstraints(request.constraints);
+
+  // Per-ceremony nonce → unique action_hash per approval, single-use at consume.
+  const nonce = base64urlEncode(randomBytes(16));
+  const statement = {
+    owner_id: ownerId,
+    nonce,
+    agent_id: request.agent_id,
+    agent_pubkey: agentPubkey,
+    credential_id: request.credential_id,
+    constraints,
+  };
+  const canonical = grantApprovalCanonical(statement);
+  const actionHash = grantApprovalHash(statement);
+
+  await armActionChallenge(c.get('db'), ownerId, 'approve_grant', actionHash);
+
+  const creds = await store.listCredentials(ownerId);
+  const { rpId } = rpConfig(c.env);
+
+  return c.json({
+    challenge: actionHash, // the value the authenticator signs (== action_hash)
+    nonce, // echoed back to /approve so it rebuilds the same statement
+    rpId,
+    allowCredentials: creds.map((cr) => ({
+      type: 'public-key',
+      id: cr.credential_id,
+      transports: cr.transports ?? undefined,
+    })),
+    action_canonical: canonical, // shown to the human; re-hashed client-side
+    agent_pubkey: agentPubkey, // the pinned sealing target, for display
+    timeout: 60_000,
+  });
 });
 
 // ── Owner: approve a request (the approve_grant ACTION) ──
