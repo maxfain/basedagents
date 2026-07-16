@@ -58,9 +58,10 @@ export default function Approvals() {
     setLimitHit(null);
     try {
       // Full ceremony (lib/approve.ts): mint the passkey if this is the very
-      // first approval, verify WYSIWYS, assert, submit.
-      const { minted } = await approveRequest(owner, req.id);
-      if (minted) await refresh();
+      // first approval, verify WYSIWYS, assert, submit. refresh runs the moment
+      // a passkey is minted (even if the signature is then cancelled) so a retry
+      // never re-attempts creation.
+      await approveRequest(owner, req.id, refresh);
       await load();
     } catch (err) {
       if (isPlanLimit(err)) setLimitHit(errText(err));

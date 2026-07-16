@@ -120,6 +120,19 @@ export class ControlClient {
     return r.connections;
   }
 
+  /**
+   * ATOMICALLY claim a pending connection (pending → processing) before doing
+   * any local work. Returns true only for the single winner — so two daemons
+   * (e.g. `init`'s post-claim watch and a separate `based sync --watch`) can
+   * never both store the same sealed token as duplicate credentials/grants.
+   */
+  async claimConnection(id: string): Promise<boolean> {
+    const r = await this.signedFetch<{ claimed: boolean }>(
+      'POST', `/v1/owner/daemon/connections/${encodeURIComponent(id)}/claim`,
+    );
+    return r.claimed === true;
+  }
+
   /** Resolve a pulled connection: stored locally (or failed, with a human reason). */
   async resolveConnection(id: string, result: { daemonCredentialId: string } | { error: string }): Promise<void> {
     const body = 'daemonCredentialId' in result

@@ -58,6 +58,12 @@ CREATE TABLE IF NOT EXISTS owner_invites (
 );
 CREATE INDEX IF NOT EXISTS idx_owner_invites_agent ON owner_invites(agent_id);
 CREATE INDEX IF NOT EXISTS idx_owner_invites_email ON owner_invites(email);
+-- At most ONE open (pending) invite per (email, agent) — makes the invite
+-- abuse-brakes race-safe: concurrent invite_owner calls can no longer create
+-- duplicate pending rows that would multiply the per-row re-send cap. Claimed
+-- and expired rows are exempt, so a later re-invite is unaffected.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_owner_invites_open
+  ON owner_invites(email, agent_id) WHERE status = 'pending';
 
 -- Sessions carry the rung that minted them: email sessions LOOK; the act
 -- ceremony (fresh WebAuthn assertion) is unchanged and rung-independent.
@@ -97,7 +103,7 @@ CREATE TABLE IF NOT EXISTS pending_connections (
   label TEXT,                                -- human label ("Vercel")
   env_var TEXT,                              -- preset env var name
   sealed_secret TEXT NOT NULL,               -- base64 sealed box → owner vault key
-  status TEXT NOT NULL DEFAULT 'pending',    -- pending | stored | failed
+  status TEXT NOT NULL DEFAULT 'pending',    -- pending | processing | stored | failed
   failure_reason TEXT,
   daemon_credential_id TEXT,                 -- set on confirm
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

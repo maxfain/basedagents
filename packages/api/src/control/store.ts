@@ -1113,7 +1113,8 @@ export class ControlStore {
   } | null> {
     const r = await this.db.get<RawRow>(
       `SELECT id, invite_count, last_sent_at FROM owner_invites
-       WHERE email = ? AND agent_id = ? AND status = 'pending' AND expires_at > ?`,
+       WHERE email = ? AND agent_id = ? AND status = 'pending' AND expires_at > ?
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
       email,
       agentId,
       nowIsoString()
@@ -1123,13 +1124,19 @@ export class ControlStore {
       : null;
   }
 
-  async createInvite(input: { email: string; agentId: string; agentName?: string; ttlSeconds: number }): Promise<string> {
+  /**
+   * Create a pending invite. Returns null if a concurrent racer already created
+   * the open (email, agent) row — the partial unique index (0027) makes this
+   * exactly-once, so callers treat null as "someone else just created it".
+   */
+  async createInvite(input: { email: string; agentId: string; agentName?: string; ttlSeconds: number }): Promise<string | null> {
     const id = randomId('inv_');
     const now = new Date();
-    await this.db.run(
+    const res = await this.db.run(
       `INSERT INTO owner_invites
          (id, email, agent_id, agent_name, invite_count, status, created_at, last_sent_at, expires_at, claimed_at)
-       VALUES (?, ?, ?, ?, 1, 'pending', ?, ?, ?, NULL)`,
+       VALUES (?, ?, ?, ?, 1, 'pending', ?, ?, ?, NULL)
+       ON CONFLICT DO NOTHING`,
       id,
       input.email,
       input.agentId,
@@ -1138,7 +1145,7 @@ export class ControlStore {
       now.toISOString(),
       new Date(now.getTime() + input.ttlSeconds * 1000).toISOString()
     );
-    return id;
+    return res.changes === 1 ? id : null;
   }
 
   /** Bump the re-send counter (backoff bookkeeping for unresponsive emails). */
@@ -1208,7 +1215,24 @@ export class ControlStore {
     }));
   }
 
-  /** Daemon resolution — ATOMIC single transition out of 'pending'. */
+  /**
+   * ATOMICALLY claim a pending connection for processing (pending →
+   * processing). Only the single winner gets `true`; a concurrent daemon (or
+   * the same daemon on an overlapping poll) loses the race and must skip. This
+   * is what makes connect-card storage exactly-once across processes.
+   */
+  async claimPendingConnection(id: string, ownerId: string): Promise<boolean> {
+    const res = await this.db.run(
+      `UPDATE pending_connections SET status = 'processing', resolved_at = ?
+       WHERE id = ? AND owner_id = ? AND status = 'pending'`,
+      nowIsoString(),
+      id,
+      ownerId
+    );
+    return res.changes === 1;
+  }
+
+  /** Daemon resolution — ATOMIC single transition out of pending/processing. */
   async resolvePendingConnection(input: {
     id: string;
     ownerId: string;
@@ -1220,7 +1244,7 @@ export class ControlStore {
       `UPDATE pending_connections
        SET status = ?, daemon_credential_id = ?, failure_reason = ?, resolved_at = ?,
            sealed_secret = CASE WHEN ? = 'stored' THEN '' ELSE sealed_secret END
-       WHERE id = ? AND owner_id = ? AND status = 'pending'`,
+       WHERE id = ? AND owner_id = ? AND status IN ('pending', 'processing')`,
       input.outcome,
       input.daemonCredentialId ?? null,
       input.failureReason ?? null,
@@ -1450,6 +1474,25 @@ export class ControlStore {
   private async getDelegationByRowId(id: string): Promise<DelegationRow | null> {
     const r = await this.db.get<RawRow>(`SELECT * FROM delegations WHERE id = ?`, id);
     return r ? mapDelegationRow(r) : null;
+  }
+
+  /**
+   * Reactivate the existing (revoked) delegation edge for (owner, agent) in
+   * place — used by the claim flow when `init` is re-run for an agent whose
+   * delegation was killed. Avoids the UNIQUE(owner_id, agent_id) collision a
+   * fresh INSERT would hit. Idempotent.
+   */
+  async activateDelegation(ownerId: string, agentId: string, label?: string): Promise<DelegationRow> {
+    await this.db.run(
+      `UPDATE delegations
+         SET status = 'active', authorized_via = 'claim', authorizing_assertion_id = NULL,
+             revoke_assertion_id = NULL, revoked_at = NULL${label !== undefined ? ', label = ?' : ''}
+       WHERE owner_id = ? AND agent_id = ?`,
+      ...(label !== undefined ? [label, ownerId, agentId] : [ownerId, agentId]),
+    );
+    const row = await this.getDelegation(ownerId, agentId);
+    if (!row) throw new Error(`activateDelegation: delegation ${ownerId}/${agentId} not found`);
+    return row;
   }
 
   async getDelegation(ownerId: string, agentId: string): Promise<DelegationRow | null> {

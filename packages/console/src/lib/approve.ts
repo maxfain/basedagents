@@ -14,11 +14,21 @@ import { getAssertion } from './webauthn.js';
 import { ensurePasskey } from './firstApproval.js';
 
 /**
- * Approve one request. Returns whether this call minted the account's first
- * passkey — the caller should refresh the session when it did.
+ * Approve one request. If this mints the account's first passkey, `onMinted`
+ * runs IMMEDIATELY after the mint — before the (fallible) assertion ceremony —
+ * so the session's has_passkey flips to true even when the user then cancels
+ * the signature. Without that, a cancelled first approval would leave the
+ * client thinking no passkey exists and the retry would re-attempt CREATION,
+ * which the just-minted credential makes fail with InvalidStateError. Returns
+ * whether a passkey was minted.
  */
-export async function approveRequest(owner: OwnerMe, requestId: string): Promise<{ minted: boolean }> {
+export async function approveRequest(
+  owner: OwnerMe,
+  requestId: string,
+  onMinted?: () => Promise<void>,
+): Promise<{ minted: boolean }> {
   const minted = await ensurePasskey(owner);
+  if (minted && onMinted) await onMinted();
   const begin = await control.approveBegin(requestId);
   if (actionChallenge(begin.action_canonical) !== begin.challenge) {
     throw new Error('Refusing to sign — the server challenge does not match the action shown. Do not approve.');

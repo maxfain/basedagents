@@ -67,6 +67,31 @@ signup form, passkey minted at the first approval. Architecture:
   verification of the stored assertion against the just-minted key; recovery;
   aborted-creation negative + retry
 
+### Security & robustness (adversarial review of the ladder)
+- **Account-takeover fix:** `POST /link` now requires a vault-key signature
+  (proof of possession) — the owner id is a non-secret identifier, so without
+  this an attacker who learned it could mint a link code and claim the account.
+  `/claim/finish` additionally refuses to rebind a pre-existing account to a
+  different verified email, orders its writes so the single-use link is claimed
+  last, and reactivates a revoked delegation instead of colliding on it
+- Connect-card storage is exactly-once: the daemon atomically claims a
+  connection (pending → processing) before any local work, and retries a
+  stored-but-unconfirmed resolve without re-storing — no duplicate credentials
+  or false failures across `init`'s watch and a separate `based sync`
+- Provider validation fails OPEN on transient 429/5xx/timeout (only 401/403
+  reject a token), with an 8 s probe cap so a stalled provider can't wedge the
+  watch loop; the `init` link request and funnel pings are bounded and
+  crash-safe
+- Rate limits now cover the parameterized claim-email path; invite abuse-brakes
+  are race-safe (partial unique index on open invites)
+- Console: a minted first-approval passkey is no longer lost when the signature
+  is cancelled; the novice `/home` renders a base-case plan-limit message
+  (never the raw copy); plan-blocked `/welcome` hides the connect cards; the
+  session refresh is guarded against a stale-response clobber
+- Marketing `/keyring` is emitted as `keyring.html` (200 at `/keyring`, no
+  folder-index redirect, works in `vite dev`); the homepage cross-link is a
+  real `<a>`; vote tiles no longer show a false "Voted ✓" on error
+
 ---
 
 ## [0.7.0] — 2026-07-16

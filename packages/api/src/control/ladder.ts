@@ -50,11 +50,11 @@ import { ControlStore } from './store.js';
 import { ownerIdFromVaultPubkey } from './identity.js';
 import { ownerSession, mintSession } from './routes.js';
 import { daemonAuth } from './approvals.js';
-import { agentAuth } from '../middleware/auth.js';
+import { agentAuthAllowUnregistered } from '../middleware/auth.js';
 import { checkAgentLimit } from './entitlements.js';
 import { emailSenderFromEnv, consoleOrigin } from './email.js';
 import type { EmailSender } from './email.js';
-import { base58Decode, sha256, bytesToHex } from '../crypto/index.js';
+import { base58Decode, sha256, bytesToHex, verifySignature } from '../crypto/index.js';
 import { base64urlEncode } from './webauthn.js';
 
 const LINK_CODE_TTL_SECONDS = 1800; // 30m — init → browser → email round trip
@@ -118,7 +118,20 @@ const CreateLinkSchema = z.object({
   agent_id: z.string().min(1),
   agent_public_key: z.string().min(1),
   agent_name: z.string().max(120).optional(),
+  /** Ed25519 signature by the VAULT key over linkCanonical(...) — proof the
+   *  caller physically holds the vault private key (base64). */
+  vault_signature: z.string().min(1),
 });
+
+/**
+ * The message the vault key signs to prove possession when creating a link
+ * code. Binds the vault key to the exact agent it is linking, so a captured
+ * signature can't be replayed to link a different agent. Must byte-match the
+ * daemon's signer (packages/keyring/src/cli/onboard.ts).
+ */
+function linkCanonical(vaultPublicKey: string, agentId: string, agentPublicKey: string): string {
+  return `keyring-link:v1:${vaultPublicKey}:${agentId}:${agentPublicKey}`;
+}
 
 const ClaimSubmitSchema = z.object({ email: z.string().email() });
 const TokenSchema = z.object({ token: z.string().min(1) });
@@ -169,6 +182,24 @@ app.post('/link', async (c) => {
   }
   if (parsed.data.agent_id !== `ag_${parsed.data.agent_public_key}`) {
     return err(c, 400, 'bad_request', 'agent_id does not match agent_public_key');
+  }
+
+  // PROOF OF POSSESSION (closes the account-takeover hole): the owner id is
+  // ow_<base58(vaultPub)>, a NON-secret identifier. Without this check anyone
+  // who learns a victim's owner id could mint a link code for their vault and
+  // then claim it under an attacker email. Requiring a vault-key signature
+  // means only the holder of the vault PRIVATE key — i.e. whoever physically
+  // ran `init` — can create a link code, which is exactly the authority the
+  // spec says the claim rests on.
+  let sigBytes: Uint8Array;
+  try {
+    sigBytes = Uint8Array.from(atob(parsed.data.vault_signature), (ch) => ch.charCodeAt(0));
+  } catch {
+    return err(c, 400, 'bad_request', 'invalid vault signature encoding');
+  }
+  const canonical = linkCanonical(parsed.data.vault_public_key, parsed.data.agent_id, parsed.data.agent_public_key);
+  if (!(await verifySignature(textEncoder.encode(canonical), sigBytes, vaultPub))) {
+    return err(c, 401, 'unauthorized', 'vault signature does not verify');
   }
 
   const store = getStore(c);
@@ -258,45 +289,61 @@ app.post('/claim/finish', async (c) => {
   const store = getStore(c);
   const now = nowIso();
 
-  // 1. ATOMICALLY consume the magic-link token (single-use).
+  // 1. ATOMICALLY consume the magic-link token (single-use). This is the
+  //    authorization; a replayed click loses the race here.
   const consumed = await store.consumeMagicLinkToken(sha256hex(parsed.data.token), 'claim', now);
   if (!consumed || !consumed.link_code_id) return err(c, 401, 'unauthorized', 'invalid or expired link');
 
   const link = await store.getLinkCodeById(consumed.link_code_id);
   if (!link) return err(c, 401, 'unauthorized', 'invalid or expired link');
-
-  // 2. ATOMICALLY claim the link code (a second claim loses the race).
-  if (!(await store.claimLinkCode(link.id, now))) {
-    return err(c, 409, 'conflict', 'this agent was already claimed');
-  }
-
-  // 3. The ratified facts, in dependency order: agent exists → owner exists
-  //    (id derived from the vault key; email verified by this very click) →
-  //    vault binding → delegation (gated by the plan's agent limit).
-  const agentPub = base58Decode(link.agent_public_key);
-  await store.ensureAgent(link.agent_id, agentPub, link.agent_name ?? 'keyring agent');
+  if (link.status === 'claimed') return err(c, 409, 'conflict', 'this agent was already claimed');
+  if (link.expires_at <= now) return err(c, 401, 'unauthorized', 'this link has expired');
 
   const ownerId = ownerIdFromVaultPubkey(base58Decode(link.vault_public_key));
+
+  // 2. Resolve (or create) the owner IDEMPOTENTLY, and do it BEFORE the
+  //    irreversible link-claim so a real conflict returns a clean error with
+  //    the link still open (the CLI keeps polling instead of falsely showing
+  //    "set up"). An EXISTING account may only be re-claimed by its own
+  //    verified email — belt-and-suspenders behind /link's vault-key proof.
   let owner = await store.getOwner(ownerId);
-  if (!owner) {
+  if (owner) {
+    if (owner.email && owner.email !== consumed.email) {
+      return err(c, 409, 'conflict', 'this vault already belongs to a different account');
+    }
+  } else {
     try {
       owner = await store.createOwner({ ownerId, email: consumed.email });
+      await store.setEmailVerified(ownerId);
     } catch {
-      return err(c, 409, 'conflict', 'that email already belongs to another account');
+      // A concurrent claim created it first (PK race) → adopt it; otherwise
+      // the email is registered to a DIFFERENT vault → real conflict.
+      owner = await store.getOwner(ownerId);
+      if (!owner) return err(c, 409, 'conflict', 'that email already belongs to another account');
+      if (owner.email && owner.email !== consumed.email) {
+        return err(c, 409, 'conflict', 'this vault already belongs to a different account');
+      }
     }
-    await store.setEmailVerified(ownerId);
   }
 
+  // 3. Agent + vault binding (both idempotent).
+  const agentPub = base58Decode(link.agent_public_key);
+  await store.ensureAgent(link.agent_id, agentPub, link.agent_name ?? 'keyring agent');
   if (!(await store.getActiveVaultKey(ownerId))) {
     await store.createVaultBinding({ ownerId, vaultPublicKey: link.vault_public_key });
   }
 
+  // 4. Delegation — idempotent: reactivate a REVOKED edge (re-running init for
+  //    a previously-killed agent) instead of an INSERT that would collide on
+  //    UNIQUE(owner_id, agent_id) and 500 the handler.
   let delegationBlocked: { active: number; max: number } | null = null;
   const existing = await store.getDelegation(ownerId, link.agent_id);
   if (!existing || existing.status !== 'active') {
     const limit = await checkAgentLimit(store, owner);
     if (!limit.allowed) {
       delegationBlocked = { active: limit.activeAgents, max: limit.maxAgents };
+    } else if (existing) {
+      await store.activateDelegation(ownerId, link.agent_id, link.agent_name ?? undefined);
     } else {
       await store.createDelegation({
         ownerId,
@@ -307,9 +354,14 @@ app.post('/claim/finish', async (c) => {
     }
   }
 
+  // 5. ATOMICALLY claim the link LAST — only now is the CLI's "set up" signal
+  //    (link status === 'claimed') actually true. A second claim loses here.
+  if (!(await store.claimLinkCode(link.id, now))) {
+    return err(c, 409, 'conflict', 'this agent was already claimed');
+  }
   await store.markInviteClaimed(consumed.email, now);
 
-  // 4. A look session (email rung). The passkey is minted at the first approval.
+  // 6. A look session (email rung). The passkey is minted at the first approval.
   await mintSession(c, ownerId, { method: 'email' });
 
   return c.json({
@@ -376,7 +428,7 @@ app.post('/login/email/finish', async (c) => {
 
 // ── Agent-first entry: invite_owner ──
 
-app.post('/invites', agentAuth, async (c) => {
+app.post('/invites', agentAuthAllowUnregistered, async (c) => {
   const agentId = (c.get as (k: string) => string)('agentId');
   let body: unknown;
   try {
@@ -512,6 +564,11 @@ app.get('/daemon/connections', daemonAuth, async (c) => {
       env_var: r.env_var, sealed_secret: r.sealed_secret, created_at: r.created_at,
     })),
   });
+});
+
+app.post('/daemon/connections/:id/claim', daemonAuth, async (c) => {
+  const claimed = await getStore(c).claimPendingConnection(c.req.param('id'), getOwnerId(c));
+  return c.json({ claimed });
 });
 
 app.post('/daemon/connections/:id/resolve', daemonAuth, async (c) => {

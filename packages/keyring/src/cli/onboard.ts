@@ -21,7 +21,7 @@ import * as os from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import { Keyring } from '../keyring.js';
-import { generateKeypair } from '../crypto.js';
+import { generateKeypair, signPayload } from '../crypto.js';
 import { publicKeyToAgentId, base58Encode } from '../util.js';
 import { parseFlags, loadKeypairChecked } from './shared.js';
 import { confirm } from './prompt.js';
@@ -67,10 +67,14 @@ async function postJson(url: string, body: unknown): Promise<{ status: number; j
  */
 function funnelPing(api: string, funnelId: string, event: 'init_run' | 'mcp_config_written'): void {
   if (process.env.BASEDAGENTS_NO_TELEMETRY === '1') return;
+  // AbortSignal.timeout bounds the request so a blackholed proxy can never keep
+  // the Node event loop alive after `init` is otherwise done (a floating
+  // keepalive fetch would hang the process for undici's full timeout).
   fetch(`${api}/v1/funnel`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ event, funnel_id: funnelId }),
+    signal: AbortSignal.timeout(2000),
   }).catch(() => undefined);
 }
 
@@ -171,14 +175,28 @@ export async function cmdInit(args: string[], dir: string | undefined): Promise<
 
   if (flags.switches.has('no-link')) return;
 
-  // 4. The one browser page.
+  // 4. The one browser page. The link request is SIGNED by the vault key so
+  //    the control plane can prove we physically hold it (only the vault
+  //    holder may mint a link code for this owner id). A network failure here
+  //    is recoverable-by-design — never let it crash the whole `init`.
   console.log('');
-  const link = await postJson(`${api}/v1/owner/link`, {
-    vault_public_key: vault.owner.public_key_b58,
-    agent_id: agentId,
-    agent_public_key: agentPublicKeyB58,
-    agent_name: agentName,
-  });
+  const vaultKeypair = kr.ownerKeypair();
+  const linkCanonical = `keyring-link:v1:${vault.owner.public_key_b58}:${agentId}:${agentPublicKeyB58}`;
+  const vaultSignature = await signPayload(vaultKeypair.privateKey, linkCanonical);
+  let link: { status: number; json: Record<string, unknown> };
+  try {
+    link = await postJson(`${api}/v1/owner/link`, {
+      vault_public_key: vault.owner.public_key_b58,
+      agent_id: agentId,
+      agent_public_key: agentPublicKeyB58,
+      agent_name: agentName,
+      vault_signature: vaultSignature,
+    });
+  } catch {
+    console.log(`⚠ Could not reach ${api}. Your vault and agent are saved.`);
+    console.log('  Finish anytime with:  based init');
+    return;
+  }
   if (link.status !== 200 || typeof link.json.url !== 'string') {
     console.log(`⚠ Could not reach ${api} (${link.status}). Set up later with: based init --api <url>`);
     return;

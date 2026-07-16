@@ -11,10 +11,12 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(root, 'index.html'),
-        // /keyring is REQUIRED to be static (keyring page copy v1): a second
-        // HTML entry emitted at dist/keyring/index.html, which Cloudflare
-        // Pages serves as plain HTML before the SPA fallback in _redirects.
-        keyring: resolve(root, 'keyring/index.html'),
+        // /keyring is REQUIRED to be static (keyring page copy v1). Emitted as
+        // dist/keyring.html (NOT keyring/index.html) so Cloudflare Pages serves
+        // it at /keyring with a 200 — no folder-index 308 redirect to /keyring/
+        // that would fight the self-canonical — and so `vite dev`/`preview`
+        // resolve extension-less /keyring via the .html fallback.
+        keyring: resolve(root, 'keyring.html'),
       },
     },
   },

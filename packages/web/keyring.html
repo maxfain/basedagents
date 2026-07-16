@@ -6,10 +6,11 @@
   <!--
     STATIC BY REQUIREMENT (keyring page copy v1): every word on this page must
     be readable with JavaScript disabled. This file is a second Vite HTML input
-    (vite.config.ts rollupOptions.input) emitted at dist/keyring/index.html, so
-    Cloudflare Pages serves it as plain HTML at /keyring BEFORE the SPA
-    fallback in public/_redirects. The inline script at the bottom is
-    progressive enhancement only: copy buttons, vote tiles, funnel pings.
+    (vite.config.ts rollupOptions.input) emitted at dist/keyring.html, so
+    Cloudflare Pages serves it at /keyring with a 200 (no folder-index
+    redirect) BEFORE the SPA fallback in public/_redirects. The inline script
+    at the bottom is progressive enhancement only: copy buttons, vote tiles,
+    funnel pings.
   -->
   <title>Keyring — scoped, revocable API keys for AI coding agents</title>
   <meta name="description" content="Give Claude Code, Codex, and Cursor their own scoped keys instead of your .env. See every key your agents hold, approve from your phone, and cut them off in one tap. Open source." />
@@ -373,14 +374,23 @@ npx @basedagents/keyring init and follow its instructions.</pre>
         tile.addEventListener('click', function () {
           if (tile.disabled) return;
           tile.disabled = true;
+          var tag = tile.querySelector('.tile-tag');
           var provider = tile.getAttribute('data-provider');
           fetch(API + '/v1/providers/' + provider + '/vote', { method: 'POST' })
-            .then(function (res) { return res.ok ? res.json() : null; })
-            .then(function (data) {
-              var tag = tile.querySelector('.tile-tag');
-              if (tag) tag.textContent = data ? 'Voted ✓ (' + data.votes + ')' : 'Voted ✓';
+            .then(function (res) {
+              // Only a 2xx is a real vote. On 429 (shared office IP) or any
+              // other error, re-enable so the tap can be retried — never show a
+              // false "Voted ✓".
+              if (!res.ok) throw new Error('vote not recorded (HTTP ' + res.status + ')');
+              return res.json();
             })
-            .catch(function () { tile.disabled = false; });
+            .then(function (data) {
+              if (tag) tag.textContent = 'Voted ✓ (' + data.votes + ')';
+            })
+            .catch(function () {
+              tile.disabled = false;
+              if (tag) tag.textContent = 'Tap to try again';
+            });
         });
       });
     })();

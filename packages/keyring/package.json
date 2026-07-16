@@ -33,6 +33,7 @@
   "scripts": {
     "build": "tsc",
     "build:dist": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepare": "npm run build:dist",
     "prepublishOnly": "npm run build:dist",
     "test": "vitest run"
   },

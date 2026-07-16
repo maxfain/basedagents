@@ -141,14 +141,22 @@ async function initLink(): Promise<InitResult> {
   const agent = await generateKeypair();
   const agentId = publicKeyToAgentId(agent.publicKey);
   const agentName = `Claude Code @ e2e-${Date.now()}-${++counter}`;
+  const vaultB58 = base58Encode(vault.publicKey);
+  const agentB58 = base58Encode(agent.publicKey);
+  // /link now requires a vault-key signature (proof of possession).
+  const canonical = `keyring-link:v1:${vaultB58}:${agentId}:${agentB58}`;
+  const sig = await ed.signAsync(new TextEncoder().encode(canonical), vault.privateKey);
+  let bin = '';
+  for (const b of sig) bin += String.fromCharCode(b);
   const { code } = await apiJson<{ code: string }>('/v1/owner/link', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      vault_public_key: base58Encode(vault.publicKey),
+      vault_public_key: vaultB58,
       agent_id: agentId,
-      agent_public_key: base58Encode(agent.publicKey),
+      agent_public_key: agentB58,
       agent_name: agentName,
+      vault_signature: btoa(bin),
     }),
   });
   return { vault, agent, agentId, agentName, code, email: `e2e-${Date.now()}-${counter}@example.com` };

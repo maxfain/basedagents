@@ -217,15 +217,33 @@ async function newInitIdentity() {
   };
 }
 
-/** Run init → link → claim end to end; returns the claimed session + ids. */
-async function claimFlow(email: string, agentName = 'Claude Code @ testbox') {
-  const idn = await newInitIdentity();
-  const linkRes = await post('/v1/owner/link', {
+/** The vault-key proof-of-possession the /link route now requires (base64). */
+async function vaultSig(vaultPriv: Uint8Array, vaultB58: string, agentId: string, agentB58: string): Promise<string> {
+  const canonical = `keyring-link:v1:${vaultB58}:${agentId}:${agentB58}`;
+  const sig = await ed.signAsync(te.encode(canonical), vaultPriv);
+  let bin = '';
+  for (const b of sig) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+/** Build a signed /link body from an init identity (optionally a second agent). */
+async function linkBody(
+  idn: { vaultPriv: Uint8Array; vaultB58: string; agentId: string; agentB58: string },
+  agentName?: string,
+) {
+  return {
     vault_public_key: idn.vaultB58,
     agent_id: idn.agentId,
     agent_public_key: idn.agentB58,
-    agent_name: agentName,
-  });
+    ...(agentName ? { agent_name: agentName } : {}),
+    vault_signature: await vaultSig(idn.vaultPriv, idn.vaultB58, idn.agentId, idn.agentB58),
+  };
+}
+
+/** Run init → link → claim end to end; returns the claimed session + ids. */
+async function claimFlow(email: string, agentName = 'Claude Code @ testbox') {
+  const idn = await newInitIdentity();
+  const linkRes = await post('/v1/owner/link', await linkBody(idn, agentName));
   expect(linkRes.status).toBe(200);
   const { code } = (await linkRes.json()) as { code: string };
   expect((await post(`/v1/owner/link/${code}/claim`, { email })).status).toBe(200);
@@ -272,9 +290,7 @@ describe('the claim: one email field ratifies owner + delegation + binding', () 
 
   it('magic-link tokens and link codes are single-use; expiry closes both', async () => {
     const idn = await newInitIdentity();
-    const { code } = (await (await post('/v1/owner/link', {
-      vault_public_key: idn.vaultB58, agent_id: idn.agentId, agent_public_key: idn.agentB58,
-    })).json()) as { code: string };
+    const { code } = (await (await post('/v1/owner/link', await linkBody(idn))).json()) as { code: string };
     await post(`/v1/owner/link/${code}/claim`, { email: 'x@example.com' });
     const token = lastMagicToken();
 
@@ -290,9 +306,7 @@ describe('the claim: one email field ratifies owner + delegation + binding', () 
 
     // Expired link codes answer expired/404.
     const idn2 = await newInitIdentity();
-    const { code: code2 } = (await (await post('/v1/owner/link', {
-      vault_public_key: idn2.vaultB58, agent_id: idn2.agentId, agent_public_key: idn2.agentB58,
-    })).json()) as { code: string };
+    const { code: code2 } = (await (await post('/v1/owner/link', await linkBody(idn2))).json()) as { code: string };
     rawDb.prepare(`UPDATE link_codes SET expires_at = ? WHERE code = ?`)
       .run(new Date(Date.now() - 1000).toISOString(), code2);
     expect(((await (await get(`/v1/owner/link/${code2}`)).json()) as { status: string }).status).toBe('expired');
@@ -305,8 +319,9 @@ describe('the claim: one email field ratifies owner + delegation + binding', () 
       vault_public_key: idn.vaultB58,
       agent_id: 'ag_SomebodyElse',
       agent_public_key: idn.agentB58,
+      vault_signature: await vaultSig(idn.vaultPriv, idn.vaultB58, 'ag_SomebodyElse', idn.agentB58),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(400); // agent_id/key mismatch is checked before the signature
   });
 
   it('re-claiming with a new agent adds a delegation to the existing owner', async () => {
@@ -315,13 +330,62 @@ describe('the claim: one email field ratifies owner + delegation + binding', () 
     const agentPriv = ed.utils.randomPrivateKey();
     const agentPub = await ed.getPublicKeyAsync(agentPriv);
     const agent2 = `ag_${base58Encode(agentPub)}`;
-    const { code } = (await (await post('/v1/owner/link', {
-      vault_public_key: first.vaultB58, agent_id: agent2, agent_public_key: base58Encode(agentPub),
-      agent_name: 'CI bot',
-    })).json()) as { code: string };
+    const { code } = (await (await post('/v1/owner/link', await linkBody(
+      { vaultPriv: first.vaultPriv, vaultB58: first.vaultB58, agentId: agent2, agentB58: base58Encode(agentPub) },
+      'CI bot',
+    ))).json()) as { code: string };
     await post(`/v1/owner/link/${code}/claim`, { email: 'same@example.com' });
     expect((await post('/v1/owner/claim/finish', { token: lastMagicToken() })).status).toBe(200);
     expect(await store.countActiveDelegations(first.ownerId)).toBe(2);
+  });
+
+  it('/link requires proof of the vault private key (account-takeover guard)', async () => {
+    const idn = await newInitIdentity();
+    // Missing signature → schema rejects.
+    expect((await post('/v1/owner/link', {
+      vault_public_key: idn.vaultB58, agent_id: idn.agentId, agent_public_key: idn.agentB58,
+    })).status).toBe(400);
+    // Present but signed by the WRONG (attacker's) key → 401. This is the exact
+    // takeover attempt: an attacker who knows a victim's public vault key but
+    // not the private key cannot mint a link code for it.
+    const attacker = await newInitIdentity();
+    expect((await post('/v1/owner/link', {
+      vault_public_key: idn.vaultB58,
+      agent_id: idn.agentId,
+      agent_public_key: idn.agentB58,
+      vault_signature: await vaultSig(attacker.vaultPriv, idn.vaultB58, idn.agentId, idn.agentB58),
+    })).status).toBe(401);
+  });
+
+  it('an existing account can only be re-claimed by its own verified email', async () => {
+    const first = await claimFlow('owner-a@example.com');
+    // Same vault, a fresh agent, but the claim email is a DIFFERENT person.
+    const other = await newInitIdentity();
+    const { code } = (await (await post('/v1/owner/link', await linkBody(
+      { vaultPriv: first.vaultPriv, vaultB58: first.vaultB58, agentId: other.agentId, agentB58: other.agentB58 },
+    ))).json()) as { code: string };
+    await post(`/v1/owner/link/${code}/claim`, { email: 'attacker@evil.com' });
+    const res = await post('/v1/owner/claim/finish', { token: lastMagicToken() });
+    expect(res.status).toBe(409);
+    // No session was minted for the victim's account.
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('re-claiming a REVOKED agent reactivates its delegation instead of 500ing', async () => {
+    const { ownerId, agentId, vaultPriv, vaultB58, agentB58 } = await claimFlow('revoker@example.com');
+    // Kill the delegation (as the console would), leaving the row present.
+    rawDb.prepare(`UPDATE delegations SET status='revoked', revoked_at=? WHERE owner_id=? AND agent_id=?`)
+      .run(new Date().toISOString(), ownerId, agentId);
+    expect((await store.getDelegation(ownerId, agentId))!.status).toBe('revoked');
+
+    // Re-run init for the SAME agent → the claim must reactivate, not collide.
+    const { code } = (await (await post('/v1/owner/link', await linkBody(
+      { vaultPriv, vaultB58, agentId, agentB58 },
+    ))).json()) as { code: string };
+    await post(`/v1/owner/link/${code}/claim`, { email: 'revoker@example.com' });
+    const res = await post('/v1/owner/claim/finish', { token: lastMagicToken() });
+    expect(res.status).toBe(200);
+    expect((await store.getDelegation(ownerId, agentId))!.status).toBe('active');
   });
 });
 
@@ -454,6 +518,21 @@ describe('agent-first invites: claim-pending is structurally nothing', () => {
   it('unauthenticated invite attempts are rejected', async () => {
     expect((await post('/v1/owner/invites', { email: 'x@example.com' })).status).toBe(401);
   });
+
+  it('agent-first entry works for an UNREGISTERED agent (register-on-invite)', async () => {
+    // A keyring agent that only ran `init` has a keypair but no agents row.
+    const priv = ed.utils.randomPrivateKey();
+    const pub = await ed.getPublicKeyAsync(priv);
+    const agentId = `ag_${base58Encode(pub)}`;
+    expect(rawDb.prepare(`SELECT 1 FROM agents WHERE id = ?`).get(agentId)).toBeUndefined();
+
+    const res = await agentPost({ priv, pub }, '/v1/owner/invites', { email: 'first@example.com' });
+    expect(res.status).toBe(200);
+    expect(sentEmails).toHaveLength(1);
+    // The invite registered a minimal agent row on first use — nothing storable.
+    expect(rawDb.prepare(`SELECT status FROM agents WHERE id = ?`).get(agentId)).toMatchObject({ status: 'active' });
+    expect(await store.getOwnerByEmail('first@example.com')).toBeNull();
+  });
 });
 
 describe('connect cards: sealed in the browser, resolved by the daemon', () => {
@@ -481,9 +560,7 @@ describe('connect cards: sealed in the browser, resolved by the daemon', () => {
   it('stores ciphertext, hides it from the browser, hands it to the daemon, blanks on store', async () => {
     const idn = await newInitIdentity();
     // Claim with THIS identity so the daemon (vault key) can authenticate.
-    const { code } = (await (await post('/v1/owner/link', {
-      vault_public_key: idn.vaultB58, agent_id: idn.agentId, agent_public_key: idn.agentB58, agent_name: 'CC',
-    })).json()) as { code: string };
+    const { code } = (await (await post('/v1/owner/link', await linkBody(idn, 'CC'))).json()) as { code: string };
     await post(`/v1/owner/link/${code}/claim`, { email: 'seal@example.com' });
     const finish = await post('/v1/owner/claim/finish', { token: lastMagicToken() });
     const cookie = sessionCookie(finish);

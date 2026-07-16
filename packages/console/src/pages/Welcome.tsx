@@ -226,7 +226,15 @@ export default function Welcome() {
 
       {error && <div className="banner banner-error">{error}</div>}
 
-      {agentId ? (
+      {/* When the claim was plan-blocked the agent has no active connection, so
+          a connect attempt would fail server-side AFTER the user minted a real
+          token — don't show the cards at all until it's active. */}
+      {state.planBlocked ? (
+        <div className="empty">
+          <p>Connecting a service unlocks once this agent is active.</p>
+          <p className="muted">Switch it on from your plan, then come back here.</p>
+        </div>
+      ) : agentId ? (
         <ul className="connect-grid">
           {PROVIDER_CARDS.map((card) => (
             <ConnectCard

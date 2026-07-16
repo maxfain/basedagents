@@ -153,12 +153,22 @@ single-use challenge, and the User Present flag.
 Anonymous → email → passkey. There is no signup form: `npx @basedagents/keyring
 init` on the user's machine creates the vault + agent identity and a 30-minute
 **link code**; the `/link` page claims it with one email field; the magic-link
-click **ratifies** — in one atomic sequence — the owner row (id still derived
-from the vault Ed25519 key), the email verification, the vault-key binding, and
-the delegation of the linking agent (`authorized_via='claim'`). What that claim
-honestly rests on: possession of the email inbox **plus physical control of the
-machine that ran `init`** (the code never leaves it except through the browser
-the user opened). The passkey — still the sole authority root for acting — is
+click **ratifies** — in one idempotent, ordered sequence — the owner row (id
+still derived from the vault Ed25519 key), the email verification, the vault-key
+binding, and the delegation of the linking agent (`authorized_via='claim'`).
+What that claim honestly rests on: possession of the email inbox **plus physical
+control of the machine that ran `init`**.
+
+The "physical control" half is not assumed — it is **proven**. The owner id is
+`ow_<base58(vaultPub)>`, a *non-secret* identifier, so `POST /link` requires a
+**vault-key signature** over `keyring-link:v1:<vaultPub>:<agentId>:<agentPub>`;
+only the holder of the vault *private* key can mint a link code for that owner.
+Without it, anyone who learned a victim's owner id could mint a code and claim
+the account under their own email. As defence in depth, `/claim/finish` also
+refuses to bind a **pre-existing** account to a different verified email, orders
+every write so the single-use link is marked `claimed` **last** (a mid-sequence
+failure leaves it re-runnable, never a false success), and is idempotent —
+reactivating a revoked delegation rather than colliding on it. The passkey — still the sole authority root for acting — is
 minted at the **first approval**, the first moment authority is exercised, and
 the daemon still independently re-verifies every approval against locally
 anchored passkeys before sealing (§2). Nothing in §§2–6 weakened.

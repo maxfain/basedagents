@@ -20,46 +20,63 @@ export interface ProviderPreset {
   validate?: (token: string) => Promise<{ ok: boolean; detail: string }>;
 }
 
+/** Cap on a provider probe. Also keeps a stalled provider from making Ctrl-C
+ *  unresponsive during the connect-card watch loop. */
+const PROBE_TIMEOUT_MS = 8000;
+
+/**
+ * Run a validation probe with a strict fail policy:
+ *   2xx              → the token works.
+ *   401 / 403        → the provider REJECTED the token (fail closed).
+ *   429 / 5xx / other → transient (rate-limited, outage) → fail OPEN and store,
+ *                       exactly like an unreachable provider. A provider
+ *                       incident must never brand a valid token as bad, because
+ *                       the daemon does not re-pull a resolved connection.
+ *   network error / timeout → fail OPEN (store, validation skipped).
+ */
+async function probe(
+  label: string,
+  url: string,
+  token: string,
+  onOk: (res: Response) => Promise<string>,
+): Promise<{ ok: boolean; detail: string }> {
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token.trim()}` },
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
+    if (res.ok) return { ok: true, detail: await onOk(res) };
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, detail: `${label} rejected the token (HTTP ${res.status})` };
+    }
+    return { ok: true, detail: `stored (validation skipped — ${label} returned HTTP ${res.status})` };
+  } catch {
+    return { ok: true, detail: `stored (validation skipped — ${label} unreachable)` };
+  }
+}
+
 export const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
   vercel: {
     id: 'vercel',
     label: 'Vercel',
     envVar: 'VERCEL_TOKEN',
     looksValid: (t) => t.trim().length >= 20,
-    validate: async (token) => {
-      try {
-        const res = await fetch('https://api.vercel.com/v2/user', {
-          headers: { Authorization: `Bearer ${token.trim()}` },
-        });
-        if (res.ok) {
-          const body = (await res.json()) as { user?: { username?: string } };
-          return { ok: true, detail: `valid — account ${body.user?.username ?? 'confirmed'}` };
-        }
-        return { ok: false, detail: `Vercel rejected the token (HTTP ${res.status})` };
-      } catch {
-        return { ok: true, detail: 'stored (validation skipped — Vercel unreachable)' };
-      }
-    },
+    validate: (token) =>
+      probe('Vercel', 'https://api.vercel.com/v2/user', token, async (res) => {
+        const body = (await res.json()) as { user?: { username?: string } };
+        return `valid — account ${body.user?.username ?? 'confirmed'}`;
+      }),
   },
   supabase: {
     id: 'supabase',
     label: 'Supabase',
     envVar: 'SUPABASE_ACCESS_TOKEN',
     looksValid: (t) => t.trim().startsWith('sbp_') && t.trim().length >= 20,
-    validate: async (token) => {
-      try {
-        const res = await fetch('https://api.supabase.com/v1/projects', {
-          headers: { Authorization: `Bearer ${token.trim()}` },
-        });
-        if (res.ok) {
-          const projects = (await res.json()) as unknown[];
-          return { ok: true, detail: `valid — ${Array.isArray(projects) ? projects.length : '?'} project(s) visible` };
-        }
-        return { ok: false, detail: `Supabase rejected the token (HTTP ${res.status})` };
-      } catch {
-        return { ok: true, detail: 'stored (validation skipped — Supabase unreachable)' };
-      }
-    },
+    validate: (token) =>
+      probe('Supabase', 'https://api.supabase.com/v1/projects', token, async (res) => {
+        const projects = (await res.json()) as unknown[];
+        return `valid — ${Array.isArray(projects) ? projects.length : '?'} project(s) visible`;
+      }),
   },
 };
 

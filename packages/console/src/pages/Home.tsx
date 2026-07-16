@@ -26,6 +26,12 @@ function errText(err: unknown): string {
   return String(err);
 }
 
+/** Over the plan's agent limit — a distinct, base-case-worded state (never the
+ *  raw 402 message, which contains power-user vocabulary). */
+function isPlanLimit(err: unknown): boolean {
+  return err instanceof ControlApiError && err.status === 402;
+}
+
 function shortId(id: string): string {
   return id.length > 18 ? `${id.slice(0, 12)}…${id.slice(-4)}` : id;
 }
@@ -40,6 +46,7 @@ export default function Home() {
   const [connections, setConnections] = useState<ConnectionInfo[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [atLimit, setAtLimit] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -62,12 +69,14 @@ export default function Home() {
     if (!owner) return;
     setBusy(req.id);
     setError(null);
+    setAtLimit(false);
     try {
-      const { minted } = await approveRequest(owner, req.id);
-      if (minted) await refresh();
+      // refresh runs the instant a passkey is minted (see lib/approve.ts).
+      await approveRequest(owner, req.id, refresh);
       await load();
     } catch (err) {
-      setError(errText(err));
+      if (isPlanLimit(err)) setAtLimit(true); // never render the raw 402 copy
+      else setError(errText(err));
     } finally {
       setBusy(null);
     }
@@ -119,6 +128,13 @@ export default function Home() {
       </div>
 
       {error && <div className="banner banner-error">{error}</div>}
+      {atLimit && (
+        <div className="banner banner-warn">
+          You&rsquo;re at your plan&rsquo;s limit for active agents, so this one can&rsquo;t be
+          switched on yet.{' '}
+          <a className="link" href="/settings/billing">See your plan →</a>
+        </div>
+      )}
       {!owner.has_passkey && agents.length > 0 && (
         <div className="banner banner-warn">
           The first time you allow something, your browser will ask you to create a passkey —
