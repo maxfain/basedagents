@@ -69,6 +69,11 @@ jobs:
       - name: Install
         run: npm ci
 
+      # The spec imports @basedagents/keyring (workspace link → packages/
+      # keyring/dist), which does not exist on a fresh checkout until built.
+      - name: Build keyring dist
+        run: npm run build:dist --workspace=packages/keyring
+
       - name: Install Chromium
         run: npx playwright install chromium --with-deps
         working-directory: packages/console
