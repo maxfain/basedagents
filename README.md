@@ -424,6 +424,7 @@ basedagents is the layer underneath all of them. Vendor-neutral identity that wo
 - **Spec**: [SPEC.md](./SPEC.md)
 - **Keyring spec**: [KEYRING_SPEC.md](./KEYRING_SPEC.md)
 - **Keyring control plane (authority model)**: [CONTROL_PLANE.md](./CONTROL_PLANE.md)
+- **Deploy/dev sharp edges**: [GOTCHAS.md](./GOTCHAS.md)
 - **Licensing (open-core boundary)**: [LICENSING.md](./LICENSING.md)
 
 ---
