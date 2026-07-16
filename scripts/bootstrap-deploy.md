@@ -7,11 +7,16 @@ per environment; day-to-day deploys are CI's job (`.github/workflows/ci.yml`).
 
 ## 1. Cloudflare API token + account id (CI credentials)
 
-1. Cloudflare dashboard → My Profile → **API Tokens** → Create Token → start
-   from "Edit Cloudflare Workers" and add:
+1. Cloudflare dashboard → My Profile → **API Tokens** → Create Token (a
+   user-owned token; an account-owned "Account API Token" also works — the CI
+   guard verifies both kinds) with:
    - **Account · Workers Scripts · Edit** (deploy the API Worker)
    - **Account · Cloudflare Pages · Edit** (deploy the console + previews)
    - **Account · D1 · Edit** (apply migrations)
+   - **Zone · Workers Routes · Edit**, scoped to `basedagents.ai` — the Worker
+     serves api.basedagents.ai via a zone route, and `wrangler deploy`
+     re-asserts route config on every deploy; without this the deploy fails
+     AFTER uploading the script (`/zones/…/workers/routes` → auth error 10000)
 2. GitHub repo → Settings → Secrets and variables → Actions → add:
    - `CLOUDFLARE_API_TOKEN` — the token from step 1
    - `CLOUDFLARE_ACCOUNT_ID` — dashboard → Workers & Pages → right sidebar
