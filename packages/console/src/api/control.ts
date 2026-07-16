@@ -11,8 +11,11 @@ import type {
   LoginOptionsResponse,
   OwnerMe,
   KeyringRequest,
+  ActionBeginResponse,
   ApproveBeginResponse,
   OwnerAssertion,
+  Delegation,
+  VaultKeyBinding,
 } from './types.js';
 import type { RegistrationResult } from '../lib/webauthn.js';
 
@@ -80,6 +83,36 @@ export const control = {
   },
   listRequests(status?: string): Promise<{ requests: KeyringRequest[] }> {
     return request('GET', `/requests${status ? `?status=${encodeURIComponent(status)}` : ''}`);
+  },
+
+  // ── Generic action ceremony ("signature to act") ──
+  actionBegin(actionType: string, params: Record<string, unknown>): Promise<ActionBeginResponse> {
+    return request('POST', '/action/begin', { action_type: actionType, params });
+  },
+
+  // ── Delegations (owner → agent edges) ──
+  createDelegation(
+    agentId: string,
+    label: string | null,
+    nonce: string,
+    assertion: OwnerAssertion,
+  ): Promise<Delegation> {
+    // The canonical uses `label ?? null`, but the endpoint's schema wants the
+    // field ABSENT (not null) when there is no label — omit it.
+    return request('POST', '/delegations', {
+      agent_id: agentId,
+      ...(label !== null ? { label } : {}),
+      nonce,
+      assertion,
+    });
+  },
+  revokeDelegation(delegationId: string, nonce: string, assertion: OwnerAssertion): Promise<Delegation> {
+    return request('POST', `/delegations/${encodeURIComponent(delegationId)}/revoke`, { nonce, assertion });
+  },
+
+  // ── Vault-key binding (unlocks daemonAuth for `based sync`) ──
+  bindVaultKey(vaultPublicKey: string, nonce: string, assertion: OwnerAssertion): Promise<VaultKeyBinding> {
+    return request('POST', '/vault-binding', { vault_public_key: vaultPublicKey, nonce, assertion });
   },
 
   // ── Approve ceremony ("signature to act") ──

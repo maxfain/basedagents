@@ -188,7 +188,22 @@ open public site (`packages/web`) so no open code is relicensed:
   posts it to `/approve`. A grant is shown `active` only after the daemon
   confirms; the console can queue an approval but never seals a secret.
 
-**Increment 3b.** Delegations + vault-binding management screens.
+**Increment 3b (shipped).** Delegations + vault-binding screens, built on a
+shared console-side action ceremony (`lib/ceremony.ts`): every mutation runs
+`/action/begin` → **client-side WYSIWYS** → passkey assertion. The WYSIWYS step
+is stronger than hash parity alone — it parses the server's canonical and
+requires it to say *exactly* what the console asked for (action type, the
+signed-in owner, the ceremony nonce, byte-identical params), refusing to sign
+otherwise. For actions with no daemon re-verification (delegations, vault
+binding) this check is the only thing standing between a compromised control
+plane and the owner's passkey signing a swapped action — tested against
+swapped-params / swapped-type / smuggled-field / wrong-owner canonicals.
+- **Agents**: create (`create_delegation`) and revoke (`revoke_delegation`)
+  owner→agent edges.
+- **Vault**: `bind_vault_key` over the key derived from the signed-in owner id
+  itself (nothing to type or mistype) — the step that unlocks `daemonAuth` for
+  `based sync`; passkey list + daemon instructions. `GET /me` now reports the
+  active vault-key binding.
 
 **Increment 3c.** Recovery flow (email magic link + recovery code → passkey rotation).
 

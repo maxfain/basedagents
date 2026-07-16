@@ -3,6 +3,8 @@ import { OwnerProvider, useOwner } from './state/session.js';
 import Layout from './components/Layout.js';
 import Login from './pages/Login.js';
 import Approvals from './pages/Approvals.js';
+import Agents from './pages/Agents.js';
+import Vault from './pages/Vault.js';
 
 /** Gate the console behind a live look-session; render the shell once in. */
 function Protected() {
@@ -21,6 +23,8 @@ export default function App() {
           <Route element={<Protected />}>
             <Route path="/" element={<Navigate to="/approvals" replace />} />
             <Route path="/approvals" element={<Approvals />} />
+            <Route path="/agents" element={<Agents />} />
+            <Route path="/vault" element={<Vault />} />
           </Route>
           <Route path="*" element={<Navigate to="/approvals" replace />} />
         </Routes>

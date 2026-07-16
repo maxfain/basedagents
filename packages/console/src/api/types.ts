@@ -39,11 +39,19 @@ export interface Delegation {
   created_at: string;
 }
 
+export interface VaultKeyBinding {
+  id: string;
+  vault_public_key: string;
+  bound_at: string;
+}
+
 export interface OwnerMe {
   owner_id: string;
   email: string | null;
   credentials: OwnerCredential[];
   delegations: Delegation[];
+  /** The active vault-key binding — null until bind_vault_key has run. */
+  vault_key: VaultKeyBinding | null;
 }
 
 export interface GrantConstraints {
@@ -66,6 +74,16 @@ export interface KeyringRequest {
   created_at: string;
   decided_at: string | null;
   deny_reason: string | null;
+}
+
+/** The armed challenge for a generic owner action (POST /action/begin). */
+export interface ActionBeginResponse {
+  challenge: string;
+  nonce: string;
+  rpId: string;
+  allowCredentials?: Array<{ type: 'public-key'; id: string; transports?: string[] }>;
+  action_canonical: string;
+  timeout?: number;
 }
 
 /** The server-armed challenge for the approve_grant ceremony. */

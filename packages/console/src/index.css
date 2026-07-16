@@ -134,8 +134,29 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .field input:focus { outline: none; border-color: var(--accent-strong); }
 .form .btn-primary { margin-top: 0.25rem; }
 
+/* ── panels (Vault page sections) ── */
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem 1.4rem; margin-top: 1.5rem; }
+.panel h2 { font-size: 1.05rem; margin: 0 0 0.9rem; }
+.panel-note { font-size: 0.88rem; line-height: 1.5; }
+.kv { display: flex; align-items: center; gap: 1rem; padding: 0.35rem 0; font-size: 0.92rem; }
+.kv-key { color: var(--muted); min-width: 9.5rem; }
+.code-block {
+  font-family: var(--mono); font-size: 0.82rem; line-height: 1.6;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 9px;
+  padding: 0.8rem 1rem; overflow-x: auto; color: #cfd6e6;
+}
+
+/* ── inline form (Agents page) ── */
+.form-inline { grid-template-columns: 2fr 1fr auto; align-items: end; gap: 0.75rem; margin: 1.25rem 0 1.75rem; }
+.rows-spaced { margin-top: 0.5rem; }
+.row-date { font-size: 0.8rem; }
+.row-action { margin-left: auto; }
+.row-muted { opacity: 0.7; }
+.btn-sm { padding: 0.35rem 0.7rem; font-size: 0.85rem; }
+
 @media (max-width: 560px) {
   .card { flex-direction: column; }
   .card-actions { flex-direction: row; width: 100%; }
   .card-actions .btn { flex: 1; }
+  .form-inline { grid-template-columns: 1fr; }
 }

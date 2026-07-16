@@ -27,6 +27,12 @@ export default function Layout() {
           <NavLink to="/approvals" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
             Approvals
           </NavLink>
+          <NavLink to="/agents" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
+            Agents
+          </NavLink>
+          <NavLink to="/vault" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
+            Vault
+          </NavLink>
         </nav>
         <div className="topbar-right">
           {owner && <span className="owner-id" title={owner.owner_id}>{shortOwner(owner.owner_id)}</span>}
