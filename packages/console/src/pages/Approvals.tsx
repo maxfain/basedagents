@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { control, ControlApiError } from '../api/control.js';
-import { actionChallenge } from '../lib/action.js';
-import { getAssertion } from '../lib/webauthn.js';
+import { approveRequest } from '../lib/approve.js';
+import { useOwner } from '../state/session.js';
 import type { KeyringRequest, GrantConstraints } from '../api/types.js';
 
 function errText(err: unknown): string {
@@ -30,6 +30,7 @@ function constraintChips(c: GrantConstraints): string[] {
 }
 
 export default function Approvals() {
+  const { owner, refresh } = useOwner();
   const [requests, setRequests] = useState<KeyringRequest[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,24 +52,15 @@ export default function Approvals() {
   }, [load]);
 
   async function onApprove(req: KeyringRequest): Promise<void> {
+    if (!owner) return;
     setBusyId(req.id);
     setError(null);
     setLimitHit(null);
     try {
-      const begin = await control.approveBegin(req.id);
-      // Client-side WYSIWYS (CONTROL_PLANE.md §2): the passkey must sign the hash
-      // of exactly the action we display. If the server's challenge disagrees with
-      // the canonical it handed us, refuse — never sign an opaque challenge.
-      if (actionChallenge(begin.action_canonical) !== begin.challenge) {
-        throw new Error('Refusing to sign — the server challenge does not match the action shown. Do not approve.');
-      }
-      const assertion = await getAssertion({
-        challenge: begin.challenge,
-        rpId: begin.rpId,
-        allowCredentials: begin.allowCredentials,
-        timeout: begin.timeout,
-      });
-      await control.approve(req.id, begin.nonce, assertion);
+      // Full ceremony (lib/approve.ts): mint the passkey if this is the very
+      // first approval, verify WYSIWYS, assert, submit.
+      const { minted } = await approveRequest(owner, req.id);
+      if (minted) await refresh();
       await load();
     } catch (err) {
       if (isPlanLimit(err)) setLimitHit(errText(err));
@@ -112,6 +104,12 @@ export default function Approvals() {
         Nothing here can read a secret.
       </p>
 
+      {owner && !owner.has_passkey && pending.length > 0 && (
+        <div className="banner banner-warn">
+          Your first approval creates your passkey — the browser will prompt you once, then ask
+          you to sign with it.
+        </div>
+      )}
       {error && <div className="banner banner-error">{error}</div>}
       {limitHit && (
         <div className="banner banner-warn">

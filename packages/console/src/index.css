@@ -157,9 +157,38 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .row-muted { opacity: 0.7; }
 .btn-sm { padding: 0.35rem 0.7rem; font-size: 0.85rem; }
 
+/* ── onboarding ladder (link / signup / invited / welcome / home) ── */
+.btn-danger { background: transparent; color: var(--danger); border-color: #5b2730; }
+.btn-danger:not(:disabled):hover { background: var(--danger-bg); }
+
+.cmd { margin: 1rem 0 0.25rem; }
+.cmd-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+
+.signup-points { margin: 1.25rem 0 0; padding-left: 1.1rem; color: var(--muted); font-size: 0.9rem; line-height: 1.7; }
+
+.connect-grid { list-style: none; padding: 0; margin: 1.5rem 0 0; display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); align-items: start; }
+.connect-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.1rem 1.2rem; display: grid; gap: 0.9rem; }
+.connect-card-done { border-color: #1d4a30; }
+.connect-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; }
+.connect-name { font-weight: 600; font-size: 1.05rem; }
+.connect-ok { color: var(--ok); font-size: 0.85rem; font-weight: 600; }
+.connect-wait { color: var(--warn); font-size: 0.82rem; }
+.connect-steps { margin: 0; padding-left: 1.2rem; color: var(--muted); font-size: 0.88rem; line-height: 1.6; }
+.connect-warn { color: var(--warn); }
+
+.welcome-done { margin-top: 2.5rem; }
+.welcome-done .btn { margin-top: 0.75rem; }
+
+.agent-card .chips { margin-top: 1rem; }
+.chip-empty { color: var(--muted); border-style: dashed; }
+.asking { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.9rem; padding: 0.6rem 0.75rem; background: var(--panel-2); border: 1px solid var(--border); border-radius: 9px; font-size: 0.92rem; }
+.asking-actions { display: flex; gap: 0.5rem; }
+.mini-activity { list-style: none; padding: 0; margin: 0.9rem 0 0; display: grid; gap: 0.25rem; font-size: 0.82rem; }
+
 @media (max-width: 560px) {
   .card { flex-direction: column; }
   .card-actions { flex-direction: row; width: 100%; }
   .card-actions .btn { flex: 1; }
   .form-inline { grid-template-columns: 1fr; }
+  .connect-grid { grid-template-columns: 1fr; }
 }

@@ -7,11 +7,13 @@
  *   3. offer to register the MCP server with Claude Code (`claude mcp add`);
  *   4. create a link code at the control plane and open ONE browser page —
  *      "Take control of this agent" — where a single email field claims it;
- *   5. wait for the claim, then print the mirror confirmation.
+ *   5. wait for the claim, then keep storing the page's connect-card tokens
+ *      (sealed to the vault key) until the user is done in the browser.
  *
  * No signup form, no naming questions, no scope questions. Flags for the
  * advanced door: --name, --api, --no-link (vault+identity only), --no-browser,
- * --bare (the original vault-only init), --yes (skip prompts).
+ * --no-watch (exit right after the claim), --bare (the original vault-only
+ * init), --yes (skip prompts).
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -22,10 +24,12 @@ import { generateKeypair } from '../crypto.js';
 import { publicKeyToAgentId, base58Encode } from '../util.js';
 import { parseFlags, loadKeypairChecked } from './shared.js';
 import { confirm } from './prompt.js';
-import { DEFAULT_KEYRING_API } from './control-client.js';
+import { ControlClient, DEFAULT_KEYRING_API } from './control-client.js';
+import { processConnections } from './sync.js';
 
 const POLL_INTERVAL_MS = 3000;
 const POLL_TIMEOUT_MS = 30 * 60 * 1000; // matches the link code's 30m TTL
+const CONNECT_WATCH_MS = 15 * 60 * 1000; // post-claim window for the connect cards
 
 function detectAgentName(): string {
   // The command is designed to be pasted into Claude Code; if another agent
@@ -57,7 +61,7 @@ async function postJson(url: string, body: unknown): Promise<{ status: number; j
 export async function cmdInit(args: string[], dir: string | undefined): Promise<void> {
   const flags = parseFlags(args, {
     value: ['owner-keypair', 'name', 'api'],
-    switch: ['bare', 'no-link', 'no-browser', 'yes'],
+    switch: ['bare', 'no-link', 'no-browser', 'no-watch', 'yes'],
   });
   const api = flags.values['api'] ?? DEFAULT_KEYRING_API;
 
@@ -189,10 +193,39 @@ export async function cmdInit(args: string[], dir: string | undefined): Promise<
   console.log('');
   if (claimed) {
     console.log(`✓ ${agentName} is set up.`);
+
+    // 6. Stay alive as the daemon while the browser page's connect cards are
+    //    in flight: each pasted token arrives sealed to the vault key, is
+    //    opened + validated + stored HERE, and the card flips to ✓ without
+    //    the user ever returning to the terminal.
+    if (!flags.switches.has('no-watch')) {
+      console.log('');
+      console.log('  Finish connecting things in the browser — they are stored here as they arrive.');
+      console.log('  (Ctrl-C when the page says you are done.)');
+      console.log('');
+      let stopWatch = false;
+      const onSig = (): void => { stopWatch = true; };
+      process.once('SIGINT', onSig);
+      process.once('SIGTERM', onSig);
+      const client = new ControlClient(kr.ownerKeypair(), api);
+      const watchDeadline = Date.now() + CONNECT_WATCH_MS;
+      while (!stopWatch && Date.now() < watchDeadline) {
+        try {
+          await processConnections(kr, client);
+        } catch {
+          /* transient network — keep watching */
+        }
+        for (let i = 0; i < POLL_INTERVAL_MS / 1000 && !stopWatch; i++) {
+          await new Promise<void>((r) => setTimeout(r, 1000));
+        }
+      }
+      process.removeListener('SIGINT', onSig);
+      process.removeListener('SIGTERM', onSig);
+    }
+
     console.log('');
-    console.log('  Finish connecting things in the browser page you already have open.');
-    console.log(`  Pull everything down with:  based sync --watch 30`);
-    console.log(`  Cut it all off anytime:     based kill "${agentName}"`);
+    console.log(`  Pull new approvals anytime with:  based sync --watch 30`);
+    console.log(`  Cut it all off anytime:           based kill "${agentName}"`);
     if (!mcpConfigured) {
       console.log('');
       console.log('  (Remember to add the MCP config so Claude Code can use it.)');

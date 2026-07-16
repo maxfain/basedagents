@@ -1,7 +1,7 @@
 {
   "name": "@basedagents/keyring",
   "version": "0.2.0",
-  "description": "Scoped, revocable credentials bound to cryptographic agent identities — local-first encrypted vault, identity-bound grants, short-lived leases, signed access log",
+  "description": "Scoped, revocable credentials bound to cryptographic agent identities \u2014 local-first encrypted vault, identity-bound grants, short-lived leases, signed access log",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -9,6 +9,14 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./crypto": {
+      "import": "./dist/crypto.js",
+      "types": "./dist/crypto.d.ts"
+    },
+    "./util": {
+      "import": "./dist/util.js",
+      "types": "./dist/util.d.ts"
     }
   },
   "bin": {

@@ -14,7 +14,8 @@
   "scripts": {
     "build": "npm run build --workspaces",
     "typecheck": "tsc --build",
-    "lint": "eslint .",
+    "lint": "eslint . && node scripts/lint-ui-words.mjs",
+    "lint:words": "node scripts/lint-ui-words.mjs",
     "test": "npm run test --workspaces --if-present",
     "test:e2e": "npm run test:e2e --workspace=packages/console",
     "dev:api": "npm run dev --workspace=packages/api",

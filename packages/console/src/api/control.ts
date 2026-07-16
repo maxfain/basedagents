@@ -19,6 +19,9 @@ import type {
   RecoverOptionsResponse,
   RecoverFinishResponse,
   BillingInfo,
+  LinkInfo,
+  ClaimResult,
+  ConnectionInfo,
 } from './types.js';
 import type { RegistrationResult } from '../lib/webauthn.js';
 
@@ -118,6 +121,34 @@ export const control = {
   // ── Vault-key binding (unlocks daemonAuth for `based sync`) ──
   bindVaultKey(vaultPublicKey: string, nonce: string, assertion: OwnerAssertion): Promise<VaultKeyBinding> {
     return request('POST', '/vault-binding', { vault_public_key: vaultPublicKey, nonce, assertion });
+  },
+
+  // ── Authority ladder / onboarding ──
+  linkStatus(code: string): Promise<LinkInfo> {
+    return request('GET', `/link/${encodeURIComponent(code)}`);
+  },
+  linkClaim(code: string, email: string): Promise<{ ok: true }> {
+    return request('POST', `/link/${encodeURIComponent(code)}/claim`, { email });
+  },
+  claimFinish(token: string): Promise<ClaimResult> {
+    return request('POST', '/claim/finish', { token });
+  },
+  loginEmail(email: string): Promise<{ ok: true }> {
+    return request('POST', '/login/email', { email });
+  },
+  loginEmailFinish(token: string): Promise<{ owner_id: string }> {
+    return request('POST', '/login/email/finish', { token });
+  },
+  inviteClaim(token: string): Promise<{ ok: true; email: string; next_step: string }> {
+    return request('POST', '/invites/claim', { token });
+  },
+  createConnection(input: {
+    agent_id: string; provider: string; label?: string; env_var?: string; sealed_secret: string;
+  }): Promise<{ id: string; status: string }> {
+    return request('POST', '/connections', input);
+  },
+  listConnections(): Promise<{ connections: ConnectionInfo[] }> {
+    return request('GET', '/connections');
   },
 
   // ── Billing ("local is free, hosted is paid") ──
