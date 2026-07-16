@@ -79,11 +79,20 @@ export function hexToBytes(hex: string): Uint8Array {
 }
 
 export function bytesToBase64(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString('base64');
+  // Isomorphic: Node uses Buffer; browsers (console connect cards seal with
+  // this exact code for byte parity) use btoa.
+  if (typeof Buffer !== 'undefined') return Buffer.from(bytes).toString('base64');
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
 }
 
 export function base64ToBytes(b64: string): Uint8Array {
-  return Uint8Array.from(Buffer.from(b64, 'base64'));
+  if (typeof Buffer !== 'undefined') return Uint8Array.from(Buffer.from(b64, 'base64'));
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
 }
 
 // ─── Hashing ───

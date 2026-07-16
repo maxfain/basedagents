@@ -26,6 +26,8 @@ import approvalRoutes from './control/approvals.js';
 import recoveryRoutes from './control/recovery.js';
 import { billingRoutes, stripeWebhookRoutes } from './control/billing.js';
 import testingRoutes from './control/testing.js';
+import ladderRoutes from './control/ladder.js';
+import funnelRoutes, { VOTABLE_PROVIDERS } from './routes/funnel.js';
 
 const app = new Hono<AppEnv>();
 
@@ -59,7 +61,28 @@ const RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
   '/v1/owner/recover/begin':   { max: 3,  windowMs: 60_000 },
   '/v1/owner/recover/options': { max: 10, windowMs: 60_000 },
   '/v1/owner/recover/finish':  { max: 10, windowMs: 60_000 },
+  // Authority ladder: link creation and email-sending endpoints are abuse targets.
+  '/v1/owner/link':            { max: 10, windowMs: 60_000 },
+  '/v1/owner/login/email':     { max: 3,  windowMs: 60_000 },
+  '/v1/owner/claim/finish':    { max: 10, windowMs: 60_000 },
+  '/v1/owner/invites':         { max: 10, windowMs: 60_000 },
+  // Anonymous counters (funnel pings, vote tiles) — cheap, but cap the firehose.
+  '/v1/funnel':                { max: 30, windowMs: 60_000 },
 };
+// Vote tiles are parameterized paths — one exact entry per allowlisted slug.
+for (const p of VOTABLE_PROVIDERS) {
+  RATE_LIMITS[`/v1/providers/${p}/vote`] = { max: 10, windowMs: 60_000 };
+}
+
+// Rate limits for PARAMETERIZED paths (the exact-match map above can't reach
+// them). Keyed by `key` (not the concrete path) so an attacker rotating the id
+// segment — e.g. minting a new link code per request — still shares one bucket
+// per IP instead of getting a fresh limit each time.
+const RATE_LIMIT_PATTERNS: Array<{ pattern: RegExp; key: string; max: number; windowMs: number }> = [
+  // The claim endpoint SENDS AN EMAIL to an arbitrary recipient; without this
+  // a single unclaimed link code is an open relay. (10/min ≈ resend headroom.)
+  { pattern: /^\/v1\/owner\/link\/[^/]+\/claim$/, key: 'owner:link-claim', max: 10, windowMs: 60_000 },
+];
 
 // ─── Global Middleware ───
 app.use('*', logger());
@@ -104,14 +127,22 @@ app.use('*', async (c, next) => {
 // ─── Rate limiting middleware (durable) ───
 app.use('*', async (c, next) => {
   const path = new URL(c.req.url).pathname;
-  const limit = RATE_LIMITS[path];
+  let limit = RATE_LIMITS[path];
+  let limitKey = path;
+  if (!limit) {
+    const p = RATE_LIMIT_PATTERNS.find((rp) => rp.pattern.test(path));
+    if (p) {
+      limit = { max: p.max, windowMs: p.windowMs };
+      limitKey = p.key; // shared bucket across concrete ids
+    }
+  }
   if (limit) {
     const db = c.get('db');
     // Fail open if the DB binding is missing (local misconfig) — availability
     // over enforcement; every real deployment has the binding.
     if (db) {
       const ip = c.req.header('CF-Connecting-IP') ?? c.req.header('X-Forwarded-For') ?? 'unknown';
-      const result = await checkRateLimit(db, `${path}:${ip}`, limit.max, limit.windowMs);
+      const result = await checkRateLimit(db, `${limitKey}:${ip}`, limit.max, limit.windowMs);
       if (!result.allowed) {
         c.header('Retry-After', String(Math.ceil((result.retryAfterMs ?? limit.windowMs) / 1000)));
         return c.json({ error: 'rate_limited', message: 'Too many requests. Please slow down.' }, 429);
@@ -362,6 +393,10 @@ app.route('/v1/owner', billingRoutes);
 app.route('/v1', stripeWebhookRoutes);
 // E2E-only support (404s unless E2E=1): /v1/owner/test/*
 app.route('/v1/owner', testingRoutes);
+// The authority ladder (link codes, magic-link claim/login, invites, connect cards): /v1/owner
+app.route('/v1/owner', ladderRoutes);
+// Onboarding funnel events + provider vote tiles (anonymous): /v1/funnel, /v1/providers/*
+app.route('/v1', funnelRoutes);
 
 /**
  * MED-5: Constant-time string comparison to prevent timing attacks on admin tokens.

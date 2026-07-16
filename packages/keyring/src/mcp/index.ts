@@ -298,6 +298,41 @@ server.tool(
   }
 );
 
+// ── invite_owner ────────────────────────────────────────────────────────────
+//
+// Agent-first entry (onboarding redesign §2b): the agent asks its human, in
+// conversation, for an email — the invite email is framed FROM the agent.
+// Until the human claims and finishes setup on their own machine, this agent
+// can hold nothing and access nothing (claim-pending is structural at the
+// control plane). Invites are rate-limited server-side; the tool surfaces
+// those brakes as friendly errors.
+server.tool(
+  'invite_owner',
+  "Invite a human to take ownership of this agent by email. Use when you have no vault/owner set up yet: ask the user for their email in conversation, then call this. They receive an email framed from this agent; nothing is storable or leasable until they accept and run the setup command on their machine.",
+  { email: z.string().email().describe("The human's email address (ask them in conversation first)") },
+  async ({ email }) => {
+    const kp = getKeypair();
+    if (!kp) return noIdentityResult();
+    const api = process.env.BASEDAGENTS_KEYRING_API || 'https://api.basedagents.ai';
+    try {
+      const { ControlClient } = await import('../cli/control-client.js');
+      await new ControlClient(kp, api).inviteOwner(email);
+      return textResult(
+        `## Invite sent\n\n` +
+        `**${email}** has been invited to take control of this agent (valid 72 hours).\n\n` +
+        `Tell the user: check your inbox for "wants you as its owner", accept, and run the ` +
+        `setup command it shows on this machine. Until then this agent cannot hold or lease anything.`
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('429') || /rate|limit|recently|tomorrow/i.test(msg)) {
+        return textResult(`## Invite not sent\n\n${msg}\n\nWait before retrying — invites are deliberately rate-limited.`);
+      }
+      return textResult(`## Invite failed\n\n${msg}`);
+    }
+  }
+);
+
 // ── keyring_whoami ──────────────────────────────────────────────────────────
 server.tool(
   'keyring_whoami',

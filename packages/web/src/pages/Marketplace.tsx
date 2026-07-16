@@ -347,11 +347,12 @@ export default function Marketplace(): React.ReactElement {
         </div>
       </div>
 
-      {/* Keyring cross-link */}
+      {/* Keyring cross-link — /keyring is a STATIC page (not an SPA route), so
+          this is a real <a>, not a react-router <Link>. */}
       <div style={{ padding: '0 0 64px' }}>
         <div className="container-wide">
-          <Link
-            to="/keyring"
+          <a
+            href="/keyring"
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               gap: 12, flexWrap: 'wrap', textDecoration: 'none',
@@ -369,9 +370,9 @@ export default function Marketplace(): React.ReactElement {
               </p>
             </div>
             <span style={{ color: 'var(--accent)', fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap' }}>
-              Try the live demo →
+              Learn more →
             </span>
-          </Link>
+          </a>
         </div>
       </div>
 

@@ -10,9 +10,11 @@
  */
 
 import { Keyring, KeyringError } from '../keyring.js';
+import { openSealedBox } from '../crypto.js';
 import { parseFlags, CliError, shortAgentId } from './shared.js';
 import { confirm } from './prompt.js';
 import { ControlClient, DEFAULT_KEYRING_API } from './control-client.js';
+import { validateProviderToken, presetEnvVar } from './providers.js';
 
 function apiFrom(flags: { values: Record<string, string | undefined> }): string {
   return flags.values['api'] ?? DEFAULT_KEYRING_API;
@@ -63,6 +65,97 @@ export async function cmdLink(args: string[], dir: string | undefined): Promise<
   console.log(`\nDone — ${anchored} passkey(s) anchored. Run \`based sync\` to apply approved grants.`);
 }
 
+/**
+ * Connections stored locally but whose server-side resolve call has not yet
+ * succeeded (transient control-plane error). Keyed by connection id → the
+ * credential id already created for it. On the next round we retry ONLY the
+ * resolve — never re-store — so a resolve blip can't create a duplicate
+ * credential/grant and can't mark an already-stored token as failed. Module
+ * scope so it persists across watch-loop rounds within a process.
+ */
+const pendingResolves = new Map<string, string>();
+
+/**
+ * Connect cards (onboarding Move 3): pull browser-sealed provider tokens,
+ * open them with the vault owner key (LOCALLY — the plaintext exists only
+ * here), validate against the provider where possible, store the credential
+ * and create the grant for the connected agent, then confirm back so the
+ * card in the browser flips to ✓. Shared by `based sync` and the tail of
+ * `based init` (which keeps storing while the browser page is still open).
+ *
+ * Exactly-once, two lines of defense:
+ *   - `claimConnection` atomically moves the row pending → processing, so two
+ *     daemons racing the same card cannot both store it (only the winner
+ *     proceeds; the loser skips).
+ *   - `pendingResolves` retries a stored-but-unresolved connection's resolve
+ *     without re-storing, so a transient resolve failure never duplicates or
+ *     falsely fails.
+ * Returns the number of connections it touched.
+ */
+export async function processConnections(keyring: Keyring, client: ControlClient): Promise<number> {
+  const owner = keyring.ownerKeypair();
+
+  // First, drain any store-succeeded-but-resolve-failed connections.
+  for (const [id, credentialId] of [...pendingResolves]) {
+    try {
+      await client.resolveConnection(id, { daemonCredentialId: credentialId });
+      pendingResolves.delete(id);
+    } catch { /* still unreachable — keep for the next round */ }
+  }
+
+  const connections = await client.getConnections();
+  for (const conn of connections) {
+    const display = conn.label ?? conn.provider;
+    if (pendingResolves.has(conn.id)) continue; // already stored; only the resolve is owed
+
+    // Claim first — the loser of a cross-process race skips entirely.
+    let claimed: boolean;
+    try {
+      claimed = await client.claimConnection(conn.id);
+    } catch (err) {
+      console.log(`· ${display}: ${(err as Error).message} (will retry)`);
+      continue;
+    }
+    if (!claimed) continue;
+
+    try {
+      const secret = new TextDecoder().decode(openSealedBox(owner.privateKey, conn.sealed_secret));
+      const check = await validateProviderToken(conn.provider, secret);
+      if (!check.ok) {
+        console.log(`✗ ${display}: ${check.detail}`);
+        await client.resolveConnection(conn.id, { error: check.detail });
+        continue;
+      }
+      const credential = await keyring.addCredential(owner, {
+        label: conn.label ?? conn.provider,
+        provider: conn.provider,
+        env_var: conn.env_var ?? presetEnvVar(conn.provider),
+      }, secret.trim());
+      await keyring.createGrant(owner, credential.credential_id, conn.agent_id, {});
+      // Local store succeeded. From here a resolve failure must NOT re-store —
+      // remember the credential id and retry the resolve alone next round.
+      pendingResolves.set(conn.id, credential.credential_id);
+      await client.resolveConnection(conn.id, { daemonCredentialId: credential.credential_id });
+      pendingResolves.delete(conn.id);
+      console.log(`✓ ${display} connected → ${shortAgentId(conn.agent_id)} (${check.detail})`);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      // Only report a failure if nothing was stored (validation/open error). If
+      // the store already happened, pendingResolves holds it for a resolve-only
+      // retry — do not overwrite a real credential with a 'failed' card.
+      if (!pendingResolves.has(conn.id)) {
+        console.log(`✗ ${display}: ${reason}`);
+        try {
+          await client.resolveConnection(conn.id, { error: reason });
+        } catch { /* reported next round */ }
+      } else {
+        console.log(`· ${display}: stored locally; confirming with the server (will retry)`);
+      }
+    }
+  }
+  return connections.length;
+}
+
 export async function cmdSync(args: string[], dir: string | undefined): Promise<void> {
   const flags = parseFlags(args, { value: ['api', 'watch'] });
   const keyring = Keyring.open(dir);
@@ -75,6 +168,7 @@ export async function cmdSync(args: string[], dir: string | undefined): Promise<
   }
 
   const runOnce = async (quiet: boolean): Promise<void> => {
+    if ((await processConnections(keyring, client)) > 0 && !quiet) console.log('');
     const approvals = await client.getApprovals();
     if (approvals.length === 0) {
       if (!quiet) console.log('No pending approvals.');

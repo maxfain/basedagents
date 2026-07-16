@@ -38,7 +38,7 @@ import { billingRoutes, stripeWebhookRoutes } from './billing.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS = join(__dirname, '..', '..', 'migrations');
-const SQL = ['0023_owner_accounts.sql', '0024_keyring_approvals.sql', '0025_owner_recovery.sql', '0026_owner_billing.sql']
+const SQL = ['0023_owner_accounts.sql', '0024_keyring_approvals.sql', '0025_owner_recovery.sql', '0026_owner_billing.sql', '0027_authority_ladder.sql']
   .map((f) => readFileSync(join(MIGRATIONS, f), 'utf-8'));
 
 const te = new TextEncoder();

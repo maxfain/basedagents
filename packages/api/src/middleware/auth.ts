@@ -14,8 +14,13 @@ import type { AppEnv } from '../types/index.js';
  * If X-Nonce is absent, falls back to legacy format without the nonce suffix.
  *
  * Sets c.set('agentId', ...) and c.set('publicKey', ...) on success.
+ *
+ * `allowUnregistered` controls what happens when the signature verifies but no
+ * agents row exists: reject (default) or register-on-first-use (agent-first
+ * entry — see the note at the registration check).
  */
-export const agentAuth = createMiddleware<AppEnv>(async (c, next) => {
+function makeAgentAuth(allowUnregistered: boolean) {
+  return createMiddleware<AppEnv>(async (c, next) => {
   const authHeader = c.req.header('Authorization');
 
   if (!authHeader?.startsWith('AgentSig ')) {
@@ -115,17 +120,47 @@ export const agentAuth = createMiddleware<AppEnv>(async (c, next) => {
   const agentId = publicKeyToAgentId(publicKey);
   const agent = await db.get<{ id: string; status: string }>('SELECT id, status FROM agents WHERE id = ?', agentId);
 
-  if (!agent) {
+  let status: string;
+  if (agent) {
+    status = agent.status;
+  } else if (allowUnregistered) {
+    // Register-on-first-use for agent-first entry (invite_owner). The caller
+    // already proved key possession via the verified AgentSig above; the only
+    // action this unlocks creates nothing storable/leasable and is heavily
+    // rate-limited, so no proof-of-work is required. Idempotent (ignore the
+    // unique race).
+    try {
+      await db.run(
+        `INSERT INTO agents (id, public_key, name, description, capabilities, protocols, status)
+         VALUES (?, ?, 'Keyring agent', 'Registered via Keyring invite', '[]', '["mcp"]', 'active')`,
+        agentId,
+        publicKey,
+      );
+    } catch { /* concurrent register — fine */ }
+    status = 'active';
+  } else {
     return c.json({ error: 'unauthorized', message: 'Agent not registered' }, 401);
   }
 
   // Set context
   c.set('agentId', agentId);
   c.set('publicKey', publicKey);
-  c.set('agentStatus', agent.status);
+  c.set('agentStatus', status);
 
   await next();
-});
+  });
+}
+
+/**
+ * Standard agent auth — the agent MUST already exist in the registry.
+ */
+export const agentAuth = makeAgentAuth(false);
+
+/**
+ * Agent auth that REGISTERS an unknown-but-cryptographically-valid agent on
+ * first use. Only for agent-first entry (invite_owner) — see the inline note.
+ */
+export const agentAuthAllowUnregistered = makeAgentAuth(true);
 
 /**
  * Optional auth — sets agent context ONLY if signature fully verifies.

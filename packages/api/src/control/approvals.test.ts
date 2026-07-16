@@ -54,6 +54,8 @@ const MIGRATIONS = join(__dirname, '..', '..', 'migrations');
 const SQL_0023 = readFileSync(join(MIGRATIONS, '0023_owner_accounts.sql'), 'utf-8');
 const SQL_0024 = readFileSync(join(MIGRATIONS, '0024_keyring_approvals.sql'), 'utf-8');
 const SQL_0025 = readFileSync(join(MIGRATIONS, '0025_owner_recovery.sql'), 'utf-8');
+const SQL_0026 = readFileSync(join(MIGRATIONS, '0026_owner_billing.sql'), 'utf-8');
+const SQL_0027 = readFileSync(join(MIGRATIONS, '0027_authority_ladder.sql'), 'utf-8');
 
 const te = new TextEncoder();
 const RP_ID = 'basedagents.ai';
@@ -385,6 +387,8 @@ beforeEach(() => {
   rawDb.exec(SQL_0023);
   rawDb.exec(SQL_0024);
   rawDb.exec(SQL_0025);
+  rawDb.exec(SQL_0026);
+  rawDb.exec(SQL_0027);
   db = new SQLiteAdapter(rawDb);
   store = new ControlStore(db);
   agentCounter = 0;

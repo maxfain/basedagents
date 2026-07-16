@@ -4,27 +4,7 @@
 
 import * as fs from 'node:fs';
 import { Keyring } from '../keyring.js';
-import { CliError, parseFlags, loadKeypairChecked } from './shared.js';
-
-export async function cmdInit(args: string[], dir: string | undefined): Promise<void> {
-  const flags = parseFlags(args, { value: ['owner-keypair'] });
-  const ownerKeypairPath = flags.values['owner-keypair'];
-  const ownerKeypair = ownerKeypairPath ? loadKeypairChecked(ownerKeypairPath) : undefined;
-
-  const kr = await Keyring.init({ dir, ownerKeypair });
-  const vault = kr.vault();
-
-  console.log('✓ Vault created');
-  console.log(`  Directory:  ${kr.store.dir}`);
-  console.log(`  Owner:      ${vault.owner.agent_id}`);
-  if (ownerKeypairPath) {
-    console.log(`  (owner identity reused from ${ownerKeypairPath})`);
-  }
-  console.log('');
-  console.log(`⚠ Back up ${kr.store.ownerKeyPath}`);
-  console.log('  It is the only key that can open every credential in this vault — if it is');
-  console.log('  lost, secrets sealed only to the owner cannot be recovered.');
-}
+import { CliError, parseFlags } from './shared.js';
 
 export async function cmdExport(args: string[], dir: string | undefined): Promise<void> {
   const flags = parseFlags(args, { value: ['out'] });

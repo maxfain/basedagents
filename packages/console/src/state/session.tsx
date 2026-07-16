@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useEffect, useState } from 'react';
+import { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { control, ControlApiError } from '../api/control.js';
 import type { OwnerMe } from '../api/types.js';
@@ -16,19 +16,26 @@ const SessionContext = createContext<SessionValue | null>(null);
 export function OwnerProvider({ children }: { children: ReactNode }) {
   const [owner, setOwner] = useState<OwnerMe | null>(null);
   const [loading, setLoading] = useState(true);
+  // Monotonic guard: only the NEWEST refresh may write state. Without it, a
+  // slow cookieless GET /me dispatched at mount can resolve (401) AFTER a
+  // freshly-claimed session's refresh and clobber the owner back to null,
+  // bouncing the just-signed-in user to /login.
+  const seq = useRef(0);
 
   const refresh = useCallback(async () => {
+    const mine = ++seq.current;
     try {
-      setOwner(await control.me());
+      const me = await control.me();
+      if (mine === seq.current) setOwner(me);
     } catch (err) {
       // 401 just means "no live session" — not an error worth surfacing.
       if (!(err instanceof ControlApiError) || err.status !== 401) {
         // eslint-disable-next-line no-console
         console.error('session refresh failed', err);
       }
-      setOwner(null);
+      if (mine === seq.current) setOwner(null);
     } finally {
-      setLoading(false);
+      if (mine === seq.current) setLoading(false);
     }
   }, []);
 

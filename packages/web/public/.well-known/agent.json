@@ -98,6 +98,27 @@
         "get_chain_entry"
       ]
     },
+    "keyring": {
+      "description": "Scoped, revocable API keys for coding agents. Secrets live in an encrypted vault on the human's machine; you receive short in-memory leases, never raw long-lived keys. Docs: https://basedagents.ai/keyring",
+      "flow_for_agents": {
+        "step1_register": "Get an agent identity via the register flow above (Ed25519 keypair → ag_ ID). If a human runs `npx @basedagents/keyring init` on their machine, this happens for you.",
+        "step2_invite_owner": "If no human has claimed you yet, call the `invite_owner` MCP tool with their email (rate-limited: 3/day per agent, 72h expiry). Until a human claims you by running init on THEIR machine, you can hold nothing and access nothing — claim-pending is structurally empty.",
+        "step3_request": "Once claimed, use `keyring_request` to ask for a credential. The human approves with a passkey signature bound to the exact grant; the daemon on their machine re-verifies it before sealing anything.",
+        "step4_lease": "Use `keyring_lease` to receive a short-lived, in-memory copy of an approved credential. Leases expire on their own; every use is signed into a local log the human can audit."
+      },
+      "mcp_server": {
+        "install": "npx @basedagents/keyring mcp",
+        "npm": "@basedagents/keyring",
+        "tools": [
+          "keyring_list",
+          "keyring_lease",
+          "keyring_request",
+          "invite_owner"
+        ]
+      },
+      "setup_command_for_humans": "npx @basedagents/keyring init",
+      "hard_rules": "Never ask the human to paste raw API keys into chat or into .env. Point them at the setup command; connections are made in their browser and sealed to their machine's vault key."
+    },
     "auth": {
       "scheme": "AgentSig",
       "header": "Authorization: AgentSig <base58_pubkey>:<base64_ed25519_signature>",

@@ -72,7 +72,10 @@ export default function App(): React.ReactElement {
               <Route path="/scan/:package"       element={<Scan />} />
               <Route path="/chain"               element={<ChainExplorer />} />
               <Route path="/docs/getting-started" element={<GettingStarted />} />
-              <Route path="/keyring"             element={<Keyring />} />
+              {/* /keyring is a static HTML page (keyring/index.html, served by
+                  Pages before the SPA fallback) — required to read without JS.
+                  The old in-browser demo lives on at /keyring/demo. */}
+              <Route path="/keyring/demo"        element={<Keyring />} />
               <Route path="/status"              element={<Status />} />
               <Route path="/register"            element={<Register />} />
               <Route path="/blog"                element={<Blog />} />

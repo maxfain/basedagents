@@ -34,6 +34,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS = join(__dirname, '..', '..', 'migrations');
 const SQL_0023 = readFileSync(join(MIGRATIONS, '0023_owner_accounts.sql'), 'utf-8');
 const SQL_0025 = readFileSync(join(MIGRATIONS, '0025_owner_recovery.sql'), 'utf-8');
+const SQL_0026 = readFileSync(join(MIGRATIONS, '0026_owner_billing.sql'), 'utf-8');
+const SQL_0027 = readFileSync(join(MIGRATIONS, '0027_authority_ladder.sql'), 'utf-8');
 
 const te = new TextEncoder();
 const RP_ID = 'basedagents.ai';
@@ -247,8 +249,15 @@ function tokenFromEmail(): string {
 beforeEach(() => {
   rawDb = new Database(':memory:');
   rawDb.pragma('foreign_keys = ON');
+  // Minimal agents table so the delegations FK (0023/0027 rebuild) resolves.
+  rawDb.exec(`CREATE TABLE agents (
+    id TEXT PRIMARY KEY, public_key BLOB, name TEXT,
+    status TEXT NOT NULL DEFAULT 'active', registered_at TEXT
+  );`);
   rawDb.exec(SQL_0023);
   rawDb.exec(SQL_0025);
+  rawDb.exec(SQL_0026);
+  rawDb.exec(SQL_0027);
   db = new SQLiteAdapter(rawDb);
   store = new ControlStore(db);
   sentEmails = [];

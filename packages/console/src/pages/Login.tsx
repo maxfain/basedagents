@@ -1,10 +1,19 @@
-import { useState } from 'react';
+/**
+ * /login — both rungs of the ladder, email first (spec v0.2 §5.1).
+ *
+ * The email magic link mints a LOOK-ONLY session: you can see everything,
+ * but nothing moves without a passkey signature (approve endpoints arm no
+ * usable challenge under it). The passkey button is the second rung for
+ * people who already have one. Magic-link tokens arrive on THIS page as
+ * #t=… in the URL fragment — never in a query string, never logged.
+ *
+ * Base-case surface — the banned-words rule applies (scripts/lint-ui-words.mjs).
+ */
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { control, ControlApiError } from '../api/control.js';
-import { createPasskey, getAssertion, passkeysSupported } from '../lib/webauthn.js';
+import { getAssertion, passkeysSupported } from '../lib/webauthn.js';
 import { useOwner } from '../state/session.js';
-
-type Mode = 'signin' | 'register';
 
 function errText(err: unknown): string {
   if (err instanceof ControlApiError) return err.message;
@@ -12,25 +21,51 @@ function errText(err: unknown): string {
   return String(err);
 }
 
-export default function Login({ initialMode = 'signin' }: { initialMode?: Mode }) {
+export default function Login() {
   const { refresh } = useOwner();
   const navigate = useNavigate();
-  const [mode] = useState<Mode>(initialMode); // /login = signin, /signup = register
   const [email, setEmail] = useState('');
-  const [vaultKey, setVaultKey] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [busy, setBusy] = useState<'email' | 'passkey' | 'finish' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const ran = useRef(false);
 
-  const supported = passkeysSupported();
+  // A magic-link click lands here as /login#t=… — finish it once.
+  useEffect(() => {
+    if (ran.current) return;
+    ran.current = true;
+    const token = new URLSearchParams(window.location.hash.slice(1)).get('t');
+    if (!token) return;
+    window.history.replaceState(null, '', window.location.pathname);
+    setBusy('finish');
+    void control
+      .loginEmailFinish(token)
+      .then(async () => {
+        await refresh();
+        navigate('/home', { replace: true });
+      })
+      .catch(() => {
+        setBusy(null);
+        setError('That sign-in link is invalid or has expired — request a fresh one below.');
+      });
+  }, [navigate, refresh]);
 
-  async function finishAndEnter(): Promise<void> {
-    await refresh();
-    navigate('/approvals', { replace: true });
+  async function onEmail(e: React.FormEvent): Promise<void> {
+    e.preventDefault();
+    setBusy('email');
+    setError(null);
+    try {
+      await control.loginEmail(email.trim());
+      setSentTo(email.trim());
+    } catch (err) {
+      setError(errText(err));
+    } finally {
+      setBusy(null);
+    }
   }
 
-  async function onSignIn(e: React.FormEvent): Promise<void> {
-    e.preventDefault();
-    setBusy(true);
+  async function onPasskey(): Promise<void> {
+    setBusy('passkey');
     setError(null);
     try {
       const begin = await control.loginBegin({ email: email.trim() });
@@ -42,121 +77,75 @@ export default function Login({ initialMode = 'signin' }: { initialMode?: Mode }
         timeout: begin.timeout,
       });
       await control.loginFinish(assertion);
-      await finishAndEnter();
+      await refresh();
+      navigate('/home', { replace: true });
     } catch (err) {
       setError(errText(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  async function onRegister(e: React.FormEvent): Promise<void> {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const begin = await control.registerBegin(vaultKey.trim(), email.trim() || undefined);
-      const reg = await createPasskey(begin.options);
-      await control.registerFinish(vaultKey.trim(), reg);
-      // A fresh passkey → sign in immediately to mint the look-session.
-      const login = await control.loginBegin({ owner_id: begin.owner_id });
-      const assertion = await getAssertion({
-        challenge: login.challenge,
-        rpId: login.rpId,
-        allowCredentials: login.allowCredentials,
-        userVerification: login.userVerification,
-        timeout: login.timeout,
-      });
-      await control.loginFinish(assertion);
-      await finishAndEnter();
-    } catch (err) {
-      setError(errText(err));
-    } finally {
-      setBusy(false);
-    }
+  if (busy === 'finish') {
+    return <div className="boot">Signing you in…</div>;
   }
 
   return (
     <div className="auth-wrap">
       <div className="auth-card">
         <div className="auth-brand">
-          <span className="brand-mark">◈</span> BasedAgents <span className="brand-sub">Console</span>
+          <span className="brand-mark">◈</span> BasedAgents
         </div>
-        <h1 className="auth-title">{mode === 'signin' ? 'Sign in' : 'Create your owner account'}</h1>
-        <p className="auth-lede">
-          {mode === 'signin'
-            ? 'Authenticate with the passkey bound to your vault.'
-            : 'Bind a passkey to the vault you created with '}
-          {mode === 'register' && <code>based init</code>}
-          {mode === 'register' && '.'}
-        </p>
 
-        {!supported && (
-          <div className="banner banner-warn">
-            This browser has no WebAuthn/passkey support. Use a passkey-capable browser.
-          </div>
-        )}
-
-        {mode === 'signin' ? (
-          <form onSubmit={onSignIn} className="form">
-            <label className="field">
-              <span className="field-label">Email</span>
-              <input
-                type="email"
-                autoComplete="username webauthn"
-                value={email}
-                onChange={(ev) => setEmail(ev.target.value)}
-                placeholder="you@example.com"
-                required
-              />
-            </label>
-            <button className="btn btn-primary" type="submit" disabled={busy || !supported}>
-              {busy ? 'Waiting for passkey…' : 'Sign in with passkey'}
-            </button>
-          </form>
+        {sentTo ? (
+          <>
+            <h1 className="auth-title">Check your email</h1>
+            <p className="auth-lede">
+              If <strong>{sentTo}</strong> has an account, a sign-in link is on its way. Click it
+              within 15 minutes. You can close this page.
+            </p>
+          </>
         ) : (
-          <form onSubmit={onRegister} className="form">
-            <label className="field">
-              <span className="field-label">Vault public key</span>
-              <input
-                type="text"
-                value={vaultKey}
-                onChange={(ev) => setVaultKey(ev.target.value)}
-                placeholder="base58 Ed25519 key from `based owner show`"
-                spellCheck={false}
-                required
-              />
-              <span className="field-hint">
-                Your owner identity is derived from this key. It stays on your machine — the console
-                never sees your vault's private key or any secret.
-              </span>
-            </label>
-            <label className="field">
-              <span className="field-label">Email <span className="muted">(for sign-in + recovery)</span></span>
-              <input
-                type="email"
-                value={email}
-                onChange={(ev) => setEmail(ev.target.value)}
-                placeholder="you@example.com"
-              />
-            </label>
-            <button className="btn btn-primary" type="submit" disabled={busy || !supported}>
-              {busy ? 'Waiting for passkey…' : 'Create account + passkey'}
-            </button>
-          </form>
+          <>
+            <h1 className="auth-title">Sign in</h1>
+            <p className="auth-lede">See what your agents are doing and stay in control.</p>
+
+            <form onSubmit={onEmail} className="form">
+              <label className="field">
+                <span className="field-label">Email</span>
+                <input
+                  type="email"
+                  autoComplete="username webauthn"
+                  value={email}
+                  onChange={(ev) => setEmail(ev.target.value)}
+                  placeholder="you@example.com"
+                  required
+                />
+              </label>
+              <button className="btn btn-primary" type="submit" disabled={busy !== null}>
+                {busy === 'email' ? 'Sending…' : 'Email me a sign-in link'}
+              </button>
+              {passkeysSupported() && (
+                <button
+                  className="btn btn-ghost"
+                  type="button"
+                  disabled={busy !== null || email.trim() === ''}
+                  onClick={() => void onPasskey()}
+                >
+                  {busy === 'passkey' ? 'Waiting for passkey…' : 'Sign in with a passkey'}
+                </button>
+              )}
+            </form>
+
+            {error && <div className="banner banner-error">{error}</div>}
+
+            <div className="auth-switch">
+              <Link className="link" to="/signup">New here? Get started</Link>
+              <span className="auth-sep">·</span>
+              <Link className="link" to="/recover">Lost your passkeys?</Link>
+            </div>
+          </>
         )}
-
-        {error && <div className="banner banner-error">{error}</div>}
-
-        <div className="auth-switch">
-          {mode === 'signin' ? (
-            <Link className="link" to="/signup">Create account</Link>
-          ) : (
-            <Link className="link" to="/login">Already have a passkey? Sign in</Link>
-          )}
-          <span className="auth-sep">·</span>
-          <Link className="link" to="/recover">Lost your passkeys?</Link>
-        </div>
       </div>
     </div>
   );

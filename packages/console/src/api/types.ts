@@ -54,6 +54,35 @@ export interface OwnerMe {
   vault_key: VaultKeyBinding | null;
   /** Metadata of the open recovery code (the code itself is never stored). */
   recovery_code: { created_at: string } | null;
+  /** The ladder rung of this session: 'passkey' | 'email'. */
+  session_method: string;
+  /** False until the first approval mints the passkey. */
+  has_passkey: boolean;
+}
+
+// ── Authority ladder / onboarding ──
+
+export interface LinkInfo {
+  status: 'pending' | 'email_sent' | 'claimed' | 'expired';
+  agent_id: string;
+  agent_name: string | null;
+}
+
+export interface ClaimResult {
+  owner_id: string;
+  agent_id: string;
+  agent_name: string | null;
+  delegation_blocked: { active: number; max: number } | null;
+}
+
+export interface ConnectionInfo {
+  id: string;
+  agent_id: string;
+  provider: string;
+  label: string | null;
+  status: 'pending' | 'stored' | 'failed';
+  failure_reason: string | null;
+  created_at: string;
 }
 
 export interface GrantConstraints {

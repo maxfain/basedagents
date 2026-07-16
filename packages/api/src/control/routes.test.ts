@@ -29,7 +29,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'migrations');
 const MIGRATION_SQL =
   readFileSync(join(MIGRATIONS_DIR, '0023_owner_accounts.sql'), 'utf-8') +
-  readFileSync(join(MIGRATIONS_DIR, '0025_owner_recovery.sql'), 'utf-8');
+  readFileSync(join(MIGRATIONS_DIR, '0025_owner_recovery.sql'), 'utf-8') +
+  readFileSync(join(MIGRATIONS_DIR, '0026_owner_billing.sql'), 'utf-8') +
+  readFileSync(join(MIGRATIONS_DIR, '0027_authority_ladder.sql'), 'utf-8');
 
 const te = new TextEncoder();
 const RP_ID = 'basedagents.ai';

@@ -113,4 +113,51 @@ export class ControlClient {
       : { error: result.error };
     await this.signedFetch('POST', `/v1/owner/daemon/approvals/${encodeURIComponent(id)}/confirm`, body);
   }
+
+  /** Pending browser-sealed connections (connect cards) awaiting local storage. */
+  async getConnections(): Promise<RemoteConnection[]> {
+    const r = await this.signedFetch<{ connections: RemoteConnection[] }>('GET', '/v1/owner/daemon/connections');
+    return r.connections;
+  }
+
+  /**
+   * ATOMICALLY claim a pending connection (pending → processing) before doing
+   * any local work. Returns true only for the single winner — so two daemons
+   * (e.g. `init`'s post-claim watch and a separate `based sync --watch`) can
+   * never both store the same sealed token as duplicate credentials/grants.
+   */
+  async claimConnection(id: string): Promise<boolean> {
+    const r = await this.signedFetch<{ claimed: boolean }>(
+      'POST', `/v1/owner/daemon/connections/${encodeURIComponent(id)}/claim`,
+    );
+    return r.claimed === true;
+  }
+
+  /** Resolve a pulled connection: stored locally (or failed, with a human reason). */
+  async resolveConnection(id: string, result: { daemonCredentialId: string } | { error: string }): Promise<void> {
+    const body = 'daemonCredentialId' in result
+      ? { daemon_credential_id: result.daemonCredentialId }
+      : { error: result.error };
+    await this.signedFetch('POST', `/v1/owner/daemon/connections/${encodeURIComponent(id)}/resolve`, body);
+  }
+
+  /**
+   * Agent-first entry: invite an owner by email (MCP `invite_owner`). Signed
+   * with whatever keypair this client was constructed with — for invites that
+   * MUST be the AGENT's keypair, not the vault owner's.
+   */
+  async inviteOwner(email: string): Promise<{ ok: boolean; status: string }> {
+    return this.signedFetch('POST', '/v1/owner/invites', { email });
+  }
+}
+
+export interface RemoteConnection {
+  id: string;
+  agent_id: string;
+  provider: string;
+  label: string | null;
+  env_var: string | null;
+  /** base64 sealed box → the vault owner key; opened locally, never logged. */
+  sealed_secret: string;
+  created_at: string;
 }
