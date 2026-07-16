@@ -1,0 +1,116 @@
+/**
+ * Control-plane HTTP client — the local daemon side of the grant-approval loop.
+ *
+ * Authenticates to the hosted control plane AS the owner, using the owner's
+ * Ed25519 vault key (the same key the vault seals to). Requests are AgentSig-
+ * signed over "<METHOD>:<pathname>:<timestamp>:<sha256hex(body)>:<nonce>", which
+ * the control plane's daemonAuth verifies against an active owner_vault_keys
+ * binding. See CONTROL_PLANE.md §2 and packages/api/src/control/approvals.ts.
+ */
+
+import * as ed from '@noble/ed25519';
+import { sha256 } from '@noble/hashes/sha256';
+import { bytesToHex } from '@noble/hashes/utils';
+import type { AgentKeypair } from '../crypto.js';
+import { base58Encode, bytesToBase64 } from '../util.js';
+import type { GrantConstraints, OwnerAssertion } from '../types.js';
+
+export const DEFAULT_KEYRING_API =
+  (typeof process !== 'undefined' ? process.env?.BASEDAGENTS_KEYRING_API : undefined)
+  ?? 'https://api.basedagents.ai';
+
+/** A passkey the control plane has on file for the owner, ready to anchor. */
+export interface RemotePasskey {
+  credential_id: string;
+  public_key_hex: string;
+  nickname: string | null;
+  created_at: string;
+}
+
+/** An approved grant the daemon should apply — shaped as keyring's GrantApproval. */
+export interface RemoteApproval {
+  id: string;
+  nonce: string;
+  credential_id: string;
+  agent_id: string;
+  agent_pubkey: string;
+  action_hash: string;
+  constraints: GrantConstraints;
+  assertion: OwnerAssertion;
+}
+
+export class ControlClientError extends Error {
+  constructor(message: string, readonly status?: number) {
+    super(message);
+    this.name = 'ControlClientError';
+  }
+}
+
+export class ControlClient {
+  private readonly baseUrl: string;
+  private readonly pubkeyB58: string;
+
+  constructor(private readonly owner: AgentKeypair, apiUrl: string = DEFAULT_KEYRING_API) {
+    this.baseUrl = apiUrl.replace(/\/$/, '');
+    this.pubkeyB58 = base58Encode(owner.publicKey);
+  }
+
+  /** Sign and send a request. `path` is the full pathname the server signs (incl. /v1/owner). */
+  private async signedFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const bodyStr = body === undefined ? '' : JSON.stringify(body);
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const nonce = crypto.randomUUID();
+    const bodyHash = bytesToHex(sha256(new TextEncoder().encode(bodyStr)));
+    const message = `${method}:${path}:${timestamp}:${bodyHash}:${nonce}`;
+    const signature = await ed.signAsync(new TextEncoder().encode(message), this.owner.privateKey);
+
+    const headers: Record<string, string> = {
+      Authorization: `AgentSig ${this.pubkeyB58}:${bytesToBase64(signature)}`,
+      'X-Timestamp': timestamp,
+      'X-Nonce': nonce,
+    };
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : bodyStr,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      throw new ControlClientError(`Could not reach the control plane at ${this.baseUrl}: ${(err as Error).message}`);
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!res.ok) {
+      let msg = res.statusText;
+      try { const e = await res.json() as { message?: string }; if (e.message) msg = e.message; } catch { /* ignore */ }
+      throw new ControlClientError(`Control plane error ${res.status}: ${msg}`, res.status);
+    }
+    return res.json() as Promise<T>;
+  }
+
+  /** The owner's registered passkeys + the RP config to anchor them under. */
+  async getPasskeys(): Promise<{ rp_id: string; origins: string[]; passkeys: RemotePasskey[] }> {
+    return this.signedFetch('GET', '/v1/owner/daemon/passkeys');
+  }
+
+  /** Pending approved grants awaiting local application. */
+  async getApprovals(): Promise<RemoteApproval[]> {
+    const r = await this.signedFetch<{ approvals: RemoteApproval[] }>('GET', '/v1/owner/daemon/approvals');
+    return r.approvals;
+  }
+
+  /** Report a successful local apply (or a failure) for an approval. */
+  async confirmApproval(id: string, result: { daemonGrantId: string } | { error: string }): Promise<void> {
+    const body = 'daemonGrantId' in result
+      ? { daemon_grant_id: result.daemonGrantId }
+      : { error: result.error };
+    await this.signedFetch('POST', `/v1/owner/daemon/approvals/${encodeURIComponent(id)}/confirm`, body);
+  }
+}

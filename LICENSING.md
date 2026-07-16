@@ -46,8 +46,31 @@ The **hosted control plane** is closed source:
 - Owner authentication, account management, and recovery.
 - Billing and any hosted-only orchestration.
 
-These are being built per `KEYRING_SPEC.md` v0.2 (§5) and will live in their own
-package(s) carrying a proprietary `LICENSE` (`UNLICENSED` in `package.json`).
+These are being built per `KEYRING_SPEC.md` v0.2 (§5). The control-plane code
+lives in two proprietary places:
+
+- **`packages/console/`** — the owner console web app (`app.basedagents.ai`):
+  passkey sign-in, the approvals inbox, and (later) delegations, recovery, and
+  billing screens. A standalone package so the closed console is cleanly
+  separated from the open, Apache-2.0 public site (`packages/web`). Carries its
+  own proprietary `LICENSE` (`packages/console/LICENSE`). All rights reserved.
+- **`packages/api/src/control/`** — the control-plane API: owner accounts,
+  WebAuthn/passkey authority, sessions, delegations, and approvals. A
+  proprietary subtree inside the otherwise-open `packages/api`. Carries its own
+  proprietary `LICENSE` (`packages/api/src/control/LICENSE`). All rights reserved.
+- The control-plane D1 migrations it depends on (`packages/api/migrations/0023_owner_accounts.sql`
+  onward) are covered by the same proprietary terms — they live in the shared
+  registry database only because the owner→agent delegation edge references the
+  open `agents` table.
+
+`packages/api` is therefore **mixed-license**: the registry API (agents,
+reputation, tasks, chain, scan) is Apache-2.0; the `src/control/` subtree and its
+migrations are proprietary. Everything outside `src/control/` stays open. See
+`CONTROL_PLANE.md` for the architecture.
+
+This was authorized after confirming the contributor-consent check below: the
+control-plane code is newly written and the surrounding `api` code it extends was
+authored solely by the project's own identities.
 
 **The control plane can never read a secret.** The open/closed split is a
 licensing boundary, not a trust boundary: secret ciphertext and leases live in
@@ -55,11 +78,12 @@ the local vault daemon (open source, above); the control plane stores only
 metadata and grant records. See `KEYRING_SPEC.md` §5.2 (hosted control plane,
 local data plane).
 
-> Not yet relicensed: `packages/api` and `packages/web` are currently Apache-2.0
-> and remain so. If owner accounts, billing, or console code is added to them
-> (rather than to a new package), the affected code — and only that code — moves
-> to the proprietary license. That relicensing is pending an explicit owner
-> decision and the contributor-consent check below.
+> Scope of the api relicensing: only `packages/api/src/control/` and the
+> control-plane migrations (`0023_owner_accounts.sql` onward) are proprietary.
+> The rest of `packages/api` and all of `packages/web` remain Apache-2.0. The
+> owner console is its own proprietary package (`packages/console`), kept
+> separate from the public directory/registry UI in `packages/web` so the open
+> site stays entirely open — no relicensing of any existing open code.
 
 ## Contributors & consent
 

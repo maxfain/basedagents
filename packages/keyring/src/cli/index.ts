@@ -15,6 +15,7 @@ import { cmdGrant, cmdRevoke, cmdKill, cmdRequests, cmdApprove, cmdDeny } from '
 import { cmdTimeline } from './timeline.js';
 import { cmdRun } from './run.js';
 import { cmdAdmin, cmdMcp } from './serve.js';
+import { cmdLink, cmdSync } from './sync.js';
 
 const VERSION = '0.1.0';
 
@@ -65,6 +66,8 @@ Access:
 Servers:
   admin [--port <n>]                    Local admin UI (Ctrl-C to stop)
   mcp                                   MCP server on stdio (for agents)
+  link [--api <url>] [--yes]            Anchor your console passkey(s) as owner authority
+  sync [--api <url>] [--watch <secs>]   Apply owner-approved grants from the control plane
 
 Global options:
   --dir <path>       Vault directory (default: $BASEDAGENTS_KEYRING_DIR or ~/.basedagents/keyring)
@@ -103,6 +106,8 @@ const COMMANDS: Record<string, CommandHandler> = {
   run: cmdRun,
   admin: cmdAdmin,
   mcp: cmdMcp,
+  link: cmdLink,
+  sync: cmdSync,
 };
 
 /**

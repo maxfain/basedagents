@@ -5,6 +5,7 @@
     { "path": "packages/sdk" },
     { "path": "packages/keyring" },
     { "path": "packages/recipes" },
-    { "path": "packages/web" }
+    { "path": "packages/web" },
+    { "path": "packages/console" }
   ]
 }

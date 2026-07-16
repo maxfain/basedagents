@@ -29,6 +29,9 @@ import {
   publicKeyToAgentId, agentIdToPublicKey, base58Encode,
   canonicalJsonStringify, sha256Hex, randomId, nowIso,
 } from './util.js';
+import { grantApprovalHash } from './control-actions.js';
+import { verifyOwnerAssertion } from './webauthn-verify.js';
+import type { OwnerPasskey, GrantApproval } from './types.js';
 
 /** Days of history in the agents-view sparkline. */
 const SPARKLINE_DAYS = 14;
@@ -37,7 +40,7 @@ export class KeyringError extends Error {
   constructor(message: string, readonly code:
     | 'not_owner' | 'unknown_identity' | 'unknown_credential' | 'unknown_grant' | 'unknown_request'
     | 'duplicate' | 'no_grant' | 'grant_revoked' | 'grant_expired' | 'usage_cap'
-    | 'no_sealed_copy' | 'bad_signature' | 'invalid_input'
+    | 'no_sealed_copy' | 'bad_signature' | 'invalid_input' | 'not_anchored'
   ) {
     super(message);
     this.name = 'KeyringError';
@@ -449,6 +452,132 @@ export class Keyring {
           agent_id: grant.agent_id,
           label: credential.label,
           constraints: constraints as unknown as Record<string, unknown>,
+        },
+      });
+      return grant;
+    });
+  }
+
+  // ─── Control-plane authority (KEYRING_SPEC §5 / CONTROL_PLANE.md §2) ───
+
+  /**
+   * Anchor an owner WebAuthn passkey as a trusted authority root. Run at a
+   * trusted moment (`based link`, with the owner confirming the passkey) — NOT
+   * silently from control-plane data — so a compromised control plane cannot
+   * substitute the key the daemon will later trust for approvals. Owner-signed
+   * locally (the Ed25519 vault key).
+   */
+  async anchorOwnerPasskey(
+    owner: AgentKeypair,
+    passkey: { credentialId: string; publicKeyHex: string; rpId: string; origins: string[]; nickname?: string }
+  ): Promise<OwnerPasskey> {
+    if (!/^04[0-9a-fA-F]{128}$/.test(passkey.publicKeyHex)) {
+      throw new KeyringError('Passkey public key must be an uncompressed P-256 point (0x04‖x‖y hex)', 'invalid_input');
+    }
+    if (!passkey.origins.length) throw new KeyringError('At least one allowed origin is required', 'invalid_input');
+    return this.store.withLock(async () => {
+      const vault = this.store.readVault();
+      this.assertOwner(vault, owner);
+      const anchor: OwnerPasskey = {
+        credential_id: passkey.credentialId,
+        public_key_hex: passkey.publicKeyHex.toLowerCase(),
+        rp_id: passkey.rpId,
+        origins: passkey.origins,
+        nickname: passkey.nickname,
+        anchored_at: nowIso(),
+      };
+      vault.owner_passkeys ??= {};
+      vault.owner_passkeys[passkey.credentialId] = anchor;
+      this.store.writeVault(vault);
+      await this.emit(vault, owner, 'passkey_anchored', {
+        detail: { credential_id: passkey.credentialId, rp_id: passkey.rpId, nickname: passkey.nickname ?? null },
+      });
+      return anchor;
+    });
+  }
+
+  /** The owner passkeys anchored in this vault. */
+  anchoredPasskeys(): OwnerPasskey[] {
+    return Object.values(this.store.readVault().owner_passkeys ?? {});
+  }
+
+  /**
+   * Apply a control-plane-relayed grant approval — the rule that closes the hole
+   * (CONTROL_PLANE.md §2). The daemon does NOT trust that the control plane said
+   * "approved": it re-derives the grant-approval action hash from the approval's
+   * own fields plus its OWN owner id and the grantee's on-file public key, then
+   * requires the owner's passkey assertion to have signed exactly that hash
+   * against a LOCALLY-anchored passkey. So a compromised control plane cannot
+   * redirect the seal target, alter the constraints, or forge an approval — any
+   * such change makes the hashes disagree and verification fails. Only then is
+   * the secret re-sealed, using the local Ed25519 vault key.
+   */
+  async applyApprovedGrant(approval: GrantApproval): Promise<Grant> {
+    return this.store.withLock(async () => {
+      const vault = this.store.readVault();
+      const owner = this.store.readOwnerKey();
+
+      // Single-use: never apply the same relayed approval twice.
+      vault.applied_approval_nonces ??= [];
+      if (vault.applied_approval_nonces.includes(approval.nonce)) {
+        throw new KeyringError('This approval has already been applied', 'duplicate');
+      }
+
+      // The credential and grantee must exist locally; derive the pinned pubkey.
+      const credential = this.resolveCredential(vault, approval.credential_id);
+      const granteePubkey = agentIdToPublicKey(approval.agent_id); // validates shape
+      const granteePubkeyB58 = base58Encode(granteePubkey);
+
+      // The passkey must be one the daemon already trusts (anchored locally).
+      const anchor = (vault.owner_passkeys ?? {})[approval.assertion.credentialId];
+      if (!anchor) {
+        throw new KeyringError('Approval signed by a passkey that is not anchored in this vault', 'not_anchored');
+      }
+
+      // Re-derive the exact action the owner must have signed. owner_id and
+      // agent_pubkey come from the DAEMON, not the approval — so a substituted
+      // owner or grantee produces a different hash the assertion cannot match.
+      // owner_id is the control-plane owner identity form (ow_<base58(vaultpub)>),
+      // matching what the console signs — NOT the vault's internal ag_ owner id.
+      const actionHash = grantApprovalHash({
+        owner_id: `ow_${vault.owner.public_key_b58}`,
+        nonce: approval.nonce,
+        agent_id: approval.agent_id,
+        agent_pubkey: granteePubkeyB58,
+        credential_id: credential.credential_id,
+        constraints: approval.constraints,
+      });
+
+      try {
+        verifyOwnerAssertion({
+          publicKeyHex: anchor.public_key_hex,
+          authenticatorData: approval.assertion.authenticatorData,
+          clientDataJSON: approval.assertion.clientDataJSON,
+          signature: approval.assertion.signature,
+          expectedChallenge: actionHash,
+          expectedOrigins: anchor.origins,
+          expectedRPID: anchor.rp_id,
+        });
+      } catch (err) {
+        throw new KeyringError(`Owner passkey assertion rejected: ${(err as Error).message}`, 'bad_signature');
+      }
+
+      // Authorized — perform the local re-seal with the Ed25519 vault key.
+      const { grant } = this.applyGrant(vault, owner, credential.credential_id, approval.agent_id, approval.constraints);
+      vault.applied_approval_nonces.push(approval.nonce);
+      this.store.writeVault(vault);
+
+      await this.emit(vault, owner, 'grant_created', {
+        credentialId: credential.credential_id,
+        grantId: grant.grant_id,
+        detail: {
+          agent_id: grant.agent_id,
+          label: credential.label,
+          constraints: approval.constraints as unknown as Record<string, unknown>,
+          authorized_by: 'owner_passkey',
+          passkey_credential_id: approval.assertion.credentialId,
+          approval_nonce: approval.nonce,
+          action_hash: actionHash,
         },
       });
       return grant;

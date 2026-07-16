@@ -5,6 +5,7 @@
     "packages/api",
     "packages/sdk",
     "packages/web",
+    "packages/console",
     "packages/mcp",
     "packages/keyring",
     "packages/recipes",

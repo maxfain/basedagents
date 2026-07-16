@@ -11,6 +11,7 @@ export default [
       '**/.wrangler/**',
       'packages/python/**',
       'packages/web/**', // React/TSX — needs its own plugin set; covered by `tsc` for now
+      'packages/console/**', // React/TSX — same treatment as packages/web
     ],
   },
   {
