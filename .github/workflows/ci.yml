@@ -231,3 +231,17 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy packages/console/dist --project-name basedagents-console --branch main
+
+      # The marketing site (basedagents.ai) ships from the same merge — it went
+      # stale once when only console+API were automated (a "Get started" nav
+      # change sat undeployed on main).
+      - name: Build marketing site
+        run: npm run build --workspace=packages/web
+
+      - name: Deploy marketing site to Cloudflare Pages (production)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          wranglerVersion: "4.111.0"
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy packages/web/dist --project-name auth-ai-web --branch main
