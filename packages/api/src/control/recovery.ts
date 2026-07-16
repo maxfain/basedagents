@@ -156,18 +156,6 @@ const RecoverFinishSchema = z.object({
 
 const app = new Hono<AppEnv>();
 
-// ── E2E-only: read the test outbox (404s in every non-E2E environment) ──
-//
-// The Playwright suite reads recovery magic links from here instead of a real
-// mailbox. Guarded by env, not by auth: the endpoint simply does not exist
-// unless the deployment was explicitly started with E2E=1.
-app.get('/test/outbox', async (c) => {
-  if (!isE2E(c.env)) return err(c, 404, 'not_found', 'not found');
-  const recipient = c.req.query('recipient');
-  const store = getStore(c);
-  return c.json({ messages: await store.listTestOutbox(recipient) });
-});
-
 // ── Issue a recovery code (signed-in owner, passkey ceremony) ──
 
 app.post('/recovery-code', ownerSession, async (c) => {

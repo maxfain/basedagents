@@ -31,50 +31,14 @@ import Stripe from 'stripe';
 import { z } from 'zod';
 import type { AppEnv } from '../types/index.js';
 import { ControlStore } from './store.js';
-import type { OwnerRow } from './store.js';
 import { ownerSession } from './routes.js';
 import { consoleOrigin } from './email.js';
 
-// ─── entitlements (THE single source of truth) ───
-
-export interface Entitlements {
-  /** Active delegations allowed. Free tier: 3. Pro: unlimited. */
-  maxAgents: number;
-  /** Timeline window, enforced at query time. */
-  retentionDays: number;
-  anomalyFlags: boolean;
-}
-
-const FREE: Entitlements = { maxAgents: 3, retentionDays: 30, anomalyFlags: false };
-const PRO: Entitlements = { maxAgents: Infinity, retentionDays: 365, anomalyFlags: true };
-
-/**
- * Plan → entitlements. `past_due` and `canceled` fall back to Free LIMITS for
- * the two creation gates — nothing existing breaks and nothing protective is
- * withheld (rule 1); 'team' is a reserved enum value and behaves as Pro.
- */
-export function getEntitlements(owner: Pick<OwnerRow, 'plan' | 'plan_status'>): Entitlements {
-  const paidPlan = owner.plan === 'pro' || owner.plan === 'team';
-  return paidPlan && owner.plan_status === 'active' ? PRO : FREE;
-}
-
-/**
- * The delegation-creation / grant-approval gate. Deliberately the ONLY
- * enforcement predicate: over-limit means "no NEW agents or grants", it never
- * touches existing grants, leases, revocation, or daemon traffic.
- */
-export async function checkAgentLimit(
-  store: ControlStore,
-  owner: OwnerRow,
-): Promise<{ allowed: boolean; activeAgents: number; maxAgents: number }> {
-  const entitlements = getEntitlements(owner);
-  const activeAgents = await store.countActiveDelegations(owner.id);
-  return {
-    allowed: activeAgents < entitlements.maxAgents,
-    activeAgents,
-    maxAgents: entitlements.maxAgents,
-  };
-}
+// Entitlements live in ./entitlements.ts (no route imports there — this
+// module imports ownerSession from routes.ts, and routes.ts consumes the
+// entitlement gate, so keeping it here would be an ESM import cycle).
+import { getEntitlements } from './entitlements.js';
+export { getEntitlements, checkAgentLimit, type Entitlements } from './entitlements.js';
 
 // ─── config / small helpers ───
 

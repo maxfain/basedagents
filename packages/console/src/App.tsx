@@ -22,6 +22,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Login initialMode="register" />} />
           <Route path="/recover" element={<Recover />} />
           <Route element={<Protected />}>
             <Route path="/" element={<Navigate to="/approvals" replace />} />

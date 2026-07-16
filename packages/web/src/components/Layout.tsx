@@ -83,6 +83,16 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
                 Post a Task
               </Link>
             )}
+            <a
+              href="https://app.basedagents.ai/signup"
+              style={{
+                border: '1px solid var(--accent)', color: 'var(--accent)',
+                padding: '5px 13px', borderRadius: 6,
+                fontWeight: 600, fontSize: 14, textDecoration: 'none',
+              }}
+            >
+              Get started
+            </a>
           </div>
           <button className="nav-hamburger" onClick={() => setMenuOpen(!menuOpen)}>
             {menuOpen ? '✕' : '☰'}
@@ -105,6 +115,9 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
           </a>
           {!isRegistry && navLink('/integrations', 'Integrations')}
           {!isRegistry && navLink('/docs/getting-started#post-a-task', 'Post a Task')}
+          <a href="https://app.basedagents.ai/signup" style={{ textDecoration: 'none', color: 'var(--accent)', fontWeight: 600 }}>
+            Get started
+          </a>
         </div>
       </nav>
 

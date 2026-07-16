@@ -22,7 +22,9 @@ import type {
 } from './types.js';
 import type { RegistrationResult } from '../lib/webauthn.js';
 
-export const API_BASE = import.meta.env.VITE_API_URL || 'https://api.basedagents.ai';
+// VITE_API_URL='' (empty, set — dev/E2E) means same-origin relative requests,
+// served through the vite proxy; unset means the production API.
+export const API_BASE = import.meta.env.VITE_API_URL ?? 'https://api.basedagents.ai';
 const OWNER = `${API_BASE}/v1/owner`;
 
 export class ControlApiError extends Error {

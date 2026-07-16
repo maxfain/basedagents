@@ -54,7 +54,7 @@ import {
 import { base64urlEncode } from './webauthn.js';
 import { convertCOSEtoPKCS } from '@simplewebauthn/server/helpers';
 import { rpConfig } from './config.js';
-import { checkAgentLimit } from './billing.js';
+import { checkAgentLimit } from './entitlements.js';
 
 // ─── small helpers (kept local; mirror ./routes.ts conventions) ───
 

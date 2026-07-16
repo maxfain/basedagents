@@ -35,7 +35,7 @@ import {
   base64urlEncode,
   base64urlDecode,
 } from './webauthn.js';
-import { checkAgentLimit } from './billing.js';
+import { checkAgentLimit } from './entitlements.js';
 import { base58Encode, base58Decode, sha256, bytesToHex, canonicalJsonStringify } from '../crypto/index.js';
 
 // ─── small helpers ───

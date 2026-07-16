@@ -12,10 +12,10 @@ function errText(err: unknown): string {
   return String(err);
 }
 
-export default function Login() {
+export default function Login({ initialMode = 'signin' }: { initialMode?: Mode }) {
   const { refresh } = useOwner();
   const navigate = useNavigate();
-  const [mode, setMode] = useState<Mode>('signin');
+  const [mode] = useState<Mode>(initialMode); // /login = signin, /signup = register
   const [email, setEmail] = useState('');
   const [vaultKey, setVaultKey] = useState('');
   const [busy, setBusy] = useState(false);
@@ -150,13 +150,9 @@ export default function Login() {
 
         <div className="auth-switch">
           {mode === 'signin' ? (
-            <button className="link" onClick={() => { setMode('register'); setError(null); }}>
-              Need an account? Register a passkey
-            </button>
+            <Link className="link" to="/signup">Create account</Link>
           ) : (
-            <button className="link" onClick={() => { setMode('signin'); setError(null); }}>
-              Already have a passkey? Sign in
-            </button>
+            <Link className="link" to="/login">Already have a passkey? Sign in</Link>
           )}
           <span className="auth-sep">·</span>
           <Link className="link" to="/recover">Lost your passkeys?</Link>
