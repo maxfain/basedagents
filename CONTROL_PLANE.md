@@ -95,12 +95,18 @@ constraints changes the hash and the anchored-passkey assertion fails to verify.
 
 ## 3. Sessions to look, signatures to act
 
-- **Look:** passkey login mints an httpOnly, `SameSite=Strict` session cookie.
-  It authorizes **read-only** console browsing. It can never mutate state.
+- **Look:** a session cookie (httpOnly, `SameSite=Strict`) authorizes
+  **read-only** console browsing. It can never mutate state. Since spec v0.2
+  there are two rungs that mint one — an **email magic link** (the claim flow
+  and `/login/email`) and a **passkey login** — and the session records its
+  `method`. Both rungs look the same and stop at the same wall.
 - **Act:** every mutating action (approve/revoke/kill/create-delegation) requires
-  a **fresh WebAuthn assertion** bound to that action's hash. Because a mutation
-  always needs a fresh assertion, the write path is inherently CSRF-resistant; a
-  stolen look-session grants browsing, not authority.
+  a **fresh WebAuthn assertion** bound to that action's hash. An email-rung
+  session with no passkey on file arms **no usable challenge** (empty
+  `allowCredentials`); the **first approval mints the passkey** (§8) and from
+  then on nothing moves without its signature. Because a mutation always needs
+  a fresh assertion, the write path is inherently CSRF-resistant; a stolen
+  look-session grants browsing, not authority.
 
 ## 4. Integrity primitives (atomicity is not optional)
 
@@ -141,6 +147,37 @@ WebAuthn RP ID is scoped to the registrable domain `basedagents.ai` so passkeys
 registered on `app.basedagents.ai` keep working across console subdomains.
 Assertions verify `rpIdHash`, `origin` (allow-list), `type`, the server-issued
 single-use challenge, and the User Present flag.
+
+## 8. The authority ladder (spec v0.2 §5.1)
+
+Anonymous → email → passkey. There is no signup form: `npx @basedagents/keyring
+init` on the user's machine creates the vault + agent identity and a 30-minute
+**link code**; the `/link` page claims it with one email field; the magic-link
+click **ratifies** — in one atomic sequence — the owner row (id still derived
+from the vault Ed25519 key), the email verification, the vault-key binding, and
+the delegation of the linking agent (`authorized_via='claim'`). What that claim
+honestly rests on: possession of the email inbox **plus physical control of the
+machine that ran `init`** (the code never leaves it except through the browser
+the user opened). The passkey — still the sole authority root for acting — is
+minted at the **first approval**, the first moment authority is exercised, and
+the daemon still independently re-verifies every approval against locally
+anchored passkeys before sealing (§2). Nothing in §§2–6 weakened.
+
+Two adjacent flows share the machinery:
+
+- **Agent-first entry.** A registered agent may `invite_owner(email)` (MCP).
+  An invite is *not* an account: claim-pending holds authority over nothing,
+  **structurally** — no owner row, no vault key, no delegation exist until a
+  human claims a link code, which only `init` on the human's machine can mint.
+  Invites expire in 72h, are capped per agent per day, and back off on re-send.
+- **Connect cards.** The onboarding page's provider cards accept a pasted
+  token, but the browser **seals it client-side** to the owner's vault key
+  (the console imports the daemon's own sealed-box crypto — X25519 + HKDF +
+  XChaCha20-Poly1305 — so parity is by construction). The control plane stores
+  ciphertext only and blanks it once the daemon reports `stored`; the daemon
+  opens it locally, validates against the provider, stores the credential and
+  creates the grant. `init` keeps running after the claim precisely to catch
+  these, so the base case never returns to the terminal.
 
 ---
 
@@ -239,6 +276,30 @@ own `verifyOwnerAssertion` and the recovery rotation. Deploy automation —
 merge-to-main applies D1 migrations, deploys the Worker, and publishes the
 console; PRs get preview deploys; one-time setup in
 `scripts/bootstrap-deploy.md`.
+
+**Increment 4 (shipped).** The authority ladder + onboarding redesign (§8,
+spec v0.2 §5.1). Migration `0027`: `link_codes`, `magic_link_tokens` (sha256-
+stored, fragment-carried, single-use via atomic consume), `owner_invites`,
+`pending_connections`, `owner_sessions.method`, and the `delegations` rebuild
+(`authorized_via`, nullable authorizing assertion). Routes (`control/ladder.ts`):
+link create/status/claim, `/claim/finish` (the ratifying moment), email login,
+agent invites with abuse brakes, sealed connections (owner-, daemon-facing).
+CLI: `init` is the whole onboarding — vault + auto-named agent + MCP config
+(with permission) + ONE browser page, then stays alive storing connect-card
+tokens; `invite_owner` MCP tool. Console: `/link`, `/claim`, `/welcome`
+(connect cards), `/invited`, the novice home (`/home`, kill switch; full
+console behind "Advanced"), email-first `/login`, command-not-form `/signup`,
+and the first-approval passkey mint (`lib/approve.ts`). A banned-words lint
+(`scripts/lint-ui-words.mjs`, AST-based, in `npm run lint`) keeps
+grant/lease/delegation/identity/credential/owner off every base-case surface.
+Marketing: `/keyring` is a static HTML page (readable with JS disabled,
+Product+FAQ schema, self-canonical) with the paste-command hero and the
+provider grid; anonymous funnel counters + vote tiles land in migration `0028`
+(`/v1/funnel`, `/v1/providers/*/vote` — no identity stored, CLI pings are
+opt-out via `BASEDAGENTS_NO_TELEMETRY=1`). E2E rewritten to the v0.2 brief:
+claim → look-only; both login rungs; first-approval mint with crypto
+verification of the stored assertion against the just-minted key; recovery;
+aborted-creation negative.
 
 **Deliberately deferred / not built as a hosted firehose.** The high-volume
 AccessEvent stream is **not** mirrored wholesale into D1 (that would drag in

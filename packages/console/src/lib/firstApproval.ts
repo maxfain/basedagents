@@ -10,6 +10,7 @@
  */
 import { control } from '../api/control.js';
 import { createPasskey } from './webauthn.js';
+import { funnelPing } from './funnel.js';
 import type { OwnerMe } from '../api/types.js';
 
 export async function ensurePasskey(owner: OwnerMe): Promise<boolean> {
@@ -18,5 +19,6 @@ export async function ensurePasskey(owner: OwnerMe): Promise<boolean> {
   const begin = await control.registerBegin(vaultPublicKey, owner.email ?? undefined);
   const reg = await createPasskey(begin.options);
   await control.registerFinish(vaultPublicKey, reg);
+  funnelPing('passkey_created');
   return true; // minted just now
 }

@@ -1,21 +1,24 @@
 /**
- * Passkey E2E (coder brief Task 2) — real Chromium + CDP virtual
+ * Onboarding-ladder E2E (coder brief v0.2) — real Chromium + CDP virtual
  * authenticator against the real control plane and the real console.
  *
  * The five scenarios the brief requires, each self-contained with its own
- * owner (the shared API/database persists across tests within a run):
- *   1. signup       — email + passkey ceremony → owner + credential stored
- *   2. login        — fresh cookies, existing resident credential → session
- *   3. step-up      — approval fires a SECOND ceremony whose stored assertion
- *                     VERIFIES (crypto, not UI state) against the owner's
- *                     stored passkey public key over the exact action hash —
- *                     checked with @basedagents/keyring's verifyOwnerAssertion,
- *                     i.e. the daemon's own verification path
- *   4. recovery     — magic link (from the test outbox) + recovery code →
- *                     new passkey; old one no longer authenticates; the
- *                     delegation survives
- *   5. negative     — aborted ceremony → no approval created, request stays
- *                     pending
+ * vault + agent (the shared API/database persists across tests within a run):
+ *   1. claim      — `init`-created link code + /link email + magic link →
+ *                   account exists, agent connected, session is LOOK-ONLY
+ *                   (email rung, no passkey, approvals arm no usable challenge)
+ *   2. login      — both rungs: magic link mints a look session (method
+ *                   email); the passkey mints the full rung (method passkey)
+ *   3. first act  — the FIRST approval mints the passkey (creation ceremony
+ *                   fires exactly once) and the stored grant assertion
+ *                   VERIFIES (crypto, not UI state) against the NEWLY stored
+ *                   key via @basedagents/keyring's verifyOwnerAssertion — the
+ *                   daemon's own verification path; the second approval is a
+ *                   signature only
+ *   4. recovery   — magic link + recovery code → new passkey; old one no
+ *                   longer authenticates; the agent connection survives
+ *   5. negative   — aborted CREATION ceremony → no passkey stored, request
+ *                   stays pending; the retry succeeds
  */
 import { test, expect } from '@playwright/test';
 import type { Page, CDPSession } from '@playwright/test';
@@ -72,19 +75,7 @@ async function addAuthenticator(page: Page): Promise<Authenticator> {
   return { cdp, id: authenticatorId, added, asserted: () => assertedCount };
 }
 
-// ─── owners / API helpers ───
-
-let ownerCounter = 0;
-function newOwner(): { keypair: Promise<AgentKeypair>; email: string } {
-  return { keypair: generateKeypair(), email: `e2e-${Date.now()}-${++ownerCounter}@example.com` };
-}
-
-async function sessionCookie(page: Page): Promise<string> {
-  const cookies = await page.context().cookies();
-  const c = cookies.find((x) => x.name === 'ba_owner_session');
-  if (!c) throw new Error('no session cookie in context');
-  return `ba_owner_session=${c.value}`;
-}
+// ─── API helpers ───
 
 async function api(path: string, init?: RequestInit): Promise<Response> {
   return fetch(`${API}${path}`, init);
@@ -94,6 +85,13 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await api(path, init);
   if (!res.ok) throw new Error(`${path} → ${res.status}: ${await res.text()}`);
   return res.json() as Promise<T>;
+}
+
+async function sessionCookie(page: Page): Promise<string> {
+  const cookies = await page.context().cookies();
+  const c = cookies.find((x) => x.name === 'ba_owner_session');
+  if (!c) throw new Error('no session cookie in context');
+  return `ba_owner_session=${c.value}`;
 }
 
 /** The daemon's AgentSig auth — sign as the owner's Ed25519 vault key. */
@@ -112,127 +110,196 @@ async function daemonGet<T>(keypair: AgentKeypair, path: string): Promise<T> {
   });
 }
 
-async function seedAgent(): Promise<{ agentId: string; publicKeyB58: string }> {
-  const kp = await generateKeypair();
-  const agentId = publicKeyToAgentId(kp.publicKey);
-  await apiJson('/v1/owner/test/seed-agent', {
+/** Read the newest magic-link token for `email` whose URL path matches. */
+async function magicToken(email: string, pathname: '/claim' | '/login' | '/recover'): Promise<string> {
+  const { messages } = await apiJson<{ messages: Array<{ body: string }> }>(
+    `/v1/owner/test/outbox?recipient=${encodeURIComponent(email)}`,
+  );
+  for (const m of messages) {
+    // newest first — the first match IS the latest token
+    const hit = new RegExp(`${pathname}#t=([A-Za-z0-9_-]+)`).exec(m.body);
+    if (hit) return hit[1];
+  }
+  throw new Error(`no ${pathname} magic link in the outbox for ${email}`);
+}
+
+// ─── the ladder's terminal side, simulated: what `keyring init` POSTs ───
+
+let counter = 0;
+
+interface InitResult {
+  vault: AgentKeypair;
+  agent: AgentKeypair;
+  agentId: string;
+  agentName: string;
+  code: string;
+  email: string;
+}
+
+async function initLink(): Promise<InitResult> {
+  const vault = await generateKeypair();
+  const agent = await generateKeypair();
+  const agentId = publicKeyToAgentId(agent.publicKey);
+  const agentName = `Claude Code @ e2e-${Date.now()}-${++counter}`;
+  const { code } = await apiJson<{ code: string }>('/v1/owner/link', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ agent_id: agentId, public_key_b58: base58Encode(kp.publicKey) }),
+    body: JSON.stringify({
+      vault_public_key: base58Encode(vault.publicKey),
+      agent_id: agentId,
+      agent_public_key: base58Encode(agent.publicKey),
+      agent_name: agentName,
+    }),
   });
-  return { agentId, publicKeyB58: base58Encode(kp.publicKey) };
+  return { vault, agent, agentId, agentName, code, email: `e2e-${Date.now()}-${counter}@example.com` };
 }
 
 // ─── UI flows ───
 
-async function signup(page: Page, vaultB58: string, email: string): Promise<void> {
-  await page.goto('/signup');
-  await page.getByLabel(/Vault public key/).fill(vaultB58);
-  await page.getByLabel(/Email/).fill(email);
-  await page.getByRole('button', { name: 'Create account + passkey' }).click();
-  await expect(page).toHaveURL(/\/approvals/, { timeout: 20_000 });
+/** /link?code= → one email field → magic link from the outbox → /welcome. */
+async function claim(page: Page, init: InitResult): Promise<void> {
+  await page.goto(`/link?code=${init.code}`);
+  await expect(page.getByRole('heading', { name: 'Take control of this agent' })).toBeVisible();
+  await expect(page.getByText(init.agentName)).toBeVisible();
+  await page.getByLabel('Email').fill(init.email);
+  await page.getByRole('button', { name: 'Send me the link' }).click();
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+
+  const token = await magicToken(init.email, '/claim');
+  await page.goto(`/claim#t=${token}`);
+  await expect(page).toHaveURL(/\/welcome/, { timeout: 20_000 });
+  await expect(page.getByRole('heading', { name: `${init.agentName} is yours` })).toBeVisible();
 }
 
-async function login(page: Page, email: string): Promise<void> {
-  await page.goto('/login');
-  await page.getByLabel(/Email/).fill(email);
-  await page.getByRole('button', { name: 'Sign in with passkey' }).click();
-  await expect(page).toHaveURL(/\/approvals/, { timeout: 20_000 });
-}
-
-async function delegateAgent(page: Page, agentId: string): Promise<void> {
-  await page.goto('/agents');
-  await page.getByLabel(/Agent ID/).fill(agentId);
-  await page.getByRole('button', { name: 'Delegate with passkey' }).click();
-  await expect(page.locator('.rows .row').first()).toContainText('active', { timeout: 20_000 });
-}
-
-async function bindVault(page: Page): Promise<void> {
-  await page.goto('/vault');
-  await page.getByRole('button', { name: 'Bind vault key with passkey' }).click();
-  await expect(page.locator('.panel').first()).toContainText('bound', { timeout: 20_000 });
-}
-
-async function fileRequest(page: Page, agentId: string, credentialId: string): Promise<string> {
+/** File a request as the connected agent would (session-scoped E2E shortcut). */
+async function fileRequest(page: Page, agentId: string, credentialId: string, label: string): Promise<string> {
   const res = await apiJson<{ id: string }>('/v1/owner/requests', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Cookie: await sessionCookie(page) },
     body: JSON.stringify({
       agent_id: agentId,
       credential_id: credentialId,
-      credential_label: 'Stripe key (e2e)',
+      credential_label: label,
       provider: 'stripe',
     }),
   });
   return res.id;
 }
 
+/** Click the novice home's Allow on the (single) pending ask and wait for it to land. */
+async function allowOnHome(page: Page): Promise<void> {
+  await page.goto('/home');
+  await page.getByRole('button', { name: 'Allow', exact: true }).click();
+  await expect(page.locator('.asking')).toHaveCount(0, { timeout: 20_000 });
+}
+
+interface Me {
+  owner_id: string;
+  session_method: string;
+  has_passkey: boolean;
+  delegations: Array<{ agent_id: string; status: string }>;
+}
+
+async function me(page: Page): Promise<Me> {
+  return apiJson<Me>('/v1/owner/me', { headers: { Cookie: await sessionCookie(page) } });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('1. signup: email + passkey → owner created, credential stored, lands on empty Home', async ({ page }) => {
-  const owner = newOwner();
-  const keypair = await owner.keypair;
+test('1. claim: link code + email + magic link → account + agent, look-only session, approvals locked', async ({ page }) => {
+  const init = await initLink();
   const auth = await addAuthenticator(page);
+  await claim(page, init);
 
-  await signup(page, base58Encode(keypair.publicKey), owner.email);
-  await expect(page.getByText('No pending requests.')).toBeVisible();
-  expect(auth.added).toHaveLength(1); // exactly one credential created
+  // No passkey ceremony happened anywhere in the claim.
+  expect(auth.added).toHaveLength(0);
+  expect(auth.asserted()).toBe(0);
 
-  // The owner exists under the id derived from the vault key, with the
-  // passkey's public key on file.
-  const me = await apiJson<{ owner_id: string; credentials: Array<{ credential_id: string }> }>(
-    '/v1/owner/me',
-    { headers: { Cookie: await sessionCookie(page) } },
+  // The ratified facts: account id derived from the vault key, email rung,
+  // no passkey yet, the agent connected.
+  const session = await me(page);
+  expect(session.owner_id).toBe(`ow_${base58Encode(init.vault.publicKey)}`);
+  expect(session.session_method).toBe('email');
+  expect(session.has_passkey).toBe(false);
+  expect(session.delegations).toHaveLength(1);
+  expect(session.delegations[0]).toMatchObject({ agent_id: init.agentId, status: 'active' });
+
+  // The novice home shows the agent and explains the coming first-approval mint.
+  await page.goto('/home');
+  await expect(page.getByText(init.agentName)).toBeVisible();
+  await expect(page.getByText(/first time you allow something/)).toBeVisible();
+
+  // "Sessions to look, signatures to act": with no passkey there is nothing
+  // that can sign — the armed approval offers NO usable credential.
+  const requestId = await fileRequest(page, init.agentId, 'cred_locked_e2e', 'Stripe key (locked)');
+  const begin = await apiJson<{ allowCredentials: Array<unknown> }>(
+    `/v1/owner/requests/${requestId}/approve/begin`,
+    { method: 'POST', headers: { Cookie: await sessionCookie(page) } },
   );
-  expect(me.owner_id).toBe(`ow_${base58Encode(keypair.publicKey)}`);
-  expect(me.credentials).toHaveLength(1);
-  expect(b64url(me.credentials[0].credential_id)).toBe(b64url(auth.added[0]));
+  expect(begin.allowCredentials).toHaveLength(0);
 });
 
-test('2. login: fresh cookies, existing credential → session established', async ({ page }) => {
-  const owner = newOwner();
-  const keypair = await owner.keypair;
+test('2. login, both rungs: magic link → look session (email); passkey → full rung', async ({ page }) => {
+  const init = await initLink();
   await addAuthenticator(page);
-  await signup(page, base58Encode(keypair.publicKey), owner.email);
+  await claim(page, init);
 
-  // Drop the session; the resident credential stays on the authenticator.
+  // Setup: mint the passkey with a first approval so the second rung exists.
+  await fileRequest(page, init.agentId, 'cred_login_e2e', 'Stripe key (login)');
+  await allowOnHome(page);
+  expect((await me(page)).has_passkey).toBe(true);
+
+  // Fresh browser state — the console is gated again.
   await page.context().clearCookies();
-  await page.goto('/approvals');
-  await expect(page).toHaveURL(/\/login/); // gated
+  await page.goto('/home');
+  await expect(page).toHaveURL(/\/login/);
 
-  await login(page, owner.email);
-  await expect(page.getByText('No pending requests.')).toBeVisible();
+  // Rung 1 — email magic link. Uniform "check your email", token from outbox.
+  await page.getByLabel('Email').fill(init.email);
+  await page.getByRole('button', { name: 'Email me a sign-in link' }).click();
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+  const token = await magicToken(init.email, '/login');
+  await page.goto('/signup'); // leave /login: #t= alone would be a fragment-only (no-reload) navigation
+  await page.goto(`/login#t=${token}`);
+  await expect(page).toHaveURL(/\/home/, { timeout: 20_000 });
+  expect((await me(page)).session_method).toBe('email');
+
+  // Rung 2 — the passkey. Fresh cookies again; the resident credential signs.
+  await page.context().clearCookies();
+  await page.goto('/login');
+  await page.getByLabel('Email').fill(init.email);
+  await page.getByRole('button', { name: 'Sign in with a passkey' }).click();
+  await expect(page).toHaveURL(/\/home/, { timeout: 20_000 });
+  expect((await me(page)).session_method).toBe('passkey');
 });
 
-test('3. step-up on approval: a second ceremony, and the stored assertion VERIFIES against the stored passkey', async ({ page }) => {
-  const owner = newOwner();
-  const keypair = await owner.keypair;
+test('3. first approval mints the passkey; the stored assertion verifies against the newly stored key; second approval is signature-only', async ({ page }) => {
+  const init = await initLink();
   const auth = await addAuthenticator(page);
-  await signup(page, base58Encode(keypair.publicKey), owner.email);
+  await claim(page, init);
 
-  // Vault binding (daemon auth) + a delegated agent + a pending request.
-  await bindVault(page);
-  const agent = await seedAgent();
-  await delegateAgent(page, agent.agentId);
-  await fileRequest(page, agent.agentId, 'cred_stripe_e2e');
+  await fileRequest(page, init.agentId, 'cred_stripe_e2e', 'Stripe key (e2e)');
 
-  const assertionsBeforeApprove = auth.asserted();
+  // FIRST approval: the creation ceremony fires (once), then the assertion.
+  await allowOnHome(page);
+  expect(auth.added).toHaveLength(1);
+  expect(auth.asserted()).toBe(1);
+  await expect(page.locator('.chip', { hasText: 'Can use: Stripe key (e2e)' })).toBeVisible();
 
-  await page.goto('/approvals');
-  await page.getByRole('button', { name: 'Approve with passkey' }).click();
-  await expect(page.locator('.decided')).toContainText('approved', { timeout: 20_000 });
-
-  // A DISTINCT ceremony fired for the approval (beyond session auth).
-  expect(auth.asserted()).toBe(assertionsBeforeApprove + 1);
+  const session = await me(page);
+  expect(session.has_passkey).toBe(true);
+  expect(session.session_method).toBe('email'); // still the email rung — the passkey signs acts, not looks
 
   // THE assertion that matters: pull the queued approval over the daemon's
-  // authenticated channel and run the daemon's own verification — the stored
-  // signature must verify against the owner's stored passkey public key over
-  // exactly the approved action's hash.
-  const { passkeys } = await daemonGet<{ passkeys: Array<{ public_key_hex: string }> }>(
-    keypair, '/v1/owner/daemon/passkeys',
+  // authenticated channel (the claim bound the vault key) and run the
+  // daemon's own verification — the stored signature must verify against the
+  // JUST-MINTED passkey public key over exactly the approved action's hash.
+  const { passkeys } = await daemonGet<{ passkeys: Array<{ public_key_hex: string; credential_id: string }> }>(
+    init.vault, '/v1/owner/daemon/passkeys',
   );
   expect(passkeys).toHaveLength(1);
+  expect(b64url(passkeys[0].credential_id)).toBe(b64url(auth.added[0])); // the newly stored key IS the minted one
+
   const { approvals } = await daemonGet<{
     approvals: Array<{
       action_hash: string;
@@ -240,10 +307,10 @@ test('3. step-up on approval: a second ceremony, and the stored assertion VERIFI
       credential_id: string;
       assertion: { credentialId: string; authenticatorData: string; clientDataJSON: string; signature: string };
     }>;
-  }>(keypair, '/v1/owner/daemon/approvals');
+  }>(init.vault, '/v1/owner/daemon/approvals');
   expect(approvals).toHaveLength(1);
   const approval = approvals[0];
-  expect(approval.agent_pubkey).toBe(agent.publicKeyB58); // pinned seal target
+  expect(approval.agent_pubkey).toBe(base58Encode(init.agent.publicKey)); // pinned seal target
   expect(approval.credential_id).toBe('cred_stripe_e2e');
 
   const verify = (signature: string) =>
@@ -263,18 +330,23 @@ test('3. step-up on approval: a second ceremony, and the stored assertion VERIFI
     approval.assertion.signature.slice(0, -2) +
     (approval.assertion.signature.endsWith('AA') ? 'BB' : 'AA');
   expect(() => verify(tampered)).toThrow();
+
+  // SECOND approval: signature only — no new credential is created.
+  await fileRequest(page, init.agentId, 'cred_second_e2e', 'Stripe key (second)');
+  await allowOnHome(page);
+  expect(auth.added).toHaveLength(1); // unchanged
+  expect(auth.asserted()).toBe(2);
 });
 
-test('4. recovery: magic link + code → new passkey; old passkey dead, delegation intact', async ({ page }) => {
-  const owner = newOwner();
-  const keypair = await owner.keypair;
+test('4. recovery: magic link + code → new passkey; old passkey dead, agent connection intact', async ({ page }) => {
+  const init = await initLink();
   const oldAuth = await addAuthenticator(page);
-  await signup(page, base58Encode(keypair.publicKey), owner.email);
-  const oldCredentialId = oldAuth.added[0];
+  await claim(page, init);
 
-  // A delegation that must SURVIVE the rotation.
-  const agent = await seedAgent();
-  await delegateAgent(page, agent.agentId);
+  // Mint the passkey (recovery-code generation is itself a signed act).
+  await fileRequest(page, init.agentId, 'cred_recovery_e2e', 'Stripe key (recovery)');
+  await allowOnHome(page);
+  const oldCredentialId = oldAuth.added[0];
 
   // Generate the recovery code (a passkey action) and capture the one-time display.
   await page.goto('/vault');
@@ -285,14 +357,10 @@ test('4. recovery: magic link + code → new passkey; old passkey dead, delegati
 
   // Request the magic link and read it from the E2E outbox (never Resend).
   await page.goto('/recover');
-  await page.getByLabel(/Email/).fill(owner.email);
+  await page.getByLabel(/Email/).fill(init.email);
   await page.getByRole('button', { name: 'Email me a recovery link' }).click();
   await expect(page.getByText(/recovery link is on its way/)).toBeVisible();
-  const outbox = await apiJson<{ messages: Array<{ body: string }> }>(
-    `/v1/owner/test/outbox?recipient=${encodeURIComponent(owner.email)}`,
-  );
-  expect(outbox.messages.length).toBeGreaterThan(0);
-  const token = /#t=([A-Za-z0-9_-]+)/.exec(outbox.messages[0].body)![1];
+  const token = await magicToken(init.email, '/recover');
 
   // The lost-device story: the old authenticator is gone; a NEW one enrolls.
   await oldAuth.cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId: oldAuth.id });
@@ -314,53 +382,59 @@ test('4. recovery: magic link + code → new passkey; old passkey dead, delegati
   // …the old credential no longer authenticates (not offered at login)…
   const loginBegin = await apiJson<{ allowCredentials: Array<{ id: string }> }>(
     '/v1/owner/login/begin',
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: owner.email }) },
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: init.email }) },
   );
   expect(loginBegin.allowCredentials).toHaveLength(1);
   expect(b64url(loginBegin.allowCredentials[0].id)).not.toBe(b64url(oldCredentialId));
 
-  // …the new passkey signs in, and the delegation survived the rotation.
-  await login(page, owner.email);
-  await page.goto('/agents');
-  await expect(page.locator('.rows .row').first()).toContainText('active');
+  // …the new passkey signs in, and the agent connection survived the rotation.
+  await page.goto('/login');
+  await page.getByLabel('Email').fill(init.email);
+  await page.getByRole('button', { name: 'Sign in with a passkey' }).click();
+  await expect(page).toHaveURL(/\/home/, { timeout: 20_000 });
+  await expect(page.getByText(init.agentName)).toBeVisible();
+  expect((await me(page)).delegations[0]).toMatchObject({ agent_id: init.agentId, status: 'active' });
 });
 
-test('5. negative: aborted ceremony → no approval created, request stays pending', async ({ page }) => {
-  const owner = newOwner();
-  const keypair = await owner.keypair;
+test('5. negative: aborted creation ceremony → no passkey, request stays pending; retry succeeds', async ({ page }) => {
+  const init = await initLink();
   const auth = await addAuthenticator(page);
-  await signup(page, base58Encode(keypair.publicKey), owner.email);
-  const agent = await seedAgent();
-  await delegateAgent(page, agent.agentId);
-  await fileRequest(page, agent.agentId, 'cred_abort_e2e');
-  const cookie = await sessionCookie(page);
+  await claim(page, init);
+  await fileRequest(page, init.agentId, 'cred_abort_e2e', 'Stripe key (abort)');
 
-  await page.goto('/approvals');
-  await expect(page.getByRole('button', { name: 'Approve with passkey' })).toBeVisible();
+  await page.goto('/home');
+  await expect(page.getByRole('button', { name: 'Allow', exact: true })).toBeVisible();
 
-  // Abort the ceremony mid-flight: stop auto-presence so the get() request
-  // hangs waiting for a touch that never comes, then navigate away — the
-  // pending WebAuthn request dies with the document (the user closing the
-  // browser sheet). Chrome keeps a pending request alive even if the
-  // authenticator is removed, so navigation is the deterministic abort.
-  const assertionsBefore = auth.asserted();
+  // Abort the CREATION ceremony mid-flight: stop auto-presence so create()
+  // hangs waiting for a touch that never comes, then reload — the pending
+  // WebAuthn request dies with the document (the user closing the sheet).
   await auth.cdp.send('WebAuthn.setAutomaticPresenceSimulation', {
     authenticatorId: auth.id,
     enabled: false,
   });
-  await page.getByRole('button', { name: 'Approve with passkey' }).click();
-  await expect(page.getByRole('button', { name: 'Waiting for passkey…' })).toBeVisible();
+  await page.getByRole('button', { name: 'Allow', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Waiting…' })).toBeVisible();
   await page.reload();
 
-  // Nothing was signed and nothing was stored: no assertion happened, the
-  // request is still pending, and the decided list is empty.
-  expect(auth.asserted()).toBe(assertionsBefore);
+  // Nothing was minted and nothing moved: no credential, no assertion, the
+  // account still has no passkey, and the ask is still pending.
+  expect(auth.added).toHaveLength(0);
+  expect(auth.asserted()).toBe(0);
+  const session = await me(page);
+  expect(session.has_passkey).toBe(false);
   const { requests } = await apiJson<{ requests: Array<{ status: string }> }>(
     '/v1/owner/requests?status=pending',
-    { headers: { Cookie: cookie } },
+    { headers: { Cookie: await sessionCookie(page) } },
   );
   expect(requests).toHaveLength(1);
   expect(requests[0].status).toBe('pending');
-  await expect(page.getByRole('button', { name: 'Approve with passkey' })).toBeVisible(); // still approvable
-  await expect(page.locator('.decided')).toHaveCount(0);
+
+  // The flow recovers: presence back on, the same Allow mints and signs.
+  await auth.cdp.send('WebAuthn.setAutomaticPresenceSimulation', {
+    authenticatorId: auth.id,
+    enabled: true,
+  });
+  await allowOnHome(page);
+  expect(auth.added).toHaveLength(1);
+  expect((await me(page)).has_passkey).toBe(true);
 });

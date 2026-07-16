@@ -6,6 +6,69 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.8.0] — 2026-07-16
+
+The authority ladder + onboarding redesign (KEYRING_SPEC.md v0.2 §5.1,
+`fa861b8c-keyringonboardingredesign.md`): anonymous → email → passkey, no
+signup form, passkey minted at the first approval. Architecture:
+`CONTROL_PLANE.md` §8.
+
+### Added
+
+#### Control plane (`packages/api`, proprietary)
+- Migration `0027_authority_ladder`: `link_codes`, `magic_link_tokens`
+  (sha256-stored, single-use via atomic consume), `owner_invites`,
+  `pending_connections`, `owner_sessions.method`, and a `delegations` rebuild
+  adding `authorized_via` ('assertion' | 'claim')
+- `control/ladder.ts`: link create/status/claim; `/claim/finish` ratifies
+  owner + email verification + vault binding + delegation in one sequence and
+  mints an email-rung look session; `/login/email[/finish]` (uniform,
+  anti-enumeration); agent `invite_owner` with abuse brakes (3/day/agent,
+  15-min re-send backoff, 3 sends max, 72 h expiry) — claim-pending holds
+  nothing, structurally; connect-card endpoints (browser-sealed ciphertext
+  only, blanked after the daemon stores)
+- Migration `0028_funnel` + `routes/funnel.ts`: anonymous onboarding funnel
+  counters and marketing provider-vote tiles (allowlisted; no identity stored)
+
+#### Keyring CLI (`packages/keyring`, Apache-2.0)
+- `keyring init` / `based init` is the whole onboarding: vault + auto-named
+  agent identity + MCP config (with permission) + ONE browser page
+  ("Take control of this agent"), then keeps running to store browser-sealed
+  connect-card tokens locally as they arrive (`--no-watch` to opt out)
+- `invite_owner(email)` MCP tool (agent-first entry)
+- Isomorphic base64 utils + package export subpaths `./crypto`, `./util` so
+  the console can import the daemon's own sealed-box crypto in the browser
+- Anonymous, opt-out (`BASEDAGENTS_NO_TELEMETRY=1`) funnel pings from `init`
+
+#### Console (`packages/console`, proprietary)
+- `/link` (one email field), `/claim` (fragment-carried token → session →
+  welcome), `/welcome` connect cards (Vercel, Supabase — token sealed in the
+  browser to the vault key; card confirms only on daemon `stored`), `/invited`,
+  novice home `/home` (asks / can-use / activity / kill switch; full console
+  behind "Advanced"), email-first `/login`, command-not-form `/signup`
+- First approval mints the passkey (`lib/approve.ts`, shared by Home and
+  Approvals) — creation ceremony at the moment authority is first exercised
+- Cross-package sealed-box parity test (browser seals, daemon opens)
+
+#### Marketing (`packages/web`, Apache-2.0)
+- `/keyring` rebuilt as a **static HTML page** (v1 page copy, readable with JS
+  disabled): paste-command hero, hotel-key-card story, honest revocation
+  (Disconnect vs Burn), provider grid with vote tiles, pricing, FAQ; Product +
+  FAQPage JSON-LD, self-canonical; the old in-browser demo moved to
+  `/keyring/demo`; `.well-known/agent.json` gained the Keyring flow
+  (register → `invite_owner` → request → lease)
+
+#### Tooling
+- `scripts/lint-ui-words.mjs` (in `npm run lint`): AST-based check that
+  grant/lease/delegation/identity/credential/owner never render on base-case
+  surfaces
+- Passkey E2E rewritten to the v0.2 brief: claim → look-only session with
+  approvals locked; both login rungs; first-approval mint with cryptographic
+  verification of the stored assertion against the just-minted key; recovery;
+  aborted-creation negative + retry
+
+---
+
 ## [0.7.0] — 2026-07-16
 
 The Keyring hosted control plane (KEYRING_SPEC.md v0.2 §5): owner accounts with

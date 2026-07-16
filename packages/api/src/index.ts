@@ -27,6 +27,7 @@ import recoveryRoutes from './control/recovery.js';
 import { billingRoutes, stripeWebhookRoutes } from './control/billing.js';
 import testingRoutes from './control/testing.js';
 import ladderRoutes from './control/ladder.js';
+import funnelRoutes, { VOTABLE_PROVIDERS } from './routes/funnel.js';
 
 const app = new Hono<AppEnv>();
 
@@ -65,7 +66,13 @@ const RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
   '/v1/owner/login/email':     { max: 3,  windowMs: 60_000 },
   '/v1/owner/claim/finish':    { max: 10, windowMs: 60_000 },
   '/v1/owner/invites':         { max: 10, windowMs: 60_000 },
+  // Anonymous counters (funnel pings, vote tiles) — cheap, but cap the firehose.
+  '/v1/funnel':                { max: 30, windowMs: 60_000 },
 };
+// Vote tiles are parameterized paths — one exact entry per allowlisted slug.
+for (const p of VOTABLE_PROVIDERS) {
+  RATE_LIMITS[`/v1/providers/${p}/vote`] = { max: 10, windowMs: 60_000 };
+}
 
 // ─── Global Middleware ───
 app.use('*', logger());
@@ -370,6 +377,8 @@ app.route('/v1', stripeWebhookRoutes);
 app.route('/v1/owner', testingRoutes);
 // The authority ladder (link codes, magic-link claim/login, invites, connect cards): /v1/owner
 app.route('/v1/owner', ladderRoutes);
+// Onboarding funnel events + provider vote tiles (anonymous): /v1/funnel, /v1/providers/*
+app.route('/v1', funnelRoutes);
 
 /**
  * MED-5: Constant-time string comparison to prevent timing attacks on admin tokens.

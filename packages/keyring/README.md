@@ -18,9 +18,33 @@ Keyring fixes 1 and 2 today and is honest about 3 (see [Security model](#securit
 
 ## Quick start
 
+The whole onboarding is one command, run in the terminal where your agent works:
+
+```bash
+npx @basedagents/keyring init
+```
+
+It creates the local vault (everything sensitive stays on your machine),
+sets up an agent identity named after the tool and host (override with
+`--name`), offers to add the MCP config to Claude Code, and opens one browser
+page where a single email field puts you in control. It then stays running so
+the tokens you connect in the browser are sealed to your vault key and stored
+locally as they arrive — no second terminal trip. Flags for the advanced door:
+`--bare` (vault only), `--no-link` (skip the hosted link), `--no-browser`,
+`--no-watch` (exit right after the claim), `--yes`, `--api <url>`.
+
+While talking to the hosted control plane, `init` sends two anonymous funnel
+pings (`init_run`, `mcp_config_written`) — an event name and a random per-run
+id, nothing else (no hostname, no agent id, no email). Set
+`BASEDAGENTS_NO_TELEMETRY=1` to disable them; `--bare`/`--no-link` runs send
+nothing.
+
+Everything below works with no account and no network — the local vault is the
+product; the hosted console is optional:
+
 ```bash
 npm install -g @basedagents/keyring    # or: npx -y --package=@basedagents/keyring based <args>
-based init                             # create the vault + owner keypair
+based init --bare                      # create just the vault + owner keypair
 
 # Add a secret (hidden prompt; or pipe via stdin, or --value)
 based add "Supabase service-role key (acme-prod)"
@@ -77,6 +101,7 @@ Tools exposed:
 | `keyring_lease(ref, context?, ttl_seconds?)` | Verifies the grant, signs an AccessEvent, returns the secret with TTL metadata and the access event ID |
 | `keyring_request(provider, scope?, note?)` | Creates a pending grant request for the owner to approve |
 | `keyring_whoami()` | The agent identity this server is acting as |
+| `invite_owner(email)` | Agent-first entry: emails a human an invite to take ownership of this agent (72 h expiry, 3/day per agent). Until they claim it by running `init` on their own machine, the agent can hold nothing and access nothing |
 
 The agent keypair comes from `BASEDAGENTS_KEYPAIR_PATH` (JSON: `{ "public_key_b58", "private_key_hex" }` or `{ "publicKey", "privateKey" }` in hex) or from `BASEDAGENTS_PRIVATE_KEY_HEX` + `BASEDAGENTS_PUBLIC_KEY_B58`.
 
@@ -84,7 +109,7 @@ The agent keypair comes from `BASEDAGENTS_KEYPAIR_PATH` (JSON: `{ "public_key_b5
 
 | Command | Does |
 |---|---|
-| `based init` | Create the vault and owner keypair |
+| `based init` | The one-command onboarding: vault + agent identity + MCP config + browser link (see Quick start); `--bare` for vault-only |
 | `based add <label>` | Add a credential — hidden prompt, stdin, or `--value` |
 | `based update-secret <cred>` | Replace a secret (e.g. after manual rotation); re-seals to owner + active grantees |
 | `based rm <cred>` | Remove a credential and all its grants |

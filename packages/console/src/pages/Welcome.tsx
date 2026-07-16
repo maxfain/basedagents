@@ -15,6 +15,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { control, ControlApiError } from '../api/control.js';
 import { useOwner } from '../state/session.js';
 import { sealForOwner } from '../lib/seal.js';
+import { funnelPing } from '../lib/funnel.js';
 import { PROVIDER_CARDS } from '../lib/providerCards.js';
 import type { ProviderCard } from '../lib/providerCards.js';
 import type { ConnectionInfo } from '../api/types.js';
@@ -166,7 +167,10 @@ export default function Welcome() {
           if (phase.kind !== 'waiting') continue;
           const conn = byId.get(phase.connectionId);
           if (!conn) continue;
-          if (conn.status === 'stored') setPhase(cardId, { kind: 'connected' });
+          if (conn.status === 'stored') {
+            setPhase(cardId, { kind: 'connected' });
+            funnelPing('provider_connected', conn.provider);
+          }
           if (conn.status === 'failed') {
             setPhase(cardId, { kind: 'failed', reason: conn.failure_reason ?? 'That didn’t work — check the token and try again.' });
           }

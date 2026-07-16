@@ -18,6 +18,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { randomBytes } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import { Keyring } from '../keyring.js';
 import { generateKeypair } from '../crypto.js';
@@ -58,12 +59,31 @@ async function postJson(url: string, body: unknown): Promise<{ status: number; j
   return { status: res.status, json: (await res.json().catch(() => ({}))) as Record<string, unknown> };
 }
 
+/**
+ * Anonymous funnel ping (onboarding redesign instrumentation). Strictly an
+ * event name plus a random per-run id — no hostname, no agent id, no email.
+ * Sent only in link mode (init is already talking to this API for the link),
+ * best-effort, and disabled entirely by BASEDAGENTS_NO_TELEMETRY=1.
+ */
+function funnelPing(api: string, funnelId: string, event: 'init_run' | 'mcp_config_written'): void {
+  if (process.env.BASEDAGENTS_NO_TELEMETRY === '1') return;
+  fetch(`${api}/v1/funnel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event, funnel_id: funnelId }),
+  }).catch(() => undefined);
+}
+
 export async function cmdInit(args: string[], dir: string | undefined): Promise<void> {
   const flags = parseFlags(args, {
     value: ['owner-keypair', 'name', 'api'],
     switch: ['bare', 'no-link', 'no-browser', 'no-watch', 'yes'],
   });
   const api = flags.values['api'] ?? DEFAULT_KEYRING_API;
+  // Telemetry only makes sense when init talks to the control plane anyway.
+  const telemetryOk = !flags.switches.has('bare') && !flags.switches.has('no-link');
+  const funnelId = randomBytes(8).toString('hex');
+  if (telemetryOk) funnelPing(api, funnelId, 'init_run');
 
   // 1. Vault — create, or quietly reuse an existing one (re-running the paste
   //    command must never destroy anything).
@@ -139,6 +159,7 @@ export async function cmdInit(args: string[], dir: string | undefined): Promise<
       execFileSync('claude', mcpArgs, { stdio: 'ignore' });
       mcpConfigured = true;
       console.log('✓ Claude Code can now use the keyring (MCP configured)');
+      if (telemetryOk) funnelPing(api, funnelId, 'mcp_config_written');
     } catch {
       console.log('· Could not run `claude` here — add it yourself with:');
       console.log(`    ${mcpCommand}`);
