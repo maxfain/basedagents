@@ -221,7 +221,24 @@ on all three endpoints. Email is provider-pluggable (Resend if RESEND_API_KEY
 is set; log-only sender otherwise). Console: recovery-code panel on Vault
 (display-once) + the public `/recover` page.
 
-**Increment 3d.** Billing.
+**Increment 3d (shipped).** Billing — "local is free, hosted is paid"
+(pricing locked Jul 2026): Free = 1 owner / 3 delegated agents / 30-day
+retention; Pro $10/mo or $96/yr = unlimited agents / 1-year retention /
+anomaly flags. `getEntitlements` (control/entitlements.ts) is the single
+source of truth; enforcement at exactly two points — delegation creation and
+grant approval — never at lease time, never on daemon endpoints; security
+actions (revoke, kill switch) are never paywalled and verified un-gated on
+past_due/canceled/over-limit accounts. Stripe Checkout + Customer Portal;
+the signature-verified, event-id-idempotent webhook is the only writer of
+plan state. Retention enforced at query time.
+
+**v0.1 closeout (shipped).** Passkey E2E — Playwright + CDP virtual
+authenticator, five scenarios against the real control plane and console,
+including crypto verification of the stored approval assertion via keyring's
+own `verifyOwnerAssertion` and the recovery rotation. Deploy automation —
+merge-to-main applies D1 migrations, deploys the Worker, and publishes the
+console; PRs get preview deploys; one-time setup in
+`scripts/bootstrap-deploy.md`.
 
 **Deliberately deferred / not built as a hosted firehose.** The high-volume
 AccessEvent stream is **not** mirrored wholesale into D1 (that would drag in
