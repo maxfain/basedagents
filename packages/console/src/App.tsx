@@ -6,6 +6,7 @@ import Recover from './pages/Recover.js';
 import Approvals from './pages/Approvals.js';
 import Agents from './pages/Agents.js';
 import Vault from './pages/Vault.js';
+import Billing from './pages/Billing.js';
 
 /** Gate the console behind a live look-session; render the shell once in. */
 function Protected() {
@@ -27,6 +28,7 @@ export default function App() {
             <Route path="/approvals" element={<Approvals />} />
             <Route path="/agents" element={<Agents />} />
             <Route path="/vault" element={<Vault />} />
+            <Route path="/settings/billing" element={<Billing />} />
           </Route>
           <Route path="*" element={<Navigate to="/approvals" replace />} />
         </Routes>

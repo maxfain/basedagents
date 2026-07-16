@@ -33,6 +33,13 @@ export interface OwnerRow {
   status: string;
   created_at: string;
   updated_at: string;
+  /** Billing (migration 0026): 'free' | 'pro' | 'team'. */
+  plan: string;
+  /** 'active' | 'past_due' | 'canceled'. */
+  plan_status: string;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  current_period_end: string | null;
 }
 
 export interface CredentialRow {
@@ -219,6 +226,11 @@ function mapOwnerRow(r: RawRow): OwnerRow {
     status: asStr(r.status),
     created_at: asStr(r.created_at),
     updated_at: asStr(r.updated_at),
+    plan: asStr(r.plan ?? 'free'),
+    plan_status: asStr(r.plan_status ?? 'active'),
+    stripe_customer_id: asNullableStr(r.stripe_customer_id),
+    stripe_subscription_id: asNullableStr(r.stripe_subscription_id),
+    current_period_end: asNullableStr(r.current_period_end),
   };
 }
 
@@ -842,6 +854,98 @@ export class ControlStore {
       nowIso
     );
     return res.changes === 1;
+  }
+
+  // ── Billing (migration 0026 — plan state; NEVER consulted on security paths) ──
+
+  /** The agent is the unit of scale: how many ACTIVE delegations this owner holds. */
+  async countActiveDelegations(ownerId: string): Promise<number> {
+    const r = await this.db.get<RawRow>(
+      `SELECT COUNT(*) AS n FROM delegations WHERE owner_id = ? AND status = 'active'`,
+      ownerId
+    );
+    return Number(r?.n ?? 0);
+  }
+
+  async getOwnerByStripeCustomerId(customerId: string): Promise<OwnerRow | null> {
+    const r = await this.db.get<RawRow>(`SELECT * FROM owners WHERE stripe_customer_id = ?`, customerId);
+    return r ? mapOwnerRow(r) : null;
+  }
+
+  async setStripeCustomerId(ownerId: string, customerId: string): Promise<void> {
+    await this.db.run(
+      `UPDATE owners SET stripe_customer_id = ?, updated_at = ? WHERE id = ?`,
+      customerId,
+      nowIsoString(),
+      ownerId
+    );
+  }
+
+  async updateOwnerBilling(input: {
+    ownerId: string;
+    plan: 'free' | 'pro' | 'team';
+    planStatus: 'active' | 'past_due' | 'canceled';
+    stripeSubscriptionId?: string | null;
+    currentPeriodEnd?: string | null;
+  }): Promise<void> {
+    await this.db.run(
+      `UPDATE owners
+       SET plan = ?, plan_status = ?, stripe_subscription_id = ?, current_period_end = ?, updated_at = ?
+       WHERE id = ?`,
+      input.plan,
+      input.planStatus,
+      input.stripeSubscriptionId ?? null,
+      input.currentPeriodEnd ?? null,
+      nowIsoString(),
+      input.ownerId
+    );
+  }
+
+  /**
+   * ATOMIC idempotency claim for a Stripe webhook event: the INSERT succeeds
+   * exactly once per event id; a replay hits the UNIQUE constraint and returns
+   * false (§4 conditional-write discipline).
+   */
+  async claimStripeEvent(eventId: string, type: string): Promise<boolean> {
+    try {
+      await this.db.run(
+        `INSERT INTO stripe_events (id, type, received_at) VALUES (?, ?, ?)`,
+        eventId,
+        type,
+        nowIsoString()
+      );
+      return true;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes('UNIQUE') || msg.includes('SQLITE_CONSTRAINT')) return false;
+      throw e;
+    }
+  }
+
+  // ── E2E test outbox (Task 2 — only ever written in E2E=1 environments) ──
+
+  async appendTestOutbox(recipient: string, subject: string, body: string): Promise<void> {
+    await this.db.run(
+      `INSERT INTO test_outbox (recipient, subject, body) VALUES (?, ?, ?)`,
+      recipient,
+      subject,
+      body
+    );
+  }
+
+  async listTestOutbox(recipient?: string): Promise<Array<{ recipient: string; subject: string; body: string; created_at: string }>> {
+    const rows = recipient
+      ? await this.db.all<RawRow>(
+          `SELECT recipient, subject, body, created_at FROM test_outbox WHERE recipient = ? ORDER BY id DESC`,
+          recipient
+        )
+      : await this.db.all<RawRow>(`SELECT recipient, subject, body, created_at FROM test_outbox ORDER BY id DESC`);
+    return rows.map((r) => ({
+      recipient: asStr(r.recipient),
+      subject: asStr(r.subject),
+      body: asStr(r.body),
+      created_at: asStr(r.created_at),
+    }));
   }
 
   // ── Action assertions (hash-chained, CONTROL_PLANE.md §5) ──

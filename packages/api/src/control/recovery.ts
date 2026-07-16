@@ -78,10 +78,29 @@ async function parseJson(c: Context<AppEnv>): Promise<unknown> {
   return c.req.json();
 }
 
-/** Tests inject a recording sender via c.set('emailSender'); env-derived otherwise. */
+/** True when this deployment is an E2E test environment (never production). */
+function isE2E(env: unknown): boolean {
+  return ((env ?? {}) as Record<string, string | undefined>).E2E === '1';
+}
+
+/**
+ * Tests inject a recording sender via c.set('emailSender'); an E2E=1
+ * environment writes to the test_outbox table (readable via the test-only
+ * endpoint below — Resend is never called in E2E, per the coder brief);
+ * env-derived (Resend or log-only) otherwise.
+ */
 function getEmailSender(c: Context<AppEnv>): EmailSender {
   const injected = (c.get as (k: string) => EmailSender | undefined)('emailSender');
-  return injected ?? emailSenderFromEnv(c.env);
+  if (injected) return injected;
+  if (isE2E(c.env)) {
+    const store = getStore(c);
+    return {
+      send: async (m) => {
+        await store.appendTestOutbox(m.to, m.subject, m.text);
+      },
+    };
+  }
+  return emailSenderFromEnv(c.env);
 }
 
 /** Pull the challenge back out of a base64url clientDataJSON (mirror routes.ts). */
@@ -136,6 +155,18 @@ const RecoverFinishSchema = z.object({
 // ─── the sub-app ───
 
 const app = new Hono<AppEnv>();
+
+// ── E2E-only: read the test outbox (404s in every non-E2E environment) ──
+//
+// The Playwright suite reads recovery magic links from here instead of a real
+// mailbox. Guarded by env, not by auth: the endpoint simply does not exist
+// unless the deployment was explicitly started with E2E=1.
+app.get('/test/outbox', async (c) => {
+  if (!isE2E(c.env)) return err(c, 404, 'not_found', 'not found');
+  const recipient = c.req.query('recipient');
+  const store = getStore(c);
+  return c.json({ messages: await store.listTestOutbox(recipient) });
+});
 
 // ── Issue a recovery code (signed-in owner, passkey ceremony) ──
 

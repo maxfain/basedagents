@@ -18,6 +18,7 @@ import type {
   VaultKeyBinding,
   RecoverOptionsResponse,
   RecoverFinishResponse,
+  BillingInfo,
 } from './types.js';
 import type { RegistrationResult } from '../lib/webauthn.js';
 
@@ -115,6 +116,17 @@ export const control = {
   // ── Vault-key binding (unlocks daemonAuth for `based sync`) ──
   bindVaultKey(vaultPublicKey: string, nonce: string, assertion: OwnerAssertion): Promise<VaultKeyBinding> {
     return request('POST', '/vault-binding', { vault_public_key: vaultPublicKey, nonce, assertion });
+  },
+
+  // ── Billing ("local is free, hosted is paid") ──
+  getBilling(): Promise<BillingInfo> {
+    return request('GET', '/billing');
+  },
+  billingCheckout(interval: 'monthly' | 'yearly'): Promise<{ url: string }> {
+    return request('POST', '/billing/checkout', { interval });
+  },
+  billingPortal(): Promise<{ url: string }> {
+    return request('POST', '/billing/portal');
   },
 
   // ── Recovery (CONTROL_PLANE.md §6) ──

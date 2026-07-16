@@ -23,6 +23,7 @@ import { queueStaleReports, processRescanQueue } from './scanner/rescan.js';
 import ownerRoutes from './control/routes.js';
 import approvalRoutes from './control/approvals.js';
 import recoveryRoutes from './control/recovery.js';
+import { billingRoutes, stripeWebhookRoutes } from './control/billing.js';
 
 const app = new Hono<AppEnv>();
 
@@ -344,6 +345,10 @@ app.route('/v1/owner', ownerRoutes);
 app.route('/v1/owner', approvalRoutes);
 // Keyring account recovery (magic link + recovery code → passkey rotation): /v1/owner
 app.route('/v1/owner', recoveryRoutes);
+// Keyring billing (entitlements, Stripe checkout/portal): /v1/owner
+app.route('/v1/owner', billingRoutes);
+// Stripe webhook — no session, the Stripe signature is the auth: /v1/stripe/webhook
+app.route('/v1', stripeWebhookRoutes);
 
 /**
  * MED-5: Constant-time string comparison to prevent timing attacks on admin tokens.

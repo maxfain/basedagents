@@ -35,6 +35,7 @@ import {
   base64urlEncode,
   base64urlDecode,
 } from './webauthn.js';
+import { checkAgentLimit } from './billing.js';
 import { base58Encode, base58Decode, sha256, bytesToHex, canonicalJsonStringify } from '../crypto/index.js';
 
 // ─── small helpers ───
@@ -674,6 +675,28 @@ app.post('/delegations', ownerSession, async (c) => {
   }
   const parsed = CreateDelegationSchema.safeParse(body);
   if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
+
+  // Billing enforcement point #1 (of exactly two): the agent is the unit of
+  // scale, so the Nth+1 ACTIVE delegation is blocked on the Free tier.
+  // Revocation, kill switch, leases, and daemon traffic are never gated.
+  {
+    const store = getStore(c);
+    const owner = await store.getOwner(ownerId);
+    if (owner) {
+      const limit = await checkAgentLimit(store, owner);
+      if (!limit.allowed) {
+        return c.json(
+          {
+            error: 'plan_limit',
+            message: `Your plan allows ${limit.maxAgents} delegated agents (you have ${limit.activeAgents}). Upgrade to add more.`,
+            active_agents: limit.activeAgents,
+            max_agents: limit.maxAgents,
+          },
+          402,
+        );
+      }
+    }
+  }
 
   const label = parsed.data.label ?? null;
   const canonical = canonicalJsonStringify({
