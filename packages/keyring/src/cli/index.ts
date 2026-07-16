@@ -8,7 +8,8 @@
 
 import { KeyringError } from '../keyring.js';
 import { CliError } from './shared.js';
-import { cmdInit, cmdExport, cmdVerifyLog } from './vault.js';
+import { cmdExport, cmdVerifyLog } from './vault.js';
+import { cmdInit } from './onboard.js';
 import { cmdAdd, cmdUpdateSecret, cmdRemove, cmdCredentials } from './credentials.js';
 import { cmdIdentity, cmdIdentities, cmdAgents } from './identities.js';
 import { cmdGrant, cmdRevoke, cmdKill, cmdRequests, cmdApprove, cmdDeny } from './grants.js';
@@ -29,7 +30,10 @@ Usage:
   based <command> [options]
 
 Vault:
-  init [--owner-keypair <file>]         Create the vault (back up owner.json!)
+  init                                  Set everything up: vault, agent, MCP config,
+                                        and the browser link to take control
+       [--name <agent name>] [--api <url>] [--yes] [--no-link] [--no-browser]
+       [--bare] [--owner-keypair <file>]   (--bare = vault only, the old behavior)
   export [--out <file>]                 Signed JSON export of the access log
   verify-log                            Verify the log's hash chain + signatures
 

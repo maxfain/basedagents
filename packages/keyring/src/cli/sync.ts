@@ -10,9 +10,11 @@
  */
 
 import { Keyring, KeyringError } from '../keyring.js';
+import { openSealedBox } from '../crypto.js';
 import { parseFlags, CliError, shortAgentId } from './shared.js';
 import { confirm } from './prompt.js';
 import { ControlClient, DEFAULT_KEYRING_API } from './control-client.js';
+import { validateProviderToken, presetEnvVar } from './providers.js';
 
 function apiFrom(flags: { values: Record<string, string | undefined> }): string {
   return flags.values['api'] ?? DEFAULT_KEYRING_API;
@@ -74,7 +76,47 @@ export async function cmdSync(args: string[], dir: string | undefined): Promise<
     throw new CliError('--watch requires a number of seconds ≥ 1');
   }
 
+  /**
+   * Connect cards (onboarding Move 3): pull browser-sealed provider tokens,
+   * open them with the vault owner key (LOCALLY — the plaintext exists only
+   * here), validate against the provider where possible, store the credential
+   * and create the grant for the connected agent, then confirm back so the
+   * card in the browser flips to ✓.
+   */
+  const processConnections = async (quiet: boolean): Promise<void> => {
+    const connections = await client.getConnections();
+    if (connections.length === 0) return;
+    for (const conn of connections) {
+      const display = conn.label ?? conn.provider;
+      try {
+        const secret = new TextDecoder().decode(openSealedBox(owner.privateKey, conn.sealed_secret));
+        const check = await validateProviderToken(conn.provider, secret);
+        if (!check.ok) {
+          console.log(`✗ ${display}: ${check.detail}`);
+          await client.resolveConnection(conn.id, { error: check.detail });
+          continue;
+        }
+        const credential = await keyring.addCredential(owner, {
+          label: conn.label ?? conn.provider,
+          provider: conn.provider,
+          env_var: conn.env_var ?? presetEnvVar(conn.provider),
+        }, secret.trim());
+        await keyring.createGrant(owner, credential.credential_id, conn.agent_id, {});
+        await client.resolveConnection(conn.id, { daemonCredentialId: credential.credential_id });
+        console.log(`✓ ${display} connected → ${shortAgentId(conn.agent_id)} (${check.detail})`);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        console.log(`✗ ${display}: ${reason}`);
+        try {
+          await client.resolveConnection(conn.id, { error: reason });
+        } catch { /* reported next round */ }
+      }
+    }
+    if (!quiet) console.log('');
+  };
+
   const runOnce = async (quiet: boolean): Promise<void> => {
+    await processConnections(quiet);
     const approvals = await client.getApprovals();
     if (approvals.length === 0) {
       if (!quiet) console.log('No pending approvals.');
