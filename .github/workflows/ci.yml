@@ -164,6 +164,33 @@ jobs:
       - name: Install
         run: npm ci
 
+      # Fail fast, with a message that names the actual problem, before any
+      # deploy step runs. An unset GitHub secret silently becomes an empty
+      # string, and wrangler's own error ("set CLOUDFLARE_API_TOKEN") cannot
+      # tell you WHICH side is misconfigured. Common trap: values added under
+      # the "Variables" tab instead of "Secrets" also arrive empty here.
+      - name: Verify Cloudflare credentials
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          fail=0
+          if [ -z "$CF_TOKEN" ]; then
+            echo "::error::Secret CLOUDFLARE_API_TOKEN is unset or empty. Add it under Settings → Secrets and variables → Actions → SECRETS tab (not Variables), exact name CLOUDFLARE_API_TOKEN."
+            fail=1
+          fi
+          if [ -z "$CF_ACCOUNT" ]; then
+            echo "::error::Secret CLOUDFLARE_ACCOUNT_ID is unset or empty. Add it under Settings → Secrets and variables → Actions → SECRETS tab (not Variables), exact name CLOUDFLARE_ACCOUNT_ID."
+            fail=1
+          fi
+          [ "$fail" = "1" ] && exit 1
+          code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $CF_TOKEN" https://api.cloudflare.com/client/v4/user/tokens/verify)
+          if [ "$code" != "200" ]; then
+            echo "::error::Cloudflare rejected the token (verify endpoint returned $code) — wrong value, revoked, or expired."
+            exit 1
+          fi
+          echo "Cloudflare credentials present; token verifies (HTTP 200)."
+
       # Migrations FIRST — new code must never run against an old schema.
       # wrangler tracks applied migrations in the d1_migrations table; see
       # scripts/bootstrap-deploy.md for the one-time bookkeeping check.
