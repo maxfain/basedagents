@@ -33,6 +33,9 @@ export default function Layout() {
           <NavLink to="/vault" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
             Vault
           </NavLink>
+          <NavLink to="/settings/billing" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
+            Billing
+          </NavLink>
         </nav>
         <div className="topbar-right">
           {owner && <span className="owner-id" title={owner.owner_id}>{shortOwner(owner.owner_id)}</span>}

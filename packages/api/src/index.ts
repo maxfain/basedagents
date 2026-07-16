@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import type { AppEnv } from './types/index.js';
 import { D1Adapter } from './db/d1-adapter.js';
+import type { DBAdapter } from './db/adapter.js';
 import { checkRateLimit } from './lib/rate-limiter.js';
 import { runBootstrapProber } from './bootstrap/prober.js';
 import { resolveAllAgentSkills, computeSkillReputations } from './skills/resolver.js';
@@ -23,6 +24,8 @@ import { queueStaleReports, processRescanQueue } from './scanner/rescan.js';
 import ownerRoutes from './control/routes.js';
 import approvalRoutes from './control/approvals.js';
 import recoveryRoutes from './control/recovery.js';
+import { billingRoutes, stripeWebhookRoutes } from './control/billing.js';
+import testingRoutes from './control/testing.js';
 
 const app = new Hono<AppEnv>();
 
@@ -80,11 +83,20 @@ app.use('*', cors({
 }));
 
 // ─── Database Adapter Middleware ───
-// Wraps the D1 binding from Cloudflare Workers environment.
+// Wraps the D1 binding from Cloudflare Workers environment; a Node process
+// (local dev / E2E — src/node.ts) registers a SQLite adapter instead.
 // Must run before rate limiting, which needs the DB.
+let nodeAdapter: DBAdapter | null = null;
+/** Local/Node fallback adapter (set by src/node.ts; Workers always uses env.DB). */
+export function setNodeAdapter(adapter: DBAdapter): void {
+  nodeAdapter = adapter;
+}
+
 app.use('*', async (c, next) => {
   if (c.env?.DB) {
     c.set('db', new D1Adapter(c.env.DB));
+  } else if (nodeAdapter) {
+    c.set('db', nodeAdapter);
   }
   await next();
 });
@@ -344,6 +356,12 @@ app.route('/v1/owner', ownerRoutes);
 app.route('/v1/owner', approvalRoutes);
 // Keyring account recovery (magic link + recovery code → passkey rotation): /v1/owner
 app.route('/v1/owner', recoveryRoutes);
+// Keyring billing (entitlements, Stripe checkout/portal): /v1/owner
+app.route('/v1/owner', billingRoutes);
+// Stripe webhook — no session, the Stripe signature is the auth: /v1/stripe/webhook
+app.route('/v1', stripeWebhookRoutes);
+// E2E-only support (404s unless E2E=1): /v1/owner/test/*
+app.route('/v1/owner', testingRoutes);
 
 /**
  * MED-5: Constant-time string comparison to prevent timing attacks on admin tokens.

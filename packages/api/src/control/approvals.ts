@@ -54,6 +54,7 @@ import {
 import { base64urlEncode } from './webauthn.js';
 import { convertCOSEtoPKCS } from '@simplewebauthn/server/helpers';
 import { rpConfig } from './config.js';
+import { checkAgentLimit } from './entitlements.js';
 
 // ─── small helpers (kept local; mirror ./routes.ts conventions) ───
 
@@ -87,6 +88,29 @@ function getOwnerId(c: Context<AppEnv>): string {
 
 function err(c: Context<AppEnv>, status: 400 | 401 | 404 | 409, error: string, message: string) {
   return c.json({ error, message }, status);
+}
+
+/**
+ * Billing enforcement point #2 (of exactly two): grant approval is blocked
+ * only while the account is OVER its agent limit (e.g. 4 active delegations
+ * on Free after a downgrade). An at-limit account approves normally — the
+ * gate is "no NEW grants while over limit", never "fewer grants than before".
+ * Returns a Response to short-circuit with, or null to proceed.
+ */
+async function overLimitResponse(c: Context<AppEnv>, store: ControlStore, ownerId: string): Promise<Response | null> {
+  const owner = await store.getOwner(ownerId);
+  if (!owner) return null;
+  const limit = await checkAgentLimit(store, owner);
+  if (limit.activeAgents <= limit.maxAgents) return null;
+  return c.json(
+    {
+      error: 'plan_limit',
+      message: `Your plan allows ${limit.maxAgents} delegated agents but ${limit.activeAgents} are active. Approving new grants is paused until you are under the limit or upgraded. Revoking and the kill switch are unaffected.`,
+      active_agents: limit.activeAgents,
+      max_agents: limit.maxAgents,
+    },
+    402,
+  );
 }
 
 async function parseJson(c: Context<AppEnv>): Promise<unknown> {
@@ -362,6 +386,11 @@ app.post('/requests/:id/approve/begin', ownerSession, async (c) => {
   const requestId = c.req.param('id');
   const store = getStore(c);
 
+  // Fail the ceremony EARLY on an over-limit account — before the owner is
+  // prompted for a passkey signature they cannot use.
+  const gated = await overLimitResponse(c, store, ownerId);
+  if (gated) return gated;
+
   const request = await store.getKeyringRequest(requestId);
   if (!request || request.owner_id !== ownerId) {
     return err(c, 404, 'not_found', 'request not found');
@@ -425,6 +454,10 @@ app.post('/requests/:id/approve', ownerSession, async (c) => {
   if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
 
   const store = getStore(c);
+  // Authoritative billing gate (begin's early check is UX; this one is real).
+  const gated = await overLimitResponse(c, store, ownerId);
+  if (gated) return gated;
+
   const request = await store.getKeyringRequest(requestId);
   if (!request || request.owner_id !== ownerId) {
     return err(c, 404, 'not_found', 'request not found');

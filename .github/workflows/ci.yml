@@ -53,3 +53,136 @@ jobs:
 
       - name: Test
         run: pytest packages/python/tests -q
+
+  e2e:
+    name: Passkey E2E (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install chromium --with-deps
+        working-directory: packages/console
+
+      - name: Run passkey E2E
+        run: npm run test:e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            packages/console/playwright-report/
+            packages/console/test-results/
+          retention-days: 7
+
+  # ── PR: deploy a console preview to Cloudflare Pages and comment the URL ──
+  # Skipped for forks (no secrets) — previews are for same-repo branches.
+  # NOTE: passkey ceremonies do NOT work on *.pages.dev previews by design
+  # (the WebAuthn RP ID is basedagents.ai) — previews are for UI review.
+  preview:
+    name: Console preview deploy
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: [node]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build console
+        run: npm run build --workspace=packages/console
+
+      - name: Deploy preview to Cloudflare Pages
+        id: deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy packages/console/dist --project-name basedagents-console --branch "${{ github.head_ref }}"
+
+      - name: Comment preview URL on the PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = `${{ steps.deploy.outputs.deployment-url }}`;
+            if (!url) return;
+            const marker = '<!-- console-preview-url -->';
+            const body = `${marker}\n🔎 **Console preview:** ${url}\n\n_(Passkey ceremonies only work on app.basedagents.ai — previews are for UI review.)_`;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
+            }
+
+  # ── main: gates green → migrations → Worker → console. Zero manual steps. ──
+  deploy-production:
+    name: Deploy production (API + console)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [node, python, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Migrations FIRST — new code must never run against an old schema.
+      # wrangler tracks applied migrations in the d1_migrations table; see
+      # scripts/bootstrap-deploy.md for the one-time bookkeeping check.
+      - name: Apply D1 migrations
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: packages/api
+          command: d1 migrations apply agent-registry --remote
+
+      - name: Deploy API Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: packages/api
+          command: deploy --name agent-registry-api
+
+      - name: Build console
+        run: npm run build --workspace=packages/console
+
+      - name: Deploy console to Cloudflare Pages (production)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy packages/console/dist --project-name basedagents-console --branch main

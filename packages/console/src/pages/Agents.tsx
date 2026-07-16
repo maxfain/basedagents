@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { control, ControlApiError } from '../api/control.js';
 import { runAction } from '../lib/ceremony.js';
 import { useOwner } from '../state/session.js';
@@ -7,6 +8,10 @@ function errText(err: unknown): string {
   if (err instanceof ControlApiError) return err.message;
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+function isPlanLimit(err: unknown): boolean {
+  return err instanceof ControlApiError && err.status === 402;
 }
 
 function shortId(id: string): string {
@@ -26,6 +31,7 @@ export default function Agents() {
   const [label, setLabel] = useState('');
   const [busy, setBusy] = useState<string | null>(null); // 'create' | delegation id
   const [error, setError] = useState<string | null>(null);
+  const [limitHit, setLimitHit] = useState<string | null>(null);
 
   if (!owner) return null; // Protected route guarantees a session; satisfies TS.
   const delegations = owner.delegations;
@@ -37,6 +43,7 @@ export default function Agents() {
     const lbl = label.trim() || null;
     setBusy('create');
     setError(null);
+    setLimitHit(null);
     try {
       // Ceremony params mirror the server canonical exactly: {agent_id, label}.
       const { nonce, assertion } = await runAction(owner.owner_id, 'create_delegation', {
@@ -48,7 +55,9 @@ export default function Agents() {
       setLabel('');
       await refresh();
     } catch (err) {
-      setError(errText(err));
+      // 402 plan_limit is not an error state — it's the upgrade moment.
+      if (isPlanLimit(err)) setLimitHit(errText(err));
+      else setError(errText(err));
     } finally {
       setBusy(null);
     }
@@ -86,6 +95,12 @@ export default function Agents() {
       </p>
 
       {error && <div className="banner banner-error">{error}</div>}
+      {limitHit && (
+        <div className="banner banner-warn">
+          {limitHit}{' '}
+          <Link className="link" to="/settings/billing">Upgrade to Pro →</Link>
+        </div>
+      )}
 
       <form onSubmit={onCreate} className="form form-inline">
         <label className="field">

@@ -18,10 +18,13 @@ import type {
   VaultKeyBinding,
   RecoverOptionsResponse,
   RecoverFinishResponse,
+  BillingInfo,
 } from './types.js';
 import type { RegistrationResult } from '../lib/webauthn.js';
 
-export const API_BASE = import.meta.env.VITE_API_URL || 'https://api.basedagents.ai';
+// VITE_API_URL='' (empty, set — dev/E2E) means same-origin relative requests,
+// served through the vite proxy; unset means the production API.
+export const API_BASE = import.meta.env.VITE_API_URL ?? 'https://api.basedagents.ai';
 const OWNER = `${API_BASE}/v1/owner`;
 
 export class ControlApiError extends Error {
@@ -115,6 +118,17 @@ export const control = {
   // ── Vault-key binding (unlocks daemonAuth for `based sync`) ──
   bindVaultKey(vaultPublicKey: string, nonce: string, assertion: OwnerAssertion): Promise<VaultKeyBinding> {
     return request('POST', '/vault-binding', { vault_public_key: vaultPublicKey, nonce, assertion });
+  },
+
+  // ── Billing ("local is free, hosted is paid") ──
+  getBilling(): Promise<BillingInfo> {
+    return request('GET', '/billing');
+  },
+  billingCheckout(interval: 'monthly' | 'yearly'): Promise<{ url: string }> {
+    return request('POST', '/billing/checkout', { interval });
+  },
+  billingPortal(): Promise<{ url: string }> {
+    return request('POST', '/billing/portal');
   },
 
   // ── Recovery (CONTROL_PLANE.md §6) ──

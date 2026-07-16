@@ -118,3 +118,17 @@ export interface RecoverFinishResponse {
   revoked_passkeys: number;
   next_step: string;
 }
+
+export interface BillingInfo {
+  plan: 'free' | 'pro' | 'team';
+  plan_status: 'active' | 'past_due' | 'canceled';
+  current_period_end: string | null;
+  entitlements: {
+    /** null = unlimited */
+    max_agents: number | null;
+    retention_days: number;
+    anomaly_flags: boolean;
+  };
+  active_agents: number;
+  billing_configured: boolean;
+}

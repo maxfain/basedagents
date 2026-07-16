@@ -78,10 +78,29 @@ async function parseJson(c: Context<AppEnv>): Promise<unknown> {
   return c.req.json();
 }
 
-/** Tests inject a recording sender via c.set('emailSender'); env-derived otherwise. */
+/** True when this deployment is an E2E test environment (never production). */
+function isE2E(env: unknown): boolean {
+  return ((env ?? {}) as Record<string, string | undefined>).E2E === '1';
+}
+
+/**
+ * Tests inject a recording sender via c.set('emailSender'); an E2E=1
+ * environment writes to the test_outbox table (readable via the test-only
+ * endpoint below — Resend is never called in E2E, per the coder brief);
+ * env-derived (Resend or log-only) otherwise.
+ */
 function getEmailSender(c: Context<AppEnv>): EmailSender {
   const injected = (c.get as (k: string) => EmailSender | undefined)('emailSender');
-  return injected ?? emailSenderFromEnv(c.env);
+  if (injected) return injected;
+  if (isE2E(c.env)) {
+    const store = getStore(c);
+    return {
+      send: async (m) => {
+        await store.appendTestOutbox(m.to, m.subject, m.text);
+      },
+    };
+  }
+  return emailSenderFromEnv(c.env);
 }
 
 /** Pull the challenge back out of a base64url clientDataJSON (mirror routes.ts). */

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { control, ControlApiError } from '../api/control.js';
 import { actionChallenge } from '../lib/action.js';
 import { getAssertion } from '../lib/webauthn.js';
@@ -8,6 +9,10 @@ function errText(err: unknown): string {
   if (err instanceof ControlApiError) return err.message;
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+function isPlanLimit(err: unknown): boolean {
+  return err instanceof ControlApiError && err.status === 402;
 }
 
 function shortId(id: string): string {
@@ -28,6 +33,7 @@ export default function Approvals() {
   const [requests, setRequests] = useState<KeyringRequest[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [limitHit, setLimitHit] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -47,6 +53,7 @@ export default function Approvals() {
   async function onApprove(req: KeyringRequest): Promise<void> {
     setBusyId(req.id);
     setError(null);
+    setLimitHit(null);
     try {
       const begin = await control.approveBegin(req.id);
       // Client-side WYSIWYS (CONTROL_PLANE.md §2): the passkey must sign the hash
@@ -64,7 +71,8 @@ export default function Approvals() {
       await control.approve(req.id, begin.nonce, assertion);
       await load();
     } catch (err) {
-      setError(errText(err));
+      if (isPlanLimit(err)) setLimitHit(errText(err));
+      else setError(errText(err));
     } finally {
       setBusyId(null);
     }
@@ -105,6 +113,12 @@ export default function Approvals() {
       </p>
 
       {error && <div className="banner banner-error">{error}</div>}
+      {limitHit && (
+        <div className="banner banner-warn">
+          {limitHit}{' '}
+          <Link className="link" to="/settings/billing">Upgrade to Pro →</Link>
+        </div>
+      )}
 
       {pending.length === 0 ? (
         <div className="empty">

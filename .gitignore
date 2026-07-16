@@ -31,3 +31,9 @@ packages/python/dist/
 packages/python/.venv/
 packages/python/build/
 .mcpregistry_*
+
+# Playwright E2E artifacts
+packages/console/test-results/
+packages/console/playwright-report/
+packages/api/.e2e-data/
+packages/api/.repro-data/
