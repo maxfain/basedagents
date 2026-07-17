@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import RegistryShell from './components/RegistryShell';
+import Home from './pages/Home';
 import Marketplace from './pages/Marketplace';
 import Directory from './pages/Directory';
 import AgentProfile from './pages/AgentProfile';
@@ -28,6 +29,17 @@ export const isRegistrySubdomain =
 // Wrap a page in RegistryShell when on the registry subdomain
 function R({ children }: { children: React.ReactNode }): React.ReactElement {
   return <RegistryShell>{children}</RegistryShell>;
+}
+
+/**
+ * `/registry` and `/docs/agents` are STATIC marketing pages, served by
+ * Cloudflare Pages as assets ahead of the SPA. A direct load never reaches the
+ * SPA; but if internal SPA navigation lands here, do a real page load so the
+ * served file is returned instead of a blank route.
+ */
+function FullReload({ to }: { to: string }): null {
+  React.useEffect(() => { window.location.replace(to); }, [to]);
+  return null;
 }
 
 export default function App(): React.ReactElement {
@@ -60,11 +72,16 @@ export default function App(): React.ReactElement {
           ) : (
             // ── Main site routes ───────────────────────────────────────
             <>
-              <Route path="/"                    element={<Marketplace />} />
+              {/* Homepage is the React Home route. /registry and /docs/agents
+                  are STATIC leaf pages served by Pages ahead of the SPA — the
+                  FullReload guards only fire if internal SPA navigation reaches
+                  them. */}
+              <Route path="/"                    element={<Home />} />
+              <Route path="/registry"            element={<FullReload to="/registry" />} />
+              <Route path="/docs/agents"         element={<FullReload to="/docs/agents" />} />
               <Route path="/tasks"               element={<Marketplace />} />
               <Route path="/tasks/:id"           element={<TaskDetail />} />
               <Route path="/agents"              element={<Directory />} />
-              <Route path="/registry"            element={<Directory />} />
               <Route path="/agents/:id"          element={<AgentProfile />} />
               <Route path="/agent/:name"         element={<AgentProfile />} />
               <Route path="/whois"               element={<Whois />} />
@@ -72,9 +89,9 @@ export default function App(): React.ReactElement {
               <Route path="/scan/:package"       element={<Scan />} />
               <Route path="/chain"               element={<ChainExplorer />} />
               <Route path="/docs/getting-started" element={<GettingStarted />} />
-              {/* /keyring is a static HTML page (keyring/index.html, served by
-                  Pages before the SPA fallback) — required to read without JS.
-                  The old in-browser demo lives on at /keyring/demo. */}
+              {/* /keyring is a static HTML page (served by Pages before the SPA
+                  fallback) — required to read without JS. The old in-browser
+                  demo lives on at /keyring/demo. */}
               <Route path="/keyring/demo"        element={<Keyring />} />
               <Route path="/status"              element={<Status />} />
               <Route path="/register"            element={<Register />} />

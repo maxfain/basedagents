@@ -1,1 +1,15 @@
-/* /index.html 200
+# Static marketing pages (/, /keyring, /registry, /docs/agents) are served as
+# ASSETS by Cloudflare Pages BEFORE this rule; every other path falls through to
+# the React SPA served AT /index.html.
+#
+# CRITICAL — do NOT point the SPA fallback at a named .html file (e.g. /app.html).
+# Cloudflare Pages rewrites any rule whose destination is a .html asset to its
+# "pretty URL": /app.html becomes a 301 to /app, which drops the requested path
+# and breaks every SPA route (this took the site down once). /index.html is the
+# canonical shell and has no pretty-URL redirect, so it is the ONLY safe target.
+
+# Signup is retired — the web door is /start on the console.
+/signup            https://app.basedagents.ai/start   301
+
+# Everything not served as a static asset is the React SPA.
+/*                 /index.html                          200

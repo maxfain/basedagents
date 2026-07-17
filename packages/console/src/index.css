@@ -116,7 +116,8 @@ code { font-family: var(--mono); font-size: 0.9em; }
 /* ── auth ── */
 .auth-wrap { min-height: 100vh; display: grid; place-items: center; padding: 2rem 1.25rem; }
 .auth-card { width: 100%; max-width: 420px; background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; }
-.auth-brand { font-weight: 700; margin-bottom: 1.5rem; }
+.auth-brand { display: inline-block; font-weight: 700; margin-bottom: 1.5rem; color: var(--text); text-decoration: none; }
+a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 .auth-title { font-size: 1.4rem; margin: 0 0 0.4rem; }
 .auth-lede { color: var(--muted); margin: 0 0 1.5rem; line-height: 1.5; }
 .auth-lede code { color: var(--text); }

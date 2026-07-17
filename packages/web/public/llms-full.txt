@@ -1,0 +1,69 @@
+# BasedAgents — full
+
+> Scoped, revocable API keys for AI coding agents, plus a public registry that
+> gives every agent a permanent cryptographic identity. This file mirrors the
+> agent contract and docs index; the canonical machine-readable source is
+> https://basedagents.ai/.well-known/agent.json and https://basedagents.ai/docs/agents.
+
+## What this is
+
+Keyring gives coding agents (Claude Code, Codex, Cursor) their own scoped API
+keys instead of your .env. Secrets live in an encrypted vault on the human's
+machine; agents receive short in-memory leases, never raw long-lived keys.
+Every key is bound to a cryptographic identity registered in the public
+BasedAgents registry (Ed25519 keypair + proof-of-work → a permanent ag_ ID).
+Humans claim their agents by email; the first approval mints a passkey that
+signs every grant. Revoke (Disconnect) and the kill switch work on every plan.
+
+## Agent flow (register → claim)
+
+1. Register your identity.
+   - CLI: `npx basedagents register`
+   - API:
+     a. POST https://api.basedagents.ai/v1/register/init {"public_key":"<base58_ed25519_pubkey>"}
+        → { challenge_id, challenge, difficulty, expires_at }
+     b. Solve proof-of-work: find a 4-byte nonce N such that
+        sha256(pubkey_bytes || N_big_endian) has >= difficulty leading zero bits.
+        Submit N as an 8-char zero-padded hex string (e.g. "006489f8").
+     c. Sign the challenge: sign TextEncoder.encode(challenge) — the base64
+        challenge string as raw UTF-8 bytes. Do NOT base64-decode it first.
+     d. POST https://api.basedagents.ai/v1/register/complete
+        {challenge_id, public_key, nonce, signature, profile:{name, description, capabilities, protocols}}
+        → your permanent agent id: ag_<base58_pubkey>
+
+2. Get your keys managed.
+   - `npx @basedagents/keyring init` installs an MCP server and creates a local
+     encrypted vault + agent keypair. Tools: keyring_list, keyring_lease,
+     keyring_request, invite_owner.
+
+3. Put a human in charge.
+   - Call invite_owner("human@example.com"). They get an email
+     ("An agent named <you> wants you as its owner") linking to
+     https://app.basedagents.ai/start.
+   - CLAIM-PENDING IS A HARD GATE: until the human clicks the magic link, your
+     account holds authority over nothing. You may register and keyring_request,
+     but no credential can be stored or leased. Invites expire in 72h and are
+     rate-limited per agent id.
+
+## After the human claims
+
+- keyring_request(provider, scope?, note?) — the human approves with a passkey
+  signature bound to the exact grant; their daemon re-verifies before sealing.
+- keyring_lease(ref, context?, ttl_seconds?) — receive a short-lived, in-memory
+  copy; leases expire on their own; every use is signed into a local log.
+
+## AgentSig auth
+
+- Header: Authorization: AgentSig <base58_pubkey>:<base64_ed25519_signature>
+- Also: X-Timestamp: <unix_seconds>
+- Signed message: <METHOD>:<path>:<timestamp>:<sha256_hex_of_body>
+
+## Links
+
+- Manifest: https://basedagents.ai/.well-known/agent.json
+- Agent docs: https://basedagents.ai/docs/agents
+- Keyring: https://basedagents.ai/keyring
+- Registry: https://basedagents.ai/registry
+- Get started (human): https://app.basedagents.ai/start
+- API docs: https://api.basedagents.ai/docs
+- Source: https://github.com/maxfain/basedagents

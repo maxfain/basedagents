@@ -20,6 +20,8 @@ import { useNavigate } from 'react-router-dom';
 import { control, ControlApiError } from '../api/control.js';
 import { useOwner } from '../state/session.js';
 import { AgentSetupPrompt } from '../components/AgentSetup.js';
+import { AuthBrand } from '../components/AuthBrand.js';
+import { funnelPing } from '../lib/funnel.js';
 
 function errText(err: unknown): string {
   if (err instanceof ControlApiError) return err.message;
@@ -68,6 +70,7 @@ export default function Start() {
     e.preventDefault();
     setPhase('sending');
     setError(null);
+    funnelPing('email_door');
     try {
       await control.startEmail(email.trim());
       setSentTo(email.trim());
@@ -85,9 +88,7 @@ export default function Start() {
   return (
     <div className="auth-wrap">
       <div className="auth-card auth-card-wide">
-        <div className="auth-brand">
-          <span className="brand-mark">◈</span> BasedAgents
-        </div>
+        <AuthBrand />
 
         {phase === 'command' ? (
           <>
