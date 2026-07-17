@@ -1,0 +1,70 @@
+# Worker name must stay "agent-registry-api" — that's the live worker holding
+# the api.basedagents.ai route, the cron trigger, and all wrangler secrets.
+# (A stray "basedagents-api" worker from 2026-03-10 is an unused orphan.)
+#
+# TOML rather than wrangler.jsonc so the config parses under ANY wrangler
+# version (the cloudflare/wrangler-action v3 default, 3.90.0, could not read
+# wrangler.jsonc). CI still pins a current wrangler for deploy reliability.
+name = "agent-registry-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 Database binding (Cloudflare's edge SQLite)
+[[d1_databases]]
+binding = "DB"
+database_name = "agent-registry"
+database_id = "e8173f0d-7d4f-44c7-8abb-8871a8b56627"
+migrations_dir = "migrations"
+
+[vars]
+POW_DIFFICULTY = "22"
+CHALLENGE_TTL_SECONDS = "300"
+AUTH_MAX_CLOCK_SKEW = "60"
+BOOTSTRAP_THRESHOLD = "100"
+ENVIRONMENT = "production"
+REGISTRY_SIGNING_PUBLIC_KEY = "9827a77ffa3bbddff01444277707271838098f3e8f2d29a200054cc0bca308d0"
+KEYRING_RP_ID = "basedagents.ai"
+KEYRING_ORIGINS = "https://app.basedagents.ai"
+KEYRING_CONSOLE_ORIGIN = "https://app.basedagents.ai"
+# Stripe price ids are config, not secrets (STRIPE_SECRET_KEY /
+# STRIPE_WEBHOOK_SECRET are wrangler secrets — see scripts/bootstrap-deploy.md).
+# Billing endpoints answer 503 until the secrets are set.
+STRIPE_PRICE_PRO_MONTHLY = ""
+STRIPE_PRICE_PRO_YEARLY = ""
+
+# Custom domain route
+[[routes]]
+pattern = "api.basedagents.ai/*"
+zone_name = "basedagents.ai"
+
+# Cron triggers
+[triggers]
+crons = ["*/5 * * * *"]
+
+# ─── Staging environment ──────────────────────────────────────────────────
+# Deploy: npx wrangler deploy --env staging --name agent-registry-api-staging
+# URL:    https://agent-registry-api-staging.<account>.workers.dev
+#         (or api-staging.basedagents.ai once DNS is pointed)
+#
+# Named environments do NOT inherit top-level `routes`/`triggers` implicitly the
+# way we want, so staging sets both to empty explicitly — it must never grab the
+# production api.basedagents.ai route or the production cron.
+[env.staging]
+routes = []
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "agent-registry-staging"
+database_id = "44894b71-4c29-48ca-b723-ee82c1d161e1"
+migrations_dir = "migrations"
+
+[env.staging.vars]
+POW_DIFFICULTY = "4"
+CHALLENGE_TTL_SECONDS = "300"
+AUTH_MAX_CLOCK_SKEW = "60"
+BOOTSTRAP_THRESHOLD = "100"
+ENVIRONMENT = "staging"
+
+[env.staging.triggers]
+crons = []

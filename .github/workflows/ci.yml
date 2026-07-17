@@ -143,7 +143,7 @@ jobs:
         id: deploy
         uses: cloudflare/wrangler-action@v3
         with:
-          wranglerVersion: "4.111.0"  # v3 default is wrangler 3.x, which cannot parse wrangler.jsonc
+          wranglerVersion: "4.111.0"  # pin a current wrangler; the action's v3 default (3.90.0) is ~1.5y old
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy packages/console/dist --project-name basedagents-console --branch "${{ github.head_ref }}"
@@ -227,7 +227,7 @@ jobs:
       - name: Apply D1 migrations
         uses: cloudflare/wrangler-action@v3
         with:
-          wranglerVersion: "4.111.0"  # v3 default is wrangler 3.x, which cannot parse wrangler.jsonc
+          wranglerVersion: "4.111.0"  # pin a current wrangler; the action's v3 default (3.90.0) is ~1.5y old
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: packages/api
@@ -236,7 +236,7 @@ jobs:
       - name: Deploy API Worker
         uses: cloudflare/wrangler-action@v3
         with:
-          wranglerVersion: "4.111.0"  # v3 default is wrangler 3.x, which cannot parse wrangler.jsonc
+          wranglerVersion: "4.111.0"  # pin a current wrangler; the action's v3 default (3.90.0) is ~1.5y old
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: packages/api
@@ -248,7 +248,7 @@ jobs:
       - name: Deploy console to Cloudflare Pages (production)
         uses: cloudflare/wrangler-action@v3
         with:
-          wranglerVersion: "4.111.0"  # v3 default is wrangler 3.x, which cannot parse wrangler.jsonc
+          wranglerVersion: "4.111.0"  # pin a current wrangler; the action's v3 default (3.90.0) is ~1.5y old
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy packages/console/dist --project-name basedagents-console --branch main
