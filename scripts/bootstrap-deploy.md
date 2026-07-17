@@ -66,7 +66,7 @@ npx wrangler d1 execute agent-registry --remote \
 1. Stripe dashboard (test mode first) → Products: create **Keyring Pro** with
    two prices — $10/month (`keyring_pro_monthly`) and $96/year
    (`keyring_pro_yearly`). Copy both price ids.
-2. Put the price ids in `packages/api/wrangler.jsonc` vars
+2. Put the price ids in `packages/api/wrangler.toml` vars
    (`STRIPE_PRICE_PRO_MONTHLY`, `STRIPE_PRICE_PRO_YEARLY`) — they are config,
    not secrets.
 3. Developers → Webhooks → Add endpoint:
@@ -92,7 +92,7 @@ Notes:
   `EMAIL_FROM` to a verified one).
 - Staging: repeat with test-mode Stripe keys and `--env staging`
   (`./scripts/put-secrets.sh --env staging`); staging uses its own D1
-  database per `wrangler.jsonc`.
+  database per `wrangler.toml`.
 
 ## 6. Done — verify
 

@@ -58,7 +58,7 @@ sending domain in Resend or sends will 4xx.
 ### Adding a console origin means editing two lists
 
 CORS (`ALLOWED_ORIGINS` in `packages/api/src/index.ts`) and WebAuthn origin
-verification (`KEYRING_ORIGINS` in `wrangler.jsonc`) are **separate
+verification (`KEYRING_ORIGINS` in `wrangler.toml`) are **separate
 allow-lists**. A new console origin must be added to both — CORS alone gets
 you a console that loads and then fails every ceremony. Keep CORS on
 exact-origin reflection with `credentials: true`; never wildcard it, or the

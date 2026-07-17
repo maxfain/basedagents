@@ -24,6 +24,10 @@ coverage/
 # Wrangler backups
 wrangler.toml
 wrangler.toml.bak
+# …but packages/api/wrangler.toml IS the committed Worker config (no secrets —
+# STRIPE_SECRET_KEY etc. are wrangler secrets, not in this file). Must be tracked
+# or CI has no Worker config to deploy.
+!packages/api/wrangler.toml
 .claude/
 packages/python/**/__pycache__/
 packages/python/*.egg-info/
