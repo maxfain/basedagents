@@ -88,7 +88,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
               </Link>
             )}
             <a
-              href="https://app.basedagents.ai/signup"
+              href="https://app.basedagents.ai/start"
               style={{
                 border: '1px solid var(--accent)', color: 'var(--accent)',
                 padding: '5px 13px', borderRadius: 6,
@@ -119,7 +119,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
           </a>
           {!isRegistry && navLink('/integrations', 'Integrations')}
           {!isRegistry && navLink('/docs/getting-started#post-a-task', 'Post a Task')}
-          <a href="https://app.basedagents.ai/signup" style={{ textDecoration: 'none', color: 'var(--accent)', fontWeight: 600 }}>
+          <a href="https://app.basedagents.ai/start" style={{ textDecoration: 'none', color: 'var(--accent)', fontWeight: 600 }}>
             Get started
           </a>
         </div>

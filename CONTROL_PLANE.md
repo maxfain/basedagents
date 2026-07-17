@@ -188,6 +188,15 @@ Two adjacent flows share the machinery:
   opens it locally, validates against the provider, stores the credential and
   creates the grant. `init` keeps running after the claim precisely to catch
   these, so the base case never returns to the terminal.
+- **The web door (`/start`).** "Get started" leads to a two-door page,
+  terminal-primary: the paste-into-Claude-Code block, or one email field
+  ("Start in your browser"). `POST /start/email` sends a magic link to *any*
+  address (uniform text — no enumeration); `POST /start/finish` mints a look
+  session for a **returning** account and, for a **first-time** visitor,
+  returns `has_account:false` so the console shows the command to hand its
+  agent. There is deliberately **no browser-side vault**: setup always happens
+  where the agent lives, so the vault private key never enters a browser. The
+  console's `/signup` 301s to `/start`.
 
 ---
 

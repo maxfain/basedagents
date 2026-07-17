@@ -111,7 +111,7 @@ async function daemonGet<T>(keypair: AgentKeypair, path: string): Promise<T> {
 }
 
 /** Read the newest magic-link token for `email` whose URL path matches. */
-async function magicToken(email: string, pathname: '/claim' | '/login' | '/recover'): Promise<string> {
+async function magicToken(email: string, pathname: '/claim' | '/login' | '/recover' | '/start'): Promise<string> {
   const { messages } = await apiJson<{ messages: Array<{ body: string }> }>(
     `/v1/owner/test/outbox?recipient=${encodeURIComponent(email)}`,
   );
@@ -445,4 +445,41 @@ test('5. negative: aborted creation ceremony → no passkey, request stays pendi
   await allowOnHome(page);
   expect(auth.added).toHaveLength(1);
   expect((await me(page)).has_passkey).toBe(true);
+});
+
+test('6. /start browser door: returning account signs in with one email field; a new email gets the agent command', async ({ page }) => {
+  // A claimed account exists (browser-only human returning later).
+  const init = await initLink();
+  await addAuthenticator(page);
+  await claim(page, init);
+  await page.context().clearCookies();
+
+  // The web "Get started" door — one email field, no password.
+  await page.goto('/start');
+  await expect(page.getByRole('heading', { name: 'Get started' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Start in your browser' }).click();
+  await page.getByLabel('Email').fill(init.email);
+  await page.getByRole('button', { name: 'Email me a link' }).click();
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+
+  const token = await magicToken(init.email, '/start');
+  await page.goto('/login');                 // leave /start so #t= is a real load
+  await page.goto(`/start#t=${token}`);
+  await expect(page).toHaveURL(/\/home/, { timeout: 20_000 });
+  await expect(page.getByText(init.agentName)).toBeVisible();
+  expect((await me(page)).session_method).toBe('email');
+
+  // A brand-new email gets NO session — just the paste-to-your-agent command.
+  await page.context().clearCookies();
+  await page.goto('/start');
+  await page.getByRole('tab', { name: 'Start in your browser' }).click();
+  const fresh = `e2e-fresh-${Date.now()}@example.com`;
+  await page.getByLabel('Email').fill(fresh);
+  await page.getByRole('button', { name: 'Email me a link' }).click();
+  const freshToken = await magicToken(fresh, '/start');
+  await page.goto('/login');
+  await page.goto(`/start#t=${freshToken}`);
+  await expect(page.getByRole('heading', { name: /one step to finish/ })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText('Paste this to your agent:')).toBeVisible();
+  await expect(page).toHaveURL(/\/start/); // no session, no redirect to /home
 });

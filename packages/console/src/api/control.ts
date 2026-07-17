@@ -139,6 +139,12 @@ export const control = {
   loginEmailFinish(token: string): Promise<{ owner_id: string }> {
     return request('POST', '/login/email/finish', { token });
   },
+  startEmail(email: string): Promise<{ ok: true }> {
+    return request('POST', '/start/email', { email });
+  },
+  startFinish(token: string): Promise<{ has_account: boolean }> {
+    return request('POST', '/start/finish', { token });
+  },
   inviteClaim(token: string): Promise<{ ok: true; email: string; next_step: string }> {
     return request('POST', '/invites/claim', { token });
   },

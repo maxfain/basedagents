@@ -25,7 +25,7 @@ const SURFACES = [
   'packages/console/src/pages/Invited.tsx',
   'packages/console/src/pages/Home.tsx',
   'packages/console/src/pages/Login.tsx',
-  'packages/console/src/pages/Signup.tsx',
+  'packages/console/src/pages/Start.tsx',
   'packages/console/src/components/Layout.tsx',
   'packages/console/src/lib/providerCards.ts',
 ];

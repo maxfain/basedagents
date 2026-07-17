@@ -64,6 +64,7 @@ const RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
   // Authority ladder: link creation and email-sending endpoints are abuse targets.
   '/v1/owner/link':            { max: 10, windowMs: 60_000 },
   '/v1/owner/login/email':     { max: 3,  windowMs: 60_000 },
+  '/v1/owner/start/email':     { max: 3,  windowMs: 60_000 },
   '/v1/owner/claim/finish':    { max: 10, windowMs: 60_000 },
   '/v1/owner/invites':         { max: 10, windowMs: 60_000 },
   // Anonymous counters (funnel pings, vote tiles) — cheap, but cap the firehose.

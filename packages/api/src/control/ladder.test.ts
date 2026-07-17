@@ -453,6 +453,33 @@ describe('email login (the look rung, returning users)', () => {
   });
 });
 
+describe('the /start browser door (Get started)', () => {
+  it('returning account: magic link → look session', async () => {
+    await claimFlow('back@example.com');
+    sentEmails = [];
+
+    expect((await post('/v1/owner/start/email', { email: 'back@example.com' })).status).toBe(200);
+    expect(sentEmails).toHaveLength(1);
+    const finish = await post('/v1/owner/start/finish', { token: lastMagicToken() });
+    expect(finish.status).toBe(200);
+    expect(await finish.json()).toEqual({ has_account: true });
+    const me = (await (await get('/v1/owner/me', sessionCookie(finish))).json()) as Record<string, unknown>;
+    expect(me.session_method).toBe('email');
+  });
+
+  it('first-time visitor: email is sent, finish yields no account + no session (setup stays on the machine)', async () => {
+    sentEmails = [];
+    // Unlike /login/email, /start emails ANY address (the finish page is useful
+    // either way) — but a brand-new address gets no session, just the command.
+    expect((await post('/v1/owner/start/email', { email: 'brand-new@example.com' })).status).toBe(200);
+    expect(sentEmails).toHaveLength(1);
+    const finish = await post('/v1/owner/start/finish', { token: lastMagicToken() });
+    expect(finish.status).toBe(200);
+    expect(await finish.json()).toEqual({ has_account: false });
+    expect(finish.headers.get('set-cookie')).toBeNull();
+  });
+});
+
 describe('agent-first invites: claim-pending is structurally nothing', () => {
   async function makeRegisteredAgent() {
     const priv = ed.utils.randomPrivateKey();

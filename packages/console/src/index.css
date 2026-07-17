@@ -179,6 +179,19 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .welcome-done { margin-top: 2.5rem; }
 .welcome-done .btn { margin-top: 0.75rem; }
 
+/* ── /start (the web "Get started" door) ── */
+.auth-card-wide { max-width: 520px; }
+.start-doors { display: flex; gap: 0.4rem; margin: 1.25rem 0 1rem; border-bottom: 1px solid var(--border); }
+.start-door { font: inherit; font-weight: 600; font-size: 0.92rem; color: var(--muted); background: none; border: none; border-bottom: 2px solid transparent; padding: 0.5rem 0.6rem; margin-bottom: -1px; cursor: pointer; }
+.start-door.active { color: var(--text); border-bottom-color: var(--accent-strong); }
+.start-door:hover { color: var(--text); }
+.start-panel { margin-top: 0.5rem; }
+.start-prompt-label { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem; }
+.start-or { margin-top: 0.75rem; }
+.start-or code, .start-preview code { color: var(--text); }
+.start-preview { margin-top: 1.5rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; font-size: 0.9rem; }
+.start-tags { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+
 .agent-card .chips { margin-top: 1rem; }
 .chip-empty { color: var(--muted); border-style: dashed; }
 .asking { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.9rem; padding: 0.6rem 0.75rem; background: var(--panel-2); border: 1px solid var(--border); border-radius: 9px; font-size: 0.92rem; }
