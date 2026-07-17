@@ -11,6 +11,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { control } from '../api/control.js';
+import { AuthBrand } from '../components/AuthBrand.js';
 
 const COMMAND = 'npx @basedagents/keyring init';
 
@@ -48,9 +49,7 @@ export default function Invited() {
   return (
     <div className="auth-wrap">
       <div className="auth-card">
-        <div className="auth-brand">
-          <span className="brand-mark">◈</span> BasedAgents
-        </div>
+        <AuthBrand />
         <h1 className="auth-title">
           {state === 'ok' ? 'An agent is waiting for you' : 'This invite has expired'}
         </h1>
