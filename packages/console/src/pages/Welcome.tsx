@@ -16,6 +16,7 @@ import { control, ControlApiError } from '../api/control.js';
 import { useOwner } from '../state/session.js';
 import { sealForOwner } from '../lib/seal.js';
 import { funnelPing } from '../lib/funnel.js';
+import { AgentSetupPrompt } from '../components/AgentSetup.js';
 import { PROVIDER_CARDS } from '../lib/providerCards.js';
 import type { ProviderCard } from '../lib/providerCards.js';
 import type { ConnectionInfo } from '../api/types.js';
@@ -254,8 +255,8 @@ export default function Welcome() {
       ) : (
         <div className="empty">
           <p>No agent is connected to this account yet.</p>
-          <p className="muted">Run the setup command in your terminal first:</p>
-          <div className="code-block cmd">npx @basedagents/keyring init</div>
+          <p className="muted">Set it up first — hand this to your agent, or run it yourself:</p>
+          <AgentSetupPrompt />
         </div>
       )}
 
