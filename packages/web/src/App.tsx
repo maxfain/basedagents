@@ -42,6 +42,21 @@ function FullReload({ to }: { to: string }): null {
   return null;
 }
 
+/**
+ * `/app` was the SPA-shell path of the (reverted) static-homepage attempt.
+ * Browsers that hit it during that window cached a permanent (308) redirect to
+ * `/app`, so a plain `/` load can still land here. Render the homepage AND
+ * rewrite the URL to `/` WITHOUT a navigation (a real navigation could re-hit
+ * the cached 308 and loop), so those users see the homepage and the address bar
+ * heals itself.
+ */
+function LegacyApp(): React.ReactElement {
+  React.useEffect(() => {
+    try { window.history.replaceState(null, '', '/' + window.location.hash); } catch { /* ignore */ }
+  }, []);
+  return <Home />;
+}
+
 export default function App(): React.ReactElement {
   return (
     <AgentAuthProvider>
@@ -100,6 +115,12 @@ export default function App(): React.ReactElement {
               <Route path="/integrations"        element={<Integrations />} />
               <Route path="/terms"               element={<Terms />} />
               <Route path="/privacy"             element={<Privacy />} />
+              {/* Legacy SPA-shell path from the reverted homepage attempt — some
+                  browsers cached a 308 to it. Show the homepage and heal the URL. */}
+              <Route path="/app"                 element={<LegacyApp />} />
+              <Route path="/app/*"               element={<LegacyApp />} />
+              {/* Catch-all: never render an empty <main> for an unknown path. */}
+              <Route path="*"                    element={<Home />} />
             </>
           )}
         </Routes>
