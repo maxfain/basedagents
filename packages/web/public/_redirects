@@ -1,1 +1,14 @@
-/* /index.html 200
+# Retired / moved front doors (homepage spec §1). Static pages (/, /keyring,
+# /registry, /docs/agents) are served as assets by Cloudflare Pages BEFORE
+# these rules; everything else falls through to the SPA shell (app.html).
+
+# Signup is retired — the web door is /start on the console.
+/signup            https://app.basedagents.ai/start   301
+
+# The marketplace parks under Registry → Labs.
+/marketplace       /registry#labs                     301
+/tasks             /registry#labs                     301
+/tasks/*           /registry#labs                     301
+
+# Everything not served as a static asset is the React SPA.
+/*                 /app.html                          200
