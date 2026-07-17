@@ -14,8 +14,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   brokering, ambient sweep + `doctor`, honest kill switch, scoped-token
   validation) + the proxy-aware error hint, plus the network-restricted sandbox
   contract (0.4.1: `doctor` now detects phase-blocked egress).
-- **`basedagents` 0.5.1 → 0.6.0** — the `basedagents keyring …` subcommand
-  (alias for `@basedagents/keyring`) + the proxy-aware error hint.
+- **`basedagents` 0.5.1 → 0.6.1** — the `basedagents keyring …` subcommand
+  (alias for `@basedagents/keyring`) + the proxy-aware error hint, plus the §4.6
+  static dependency rule (0.6.1: `@basedagents/keyring` is now a real dependency
+  and the alias resolves it locally — never a dynamic `npx` fetch).
 
 ### Added — network-restricted sandbox contract (homepage spec §4.6)
 
@@ -32,11 +34,31 @@ proxy 403. The contract now works there.
 - **Documented pattern, everywhere an agent looks.** The `sandbox` section in
   `/.well-known/agent.json`, a `#sandboxes` section on `/docs/agents`, and the
   `llms.txt` / `llms-full.txt` mirrors all describe the same three steps: add
-  `basedagents` + `@basedagents/keyring` as devDependencies so the environment's
-  own `npm ci` installs them while the network is open; register in the setup
-  script; allowlist `api.basedagents.ai` + `app.basedagents.ai` for the task
-  phase. The universal noscript block on every route gains one line pointing at
-  `/docs/agents#sandboxes`.
+  `basedagents` as a devDependency so the environment's own `npm ci` installs it
+  while the network is open (it bundles `@basedagents/keyring`, so one entry is
+  enough); register in the setup script; allowlist `api.basedagents.ai` +
+  `app.basedagents.ai` for the task phase. The universal noscript block on every
+  route gains one line pointing at `/docs/agents#sandboxes`.
+
+### Added — static dependency rule (homepage spec §4.6, `basedagents` 0.6.1)
+
+The `basedagents keyring …` alias must never reach the network — a dynamic fetch
+would fail inside a sandbox whose task phase has no egress (the exact case §4.6
+exists for). Previously the alias fell back to `npx -y @basedagents/keyring`,
+which silently hit the registry whenever local resolution failed.
+
+- **`@basedagents/keyring` is now a real dependency of `basedagents`.** Installing
+  `basedagents` (including via `npx basedagents`, which fetches deps) always
+  brings the keyring with it, so one devDependency covers both.
+- **The alias resolves locally and never dynamic-fetches.** It walks the
+  `node_modules` chain on the filesystem to find the keyring bin (robust to
+  hoisting and the npx cache; not gated by the keyring package's `exports` map).
+  If the local copy is genuinely missing it fails with a reinstall hint rather
+  than reaching for the registry.
+- **CI proves the offline guarantee.** The clean-container smoke test now asserts
+  `basedagents` declares the dependency and runs `basedagents keyring init`
+  inside a network-disabled namespace (`unshare -rn`), so a regression that
+  reintroduced a network call would fail the build.
 
 ### Added — Custody Fixes v0.1.1 (`@basedagents/keyring`)
 

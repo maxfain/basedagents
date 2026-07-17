@@ -54,8 +54,11 @@ jobs:
 
       # Pack the published packages and drive `basedagents keyring init` and
       # `@basedagents/keyring init` from a fresh project — catches dist/bin/alias
-      # breakage that source-tree unit tests never see.
-      - name: Clean-container smoke test
+      # breakage that source-tree unit tests never see. Also enforces the §4.6
+      # static-dependency rule: `basedagents` declares @basedagents/keyring, and
+      # `basedagents keyring init` runs inside a network-disabled namespace
+      # (unshare -rn) to prove zero network calls with warm node_modules.
+      - name: Clean-container smoke test (incl. offline keyring init)
         run: npm run smoke
 
   python:

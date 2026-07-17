@@ -66,9 +66,10 @@ Do the network-dependent work during setup instead:
 
 1. Install during setup, not task time. Add BasedAgents to the project so the
    environment's own `npm ci` fetches it while the network is open:
-     npm install --save-dev basedagents @basedagents/keyring
-   Then `npx basedagents keyring init` resolves the local copy — zero registry
-   calls during the locked-down task phase.
+     npm install --save-dev basedagents
+   `basedagents` bundles `@basedagents/keyring` as a dependency, so one entry is
+   enough. Then `npx basedagents keyring init` resolves the local copy — zero
+   registry calls during the locked-down task phase.
 2. Register during setup (network open): `npx basedagents register`. The human
    claim can happen any time afterward; it does not need the sandbox to reach out.
 3. Allowlist two hosts for the task phase: api.basedagents.ai and app.basedagents.ai.
