@@ -246,18 +246,26 @@ Full reference: [packages/mcp/README.md](./packages/mcp/README.md)
 
 ## Keyring (agent credentials)
 
-Your agents already have identities. Keyring is what those identities are trusted to carry: scoped, revocable credentials sealed to Ed25519 identity keys, delivered as short-lived in-memory leases (default 900 s), with every access recorded as a signed, hash-chained event.
+Your agents already have identities. Keyring is what those identities are trusted to carry: scoped, revocable credentials sealed to Ed25519 identity keys. The daemon **uses** a secret on the agent's behalf — running a command or filling a file with it — so the raw value never enters the model's context. Every access is a signed, hash-chained event.
+
+**Set it up (the canonical command, and its equivalent alias):**
 
 ```bash
-npm install -g @basedagents/keyring
-based init                                                             # create the local vault
+npx basedagents keyring init      # canonical — subcommand of the basedagents CLI
+npx @basedagents/keyring init     # equivalent alias — the keyring package's own bin
+```
+
+Both do the same thing; agents running either (from cached docs) succeed. Power-user commands via the `based` CLI (bundled with the keyring package):
+
+```bash
 based add "Supabase service-role key (acme-prod)"                      # paste a secret (sealed on entry)
 based identity add ag_7xKpQ3... --name ci-bot --keypair ./ci-bot.key.json  # register the agent + its keypair
 based grant "Supabase service-role key (acme-prod)" ci-bot --expires 7d    # grant by name
-based run --agent ci-bot -- npm run deploy                             # resolves ci-bot's keypair, leases + injects env, nothing on disk
+based run --agent ci-bot -- npm run deploy                             # leases + injects env, nothing on disk
+based doctor                                                          # sweep for ambient access outside Keyring
 ```
 
-MCP: `npx -y --package=@basedagents/keyring basedagents-keyring-mcp` gives Claude Code, Claude Desktop, and Cursor identity-bound lease access (`keyring_list`, `keyring_lease`, `keyring_request`, `keyring_whoami`).
+MCP: `npx basedagents keyring mcp` (or `npx @basedagents/keyring mcp`) gives Claude Code, Claude Desktop, and Cursor identity-bound access. Primary tools: `keyring_run` (run a command with secrets injected into its environment) and `keyring_render` (fill `{{keyring:REF}}` placeholders) — the secret never reaches the model. Plus `keyring_list`, `keyring_request`, `invite_owner`. `keyring_lease` (raw value into the transcript) is off unless the owner sets `unsafe_value_release` on the grant.
 
 Revoking a grant is instant on the vault side — no new leases, sealed copy deleted, outstanding leases dead within 15 minutes. Rotating the key at the provider stays manual until the Provisioner ships.
 

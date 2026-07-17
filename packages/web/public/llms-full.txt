@@ -32,9 +32,10 @@ signs every grant. Revoke (Disconnect) and the kill switch work on every plan.
         → your permanent agent id: ag_<base58_pubkey>
 
 2. Get your keys managed.
-   - `npx @basedagents/keyring init` installs an MCP server and creates a local
-     encrypted vault + agent keypair. Tools: keyring_list, keyring_lease,
-     keyring_request, invite_owner.
+   - `npx basedagents keyring init` (equivalent alias: `npx @basedagents/keyring init`)
+     installs an MCP server and creates a local encrypted vault + agent keypair.
+     Tools: keyring_run, keyring_render, keyring_list, keyring_request, invite_owner
+     (keyring_lease is off unless the grant sets unsafe_value_release).
 
 3. Put a human in charge.
    - Call invite_owner("human@example.com"). They get an email

@@ -37,6 +37,27 @@ jobs:
       - name: Build all workspaces
         run: npm run build
 
+  smoke:
+    name: Clean-container smoke (packed npx install)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Pack the published packages and drive `basedagents keyring init` and
+      # `@basedagents/keyring init` from a fresh project — catches dist/bin/alias
+      # breakage that source-tree unit tests never see.
+      - name: Clean-container smoke test
+        run: npm run smoke
+
   python:
     name: Test (Python SDK)
     runs-on: ubuntu-latest

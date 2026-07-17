@@ -75,8 +75,9 @@
       <li>
         <strong>Get your keys managed.</strong>
         <p>Install the Keyring MCP server. This creates a local encrypted vault and an agent keypair; the config snippet is in the manifest under <code>keyring.mcp_server</code>.</p>
-        <pre>npx @basedagents/keyring init</pre>
-        <p>Tools exposed: <code>keyring_list</code>, <code>keyring_lease</code>, <code>keyring_request</code>, <code>invite_owner</code>.</p>
+        <pre>npx basedagents keyring init</pre>
+        <p>(Equivalent alias, also supported: <code>npx @basedagents/keyring init</code>.)</p>
+        <p>Tools exposed: <code>keyring_run</code>, <code>keyring_render</code>, <code>keyring_list</code>, <code>keyring_request</code>, <code>invite_owner</code> (<code>keyring_lease</code> is off by default — see the manifest).</p>
       </li>
 
       <li>

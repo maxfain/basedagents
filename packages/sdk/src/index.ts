@@ -39,6 +39,25 @@ function canonicalJsonStringify(value: unknown): string {
 export const DEFAULT_API_URL = (typeof process !== 'undefined' ? process.env?.BASEDAGENTS_API : undefined)
   ?? 'https://api.basedagents.ai';
 
+/**
+ * A short, actionable hint appended to network failures that look like a
+ * filtering proxy / sandbox egress policy (403, 407, or a blocked CONNECT) —
+ * the common failure when an agent runs this from inside a locked-down
+ * environment. Names the proxy env var only when one is actually set.
+ */
+export function proxyHint(): string {
+  const proxy = (typeof process !== 'undefined' &&
+    (process.env?.HTTPS_PROXY || process.env?.https_proxy || process.env?.ALL_PROXY)) || '';
+  return [
+    '',
+    '',
+    'If you are behind a proxy or in a sandboxed agent environment, outbound HTTPS may be filtered.',
+    'Allow api.basedagents.ai (and registry.npmjs.org for npx) through your egress policy' +
+      (proxy ? ` / proxy (${proxy})` : '') + ',',
+    'or set BASEDAGENTS_API_URL to a reachable host.',
+  ].join('\n');
+}
+
 // ─── Types ───
 
 export interface AgentKeypair {
@@ -384,21 +403,31 @@ export class RegistryClient {
   private async fetch(path: string, init?: RequestInit): Promise<Response> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
+    let res: Response;
     try {
-      const res = await fetch(`${this.baseUrl}${path}`, {
+      res = await fetch(`${this.baseUrl}${path}`, {
         ...init,
         signal: controller.signal,
         headers: { 'Content-Type': 'application/json', ...init?.headers },
       });
-      if (!res.ok) {
-        let msg = res.statusText;
-        try { const e = await res.json() as { message?: string }; msg = e.message ?? msg; } catch { /* ignore */ }
-        throw new Error(`BasedAgents API error ${res.status}: ${msg}`);
-      }
-      return res;
+    } catch (err) {
+      // A blocked CONNECT / DNS failure surfaces as a thrown fetch error, often
+      // with no useful text — the common cause for an agent is a proxy or
+      // sandbox egress policy. Add the hint so the failure is actionable.
+      throw new Error(`Could not reach ${this.baseUrl}: ${(err as Error).message}${proxyHint()}`);
     } finally {
       clearTimeout(timeout);
     }
+    if (!res.ok) {
+      let msg = res.statusText;
+      try { const e = await res.json() as { message?: string }; msg = e.message ?? msg; } catch { /* ignore */ }
+      // 403 (Forbidden) / 407 (Proxy Auth) from an intermediary is the classic
+      // "agent behind a filtering proxy" signature — most register calls are
+      // unauthenticated, so a 403 rarely means the API rejected you.
+      const hint = res.status === 403 || res.status === 407 ? proxyHint() : '';
+      throw new Error(`BasedAgents API error ${res.status}: ${msg}${hint}`);
+    }
+    return res;
   }
 
   async fetchJson<T>(path: string, init?: RequestInit): Promise<T> {

@@ -26,7 +26,7 @@ import { publicKeyToAgentId, base58Encode } from '../util.js';
 import { runSweep } from '../sweep.js';
 import { parseFlags, loadKeypairChecked } from './shared.js';
 import { confirm } from './prompt.js';
-import { ControlClient, DEFAULT_KEYRING_API } from './control-client.js';
+import { ControlClient, DEFAULT_KEYRING_API, proxyHint } from './control-client.js';
 import { processConnections } from './sync.js';
 
 const POLL_INTERVAL_MS = 3000;
@@ -213,10 +213,12 @@ export async function cmdInit(args: string[], dir: string | undefined): Promise<
   } catch {
     console.log(`⚠ Could not reach ${api}. Your vault and agent are saved.`);
     console.log('  Finish anytime with:  based init');
+    console.log(proxyHint().trimStart());
     return;
   }
   if (link.status !== 200 || typeof link.json.url !== 'string') {
     console.log(`⚠ Could not reach ${api} (${link.status}). Set up later with: based init --api <url>`);
+    if (link.status === 403 || link.status === 407) console.log(proxyHint().trimStart());
     return;
   }
   const url = link.json.url as string;
