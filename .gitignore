@@ -37,3 +37,6 @@ packages/console/test-results/
 packages/console/playwright-report/
 packages/api/.e2e-data/
 packages/api/.repro-data/
+
+# Local scratch / draft notes (not for the repo)
+notes.md
