@@ -8,6 +8,59 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### npm releases in this cut
+
+- **`@basedagents/keyring` 0.3.0 → 0.4.0** — Custody Fixes v0.1.1 (execution
+  brokering, ambient sweep + `doctor`, honest kill switch, scoped-token
+  validation) + the proxy-aware error hint.
+- **`basedagents` 0.5.1 → 0.6.0** — the `basedagents keyring …` subcommand
+  (alias for `@basedagents/keyring`) + the proxy-aware error hint.
+
+### Added — Custody Fixes v0.1.1 (`@basedagents/keyring`)
+
+The Keyring Change Order from the live test — the product's core claim ("one tap
+cuts them off") is now true.
+
+- **Execution brokering — secrets never enter model context.** New primary MCP
+  tools `keyring_run(credential_refs, command, purpose)` (the daemon spawns the
+  child with secrets injected into its environment, never argv, and returns
+  stdout/stderr/exit with the values **redacted**) and `keyring_render` (fills
+  `{{keyring:REF}}` placeholders into a file). `keyring_lease` is **demoted** —
+  refused unless the owner sets `unsafe_value_release` on the grant
+  (`based grant --unsafe-value-release`). A canary test asserts the secret
+  appears in zero tool results and zero signed events.
+- **Ambient sweep + honest kill switch.** `based doctor` (and `init`, and every
+  `based kill`) detects credentials the agent can already use outside Keyring —
+  `.env*` live values, logged-in provider CLIs, token-shaped env vars, `~/.netrc`
+  — and reports them. `based kill` shows green only when residuals are zero;
+  `doctor` exits nonzero when ungoverned paths exist (CI-usable).
+- **Scoped tokens at connect.** The connect flow refuses account-wide tokens
+  (Supabase `sbp_…` account token → demand the project `service_role` key).
+
+### Added — agent runnability (`basedagents` + `@basedagents/keyring`)
+
+- **`basedagents keyring init`** — a `keyring` subcommand on the `basedagents`
+  CLI that forwards to the keyring CLI, so both it and the older
+  `npx @basedagents/keyring init` work (agents run stale commands from cached
+  docs for months). Docs canonicalize the new form and note the alias (README,
+  `/docs/agents`, `agent.json`, `llms.txt`).
+- **Proxy-403 error hint.** Register + keyring HTTP paths now append an
+  actionable message on 403/407 or a blocked CONNECT (allow `api.basedagents.ai`
+  / `registry.npmjs.org` through the egress policy, naming the proxy).
+- **Clean-container smoke test** (`npm run smoke`, CI job) — packs both packages
+  and drives `basedagents --version`, `basedagents keyring init`, and
+  `@basedagents/keyring init` from a fresh tarball install.
+
+### Changed — Keyring-first homepage (marketing site)
+
+- `basedagents.ai/` now leads with Keyring (H1 "Stop pasting master keys into
+  .env"); new static `/registry` and `/docs/agents`; site nav Keyring · Registry
+  · Docs · Pricing · Get started → `/start`; `/keyring` takes the descriptive H1.
+  Rebuilt as an SPA-shell + React `Home` route after the first attempt's
+  `_redirects` (`/* /app.html`) took the site down — the SPA fallback is pinned
+  to `/index.html`, the only safe Cloudflare Pages target. Clickable BasedAgents
+  wordmark on the console auth screens.
+
 ### Added — the web "Get started" door (`/start`)
 Onboarding redesign §2 + keyring page-copy v1: a second, secondary door to the
 terminal-first onboarding, for people who want to start in a browser.
