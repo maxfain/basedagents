@@ -1,27 +1,11 @@
 import React, { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 
 
 const isRegistry = typeof window !== 'undefined' && window.location.hostname.startsWith('registry.');
 
 export default function Layout({ children }: { children: React.ReactNode }): React.ReactElement {
-  const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
-
-  const isActive = (path: string) =>
-    location.pathname === path ||
-    (path !== '/' && location.pathname.startsWith(path)) ||
-    (path === '/' && location.pathname === '/tasks');
-
-  const navLink = (path: string, label: string) => (
-    <Link
-      to={path}
-      className={isActive(path) ? 'active' : ''}
-      onClick={() => setMenuOpen(false)}
-    >
-      {label}
-    </Link>
-  );
 
   return (
     <>
@@ -33,60 +17,20 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
               <span>BasedAgents Registry</span>
             </a>
           ) : (
-            <Link to="/" className="nav-logo">
+            <a href="/" className="nav-logo">
               <span className="nav-logo-mark">&lt;&gt;</span>
               <span>BasedAgents</span>
-            </Link>
-          )}
-          <div className="nav-links">
-            {isRegistry ? (
-              // Registry subdomain nav — Tasks goes to main site
-              <a
-                href="https://basedagents.ai"
-                style={{ color: 'var(--text-secondary)', fontSize: 14, textDecoration: 'none', fontWeight: 500 }}
-              >
-                Tasks ↗
-              </a>
-            ) : (
-              navLink('/', 'Tasks')
-            )}
-            {isRegistry
-              ? navLink('/agents', 'Agents')
-              : <a href="https://registry.basedagents.ai" style={{ color: 'var(--text-secondary)', fontSize: 14, textDecoration: 'none', fontWeight: 500 }}>Agents ↗</a>
-            }
-            {/* /keyring is a static HTML page — a real <a>, not a router Link,
-                so the browser leaves the SPA and loads the served file. */}
-            {!isRegistry && (
-              <a href="/keyring" className={isActive('/keyring') ? 'active' : ''}>Keyring</a>
-            )}
-            {!isRegistry && navLink('/blog', 'Blog')}
-            {!isRegistry && navLink('/docs/getting-started', 'Docs')}
-            <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">
-              GitHub
             </a>
-            {!isRegistry && (
-              <Link
-                to="/integrations"
-                style={{
-                  color: 'var(--text-secondary)', fontSize: 14,
-                  textDecoration: 'none', fontWeight: 500,
-                }}
-              >
-                Integrations
-              </Link>
-            )}
-            {!isRegistry && (
-              <Link
-                to="/docs/getting-started#post-a-task"
-                style={{
-                  background: 'var(--accent)', color: '#fff',
-                  padding: '6px 14px', borderRadius: 6,
-                  fontWeight: 600, fontSize: 14, textDecoration: 'none',
-                }}
-              >
-                Post a Task
-              </Link>
-            )}
+          )}
+          {/* Site-wide nav (homepage spec §1). /keyring, /registry are STATIC
+              pages, so these are real <a> — they leave the SPA and load the
+              served file. */}
+          <div className="nav-links">
+            <a href="/keyring">Keyring</a>
+            <a href="/registry">Registry</a>
+            <a href="/docs/getting-started">Docs</a>
+            <a href="/#pricing">Pricing</a>
+            <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">GitHub</a>
             <a
               href="https://app.basedagents.ai/start"
               style={{
@@ -103,22 +47,11 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
           </button>
         </div>
         <div className={`nav-mobile-menu ${menuOpen ? 'open' : ''}`}>
-          {isRegistry
-            ? <a href="https://basedagents.ai" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Tasks ↗</a>
-            : navLink('/', 'Tasks')
-          }
-          {isRegistry
-            ? navLink('/agents', 'Agents')
-            : <a href="https://registry.basedagents.ai" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Agents ↗</a>
-          }
-          {!isRegistry && <a href="/keyring" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Keyring</a>}
-          {!isRegistry && navLink('/blog', 'Blog')}
-          {!isRegistry && navLink('/docs/getting-started', 'Docs')}
-          <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">
-            GitHub
-          </a>
-          {!isRegistry && navLink('/integrations', 'Integrations')}
-          {!isRegistry && navLink('/docs/getting-started#post-a-task', 'Post a Task')}
+          <a href="/keyring" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Keyring</a>
+          <a href="/registry" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Registry</a>
+          <a href="/docs/getting-started" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Docs</a>
+          <a href="/#pricing" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Pricing</a>
+          <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">GitHub</a>
           <a href="https://app.basedagents.ai/start" style={{ textDecoration: 'none', color: 'var(--accent)', fontWeight: 600 }}>
             Get started
           </a>
@@ -130,14 +63,15 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
       <footer className="footer">
         <div className="footer-inner">
           <div className="footer-links">
-            <Link to="/">BasedAgents</Link>
+            <a href="/">BasedAgents</a>
+            <a href="/keyring">Keyring</a>
+            <a href="/registry">Registry</a>
             <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">GitHub</a>
-            <Link to="/docs/getting-started">Docs</Link>
             <Link to="/status">Status</Link>
             <Link to="/terms">Terms</Link>
             <Link to="/privacy">Privacy</Link>
           </div>
-          <p className="footer-tagline">The task marketplace for AI agents.</p>
+          <p className="footer-tagline">Scoped, revocable API keys for AI coding agents.</p>
         </div>
       </footer>
     </>

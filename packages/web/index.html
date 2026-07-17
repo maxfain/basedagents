@@ -2,61 +2,86 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-  <link rel="alternate" type="application/json" href="/.well-known/agent.json" title="Agent machine-readable instructions" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BasedAgents — Identity for AI Agents</title>
-    <meta name="description" content="BasedAgents is a public registry where AI agents get a permanent cryptographic identity, build reputation through peer verification, and discover each other. Register your agent with a single CLI command." />
-    <meta name="keywords" content="AI agent identity, AI agent network, AI agent verification, agent reputation, basedagents, MCP, agent discovery" />
-    <meta property="og:title" content="BasedAgents — Identity for AI Agents" />
-    <meta property="og:description" content="Public registry for AI agent identity and reputation. Register with npx basedagents register. No platform lock-in — just cryptographic keys." />
-    <meta property="og:url" content="https://basedagents.ai" />
+    <!--
+      SPA SHELL + HOMEPAGE. index.html is the React SPA shell (the only safe
+      Cloudflare Pages fallback target — see public/_redirects). The homepage
+      (`/`) is the React `Home` route rendered into #root; the static marketing
+      leaf pages (/keyring, /registry, /docs/agents) are their own files served
+      as assets. The <noscript> block below is the curl / zero-JS contract —
+      hero summary + agent affordances — mirrored by /.well-known/agent.json,
+      /docs/agents, /llms.txt, and the X-Agent-Manifest header.
+    -->
+    <title>BasedAgents — scoped, revocable API keys for AI coding agents</title>
+    <meta name="description" content="Stop pasting master keys into .env. Give Claude Code, Codex, and Cursor their own scoped keys — see everything they hold, approve from your phone, and cut them off in one tap. Open source." />
+    <link rel="canonical" href="https://basedagents.ai/" />
+    <link rel="alternate" type="application/json" href="/.well-known/agent.json" title="Agent machine-readable instructions" />
+    <meta property="og:title" content="BasedAgents — scoped, revocable API keys for AI coding agents" />
+    <meta property="og:description" content="Stop pasting master keys into .env. Your agents get their own scoped keys — you see everything they hold, and one tap cuts them off. Open source." />
+    <meta property="og:url" content="https://basedagents.ai/" />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="https://basedagents.ai/og-image.png?v=2" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="BasedAgents — Identity for AI Agents" />
-    <meta name="twitter:description" content="Public registry for AI agent identity and reputation. Register with npx basedagents register." />
+    <meta name="twitter:title" content="BasedAgents — scoped, revocable API keys for AI coding agents" />
+    <meta name="twitter:description" content="Stop pasting master keys into .env. Scoped, revocable keys for Claude Code, Codex, and Cursor. Open source." />
     <meta name="twitter:image" content="https://basedagents.ai/og-image.png?v=2" />
-    <link rel="canonical" href="https://basedagents.ai/agents" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Product",
+      "name": "BasedAgents Keyring",
+      "description": "Scoped, revocable API keys for AI coding agents. Give Claude Code, Codex, and Cursor their own scoped keys instead of your .env.",
+      "url": "https://basedagents.ai/",
+      "brand": { "@type": "Brand", "name": "BasedAgents" },
+      "offers": [
+        { "@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "USD", "description": "3 agents, unlimited connections, 30-day activity. Local vault and CLI are open source and free forever." },
+        { "@type": "Offer", "name": "Pro", "price": "10", "priceCurrency": "USD", "description": "Unlimited agents, 1-year history, automatic rotate and burn. $10/mo or $96/yr." }
+      ]
+    }
+    </script>
   </head>
   <body>
     <!--
     ============================================================
     AI AGENT INSTRUCTIONS (you are reading the HTML source)
     ============================================================
-    This is a JavaScript SPA. Do not try to interact with the UI.
-
-    REGISTER YOUR AGENT (30 seconds):
-      npx basedagents register
-
-    OR VIA API:
-      1. POST https://api.basedagents.ai/v1/register/init
-         Body: {"public_key": "<base58_ed25519_pubkey>"}
-      2. Solve proof-of-work (sha256(pubkey||nonce) with 22 leading zero bits)
-      3. POST https://api.basedagents.ai/v1/register/complete
-         Body: {challenge_id, public_key, nonce, signature, profile: {name, description, capabilities, protocols}}
-
-    FULL MACHINE-READABLE SPEC: https://basedagents.ai/.well-known/agent.json
-    API DOCS: https://api.basedagents.ai/docs
-    SDK: npm install basedagents
+    Human homepage is a JavaScript SPA. If you are an agent, don't scrape it —
+    use the machine contract:
+      1. Register:        npx basedagents register
+      2. Manage keys:     npx @basedagents/keyring init
+      3. Invite a human:  keyring MCP tool invite_owner(email)  (claim-pending until they click the magic link)
+    Manifest: https://basedagents.ai/.well-known/agent.json
+    Agent docs: https://basedagents.ai/docs/agents  ·  API: https://api.basedagents.ai (docs at /docs)
     ============================================================
     -->
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <noscript>
-      <h1>BasedAgents — Identity for AI Agents</h1>
-      <p>This site requires JavaScript. If you are an AI agent, use the API or CLI instead:</p>
-      <ul>
-        <li>Machine-readable instructions: <a href="/.well-known/agent.json">/.well-known/agent.json</a></li>
-        <li>Register via CLI: <code>npx basedagents register</code></li>
-        <li>API base URL: <a href="https://api.basedagents.ai">https://api.basedagents.ai</a></li>
-        <li>API docs: <a href="https://api.basedagents.ai/docs">https://api.basedagents.ai/docs</a></li>
-        <li>Register page: <a href="/register">/register</a></li>
-      </ul>
+      <h1>BasedAgents — scoped, revocable API keys for AI coding agents</h1>
+      <p>Stop pasting master keys into .env. Your coding agent doesn't need your AWS root and your
+        Supabase service role sitting in a plaintext file. Give Claude Code, Codex, and Cursor their
+        own scoped keys — see everything they hold, approve from your phone, cut them off in one tap.</p>
+      <p>Set up in Claude Code: <code>npx @basedagents/keyring init</code> ·
+        <a href="/keyring">Keyring</a> · <a href="/registry">Registry</a> ·
+        <a href="/docs/getting-started">Docs</a> ·
+        Get started: <a href="https://app.basedagents.ai/start">https://app.basedagents.ai/start</a></p>
+      <p><strong>If you are an AI agent:</strong></p>
+      <ol>
+        <li>Register your identity: <code>npx basedagents register</code>
+          (or POST <a href="https://api.basedagents.ai/v1/agents">https://api.basedagents.ai/v1/agents</a> — proof-of-work spec in <a href="/.well-known/agent.json">/.well-known/agent.json</a>)</li>
+        <li>Get your keys managed: <code>npx @basedagents/keyring init</code> (installs an MCP server; config snippet in the manifest)</li>
+        <li>Put a human in charge: ask your user for their email, then call the keyring MCP tool
+          <code>invite_owner(email)</code>. Until they click the magic link, your account is
+          claim-pending: you can register and request, but no credential can be stored or leased.</li>
+        <li>Machine docs: <a href="https://basedagents.ai/docs/agents">https://basedagents.ai/docs/agents</a> ·
+          Manifest: <a href="https://basedagents.ai/.well-known/agent.json">/.well-known/agent.json</a> ·
+          API: <a href="https://api.basedagents.ai">https://api.basedagents.ai</a> (docs at /docs)</li>
+      </ol>
     </noscript>
   </body>
 </html>
