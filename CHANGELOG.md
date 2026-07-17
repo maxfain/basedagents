@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Added — the web "Get started" door (`/start`)
+Onboarding redesign §2 + keyring page-copy v1: a second, secondary door to the
+terminal-first onboarding, for people who want to start in a browser.
+- **`/start`** (console, public) — two doors, terminal-primary: the
+  paste-into-Claude-Code block, or one email field ("Start in your browser").
+  No password, no profile fields, no plan picker — one field is not a form.
+- Control plane: `POST /start/email` (magic link to any address, uniform
+  response) and `POST /start/finish` — a **returning** account gets a look
+  session; a **first-time** visitor gets `has_account:false` and the console
+  shows the command to hand its agent. No browser-side vault: setup always
+  happens where the agent lives.
+- The console `/signup` route now 301s to `/start`; the marketing nav
+  "Get started" and the `/keyring` hero both point at `/start` ("or start in
+  your browser → — one email field, no password"), and the `/keyring` tagline
+  is now "One paste or one email — never a form".
+- Tests: two API cases (returning vs first-time) and a 6th Playwright E2E
+  scenario driving the returning-account sign-in and the new-email command page.
+
+---
+
 ## [0.8.0] — 2026-07-16
 
 The authority ladder + onboarding redesign (KEYRING_SPEC.md v0.2 §5.1,

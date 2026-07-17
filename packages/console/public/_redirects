@@ -1,1 +1,6 @@
+# /signup is retired — the web door is /start (onboarding redesign §2). A real
+# 301 at the edge (the SPA <Navigate> is a client-side fallback for deep links).
+/signup  /start  301
+
+# SPA fallback — every other path serves the app shell.
 /*  /index.html  200

@@ -426,6 +426,72 @@ app.post('/login/email/finish', async (c) => {
   return c.json({ owner_id: consumed.owner_id });
 });
 
+// ── Browser start door (onboarding redesign §2, /start) ──
+//
+// The web "Start in your browser" door: one email field, no password, no form.
+// A magic link is sent to ANY address (unlike /login/email, which is silent for
+// unknowns) because the finish page is useful either way — returning owners get
+// a look session; a brand-new address gets the command to paste to its agent.
+// The email text is uniform, so this still leaks nothing about who has an
+// account (the branch is only visible to the recipient, and shows public copy).
+
+app.post('/start/email', async (c) => {
+  let body: unknown;
+  try {
+    body = await parseJson(c);
+  } catch {
+    return err(c, 400, 'bad_request', 'invalid JSON body');
+  }
+  const parsed = EmailLoginSchema.safeParse(body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'a valid email is required');
+
+  const store = getStore(c);
+  const email = parsed.data.email.trim().toLowerCase();
+  const owner = await store.getOwnerByEmail(email);
+
+  const token = base64urlEncode(randomBytes(32));
+  await store.createMagicLinkToken({
+    tokenHash: sha256hex(token),
+    purpose: 'start',
+    email,
+    ownerId: owner?.id, // null for a first-time visitor — resolved at finish
+    ttlSeconds: MAGIC_LINK_TTL_SECONDS,
+  });
+  await getEmailSender(c).send({
+    to: email,
+    subject: 'Continue with BasedAgents',
+    text:
+      `Click within 15 minutes to pick up where you left off:\n\n` +
+      `${consoleOrigin(c.env)}/start#t=${token}\n\n` +
+      `If you didn't request this, ignore this email.`,
+  });
+  return c.json({ ok: true }); // uniform response
+});
+
+app.post('/start/finish', async (c) => {
+  let body: unknown;
+  try {
+    body = await parseJson(c);
+  } catch {
+    return err(c, 400, 'bad_request', 'invalid JSON body');
+  }
+  const parsed = TokenSchema.safeParse(body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
+
+  const store = getStore(c);
+  const consumed = await store.consumeMagicLinkToken(sha256hex(parsed.data.token), 'start', nowIso());
+  if (!consumed) return err(c, 401, 'unauthorized', 'invalid or expired link');
+
+  // Returning owner → mint the look session. First-time visitor → no account
+  // yet; the console shows the agent-paste command (setup still happens where
+  // the agent lives, never a browser-side vault).
+  if (consumed.owner_id) {
+    await mintSession(c, consumed.owner_id, { method: 'email' });
+    return c.json({ has_account: true });
+  }
+  return c.json({ has_account: false });
+});
+
 // ── Agent-first entry: invite_owner ──
 
 app.post('/invites', agentAuthAllowUnregistered, async (c) => {

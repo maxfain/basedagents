@@ -1048,7 +1048,7 @@ export class ControlStore {
 
   async createMagicLinkToken(input: {
     tokenHash: string;
-    purpose: 'claim' | 'login';
+    purpose: 'claim' | 'login' | 'start';
     email: string;
     linkCodeId?: string;
     ownerId?: string;

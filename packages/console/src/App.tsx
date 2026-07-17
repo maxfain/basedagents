@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { OwnerProvider, useOwner } from './state/session.js';
 import Layout from './components/Layout.js';
 import Login from './pages/Login.js';
-import Signup from './pages/Signup.js';
+import Start from './pages/Start.js';
 import Recover from './pages/Recover.js';
 import LinkPage from './pages/Link.js';
 import Claim from './pages/Claim.js';
@@ -28,7 +28,9 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<Signup />} />
+          {/* /start is the web "Get started" door; /signup 301s to it. */}
+          <Route path="/start" element={<Start />} />
+          <Route path="/signup" element={<Navigate to="/start" replace />} />
           <Route path="/recover" element={<Recover />} />
           {/* The onboarding ladder's public pages (no session yet). */}
           <Route path="/link" element={<LinkPage />} />

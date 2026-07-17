@@ -140,7 +140,7 @@ export default function Login() {
             {error && <div className="banner banner-error">{error}</div>}
 
             <div className="auth-switch">
-              <Link className="link" to="/signup">New here? Get started</Link>
+              <Link className="link" to="/start">New here? Get started</Link>
               <span className="auth-sep">·</span>
               <Link className="link" to="/recover">Lost your passkeys?</Link>
             </div>
