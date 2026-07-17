@@ -81,6 +81,24 @@ the owner re-runs `based link` and confirms the new fingerprint. Don't
 auto-refresh anchors from the control plane; the human confirmation is the
 trust root (CONTROL_PLANE.md §2).
 
+### CI `deploy-production` installs the wrong wrangler and can't read `wrangler.jsonc`
+
+The `deploy-production` job (`.github/workflows/ci.yml`) uses
+`cloudflare/wrangler-action@v3`, which runs `npx --no-install wrangler` to reuse
+the repo's wrangler. But **wrangler isn't a dependency** in
+`packages/api/package.json` (it's only ever invoked via `npx`), so that check
+fails and the action falls back to its **default wrangler 3.90.0**. wrangler
+3.90.0 **cannot parse `wrangler.jsonc`** (JSONC config support is newer), so it
+sees no config, finds no `agent-registry` D1 binding, and dies with
+`Couldn't find a D1 DB with the name or binding 'agent-registry' in wrangler.toml`.
+This fails **after** the node/python/e2e gates go green — the run looks
+"mostly passing" while nothing actually deploys. Fix: pin the action with
+`wranglerVersion: "4.x"` on each of the three `wrangler-action` steps
+(migrations, Worker deploy, console deploy), or add `wrangler` to
+`packages/api` devDependencies so `--no-install` resolves the pinned 4.x. Until
+then, deploy by hand with local wrangler 4.x (the commands in "Deploy order"
+above, then the console Pages deploy).
+
 ---
 
 ## Extending the control plane
@@ -187,6 +205,38 @@ server reports). Bump all three or ship a CLI that lies about itself.
 so `npm publish` from a fresh checkout is safe. Verify with
 `npm pack --dry-run` — expect `dist/`, `bin/`, `README.md`, `LICENSE`,
 `package.json`, and **zero** `*.test.*` files.
+
+### Publishing needs a token with *both* 2FA-bypass and the exact package in scope
+
+The 403s npm throws during publish are two different failures that read alike:
+
+- `Two-factor authentication or granular access token with bypass 2fa enabled
+  is required` → the credential has no 2FA bypass. Pass `--otp=<code>`, or use a
+  token with **"Bypass 2FA" enabled**.
+- `You may not perform that action with these credentials` → the token
+  authenticates fine (even as the package owner) but its **package scope
+  doesn't include this package**.
+
+The trap that cost us a dozen attempts: a granular token scoped to the
+**`@basedagents`** scope covers `@basedagents/keyring` but **not** the unscoped
+**`basedagents`** SDK package — scoped and unscoped names are separate grants.
+And npm **cannot edit a granular token's package list after creation**; you must
+generate a *new* token and paste the new string in (editing the old one changes
+nothing). One token needs **both** attributes at once: Bypass 2FA **on** and
+either **"All packages"** or an explicit list containing both the `@basedagents`
+scope *and* the individual package `basedagents`, Read+write. A Classic
+"Automation" token also works (full account access + bypasses 2FA) and sidesteps
+per-package scoping entirely.
+
+Tokens live in the repo-root `.env` (gitignored). Publish non-interactively with:
+
+```bash
+npm publish --workspace=<pkg> "--//registry.npmjs.org/:_authToken=$NPM_ACCESS_TOKEN"
+```
+
+The two published packages have **separate versions and separate owners of
+truth**: `@basedagents/keyring` (`packages/keyring`) and `basedagents`
+(`packages/sdk`) — bumping one does not bump the other.
 
 ### Stacked PRs don't retarget themselves
 

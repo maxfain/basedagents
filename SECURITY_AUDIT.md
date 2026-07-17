@@ -399,3 +399,30 @@ No known CVEs in current versions.
 7. **[MED-6]** Add HMAC signatures to webhook deliveries.
 8. **[MED-7]** Validate npm tarball URLs against expected registry domain.
 9. **[LOW-10]** Add Content-Security-Policy headers.
+
+---
+
+## Addendum — Dependency Audit (2026-07-17)
+
+Updates **LOW-12**. `npm audit` now reports 3 advisories — all in **dev/CI
+tooling**, none in shipped runtime artifacts. **Accepted as-is; no action.**
+
+| Package | Sev | Source | Exposure |
+|---|---|---|---|
+| `esbuild` 0.27.3–0.28.0 | moderate | via Vite (console build) | Arbitrary file read **only** through the dev server, **only** on Windows. Not in any built artifact. |
+| `undici` ≤6.26.0 | high | `@actions/http-client` → `packages/github-action` | GitHub Action tooling only. Not in the SDK, keyring, or the Cloudflare Worker runtime. |
+| `@actions/http-client` 2.2.0–3.0.1 | low | `packages/github-action` | Pulls the vulnerable `undici`. |
+
+**Decision — do nothing.** The published packages (`basedagents`,
+`@basedagents/keyring`) depend only on `@noble/*`, `ajv`, `zod`, and the MCP
+SDK; none of the flagged packages ship in them. The API Worker runs on
+Cloudflare's runtime (no `undici`). End-user/production exposure is effectively
+nil.
+
+`npm audit fix` is a **no-op** here — and so is `npm audit fix --force`
+(verified: 0 added / 0 changed / 0 removed). The vulnerable versions are
+transitively pinned by Vite and `@actions/*`, and no in-range *or* forced
+upgrade path resolves them. Forcing patched versions would require npm
+`overrides` in the root `package.json`, which overrides what those tools were
+tested against — not worth it for a dev-only risk. **Re-check when Vite and
+`@actions/*` ship releases on patched transitive deps.**
