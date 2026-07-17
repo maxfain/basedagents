@@ -14,7 +14,6 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { control, ControlApiError } from '../api/control.js';
 import type { LinkInfo } from '../api/types.js';
-import { AuthBrand } from '../components/AuthBrand.js';
 
 function errText(err: unknown): string {
   if (err instanceof ControlApiError) return err.message;
@@ -67,7 +66,9 @@ export default function LinkPage() {
   return (
     <div className="auth-wrap">
       <div className="auth-card">
-        <AuthBrand />
+        <div className="auth-brand">
+          <span className="brand-mark">◈</span> BasedAgents
+        </div>
 
         {dead ? (
           <>

@@ -14,7 +14,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import { control, ControlApiError } from '../api/control.js';
 import { getAssertion, passkeysSupported } from '../lib/webauthn.js';
 import { useOwner } from '../state/session.js';
-import { AuthBrand } from '../components/AuthBrand.js';
 
 function errText(err: unknown): string {
   if (err instanceof ControlApiError) return err.message;
@@ -94,7 +93,9 @@ export default function Login() {
   return (
     <div className="auth-wrap">
       <div className="auth-card">
-        <AuthBrand />
+        <div className="auth-brand">
+          <span className="brand-mark">◈</span> BasedAgents
+        </div>
 
         {sentTo ? (
           <>
