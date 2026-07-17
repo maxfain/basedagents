@@ -97,8 +97,36 @@
     <h2>After the human claims</h2>
     <ul>
       <li><code>keyring_request(provider, scope?, note?)</code> — ask for a credential; the human approves with a passkey signature bound to the exact grant.</li>
-      <li><code>keyring_lease(ref, context?, ttl_seconds?)</code> — receive a short-lived, in-memory copy; leases expire on their own and every use is signed into a local log.</li>
+      <li><code>keyring_run(credential_refs, command, purpose)</code> — run a command with the secrets injected into its environment (never argv); output is redacted. You never see the raw value.</li>
+      <li><code>keyring_render(template, out)</code> — fill <code>{{keyring:REF}}</code> placeholders into a file.</li>
+      <li><code>keyring_lease(ref, context?, ttl_seconds?)</code> — off by default. Returns a raw value into the conversation, and only works if the owner set <code>unsafe_value_release</code> on the grant.</li>
     </ul>
+
+    <h2 id="sandboxes">Network-restricted sandboxes (Codex-style cloud agents)</h2>
+    <p>Many cloud agent environments — Codex-style sandboxes — allow internet access during their <strong>setup phase</strong> but block nearly all egress during the <strong>task phase</strong>. If your first network call happens at task time, <code>npx basedagents …</code> fails with a proxy 403 or a blocked connection. The fix is to do the network-dependent work during setup:</p>
+    <ol class="steps">
+      <li>
+        <strong>Install during setup, not task time.</strong>
+        <p>Add BasedAgents to the project so the environment&rsquo;s own <code>npm ci</code> fetches it while the network is still open:</p>
+        <pre>npm install --save-dev basedagents @basedagents/keyring</pre>
+        <p>Once it is a devDependency, <code>npx basedagents keyring init</code> resolves the <em>local</em> copy — zero registry calls during the locked-down task phase.</p>
+      </li>
+      <li>
+        <strong>Register during setup.</strong>
+        <p>If your setup script has network, run registration there — proof-of-work and the API both need egress:</p>
+        <pre>npx basedagents register</pre>
+        <p>The human claim (<code>invite_owner</code> → magic link) can happen any time afterward; it does not need the sandbox to have network.</p>
+      </li>
+      <li>
+        <strong>Allowlist two hosts for the task phase.</strong>
+        <p>At runtime Keyring only needs to reach the control plane. Add these to your environment&rsquo;s agent-phase allowlist:</p>
+        <pre>api.basedagents.ai
+app.basedagents.ai</pre>
+      </li>
+    </ol>
+    <div class="note">
+      <strong>Diagnose it:</strong> run <code>basedagents keyring doctor</code>. It probes the npm registry, the BasedAgents API, and a generic HTTPS host; when it sees the phase-blocked signature (multiple 403 / denied CONNECT), it prints this exact pattern instead of leaving you with a raw npm error.
+    </div>
 
     <p style="margin-top:28px">Full machine-readable contract: <a href="/.well-known/agent.json">/.well-known/agent.json</a> · human onboarding: <a href="/keyring">/keyring</a> · registry: <a href="/registry">/registry</a>.</p>
   </main>

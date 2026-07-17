@@ -50,8 +50,33 @@ signs every grant. Revoke (Disconnect) and the kill switch work on every plan.
 
 - keyring_request(provider, scope?, note?) — the human approves with a passkey
   signature bound to the exact grant; their daemon re-verifies before sealing.
-- keyring_lease(ref, context?, ttl_seconds?) — receive a short-lived, in-memory
-  copy; leases expire on their own; every use is signed into a local log.
+- keyring_run(credential_refs, command, purpose) — run a command with secrets
+  injected into its environment (never argv); output is redacted. You never see
+  the raw value.
+- keyring_render(template, out) — fill {{keyring:REF}} placeholders into a file.
+- keyring_lease(ref, context?, ttl_seconds?) — OFF by default; returns a raw
+  value into the conversation only if the owner set unsafe_value_release.
+
+## Network-restricted sandboxes (Codex-style cloud agents)
+
+Many cloud agent environments allow internet during their SETUP phase but block
+nearly all egress during the TASK phase. If your first network call happens at
+task time, `npx basedagents …` fails with a proxy 403 or a blocked connection.
+Do the network-dependent work during setup instead:
+
+1. Install during setup, not task time. Add BasedAgents to the project so the
+   environment's own `npm ci` fetches it while the network is open:
+     npm install --save-dev basedagents @basedagents/keyring
+   Then `npx basedagents keyring init` resolves the local copy — zero registry
+   calls during the locked-down task phase.
+2. Register during setup (network open): `npx basedagents register`. The human
+   claim can happen any time afterward; it does not need the sandbox to reach out.
+3. Allowlist two hosts for the task phase: api.basedagents.ai and app.basedagents.ai.
+
+Diagnose it with `basedagents keyring doctor` — it probes the npm registry, the
+BasedAgents API, and a generic HTTPS host, and when it sees the phase-blocked
+signature (multiple 403 / denied CONNECT) it prints this pattern instead of a raw
+npm error. Full guide: https://basedagents.ai/docs/agents#sandboxes
 
 ## AgentSig auth
 
