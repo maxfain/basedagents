@@ -19,7 +19,6 @@ import type { AppEnv } from '../types/index.js';
 /** The funnel of the onboarding redesign, in order. */
 export const FUNNEL_EVENTS = [
   'copy_command',
-  'email_door', // the /start "Start in your browser" email submit
   'init_run',
   'mcp_config_written',
   'passkey_created',

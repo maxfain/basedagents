@@ -1075,7 +1075,7 @@ export default function Scan(): React.ReactElement {
               </div>
               <p style={{ marginTop: 20, fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 0 }}>
                 Powered by{' '}
-                <a href="/" style={{ color: 'var(--accent)', textDecoration: 'none' }}>BasedAgents</a>
+                <Link to="/" style={{ color: 'var(--accent)', textDecoration: 'none' }}>BasedAgents</Link>
               </p>
             </div>
           </>

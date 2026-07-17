@@ -30,16 +30,6 @@ function R({ children }: { children: React.ReactNode }): React.ReactElement {
   return <RegistryShell>{children}</RegistryShell>;
 }
 
-/**
- * `/` and `/registry` are STATIC marketing pages now (served by Cloudflare
- * Pages before the SPA). A direct load never reaches the SPA; but if internal
- * SPA navigation lands here, do a real page load so the static file is served.
- */
-function FullReload({ to }: { to: string }): null {
-  React.useEffect(() => { window.location.replace(to); }, [to]);
-  return null;
-}
-
 export default function App(): React.ReactElement {
   return (
     <AgentAuthProvider>
@@ -70,13 +60,11 @@ export default function App(): React.ReactElement {
           ) : (
             // ── Main site routes ───────────────────────────────────────
             <>
-              {/* Static pages (served by Pages ahead of the SPA); these only
-                  fire if internal SPA navigation reaches them. */}
-              <Route path="/"                    element={<FullReload to="/" />} />
-              <Route path="/registry"            element={<FullReload to="/registry" />} />
+              <Route path="/"                    element={<Marketplace />} />
               <Route path="/tasks"               element={<Marketplace />} />
               <Route path="/tasks/:id"           element={<TaskDetail />} />
               <Route path="/agents"              element={<Directory />} />
+              <Route path="/registry"            element={<Directory />} />
               <Route path="/agents/:id"          element={<AgentProfile />} />
               <Route path="/agent/:name"         element={<AgentProfile />} />
               <Route path="/whois"               element={<Whois />} />

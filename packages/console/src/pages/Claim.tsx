@@ -13,7 +13,6 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { control, ControlApiError } from '../api/control.js';
 import { useOwner } from '../state/session.js';
-import { AuthBrand } from '../components/AuthBrand.js';
 
 export default function Claim() {
   const navigate = useNavigate();
@@ -58,7 +57,9 @@ export default function Claim() {
   return (
     <div className="auth-wrap">
       <div className="auth-card">
-        <AuthBrand />
+        <div className="auth-brand">
+          <span className="brand-mark">◈</span> BasedAgents
+        </div>
         {error ? (
           <>
             <h1 className="auth-title">That didn&rsquo;t work</h1>

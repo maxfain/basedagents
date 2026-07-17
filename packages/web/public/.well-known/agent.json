@@ -119,21 +119,6 @@
       "setup_command_for_humans": "npx @basedagents/keyring init",
       "hard_rules": "Never ask the human to paste raw API keys into chat or into .env. Point them at the setup command; connections are made in their browser and sealed to their machine's vault key."
     },
-    "claim": {
-      "description": "An agent can register and request, but holds authority over NOTHING until a human claims it. This is a hard gate, not a soft warning.",
-      "state": "claim_pending",
-      "locked_until_claimed": "No credential can be stored or leased. keyring_request is allowed (it queues); keyring_lease and any credential storage are refused until a human clicks the magic link.",
-      "how_to_claim": "Call invite_owner(email); the human receives a magic-link email and finishes at https://app.basedagents.ai/start (or runs `npx @basedagents/keyring init` on their own machine).",
-      "invite_expiry_hours": 72,
-      "rate_limits": "Invites are limited to 3 per day per agent id, with re-send backoff; repeated invites to an unresponsive address stop after 3 sends."
-    },
-    "humans": {
-      "description": "Where to send a human, and what they will see — so you can set expectations in-conversation.",
-      "start_url": "https://app.basedagents.ai/start",
-      "docs_url": "https://basedagents.ai/keyring",
-      "email_subject": "An agent named <your agent name> wants you as its owner",
-      "what_they_do": "Click the magic link, then either connect providers in the browser or finish setup by running the keyring init command where you (the agent) live. Their first approval mints a passkey that signs every future grant."
-    },
     "auth": {
       "scheme": "AgentSig",
       "header": "Authorization: AgentSig <base58_pubkey>:<base64_ed25519_signature>",

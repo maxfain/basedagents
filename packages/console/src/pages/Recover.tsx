@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { control, ControlApiError } from '../api/control.js';
 import { createPasskey, passkeysSupported } from '../lib/webauthn.js';
-import { AuthBrand } from '../components/AuthBrand.js';
 
 function errText(err: unknown): string {
   if (err instanceof ControlApiError) return err.message;
@@ -71,7 +70,9 @@ export default function Recover() {
   return (
     <div className="auth-wrap">
       <div className="auth-card">
-        <AuthBrand> <span className="brand-sub">Console</span></AuthBrand>
+        <div className="auth-brand">
+          <span className="brand-mark">◈</span> BasedAgents <span className="brand-sub">Console</span>
+        </div>
         <h1 className="auth-title">Account recovery</h1>
 
         {done ? (

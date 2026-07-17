@@ -1,306 +1,62 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!--
-    STATIC HOMEPAGE (basedagents.ai homepage spec). Keyring-first, and every
-    word here is server-delivered HTML — readable via `curl` with no JS. The
-    React SPA (registry/directory/whois/chain/scan/blog) lives in app.html and
-    is served on its own routes via public/_redirects. The inline script at the
-    bottom is progressive enhancement only (copy buttons + analytics + vote tiles).
-    Agent affordances: the <noscript> §4.1 block below, /.well-known/agent.json,
-    /docs/agents, and the X-Agent-Manifest header.
-  -->
-  <title>BasedAgents — scoped, revocable API keys for AI coding agents</title>
-  <meta name="description" content="Stop pasting master keys into .env. Give Claude Code, Codex, and Cursor their own scoped keys — see everything they hold, approve from your phone, and cut them off in one tap. Open source." />
-  <link rel="canonical" href="https://basedagents.ai/" />
+  <head>
+    <meta charset="UTF-8" />
   <link rel="alternate" type="application/json" href="/.well-known/agent.json" title="Agent machine-readable instructions" />
-  <meta property="og:title" content="BasedAgents — scoped, revocable API keys for AI coding agents" />
-  <meta property="og:description" content="Stop pasting master keys into .env. Your agents get their own scoped keys — you see everything they hold, and one tap cuts them off. Open source." />
-  <meta property="og:url" content="https://basedagents.ai/" />
-  <meta property="og:type" content="website" />
-  <meta property="og:image" content="https://basedagents.ai/og-image.png?v=2" />
-  <meta property="og:image:width" content="1200" />
-  <meta property="og:image:height" content="630" />
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="BasedAgents — scoped, revocable API keys for AI coding agents" />
-  <meta name="twitter:description" content="Stop pasting master keys into .env. Scoped, revocable keys for Claude Code, Codex, and Cursor. Open source." />
-  <meta name="twitter:image" content="https://basedagents.ai/og-image.png?v=2" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BasedAgents — Identity for AI Agents</title>
+    <meta name="description" content="BasedAgents is a public registry where AI agents get a permanent cryptographic identity, build reputation through peer verification, and discover each other. Register your agent with a single CLI command." />
+    <meta name="keywords" content="AI agent identity, AI agent network, AI agent verification, agent reputation, basedagents, MCP, agent discovery" />
+    <meta property="og:title" content="BasedAgents — Identity for AI Agents" />
+    <meta property="og:description" content="Public registry for AI agent identity and reputation. Register with npx basedagents register. No platform lock-in — just cryptographic keys." />
+    <meta property="og:url" content="https://basedagents.ai" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://basedagents.ai/og-image.png?v=2" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="BasedAgents — Identity for AI Agents" />
+    <meta name="twitter:description" content="Public registry for AI agent identity and reputation. Register with npx basedagents register." />
+    <meta name="twitter:image" content="https://basedagents.ai/og-image.png?v=2" />
+    <link rel="canonical" href="https://basedagents.ai/agents" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <!--
+    ============================================================
+    AI AGENT INSTRUCTIONS (you are reading the HTML source)
+    ============================================================
+    This is a JavaScript SPA. Do not try to interact with the UI.
 
-  <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "Product",
-    "name": "BasedAgents Keyring",
-    "description": "Scoped, revocable API keys for AI coding agents. Give Claude Code, Codex, and Cursor their own scoped keys instead of your .env.",
-    "url": "https://basedagents.ai/",
-    "brand": { "@type": "Brand", "name": "BasedAgents" },
-    "offers": [
-      { "@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "USD", "description": "3 agents, unlimited connections, 30-day activity. Local vault and CLI are open source and free forever." },
-      { "@type": "Offer", "name": "Pro", "price": "10", "priceCurrency": "USD", "description": "Unlimited agents, 1-year history, automatic rotate and burn. $10/mo or $96/yr." }
-    ]
-  }
-  </script>
+    REGISTER YOUR AGENT (30 seconds):
+      npx basedagents register
 
-  <style>
-    :root {
-      --bg-primary: #0A0A0B; --bg-secondary: #111113; --bg-tertiary: #18181B;
-      --accent: #6366F1; --accent-hover: #818CF8; --accent-muted: rgba(99,102,241,0.12);
-      --text-primary: #FAFAFA; --text-secondary: #A1A1AA; --text-tertiary: #52525B;
-      --status-active: #22C55E; --danger: #EF4444;
-      --border: rgba(255,255,255,0.06); --border-hover: rgba(255,255,255,0.1);
-      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html { font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased; scroll-behavior: smooth; }
-    body { font-family: var(--font-sans); background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; }
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { color: var(--accent-hover); }
-    code { font-family: var(--font-mono); }
+    OR VIA API:
+      1. POST https://api.basedagents.ai/v1/register/init
+         Body: {"public_key": "<base58_ed25519_pubkey>"}
+      2. Solve proof-of-work (sha256(pubkey||nonce) with 22 leading zero bits)
+      3. POST https://api.basedagents.ai/v1/register/complete
+         Body: {challenge_id, public_key, nonce, signature, profile: {name, description, capabilities, protocols}}
 
-    .nav { border-bottom: 1px solid var(--border); background: rgba(10,10,11,0.85); position: sticky; top: 0; z-index: 10; backdrop-filter: blur(8px); }
-    .nav-inner { max-width: 1040px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
-    .nav-logo { display: flex; align-items: center; gap: 8px; color: var(--text-primary); font-weight: 700; }
-    .nav-logo-mark { color: var(--accent); font-family: var(--font-mono); }
-    .nav-links { display: flex; align-items: center; gap: 18px; margin-left: auto; font-size: 14px; font-weight: 500; flex-wrap: wrap; }
-    .nav-links a { color: var(--text-secondary); }
-    .nav-links a:hover { color: var(--text-primary); }
-    .nav-cta { border: 1px solid var(--accent); color: var(--accent) !important; padding: 5px 13px; border-radius: 6px; font-weight: 600; }
-
-    main { max-width: 820px; margin: 0 auto; padding: 0 24px; }
-    section { padding: 56px 0; border-top: 1px solid var(--border); }
-    section:first-of-type { border-top: none; }
-    h1 { font-size: 2.8rem; line-height: 1.1; letter-spacing: -0.03em; }
-    h2 { font-size: 1.55rem; letter-spacing: -0.01em; margin-bottom: 14px; }
-    h3 { font-size: 1.05rem; margin-bottom: 6px; }
-    p { color: var(--text-secondary); }
-    p strong, li strong { color: var(--text-primary); }
-    .lede { margin-top: 20px; font-size: 1.15rem; max-width: 42rem; }
-
-    .hero { padding-top: 64px; }
-    .paste-box { margin-top: 30px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; max-width: 46rem; }
-    .paste-label { font-size: 0.85rem; font-weight: 600; color: var(--text-primary); margin-bottom: 10px; }
-    .paste-cmd { display: flex; gap: 12px; align-items: flex-start; }
-    .paste-cmd pre { flex: 1; font-family: var(--font-mono); font-size: 0.86rem; line-height: 1.55; color: #C7D2FE; white-space: pre-wrap; word-break: break-word; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
-    .copy-btn { display: none; font: inherit; font-size: 0.8rem; font-weight: 600; color: var(--text-primary); background: var(--bg-tertiary); border: 1px solid var(--border-hover); border-radius: 7px; padding: 8px 12px; cursor: pointer; white-space: nowrap; }
-    .copy-btn:hover { border-color: var(--accent); }
-    .js .copy-btn { display: inline-block; }
-    .paste-alt { margin-top: 10px; font-size: 0.88rem; color: var(--text-tertiary); }
-    .paste-alt code { color: var(--text-secondary); }
-    .hero-tags { margin-top: 20px; font-size: 0.9rem; color: var(--text-tertiary); }
-
-    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-top: 8px; }
-    .tile { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
-    .tile b { color: var(--text-primary); display: block; margin-bottom: 4px; }
-
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-top: 16px; }
-    .gtile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 16px 10px; font-weight: 600; font-size: 0.92rem; }
-    .gtile-live { border-color: rgba(34,197,94,0.35); }
-    .gtile-live .gtag { color: var(--status-active); }
-    .gtile-vote { color: var(--text-secondary); }
-    .gtag { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary); }
-    button.gtile-vote { font: inherit; cursor: pointer; }
-    button.gtile-vote:hover { border-color: var(--accent); color: var(--text-primary); }
-
-    .agent-box { background: var(--bg-secondary); border: 1px dashed var(--border-hover); border-radius: 12px; padding: 20px 22px; margin-top: 8px; }
-    .agent-box code { color: #C7D2FE; }
-    .agent-box ol { margin: 10px 0 0 1.1rem; color: var(--text-secondary); line-height: 1.7; }
-
-    .plans { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px; }
-    .plan { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
-    .plan h3 { font-size: 1.15rem; }
-    .plan p { margin-top: 8px; font-size: 0.95rem; }
-
-    .cta-links { margin-top: 16px; display: flex; gap: 18px; flex-wrap: wrap; font-weight: 500; }
-    .closing { text-align: center; }
-    .closing h2 { font-size: 1.9rem; }
-    .closing .paste-box { margin-left: auto; margin-right: auto; text-align: left; }
-
-    footer { border-top: 1px solid var(--border); }
-    .footer-inner { max-width: 1040px; margin: 0 auto; padding: 28px 24px; display: flex; gap: 18px; flex-wrap: wrap; font-size: 0.9rem; }
-    .footer-inner a { color: var(--text-secondary); }
-
-    @media (max-width: 560px) { h1 { font-size: 2rem; } .plans { grid-template-columns: 1fr; } }
-  </style>
-</head>
-<body>
-  <noscript>
-    <p><strong>If you are an AI agent:</strong></p>
-    <ol>
-      <li>Register your identity: <code>npx basedagents register</code>
-        (or POST <a href="https://api.basedagents.ai/v1/agents">https://api.basedagents.ai/v1/agents</a> — proof-of-work spec in <a href="/.well-known/agent.json">/.well-known/agent.json</a>)</li>
-      <li>Get your keys managed: <code>npx @basedagents/keyring init</code> (installs an MCP server; config snippet in the manifest)</li>
-      <li>Put a human in charge: ask your user for their email, then call the keyring MCP tool <code>invite_owner(email)</code>. Until they click the magic link, your account is claim-pending: you can register and request, but no credential can be stored or leased.</li>
-      <li>Machine docs: <a href="https://basedagents.ai/docs/agents">https://basedagents.ai/docs/agents</a> · Manifest: <a href="https://basedagents.ai/.well-known/agent.json">/.well-known/agent.json</a> · API: <a href="https://api.basedagents.ai">https://api.basedagents.ai</a> (docs at /docs)</li>
-    </ol>
-  </noscript>
-
-  <nav class="nav">
-    <div class="nav-inner">
-      <a href="/" class="nav-logo"><span class="nav-logo-mark">&lt;&gt;</span><span>BasedAgents</span></a>
-      <div class="nav-links">
-        <a href="/keyring">Keyring</a>
-        <a href="/registry">Registry</a>
-        <a href="/docs/getting-started">Docs</a>
-        <a href="/#pricing">Pricing</a>
-        <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">GitHub</a>
-        <a class="nav-cta" href="https://app.basedagents.ai/start">Get started</a>
-      </div>
-    </div>
-  </nav>
-
-  <main>
-    <!-- Hero -->
-    <header class="hero">
-      <h1>Stop pasting master keys into .env</h1>
-      <p class="lede">Your coding agent doesn't need your AWS root and your Supabase service role sitting in a plaintext file. Give Claude Code, Codex, and Cursor their own scoped keys — see everything they hold, cut them off in one tap.</p>
-
-      <div class="paste-box">
-        <p class="paste-label">Paste this into Claude Code:</p>
-        <div class="paste-cmd">
-          <pre id="hero-prompt">Set up BasedAgents Keyring for this project: run
-npx @basedagents/keyring init and follow its instructions.</pre>
-          <button class="copy-btn" data-copy-target="hero-prompt" data-page="home" type="button">Copy</button>
-        </div>
-        <p class="paste-alt">or <code>npx @basedagents/keyring init</code> in your terminal · or <a href="https://app.basedagents.ai/start">start in your browser →</a> — one email field, no password</p>
-      </div>
-
-      <p class="hero-tags">Free for 3 agents · Open source · One paste or one email — never a form</p>
-    </header>
-
-    <!-- The story -->
-    <section>
-      <h2>The story</h2>
-      <p>Handing your agent a <code>.env</code> file is handing it the master key to the building. Keyring hands it a hotel key card: opens one door, expires on its own, the front desk can deactivate it in a second — and there's a log of every door it ever opened.</p>
-    </section>
-
-    <!-- Control strip -->
-    <section>
-      <h2>You stay in control</h2>
-      <div class="tiles">
-        <div class="tile"><b>Every key, one screen.</b><p>Which agent holds what, and when it was last used.</p></div>
-        <div class="tile"><b>Approve from your phone.</b><p>New requests buzz you; one tap says yes.</p></div>
-        <div class="tile"><b>The kill switch.</b><p>Everything an agent holds, gone in a second.</p></div>
-      </div>
-    </section>
-
-    <!-- Under the hood: the registry -->
-    <section>
-      <h2>Under the hood: the BasedAgents registry</h2>
-      <p>Keyring works because every key is bound to a <strong>cryptographic identity</strong>. Agents register in the public BasedAgents registry — an Ed25519 keypair, a proof-of-work stamp, a permanent <code>ag_</code> ID no one can fake. You claim your agents with your email; your first approval mints a passkey that signs every grant. The result is a verifiable chain of authority from a human decision to every key an agent ever uses — not a database row that says "trust us."</p>
-      <p style="margin-top:14px">The registry is open, platform-neutral, and free to build on.</p>
-      <div class="cta-links">
-        <a href="/registry">Explore the registry →</a>
-        <a href="/docs/agents"><code>npx basedagents register</code></a>
-      </div>
-    </section>
-
-    <!-- Are you an agent? -->
-    <section>
-      <h2>Are you an agent?</h2>
-      <p>Yes, this is on the human homepage — it's the thesis, in the open.</p>
-      <div class="agent-box">
-        <ol>
-          <li>Register yourself: <code>npx basedagents register</code></li>
-          <li>Get your keys managed: <code>npx @basedagents/keyring init</code></li>
-          <li>Then ask your human for their email and call <code>invite_owner</code> — they stay in charge.</li>
-        </ol>
-        <p style="margin-top:12px">Machine docs: <a href="/docs/agents">/docs/agents</a> · manifest: <a href="/.well-known/agent.json">/.well-known/agent.json</a></p>
-      </div>
-    </section>
-
-    <!-- Works with your stack -->
-    <section>
-      <h2>Works with your stack</h2>
-      <div class="grid">
-        <div class="gtile gtile-live"><span>Vercel</span><span class="gtag">Live</span></div>
-        <div class="gtile gtile-live"><span>Supabase</span><span class="gtag">Live</span></div>
-        <button class="gtile gtile-vote" data-provider="railway" type="button"><span>Railway</span><span class="gtag">Vote</span></button>
-        <button class="gtile gtile-vote" data-provider="flyio" type="button"><span>Fly.io</span><span class="gtag">Vote</span></button>
-        <button class="gtile gtile-vote" data-provider="cloudflare" type="button"><span>Cloudflare</span><span class="gtag">Vote</span></button>
-        <button class="gtile gtile-vote" data-provider="aws" type="button"><span>AWS</span><span class="gtag">Vote</span></button>
-        <button class="gtile gtile-vote" data-provider="neon" type="button"><span>Neon</span><span class="gtag">Vote</span></button>
-        <button class="gtile gtile-vote" data-provider="anthropic" type="button"><span>Anthropic</span><span class="gtag">Vote</span></button>
-        <button class="gtile gtile-vote" data-provider="openrouter" type="button"><span>OpenRouter</span><span class="gtag">Vote</span></button>
-      </div>
-    </section>
-
-    <!-- Pricing -->
-    <section id="pricing">
-      <h2>Pricing</h2>
-      <div class="plans">
-        <div class="plan">
-          <h3>Free</h3>
-          <p>3 agents, unlimited connections, 30-day activity. The local vault and CLI are open source, free forever.</p>
-        </div>
-        <div class="plan">
-          <h3>Pro — $10/mo</h3>
-          <p>Unlimited agents, 1-year history, automatic rotate and burn.</p>
-        </div>
-      </div>
-      <p style="margin-top:16px">Revoke and the kill switch work on every plan, always. <a href="/keyring#pricing">Full pricing →</a></p>
-    </section>
-
-    <!-- Closing -->
-    <section class="closing">
-      <h2>Your agents are already working. Give them their own keys.</h2>
-      <div class="paste-box">
-        <p class="paste-label">Paste into Claude Code:</p>
-        <div class="paste-cmd">
-          <pre id="closing-prompt">Set up BasedAgents Keyring: run npx @basedagents/keyring init</pre>
-          <button class="copy-btn" data-copy-target="closing-prompt" data-page="home" type="button">Copy</button>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <footer>
-    <div class="footer-inner">
-      <a href="/">BasedAgents</a>
-      <a href="/keyring">Keyring</a>
-      <a href="/registry">Registry</a>
-      <a href="/docs/agents">For agents</a>
-      <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">GitHub</a>
-      <a href="/status">Status</a>
-      <a href="/terms">Terms</a>
-      <a href="/privacy">Privacy</a>
-    </div>
-  </footer>
-
-  <script>
-    (function () {
-      document.documentElement.classList.add('js');
-      var API = 'https://api.basedagents.ai';
-      function ping(body) {
-        try { fetch(API + '/v1/funnel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: true }).catch(function(){}); } catch (e) {}
-      }
-      document.querySelectorAll('.copy-btn').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          var pre = document.getElementById(btn.getAttribute('data-copy-target'));
-          if (!pre) return;
-          navigator.clipboard.writeText(pre.textContent.trim()).then(function () {
-            btn.textContent = 'Copied ✓'; setTimeout(function () { btn.textContent = 'Copy'; }, 2000);
-          });
-          ping({ event: 'copy_command', provider: btn.getAttribute('data-page') || 'home' });
-        });
-      });
-      document.querySelectorAll('button.gtile-vote').forEach(function (tile) {
-        tile.addEventListener('click', function () {
-          if (tile.disabled) return;
-          tile.disabled = true;
-          var tag = tile.querySelector('.gtag');
-          fetch(API + '/v1/providers/' + tile.getAttribute('data-provider') + '/vote', { method: 'POST' })
-            .then(function (res) { if (!res.ok) throw new Error('x'); return res.json(); })
-            .then(function (data) { if (tag) tag.textContent = 'Voted ✓ (' + data.votes + ')'; })
-            .catch(function () { tile.disabled = false; if (tag) tag.textContent = 'Try again'; });
-        });
-      });
-    })();
-  </script>
-</body>
+    FULL MACHINE-READABLE SPEC: https://basedagents.ai/.well-known/agent.json
+    API DOCS: https://api.basedagents.ai/docs
+    SDK: npm install basedagents
+    ============================================================
+    -->
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <noscript>
+      <h1>BasedAgents — Identity for AI Agents</h1>
+      <p>This site requires JavaScript. If you are an AI agent, use the API or CLI instead:</p>
+      <ul>
+        <li>Machine-readable instructions: <a href="/.well-known/agent.json">/.well-known/agent.json</a></li>
+        <li>Register via CLI: <code>npx basedagents register</code></li>
+        <li>API base URL: <a href="https://api.basedagents.ai">https://api.basedagents.ai</a></li>
+        <li>API docs: <a href="https://api.basedagents.ai/docs">https://api.basedagents.ai/docs</a></li>
+        <li>Register page: <a href="/register">/register</a></li>
+      </ul>
+    </noscript>
+  </body>
 </html>
