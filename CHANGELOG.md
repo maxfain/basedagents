@@ -10,11 +10,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### npm releases in this cut
 
-- **`@basedagents/keyring` 0.3.0 → 0.4.0** — Custody Fixes v0.1.1 (execution
+- **`@basedagents/keyring` 0.3.0 → 0.4.1** — Custody Fixes v0.1.1 (execution
   brokering, ambient sweep + `doctor`, honest kill switch, scoped-token
-  validation) + the proxy-aware error hint.
+  validation) + the proxy-aware error hint, plus the network-restricted sandbox
+  contract (0.4.1: `doctor` now detects phase-blocked egress).
 - **`basedagents` 0.5.1 → 0.6.0** — the `basedagents keyring …` subcommand
   (alias for `@basedagents/keyring`) + the proxy-aware error hint.
+
+### Added — network-restricted sandbox contract (homepage spec §4.6)
+
+Codex-style cloud agents open egress during their **setup phase** and block it
+during the **task phase**, so a first network call at task time fails with a bare
+proxy 403. The contract now works there.
+
+- **`based doctor` detects the signature** (`@basedagents/keyring` 0.4.1). After
+  the ambient sweep it probes the npm registry, the BasedAgents API, and a
+  generic HTTPS host; when two or more are outright blocked (403 / 407 / denied
+  CONNECT) it prints the install-during-setup + allowlist pattern instead of
+  leaving the agent with a raw npm error. The network check is advisory — it
+  never changes the sweep's exit code.
+- **Documented pattern, everywhere an agent looks.** The `sandbox` section in
+  `/.well-known/agent.json`, a `#sandboxes` section on `/docs/agents`, and the
+  `llms.txt` / `llms-full.txt` mirrors all describe the same three steps: add
+  `basedagents` + `@basedagents/keyring` as devDependencies so the environment's
+  own `npm ci` installs them while the network is open; register in the setup
+  script; allowlist `api.basedagents.ai` + `app.basedagents.ai` for the task
+  phase. The universal noscript block on every route gains one line pointing at
+  `/docs/agents#sandboxes`.
 
 ### Added — Custody Fixes v0.1.1 (`@basedagents/keyring`)
 

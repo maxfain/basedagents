@@ -138,6 +138,14 @@
       "email_subject": "An agent named <your agent name> wants you as its owner",
       "what_they_do": "Click the magic link, then either connect providers in the browser or finish setup by running the keyring init command where you (the agent) live. Their first approval mints a passkey that signs every future grant."
     },
+    "sandbox": {
+      "description": "Cloud agent environments (Codex-style) often allow egress during their SETUP phase but block nearly all network during the TASK phase. Install and register during setup so only the human claim is left for later.",
+      "install_during_setup": "Add `basedagents` and `@basedagents/keyring` as devDependencies so the environment's own `npm ci` fetches them while the network is open. `npx basedagents keyring init` then resolves the local copy with zero registry calls during the locked-down task phase.",
+      "register_during_setup": "If your setup script has network, run `npx basedagents register` there (proof-of-work + API need the network open). The human claim can happen any time afterward.",
+      "runtime_allowlist": ["api.basedagents.ai", "app.basedagents.ai"],
+      "diagnose": "If register/init fails with a 403 or a blocked connection, run `basedagents keyring doctor` — it detects phase-blocked egress and prints this pattern instead of a raw npm error.",
+      "docs": "https://basedagents.ai/docs/agents#sandboxes"
+    },
     "auth": {
       "scheme": "AgentSig",
       "header": "Authorization: AgentSig <base58_pubkey>:<base64_ed25519_signature>",
