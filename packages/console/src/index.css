@@ -114,7 +114,17 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .banner-warn { color: #ffe9b0; background: var(--warn-bg); border: 1px solid #5b4a1a; }
 
 /* ── auth ── */
+.auth-nav { display: flex; align-items: center; gap: 1rem; padding: 0.9rem 1.5rem; border-bottom: 1px solid var(--border); }
+.auth-nav-brand { display: flex; align-items: center; gap: 0.4rem; font-weight: 700; color: var(--text); text-decoration: none; }
+.auth-nav-brand:hover { opacity: 0.85; }
+.auth-nav-links { margin-left: auto; display: flex; align-items: center; gap: 1.1rem; font-size: 0.9rem; font-weight: 500; flex-wrap: wrap; }
+.auth-nav-links a { color: var(--muted); text-decoration: none; }
+.auth-nav-links a:hover { color: var(--text); }
+.auth-nav-signin { color: var(--accent) !important; }
 .auth-wrap { min-height: 100vh; display: grid; place-items: center; padding: 2rem 1.25rem; }
+/* When the auth nav sits above the card, don't demand a full 100vh (it would
+   push the card down and add a scrollbar). */
+.auth-wrap-nav { min-height: calc(100vh - 58px); }
 .auth-card { width: 100%; max-width: 420px; background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; }
 .auth-brand { display: inline-block; font-weight: 700; margin-bottom: 1.5rem; color: var(--text); text-decoration: none; }
 a.auth-brand:hover { color: var(--text); opacity: 0.8; }

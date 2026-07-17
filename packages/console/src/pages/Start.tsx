@@ -20,7 +20,7 @@ import { useNavigate } from 'react-router-dom';
 import { control, ControlApiError } from '../api/control.js';
 import { useOwner } from '../state/session.js';
 import { AgentSetupPrompt } from '../components/AgentSetup.js';
-import { AuthBrand } from '../components/AuthBrand.js';
+import { AuthNav } from '../components/AuthNav.js';
 import { funnelPing } from '../lib/funnel.js';
 
 function errText(err: unknown): string {
@@ -86,10 +86,10 @@ export default function Start() {
   }
 
   return (
-    <div className="auth-wrap">
+    <>
+    <AuthNav />
+    <div className="auth-wrap auth-wrap-nav">
       <div className="auth-card auth-card-wide">
-        <AuthBrand />
-
         {phase === 'command' ? (
           <>
             <h1 className="auth-title">You&rsquo;re in — one step to finish</h1>
@@ -128,7 +128,7 @@ export default function Start() {
                 className={`start-door ${door === 'terminal' ? 'active' : ''}`}
                 onClick={() => setDoor('terminal')}
               >
-                I&rsquo;m at my terminal
+                Start with your agent
               </button>
               <button
                 role="tab"
@@ -173,5 +173,6 @@ export default function Start() {
         )}
       </div>
     </div>
+    </>
   );
 }
