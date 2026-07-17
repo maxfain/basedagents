@@ -18,6 +18,7 @@ import { useOwner } from '../state/session.js';
 import { approveRequest } from '../lib/approve.js';
 import { runAction } from '../lib/ceremony.js';
 import { ensurePasskey } from '../lib/firstApproval.js';
+import { AgentSetupPrompt } from '../components/AgentSetup.js';
 import type { ConnectionInfo, Delegation, KeyringRequest } from '../api/types.js';
 
 function errText(err: unknown): string {
@@ -145,8 +146,8 @@ export default function Home() {
       {agents.length === 0 ? (
         <div className="empty">
           <p>No agent is connected to this account yet.</p>
-          <p className="muted">Run this in the terminal where your agent works:</p>
-          <div className="code-block cmd">npx @basedagents/keyring init</div>
+          <p className="muted">Set it up — hand this to your agent, or run it yourself:</p>
+          <AgentSetupPrompt />
         </div>
       ) : (
         <ul className="cards">

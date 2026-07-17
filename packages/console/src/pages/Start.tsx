@@ -19,35 +19,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { control, ControlApiError } from '../api/control.js';
 import { useOwner } from '../state/session.js';
-
-const AGENT_PROMPT =
-  'Set up BasedAgents Keyring for this project: run npx @basedagents/keyring init and follow its instructions.';
-const TERMINAL_CMD = 'npx @basedagents/keyring init';
+import { AgentSetupPrompt } from '../components/AgentSetup.js';
 
 function errText(err: unknown): string {
   if (err instanceof ControlApiError) return err.message;
   if (err instanceof Error) return err.message;
   return String(err);
-}
-
-function CopyBlock({ text, big = false }: { text: string; big?: boolean }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="code-block cmd cmd-row">
-      <span className={big ? 'code-block-select' : undefined}>{text}</span>
-      <button
-        className="btn btn-ghost btn-sm"
-        onClick={() =>
-          void navigator.clipboard.writeText(text).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-          })
-        }
-      >
-        {copied ? 'Copied ✓' : 'Copy'}
-      </button>
-    </div>
-  );
 }
 
 type Door = 'terminal' | 'browser';
@@ -119,11 +96,7 @@ export default function Start() {
               Hand this to your coding agent (Claude Code, Codex, or Cursor). It sets everything up
               where it works and opens the page that connects it to you.
             </p>
-            <div className="start-prompt-label">Paste this to your agent:</div>
-            <CopyBlock text={AGENT_PROMPT} />
-            <p className="field-hint start-or">
-              or run it yourself: <code>{TERMINAL_CMD}</code>
-            </p>
+            <AgentSetupPrompt label="Paste this to your agent:" />
             <div className="start-preview">
               <span className="muted">Then connect what it can use —</span>
               <span className="start-tags">
@@ -167,11 +140,7 @@ export default function Start() {
 
             {door === 'terminal' ? (
               <div className="start-panel">
-                <div className="start-prompt-label">Paste this into Claude Code:</div>
-                <CopyBlock text={AGENT_PROMPT} />
-                <p className="field-hint start-or">
-                  or run it yourself: <code>{TERMINAL_CMD}</code>
-                </p>
+                <AgentSetupPrompt />
               </div>
             ) : (
               <form onSubmit={onEmail} className="form start-panel">
