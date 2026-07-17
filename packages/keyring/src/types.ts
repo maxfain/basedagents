@@ -67,6 +67,14 @@ export interface GrantConstraints {
   max_uses?: number;
   /** Project tag for filtering/audit. */
   project?: string;
+  /**
+   * Escape hatch (Custody Fix 1). When false/absent, `keyring_lease` refuses to
+   * hand the raw secret to the model — the agent must use `keyring_run` /
+   * `keyring_render`, so the value never enters the conversation transcript.
+   * The owner may set this true per-grant in the console to allow raw leasing;
+   * the lease tool then returns the value behind a loud warning banner.
+   */
+  unsafe_value_release?: boolean;
 }
 
 export interface Grant {
@@ -133,6 +141,8 @@ export type AccessEventType =
   | 'kill_switch'
   | 'lease'
   | 'lease_denied'
+  | 'run'
+  | 'render'
   | 'request_created'
   | 'request_approved'
   | 'request_denied'

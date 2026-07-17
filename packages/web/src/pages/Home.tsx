@@ -138,7 +138,7 @@ export default function Home(): React.ReactElement {
           </div>
           <div className="home-tile">
             <b>The kill switch.</b>
-            <p>Everything an agent holds, gone in a second.</p>
+            <p>Everything an agent holds, gone in a second — and it tells you if anything outside Keyring can still act.</p>
           </div>
         </div>
       </section>

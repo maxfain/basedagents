@@ -29,7 +29,7 @@ const ACCESS_EVENT_TYPES: readonly AccessEventType[] = [
   'vault_created', 'identity_added', 'identity_removed',
   'credential_added', 'credential_updated', 'credential_removed',
   'grant_created', 'grant_revoked', 'kill_switch',
-  'lease', 'lease_denied',
+  'lease', 'lease_denied', 'run', 'render',
   'request_created', 'request_approved', 'request_denied',
 ];
 

@@ -14,6 +14,17 @@ export interface ProviderPreset {
   id: string;
   label: string;
   envVar: string;
+  /**
+   * The narrowest token to create (Custody Fix 3). Shown to the human so they
+   * paste a project-scoped key, never an account-wide one.
+   */
+  scopeHint?: string;
+  /**
+   * Hard reject BEFORE any network call — returns a reason string when the
+   * token is the wrong *kind* (e.g. an account-wide token where a project key
+   * exists), or null to allow. This is how Fix 3 refuses account-wide tokens.
+   */
+  reject?: (token: string) => string | null;
   /** Cheap shape check before any network call. */
   looksValid?: (token: string) => boolean;
   /** Live check against the provider API (user's machine only). */
@@ -60,6 +71,7 @@ export const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     id: 'vercel',
     label: 'Vercel',
     envVar: 'VERCEL_TOKEN',
+    scopeHint: 'Create a token scoped to the specific project (Account Settings → Tokens → Scope: this project), not a full-account token.',
     looksValid: (t) => t.trim().length >= 20,
     validate: (token) =>
       probe('Vercel', 'https://api.vercel.com/v2/user', token, async (res) => {
@@ -70,13 +82,17 @@ export const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
   supabase: {
     id: 'supabase',
     label: 'Supabase',
-    envVar: 'SUPABASE_ACCESS_TOKEN',
-    looksValid: (t) => t.trim().startsWith('sbp_') && t.trim().length >= 20,
-    validate: (token) =>
-      probe('Supabase', 'https://api.supabase.com/v1/projects', token, async (res) => {
-        const projects = (await res.json()) as unknown[];
-        return `valid — ${Array.isArray(projects) ? projects.length : '?'} project(s) visible`;
-      }),
+    // Fix 3: store the PROJECT service_role key, never the account access token.
+    envVar: 'SUPABASE_SERVICE_ROLE_KEY',
+    scopeHint: 'Use the PROJECT service_role key (Project → Settings → API), not your account access token (sbp_…). One project, and the kill switch can scope it.',
+    // The account-wide personal access token (sbp_…) can create/delete projects
+    // across your whole account — refuse it and demand a project-scoped key.
+    reject: (t) =>
+      t.trim().startsWith('sbp_')
+        ? 'That is an account-wide Supabase access token (sbp_…). Paste the PROJECT service_role key instead (Project → Settings → API) so it is scoped to one project and revocable.'
+        : null,
+    // A project service_role key is a JWT (eyJ…).
+    looksValid: (t) => t.trim().startsWith('eyJ') && t.trim().length >= 40,
   },
 };
 
@@ -87,8 +103,14 @@ export async function validateProviderToken(
 ): Promise<{ ok: boolean; detail: string }> {
   const preset = PROVIDER_PRESETS[provider];
   if (!preset) return { ok: token.trim().length > 0, detail: token.trim() ? 'stored' : 'empty token' };
+  // Fix 3: refuse the wrong *kind* of token (e.g. account-wide) before anything else.
+  if (preset.reject) {
+    const reason = preset.reject(token);
+    if (reason) return { ok: false, detail: reason };
+  }
   if (preset.looksValid && !preset.looksValid(token)) {
-    return { ok: false, detail: `that does not look like a ${preset.label} token` };
+    const hint = preset.scopeHint ? ` ${preset.scopeHint}` : '';
+    return { ok: false, detail: `that does not look like a ${preset.label} token.${hint}` };
   }
   if (preset.validate) return preset.validate(token);
   return { ok: true, detail: 'stored' };

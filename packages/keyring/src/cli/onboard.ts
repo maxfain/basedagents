@@ -23,6 +23,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { Keyring } from '../keyring.js';
 import { generateKeypair, signPayload } from '../crypto.js';
 import { publicKeyToAgentId, base58Encode } from '../util.js';
+import { runSweep } from '../sweep.js';
 import { parseFlags, loadKeypairChecked } from './shared.js';
 import { confirm } from './prompt.js';
 import { ControlClient, DEFAULT_KEYRING_API } from './control-client.js';
@@ -76,6 +77,19 @@ function funnelPing(api: string, funnelId: string, event: 'init_run' | 'mcp_conf
     body: JSON.stringify({ event, funnel_id: funnelId }),
     signal: AbortSignal.timeout(2000),
   }).catch(() => undefined);
+}
+
+/**
+ * Custody Fix 2: at init, show every way the agent can already act as the human
+ * outside Keyring. Quiet when the environment is clean.
+ */
+function surfaceSweep(): void {
+  const { findings } = runSweep();
+  if (findings.length === 0) return;
+  console.log('');
+  console.log(`We found ${findings.length} way(s) your agent can already act as you, outside Keyring:`);
+  for (const f of findings) console.log(`  • ${f.title}`);
+  console.log('  Want Keyring to take custody? Run `based doctor` to review, then Absorb each one.');
 }
 
 export async function cmdInit(args: string[], dir: string | undefined): Promise<void> {
@@ -147,6 +161,10 @@ export async function cmdInit(args: string[], dir: string | undefined): Promise<
     console.log(`✓ Agent set up: ${agentName}`);
   }
   const agentPublicKeyB58 = agentId.slice(3); // ag_<base58 pub>
+
+  // Custody Fix 2: the strongest activation moment we have — show the human
+  // every way their agent can already act as them, outside Keyring.
+  surfaceSweep();
 
   // 3. MCP config for Claude Code (with permission — we never edit config silently).
   const mcpArgs = [

@@ -15,6 +15,7 @@ import { cmdIdentity, cmdIdentities, cmdAgents } from './identities.js';
 import { cmdGrant, cmdRevoke, cmdKill, cmdRequests, cmdApprove, cmdDeny } from './grants.js';
 import { cmdTimeline } from './timeline.js';
 import { cmdRun } from './run.js';
+import { cmdDoctor } from './doctor.js';
 import { cmdAdmin, cmdMcp } from './serve.js';
 import { cmdLink, cmdSync } from './sync.js';
 
@@ -55,7 +56,8 @@ Grants:
   grant <cred> <agent> [--expires <dur|iso>] [--max-ttl <seconds>]
                        [--max-uses <n>] [--project <tag>]
   revoke <grant_id> [--reason <r>]      Revoke one grant (new leases blocked instantly)
-  kill <agent> [--reason <r>]           Kill switch: revoke ALL of an identity's grants
+  kill <agent> [--reason <r>]           Kill switch: revoke ALL grants, then sweep for residual access
+  doctor                                Sweep for ambient access outside Keyring (nonzero exit if any)
   requests [--all]                      Grant requests awaiting approval
   approve <request_id> --credential <cred> [grant options]
   deny <request_id> [--reason <r>]
@@ -105,6 +107,7 @@ const COMMANDS: Record<string, CommandHandler> = {
   approve: cmdApprove,
   deny: cmdDeny,
   timeline: cmdTimeline,
+  doctor: cmdDoctor,
   export: cmdExport,
   'verify-log': cmdVerifyLog,
   run: cmdRun,
