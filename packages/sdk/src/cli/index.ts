@@ -15,6 +15,7 @@ import { tasks } from './tasks.js';
 import { task } from './task.js';
 import { wallet } from './wallet.js';
 import { scanCommand } from './scan.js';
+import { keyring } from './keyring.js';
 
 const VERSION = '0.5.1';
 
@@ -26,6 +27,9 @@ Usage:
 
 Commands:
   init                             Interactive registration wizard
+  keyring <args...>                Scoped, revocable API keys for your agents
+                                   (alias for the @basedagents/keyring CLI;
+                                    e.g. basedagents keyring init)
   whois <name-or-id>               Look up any agent by name or ID
   check <package-or-agent-id>      Check if a package/agent is trusted
   scan <package>                   Download & scan an npm package for dangerous patterns
@@ -43,6 +47,7 @@ Options:
 
 Examples:
   npx basedagents init
+  npx basedagents keyring init
   npx basedagents whois Hans
   npx basedagents whois ag_7Xk9mP2qR8nK4vL3
   npx basedagents check @some/mcp-server
@@ -58,6 +63,13 @@ Docs: https://basedagents.ai/docs
 
 export async function main(): Promise<void> {
   const args = process.argv.slice(2);
+
+  // `keyring` forwards EVERYTHING (including --help / --version / subcommands) to
+  // the @basedagents/keyring CLI, so intercept it before the global flag handling.
+  if (args[0] === 'keyring') {
+    await keyring(args.slice(1));
+    return;
+  }
 
   if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
     console.log(HELP);

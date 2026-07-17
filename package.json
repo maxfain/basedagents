@@ -19,6 +19,7 @@
     "//keyring-dist": "console + api import @basedagents/keyring/{crypto,util}, which resolve to keyring/dist — build it before any workspace that depends on it (dist is gitignored, so a fresh clone has none).",
     "pretest": "npm run build:dist --workspace=packages/keyring",
     "test": "npm run test --workspaces --if-present",
+    "smoke": "node scripts/smoke-clean.mjs",
     "test:e2e": "npm run test:e2e --workspace=packages/console",
     "dev:api": "npm run dev --workspace=packages/api",
     "dev:web": "npm run dev --workspace=packages/web"

@@ -99,31 +99,35 @@
       ]
     },
     "keyring": {
-      "description": "Scoped, revocable API keys for coding agents. Secrets live in an encrypted vault on the human's machine; you receive short in-memory leases, never raw long-lived keys. Docs: https://basedagents.ai/keyring",
+      "description": "Scoped, revocable API keys for coding agents. Secrets live in an encrypted vault on the human's machine; the daemon USES them on your behalf — you never see the raw value. Docs: https://basedagents.ai/keyring",
       "flow_for_agents": {
-        "step1_register": "Get an agent identity via the register flow above (Ed25519 keypair → ag_ ID). If a human runs `npx @basedagents/keyring init` on their machine, this happens for you.",
+        "step1_register": "Get an agent identity via the register flow above (Ed25519 keypair → ag_ ID). If a human runs `npx basedagents keyring init` on their machine, this happens for you.",
         "step2_invite_owner": "If no human has claimed you yet, call the `invite_owner` MCP tool with their email (rate-limited: 3/day per agent, 72h expiry). Until a human claims you by running init on THEIR machine, you can hold nothing and access nothing — claim-pending is structurally empty.",
         "step3_request": "Once claimed, use `keyring_request` to ask for a credential. The human approves with a passkey signature bound to the exact grant; the daemon on their machine re-verifies it before sealing anything.",
-        "step4_lease": "Use `keyring_lease` to receive a short-lived, in-memory copy of an approved credential. Leases expire on their own; every use is signed into a local log the human can audit."
+        "step4_use": "Use the secret WITHOUT seeing it: `keyring_run(credential_refs, command, purpose)` runs a command with the secrets injected into its environment (never argv), and `keyring_render` fills {{keyring:REF}} placeholders into a file. `keyring_lease` (raw value returned into the conversation) is OFF by default and only works if the owner set unsafe_value_release on the grant. Every use is signed into a local audit log."
       },
       "mcp_server": {
-        "install": "npx @basedagents/keyring mcp",
+        "install": "npx basedagents keyring mcp",
+        "install_alias": "npx @basedagents/keyring mcp",
         "npm": "@basedagents/keyring",
         "tools": [
+          "keyring_run",
+          "keyring_render",
           "keyring_list",
-          "keyring_lease",
           "keyring_request",
-          "invite_owner"
+          "invite_owner",
+          "keyring_lease (disabled unless the grant sets unsafe_value_release)"
         ]
       },
-      "setup_command_for_humans": "npx @basedagents/keyring init",
-      "hard_rules": "Never ask the human to paste raw API keys into chat or into .env. Point them at the setup command; connections are made in their browser and sealed to their machine's vault key."
+      "setup_command_for_humans": "npx basedagents keyring init",
+      "setup_command_aliases": ["npx @basedagents/keyring init"],
+      "hard_rules": "Never ask the human to paste raw API keys into chat or into .env. Point them at the setup command; connections are made in their browser and sealed to their machine's vault key. Use keyring_run/keyring_render — do not try to read raw secret values."
     },
     "claim": {
       "description": "An agent can register and request, but holds authority over NOTHING until a human claims it. This is a hard gate, not a soft warning.",
       "state": "claim_pending",
-      "locked_until_claimed": "No credential can be stored or leased. keyring_request is allowed (it queues); keyring_lease and any credential storage are refused until a human clicks the magic link.",
-      "how_to_claim": "Call invite_owner(email); the human receives a magic-link email and finishes at https://app.basedagents.ai/start (or runs `npx @basedagents/keyring init` on their own machine).",
+      "locked_until_claimed": "No credential can be stored, run, rendered, or leased. keyring_request is allowed (it queues); everything that touches a secret is refused until a human clicks the magic link.",
+      "how_to_claim": "Call invite_owner(email); the human receives a magic-link email and finishes at https://app.basedagents.ai/start (or runs `npx basedagents keyring init` on their own machine).",
       "invite_expiry_hours": 72,
       "rate_limits": "Invites are limited to 3 per day per agent id, with re-send backoff; repeated invites to an unresponsive address stop after 3 sends."
     },

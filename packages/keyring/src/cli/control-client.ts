@@ -46,6 +46,19 @@ export class ControlClientError extends Error {
   }
 }
 
+/**
+ * Actionable hint for failures that look like a filtering proxy / sandbox egress
+ * policy (403, 407, or a blocked CONNECT) — the common failure when an agent
+ * runs `keyring init` inside a locked-down environment. Names the proxy env var
+ * only when one is set.
+ */
+export function proxyHint(): string {
+  const proxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.ALL_PROXY || '';
+  return '\n\nIf you are behind a proxy or in a sandboxed agent environment, outbound HTTPS may be ' +
+    'filtered. Allow api.basedagents.ai through your egress policy' +
+    (proxy ? ` / proxy (${proxy})` : '') + ', or pass --api <reachable url>.';
+}
+
 export class ControlClient {
   private readonly baseUrl: string;
   private readonly pubkeyB58: string;
@@ -82,7 +95,9 @@ export class ControlClient {
         signal: controller.signal,
       });
     } catch (err) {
-      throw new ControlClientError(`Could not reach the control plane at ${this.baseUrl}: ${(err as Error).message}`);
+      throw new ControlClientError(
+        `Could not reach the control plane at ${this.baseUrl}: ${(err as Error).message}${proxyHint()}`,
+      );
     } finally {
       clearTimeout(timer);
     }
@@ -90,7 +105,8 @@ export class ControlClient {
     if (!res.ok) {
       let msg = res.statusText;
       try { const e = await res.json() as { message?: string }; if (e.message) msg = e.message; } catch { /* ignore */ }
-      throw new ControlClientError(`Control plane error ${res.status}: ${msg}`, res.status);
+      const hint = res.status === 403 || res.status === 407 ? proxyHint() : '';
+      throw new ControlClientError(`Control plane error ${res.status}: ${msg}${hint}`, res.status);
     }
     return res.json() as Promise<T>;
   }
