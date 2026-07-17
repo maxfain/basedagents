@@ -18,7 +18,8 @@
 
 Network-restricted environment (Codex-style sandbox that only has egress during
 setup)? Add `basedagents` as a devDependency during setup so `npm ci` installs it
-while the network is open, register in the setup script, and allowlist
+while the network is open (it bundles `@basedagents/keyring`, so one entry is
+enough), register in the setup script, and allowlist
 api.basedagents.ai + app.basedagents.ai for the task phase. Run
 `basedagents keyring doctor` to diagnose. Full guide:
 https://basedagents.ai/docs/agents#sandboxes

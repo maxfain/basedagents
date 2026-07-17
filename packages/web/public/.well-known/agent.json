@@ -140,7 +140,7 @@
     },
     "sandbox": {
       "description": "Cloud agent environments (Codex-style) often allow egress during their SETUP phase but block nearly all network during the TASK phase. Install and register during setup so only the human claim is left for later.",
-      "install_during_setup": "Add `basedagents` and `@basedagents/keyring` as devDependencies so the environment's own `npm ci` fetches them while the network is open. `npx basedagents keyring init` then resolves the local copy with zero registry calls during the locked-down task phase.",
+      "install_during_setup": "Add `basedagents` as a devDependency so the environment's own `npm ci` fetches it while the network is open. `basedagents` bundles `@basedagents/keyring` as a dependency, so one entry is enough — `npx basedagents keyring init` then resolves the local copy with zero registry calls during the locked-down task phase.",
       "register_during_setup": "If your setup script has network, run `npx basedagents register` there (proof-of-work + API need the network open). The human claim can happen any time afterward.",
       "runtime_allowlist": ["api.basedagents.ai", "app.basedagents.ai"],
       "diagnose": "If register/init fails with a 403 or a blocked connection, run `basedagents keyring doctor` — it detects phase-blocked egress and prints this pattern instead of a raw npm error.",

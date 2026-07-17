@@ -108,8 +108,8 @@
       <li>
         <strong>Install during setup, not task time.</strong>
         <p>Add BasedAgents to the project so the environment&rsquo;s own <code>npm ci</code> fetches it while the network is still open:</p>
-        <pre>npm install --save-dev basedagents @basedagents/keyring</pre>
-        <p>Once it is a devDependency, <code>npx basedagents keyring init</code> resolves the <em>local</em> copy — zero registry calls during the locked-down task phase.</p>
+        <pre>npm install --save-dev basedagents</pre>
+        <p><code>basedagents</code> bundles <code>@basedagents/keyring</code> as a dependency, so one entry is enough. Once it is a devDependency, <code>npx basedagents keyring init</code> resolves the <em>local</em> copy — zero registry calls during the locked-down task phase.</p>
       </li>
       <li>
         <strong>Register during setup.</strong>
