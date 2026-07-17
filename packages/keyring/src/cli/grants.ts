@@ -5,6 +5,7 @@
 
 import { Keyring } from '../keyring.js';
 import type { GrantConstraints } from '../types.js';
+import { runSweep } from '../sweep.js';
 import {
   CliError, parseFlags, parsePositiveInt, parseExpires,
   printTable, formatTime, agentDisplay, describeConstraints, printRevocationNotes,
@@ -12,24 +13,30 @@ import {
 
 const CONSTRAINT_FLAGS = ['expires', 'max-ttl', 'max-uses', 'project'];
 
-function constraintsFromFlags(values: Record<string, string>): GrantConstraints {
+function constraintsFromFlags(
+  values: Record<string, string>,
+  switches?: Set<string>,
+): GrantConstraints {
   const constraints: GrantConstraints = {};
   if (values['expires'] !== undefined) constraints.expires_at = parseExpires(values['expires']);
   if (values['max-ttl'] !== undefined) constraints.max_lease_ttl_seconds = parsePositiveInt(values['max-ttl'], '--max-ttl');
   if (values['max-uses'] !== undefined) constraints.max_uses = parsePositiveInt(values['max-uses'], '--max-uses');
   if (values['project'] !== undefined) constraints.project = values['project'];
+  // Custody Fix 1: opt this grant into raw value release via keyring_lease.
+  // Off by default — the agent should use keyring_run/keyring_render instead.
+  if (switches?.has('unsafe-value-release')) constraints.unsafe_value_release = true;
   return constraints;
 }
 
 export async function cmdGrant(args: string[], dir: string | undefined): Promise<void> {
-  const flags = parseFlags(args, { value: CONSTRAINT_FLAGS });
+  const flags = parseFlags(args, { value: CONSTRAINT_FLAGS, switch: ['unsafe-value-release'] });
   const [credRef, agentRef] = flags.positional;
   if (!credRef || !agentRef) {
-    throw new CliError('Usage: based grant <cred> <agent> [--expires <dur|iso>] [--max-ttl <seconds>] [--max-uses <n>] [--project <tag>]');
+    throw new CliError('Usage: based grant <cred> <agent> [--expires <dur|iso>] [--max-ttl <seconds>] [--max-uses <n>] [--project <tag>] [--unsafe-value-release]');
   }
 
   const kr = Keyring.open(dir);
-  const constraints = constraintsFromFlags(flags.values);
+  const constraints = constraintsFromFlags(flags.values, flags.switches);
   const grant = await kr.createGrant(kr.ownerKeypair(), credRef, agentRef, constraints);
 
   const vault = kr.vault();
@@ -65,13 +72,28 @@ export async function cmdKill(args: string[], dir: string | undefined): Promise<
   const display = agentDisplay(vault, result.agent_id);
   if (result.revoked_grant_ids.length === 0) {
     console.log(`Kill switch: ${display} held no active grants — nothing to revoke (event logged).`);
+  } else {
+    console.log(`Kill switch: revoked ${result.revoked_grant_ids.length} grant(s) for ${display} (${result.agent_id}):`);
+    for (const grantId of result.revoked_grant_ids) {
+      console.log(`    ${grantId}`);
+    }
+    printRevocationNotes();
+  }
+
+  // Custody Fix 2: the kill switch is only honest if it also reports what
+  // Keyring's revocation does NOT reach. Green only when residuals = 0.
+  console.log('');
+  const { findings } = runSweep();
+  if (findings.length === 0) {
+    console.log(`✓ Cut off. No ambient access found outside Keyring.`);
     return;
   }
-  console.log(`✓ Kill switch: revoked ${result.revoked_grant_ids.length} grant(s) for ${display} (${result.agent_id})`);
-  for (const grantId of result.revoked_grant_ids) {
-    console.log(`    ${grantId}`);
+  console.log(`⚠ NOT fully cut off — this agent's environment can still act as you via:`);
+  for (const f of findings) {
+    console.log(`    • ${f.title} — ${f.remedy}`);
   }
-  printRevocationNotes();
+  console.log('');
+  console.log("Run `based doctor` for detail. Neutralise these and it's truly cut off.");
 }
 
 export async function cmdRequests(args: string[], dir: string | undefined): Promise<void> {
@@ -107,7 +129,7 @@ export async function cmdRequests(args: string[], dir: string | undefined): Prom
 }
 
 export async function cmdApprove(args: string[], dir: string | undefined): Promise<void> {
-  const flags = parseFlags(args, { value: ['credential', ...CONSTRAINT_FLAGS] });
+  const flags = parseFlags(args, { value: ['credential', ...CONSTRAINT_FLAGS], switch: ['unsafe-value-release'] });
   const requestId = flags.positional[0];
   const credentialRef = flags.values['credential'];
   if (!requestId || !credentialRef) {
@@ -116,7 +138,7 @@ export async function cmdApprove(args: string[], dir: string | undefined): Promi
 
   const kr = Keyring.open(dir);
   const { request, grant } = await kr.approveRequest(
-    kr.ownerKeypair(), requestId, credentialRef, constraintsFromFlags(flags.values)
+    kr.ownerKeypair(), requestId, credentialRef, constraintsFromFlags(flags.values, flags.switches)
   );
 
   const vault = kr.vault();

@@ -299,12 +299,14 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
     'vault_created', 'identity_added', 'identity_removed',
     'credential_added', 'credential_updated', 'credential_removed',
     'grant_created', 'grant_revoked', 'kill_switch',
-    'lease', 'lease_denied',
+    'lease', 'lease_denied', 'run', 'render',
     'request_created', 'request_approved', 'request_denied'
   ];
 
   var TYPE_CLASS = {
     lease: 'chip-green',
+    run: 'chip-green',
+    render: 'chip-green',
     lease_denied: 'chip-red',
     grant_created: 'chip-indigo',
     grant_revoked: 'chip-indigo',

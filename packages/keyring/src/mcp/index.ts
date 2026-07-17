@@ -24,6 +24,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { Keyring, KeyringError } from '../keyring.js';
+import { runBrokered, renderBrokered } from './broker.js';
 import { defaultVaultDir, loadKeypairFile } from '../store.js';
 import type { AgentKeypair } from '../crypto.js';
 import type { GrantConstraints } from '../types.js';
@@ -122,6 +123,9 @@ const ERROR_HINTS: Partial<Record<KeyringError['code'], string>> = {
   usage_cap: 'The grant\'s usage cap is exhausted. Ask the owner to re-grant with a higher cap.',
   unknown_credential: 'Use `keyring_list` to see the credentials this identity can reference (by id, env var, or label).',
   no_sealed_copy: 'Ask the owner to re-grant this credential so the secret is re-sealed to this identity.',
+  value_release_disabled:
+    'Raw value release is off for this grant. Use `keyring_run` (inject secrets into a command) or ' +
+    '`keyring_render` (fill a file) so the value never enters this conversation — that is the intended path.',
 };
 
 /** Map a KeyringError to a clean isError result; rethrow anything else. */
@@ -199,10 +203,14 @@ server.tool(
   }
 );
 
-// ── keyring_lease ───────────────────────────────────────────────────────────
+// ── keyring_lease (DEMOTED — Custody Fix 1) ──────────────────────────────────
+// Returning a raw secret into a tool result puts it in the conversation
+// transcript forever. Prefer keyring_run / keyring_render, which inject the
+// value without the model ever seeing it. This tool is refused unless the owner
+// explicitly enabled raw value release for the grant (unsafe_value_release).
 server.tool(
   'keyring_lease',
-  'Lease a credential this identity holds a grant for. Returns the decrypted secret value with a short TTL (default 900s). Every lease — and every denial — is recorded as a signed event in the vault access log.',
+  'DISCOURAGED — returns a raw secret into the conversation (it then lives in the transcript forever). Prefer keyring_run (run a command with secrets injected into its environment) or keyring_render (fill a file). Refused unless the owner enabled raw value release for the grant.',
   {
     ref: z.string().describe('Credential reference — credential_id (cred_...), env var name, or label'),
     context: z.string().optional().describe('What the secret will be used for — recorded in the signed access log'),
@@ -217,7 +225,11 @@ server.tool(
     if (opened.error) return opened.error;
 
     try {
-      const lease = await opened.kr.lease(kp, ref, { context, ttlSeconds: ttl_seconds });
+      const lease = await opened.kr.lease(kp, ref, {
+        context,
+        ttlSeconds: ttl_seconds,
+        requireValueRelease: true,
+      });
       const cred = lease.credential;
       const meta = [
         cred.provider ? `**Provider:** ${cred.provider}` : '',
@@ -225,6 +237,10 @@ server.tool(
         cred.scope ? `**Scope:** ${cred.scope}` : '',
       ].filter(Boolean).join('  |  ');
       const lines = [
+        `> ⚠️ **Raw secret below — it is now in this conversation.** The owner enabled raw value`,
+        `> release for this grant. Prefer \`keyring_run\`/\`keyring_render\` next time so the value`,
+        `> never enters the transcript. Do not echo or repeat this value.`,
+        '',
         `## Leased: ${cred.label}`,
         '',
         '**Value:**',
@@ -247,6 +263,57 @@ server.tool(
     } catch (err) {
       return keyringErrorResult(err, 'This denial was recorded as a signed event in the vault access log.');
     }
+  }
+);
+
+// ── keyring_run (PRIMARY — Custody Fix 1) ────────────────────────────────────
+// The daemon spawns the child itself, injecting leased secrets into the child's
+// ENVIRONMENT (never argv). The model orchestrates; only the daemon touches the
+// values. Captured output is redacted before it is returned (see broker.ts), so
+// a command that echoes a secret cannot leak it into the transcript.
+server.tool(
+  'keyring_run',
+  'Run a command with credentials injected into its environment by the Keyring daemon — you never see the secret values. This is the PRIMARY way to use a credential. The daemon leases each ref, spawns the command with the secrets in its environment (never in argv), and returns stdout/stderr/exit code with the values redacted. One signed run event is recorded; purpose is required.',
+  {
+    credential_refs: z.array(z.string()).min(1).describe(
+      'Credentials to inject — credential_id (cred_...), env var name, or label. Each is leased and injected under its env var name.'
+    ),
+    command: z.array(z.string()).min(1).describe(
+      'The command and its arguments as an array, e.g. ["npm","run","deploy"]. NEVER put a secret in here — secrets go into the environment, not argv.'
+    ),
+    purpose: z.string().min(1).describe('Why this command needs these secrets — recorded in the signed run event.'),
+    cwd: z.string().optional().describe("Working directory for the command (default: the daemon's cwd)."),
+    ttl_seconds: z.number().int().min(1).optional().describe('Lease TTL for the injected secrets.'),
+  },
+  async ({ credential_refs, command, purpose, cwd, ttl_seconds }) => {
+    const kp = getKeypair();
+    if (!kp) return noIdentityResult();
+    const opened = tryOpenVault();
+    if (opened.error) return opened.error;
+    const r = await runBrokered(opened.kr, kp, { credential_refs, command, purpose, cwd, ttl_seconds });
+    return r.isError ? errorResult(r.text) : textResult(r.text);
+  }
+);
+
+// ── keyring_render (Custody Fix 1) ───────────────────────────────────────────
+// Fill {{keyring:REF}} placeholders in a template and write the result to a
+// file, without the model ever seeing the values (see broker.ts).
+server.tool(
+  'keyring_render',
+  'Fill {{keyring:REF}} placeholders in a template with real secret values and write the result to a file — you never see the values. Use for deploy/config files that must contain a secret. Provide the template as inline `content` or a `template_path`; the daemon leases each referenced credential, substitutes, and writes `dest_path`. Returns which refs were filled, never the values.',
+  {
+    dest_path: z.string().describe('Where to write the rendered file.'),
+    content: z.string().optional().describe('Template text containing {{keyring:REF}} placeholders. Provide this OR template_path.'),
+    template_path: z.string().optional().describe('Path to a template file with {{keyring:REF}} placeholders. Provide this OR content.'),
+    purpose: z.string().optional().describe('Why — recorded in the signed render event.'),
+  },
+  async ({ dest_path, content, template_path, purpose }) => {
+    const kp = getKeypair();
+    if (!kp) return noIdentityResult();
+    const opened = tryOpenVault();
+    if (opened.error) return opened.error;
+    const r = await renderBrokered(opened.kr, kp, { dest_path, content, template_path, purpose });
+    return r.isError ? errorResult(r.text) : textResult(r.text);
   }
 );
 

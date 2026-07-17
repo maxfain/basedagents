@@ -41,6 +41,7 @@ export class KeyringError extends Error {
     | 'not_owner' | 'unknown_identity' | 'unknown_credential' | 'unknown_grant' | 'unknown_request'
     | 'duplicate' | 'no_grant' | 'grant_revoked' | 'grant_expired' | 'usage_cap'
     | 'no_sealed_copy' | 'bad_signature' | 'invalid_input' | 'not_anchored'
+    | 'value_release_disabled'
   ) {
     super(message);
     this.name = 'KeyringError';
@@ -746,7 +747,7 @@ export class Keyring {
   async lease(
     agentKeypair: AgentKeypair,
     credentialRef: string,
-    options?: { context?: string; ttlSeconds?: number }
+    options?: { context?: string; ttlSeconds?: number; requireValueRelease?: boolean }
   ): Promise<Lease> {
     const agentId = publicKeyToAgentId(agentKeypair.publicKey);
     const context = options?.context ?? null;
@@ -784,6 +785,19 @@ export class Keyring {
       }
       if (grantAtUsageCap(active)) {
         return deny(`usage cap reached (${active.constraints.max_uses})`, 'usage_cap', active.grant_id);
+      }
+      // Custody Fix 1: raw-value leases (secret returned to the caller for the
+      // model to see) are refused unless the owner explicitly opted this grant
+      // into unsafe_value_release. keyring_run/keyring_render never set this
+      // flag — they inject values without the model ever seeing them.
+      if (options?.requireValueRelease && !active.constraints.unsafe_value_release) {
+        return deny(
+          'raw value release is disabled for this grant — use keyring_run/keyring_render so the ' +
+          'secret is injected without entering the conversation, or ask the owner to enable raw ' +
+          'value release for this grant in the console',
+          'value_release_disabled',
+          active.grant_id
+        );
       }
       const sealedBox = pick(credential.sealed, agentId);
       if (!sealedBox) {
@@ -878,6 +892,55 @@ export class Keyring {
       }
     }
     return { leases, denied };
+  }
+
+  /**
+   * Record one signed 'run' AccessEvent for a brokered execution (Custody Fix 1:
+   * keyring_run). The secret values were injected into the child's *environment*
+   * by the caller and never returned to the model; this event ties the run's
+   * purpose, command, and the credentials it used into a single auditable record.
+   * Never stores secret values — only credential ids and env-var names.
+   */
+  async recordRun(
+    agentKeypair: AgentKeypair,
+    fields: { command: string; purpose: string; credentialIds: string[]; envVars: string[]; exitCode: number }
+  ): Promise<AccessEvent> {
+    return this.store.withLock(async () => {
+      const vault = this.store.readVault();
+      return this.emit(vault, agentKeypair, 'run', {
+        context: fields.purpose,
+        detail: {
+          command: fields.command,
+          purpose: fields.purpose,
+          credential_ids: fields.credentialIds,
+          env_vars: fields.envVars,
+          exit_code: fields.exitCode,
+        },
+      });
+    });
+  }
+
+  /**
+   * Record one signed 'render' AccessEvent for a template substitution (Custody
+   * Fix 1: keyring_render). Values were written into a file on disk by the
+   * daemon, never returned to the model. Records the destination and which
+   * credentials were substituted — never the values.
+   */
+  async recordRender(
+    agentKeypair: AgentKeypair,
+    fields: { destPath: string; purpose?: string; credentialIds: string[]; placeholders: string[] }
+  ): Promise<AccessEvent> {
+    return this.store.withLock(async () => {
+      const vault = this.store.readVault();
+      return this.emit(vault, agentKeypair, 'render', {
+        context: fields.purpose ?? `render ${fields.destPath}`,
+        detail: {
+          dest_path: fields.destPath,
+          credential_ids: fields.credentialIds,
+          placeholders: fields.placeholders,
+        },
+      });
+    });
   }
 
   /** Create a pending grant request for the owner to approve (KEYRING_SPEC §4). */

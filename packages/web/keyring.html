@@ -233,7 +233,7 @@ npx @basedagents/keyring init and follow its instructions.</pre>
         </div>
         <div class="step">
           <h3>3 — Stay in control.</h3>
-          <p>Keys are handed to the agent in short leases, in memory — nothing written to disk, nothing in <code>.env</code>. Your dashboard shows every agent, every key, every use. New provider requests buzz your phone for a one-tap approval. And the kill switch ends everything instantly.</p>
+          <p>Your agent never handles the raw key — it asks Keyring to run the command or fill the file, and the secret goes straight to the process, never into the chat. Your dashboard shows every agent, every key, every use. New provider requests buzz your phone for a one-tap approval. And the kill switch revokes everything, then sweeps your machine and tells you if anything outside Keyring — a logged-in CLI, a live <code>.env</code> — can still act as you.</p>
         </div>
       </div>
     </section>
@@ -247,7 +247,7 @@ npx @basedagents/keyring init and follow its instructions.</pre>
     <!-- Honest revocation -->
     <section>
       <h2>Honest about revocation</h2>
-      <p>Most vaults imply their revoke button un-leaks a key. It doesn't. Keyring separates the two honestly: <strong>Disconnect</strong> stops your agent from getting the key again, instantly. <strong>Burn</strong> deletes the key at the provider itself, so a leaked copy dies too. You get both buttons, and the dashboard shows burn progress until it's done.</p>
+      <p>Most vaults imply their revoke button un-leaks a key. It doesn't. Keyring separates them honestly on three legs: <strong>Disconnect</strong> stops your agent from getting the key again, instantly. <strong>Burn</strong> deletes the key at the provider itself, so a leaked copy dies too. <strong>Sweep</strong> checks the access that lives outside Keyring — a logged-in CLI, a token in <code>.env</code> — and reports what's left. You get all three, and the dashboard shows burn progress and residuals until nothing outside Keyring can still act.</p>
     </section>
 
     <!-- Open source -->
