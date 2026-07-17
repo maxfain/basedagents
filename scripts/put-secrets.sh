@@ -10,6 +10,7 @@
 # billing endpoints answer 503; without RESEND_API_KEY recovery emails go to
 # the log-only sender.
 set -euo pipefail
+set +u
 
 cd "$(dirname "$0")/../packages/api"
 
