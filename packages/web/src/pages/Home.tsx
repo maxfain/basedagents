@@ -10,9 +10,22 @@ import { API_BASE } from '../api/client';
  * (/keyring, /registry, /docs/agents) carry the machine-readable detail.
  */
 
+// The pasted prompt is the ONLY channel that reaches an agent in a cold cloud
+// sandbox at task time (no network, no docs, no package on disk) — so the
+// recovery for a blocked npm must travel inside the prompt itself. Without it,
+// the agent hits E403 and goes quiet, and the human is stuck.
 const HERO_PROMPT =
-  'Set up BasedAgents Keyring for this project: run\nnpx @basedagents/keyring init and follow its instructions.';
-const CLOSING_PROMPT = 'Set up BasedAgents Keyring: run npx @basedagents/keyring init';
+  'Set up BasedAgents Keyring for this project: run\n' +
+  'npx basedagents keyring init and follow its instructions.\n' +
+  'If npm is blocked (403 — a cloud sandbox at task time), do not\n' +
+  'retry. Instead tell me: "Add npm install --save-dev basedagents\n' +
+  'to this environment\'s Setup script, allow api.basedagents.ai and\n' +
+  'app.basedagents.ai, then start a new task and ask me again."';
+const CLOSING_PROMPT =
+  'Set up BasedAgents Keyring: run npx basedagents keyring init. ' +
+  'If npm is blocked (cloud sandbox), don\'t retry — tell me to add ' +
+  'npm install --save-dev basedagents to the environment\'s Setup script, ' +
+  'allow api.basedagents.ai + app.basedagents.ai, and start a new task.';
 // Codex-style cloud agents block egress at task time, so a cold `npx` there
 // 403s. The install has to run in the environment's setup phase instead —
 // install only (nothing interactive); register + the hand-off happen at task

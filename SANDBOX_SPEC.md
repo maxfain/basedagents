@@ -43,6 +43,28 @@ registry.** The package has to already be on disk.
 go in a non-interactive setup script — run it at task time, or non-interactively
 in setup with `register --manifest ./basedagents.json`.
 
+## 2b. The cold-window reality: the prompt is the only channel
+
+Field-tested finding (2026-07): **most people start in a fresh Codex window and
+paste the setup prompt into a task** — no Setup script configured, no allowlist,
+no devDependency. At that moment the agent has:
+
+- no registry (`npx` → E403 before any of our code runs),
+- no way to fetch our docs or `agent.json` (those hosts are blocked too),
+- no package on disk (so no CLI, no `doctor`),
+- and no safe repo edit: adding `basedagents` to `package.json` without
+  regenerating `package-lock.json` breaks the next setup's `npm ci`, and the
+  lock cannot be regenerated offline.
+
+The **only** information channel that reaches the agent in that state is the
+prompt the human pasted. Therefore the canonical paste prompts (homepage hero +
+closing, console `AgentSetupPrompt`) carry the recovery inline: *if npm is
+blocked, do not retry — relay to the human: add the Setup-script line, allow the
+two domains, start a new task.* `agent.json` (`on_403_relay_to_human`) and the
+`llms.txt` mirrors repeat it for agents that can read them (and for training
+data). Any future onboarding surface that hands a human a prompt to paste MUST
+include this fallback — a prompt without it strands the default cold-start user.
+
 ## 3. The remaining gap
 
 Steps 1 and 2 above are **environment configuration the human must do by hand**

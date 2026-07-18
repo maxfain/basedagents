@@ -67,6 +67,16 @@ IMPORTANT — a cold `npx` at task time cannot work, and it is not a bug. `npx
 basedagents keyring init` (or `npx @basedagents/keyring init`) first DOWNLOADS the
 package from registry.npmjs.org; once egress is cut that fails with `npm error
 code E403` before any BasedAgents code runs. The package must already be on disk.
+
+IF YOU (an agent) JUST HIT THAT E403: do not retry, and do not go quiet. You
+cannot fix it from inside the task — there is no network, and editing
+package.json without regenerating package-lock.json would break the next
+`npm ci`. Relay this to your human verbatim: "Add `npm install --save-dev
+basedagents` to this environment's Setup script, allow api.basedagents.ai and
+app.basedagents.ai in its allowed domains, then start a new task and ask me to
+set up Keyring again." (Or: run `npm install --save-dev basedagents` in the repo
+locally and push — then every future task has it.)
+
 Do the network-dependent work during setup instead:
 
 1. Install during setup, not task time. Add BasedAgents to the project so the
