@@ -39,6 +39,13 @@ proxy 403. The contract now works there.
   enough); register in the setup script; allowlist `api.basedagents.ai` +
   `app.basedagents.ai` for the task phase. The universal noscript block on every
   route gains one line pointing at `/docs/agents#sandboxes`.
+- **Codex cloud recipe + cold-`npx` warning.** `/docs/agents#sandboxes` (new
+  `#codex` block), the `agent.json` `sandbox` section, and the `llms.txt`
+  mirrors now spell out the exact Codex Setup-script + allowed-domains
+  configuration, and state plainly that a cold `npx basedagents keyring init` at
+  task time fails with `npm E403` before any BasedAgents code runs (the package
+  must be installed during setup) — so an agent that hits the 403 finds the fix
+  instead of a dead end.
 
 ### Added — static dependency rule (homepage spec §4.6, `basedagents` 0.6.1)
 

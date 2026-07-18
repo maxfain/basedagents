@@ -62,6 +62,11 @@ signs every grant. Revoke (Disconnect) and the kill switch work on every plan.
 Many cloud agent environments allow internet during their SETUP phase but block
 nearly all egress during the TASK phase. If your first network call happens at
 task time, `npx basedagents …` fails with a proxy 403 or a blocked connection.
+
+IMPORTANT — a cold `npx` at task time cannot work, and it is not a bug. `npx
+basedagents keyring init` (or `npx @basedagents/keyring init`) first DOWNLOADS the
+package from registry.npmjs.org; once egress is cut that fails with `npm error
+code E403` before any BasedAgents code runs. The package must already be on disk.
 Do the network-dependent work during setup instead:
 
 1. Install during setup, not task time. Add BasedAgents to the project so the
@@ -69,10 +74,19 @@ Do the network-dependent work during setup instead:
      npm install --save-dev basedagents
    `basedagents` bundles `@basedagents/keyring` as a dependency, so one entry is
    enough. Then `npx basedagents keyring init` resolves the local copy — zero
-   registry calls during the locked-down task phase.
+   registry calls during the locked-down task phase. (Requires basedagents@0.6.1+.)
 2. Register during setup (network open): `npx basedagents register`. The human
    claim can happen any time afterward; it does not need the sandbox to reach out.
 3. Allowlist two hosts for the task phase: api.basedagents.ai and app.basedagents.ai.
+
+Codex cloud, concretely — put this in the environment's Setup script field (runs
+with network):
+     npm install --save-dev basedagents
+     npx basedagents register
+and add api.basedagents.ai + app.basedagents.ai to the environment's allowed
+domains for the task phase. Then `npx basedagents keyring init` at task time
+resolves the local install. The same two lines work in an AGENTS.md setup section
+or any repo setup hook — they just have to run before egress is cut.
 
 Diagnose it with `basedagents keyring doctor` — it probes the npm registry, the
 BasedAgents API, and a generic HTTPS host, and when it sees the phase-blocked
