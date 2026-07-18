@@ -18,13 +18,16 @@
 
 Network-restricted environment (Codex-style sandbox that only has egress during
 setup)? A cold `npx basedagents …` at task time fails with npm E403 — the package
-must already be on disk. In your Codex Setup script (runs with network) put:
+must already be on disk. In your Codex Setup script (runs with network) put just:
 `npm install --save-dev basedagents` (it bundles `@basedagents/keyring`, requires
-0.6.1+) and optionally `npx basedagents register`; add
-api.basedagents.ai + app.basedagents.ai to the environment's allowed domains for
-the task phase. Then `npx basedagents keyring init` resolves the local install.
-Run `basedagents keyring doctor` to diagnose. Full guide:
-https://basedagents.ai/docs/agents#sandboxes
+0.6.1+); add api.basedagents.ai + app.basedagents.ai to the environment's allowed
+domains. Then at task time tell the agent: "set up BasedAgents Keyring" — it runs
+`npx basedagents keyring init` (resolves the local install), registers, and hands
+the human off to https://app.basedagents.ai/start to claim it and connect keys.
+Agents: registering is only step one — do not stop there; always run keyring init
+and give the human the claim link. Diagnose with `basedagents keyring doctor`.
+Full guide: https://basedagents.ai/docs/agents#sandboxes (auto-setup convention:
+SANDBOX_SPEC.md)
 
 ## Machine-readable
 

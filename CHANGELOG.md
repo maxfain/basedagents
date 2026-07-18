@@ -14,10 +14,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   brokering, ambient sweep + `doctor`, honest kill switch, scoped-token
   validation) + the proxy-aware error hint, plus the network-restricted sandbox
   contract (0.4.1: `doctor` now detects phase-blocked egress).
-- **`basedagents` 0.5.1 → 0.6.1** — the `basedagents keyring …` subcommand
-  (alias for `@basedagents/keyring`) + the proxy-aware error hint, plus the §4.6
-  static dependency rule (0.6.1: `@basedagents/keyring` is now a real dependency
-  and the alias resolves it locally — never a dynamic `npx` fetch).
+- **`basedagents` 0.5.1 → 0.6.2** — the `basedagents keyring …` subcommand
+  (alias for `@basedagents/keyring`) + the proxy-aware error hint, the §4.6
+  static dependency rule (0.6.1), and the register hand-off (0.6.2: `register`
+  now prints what to do next and what to tell the human, instead of stalling
+  after minting the identity).
 
 ### Added — network-restricted sandbox contract (homepage spec §4.6)
 
@@ -50,10 +51,23 @@ proxy 403. The contract now works there.
   console `/start` page now branch the first step: local agents (Claude Code,
   Cursor, terminal) get the zero-config `npx …keyring init` one-liner, while a
   new "Codex / cloud sandbox" lane hands over the Setup-script recipe
-  (`npm install --save-dev basedagents` + `npx basedagents register`) and the
-  two allowed domains, with a plain-language note that a cold `npx` at task time
-  is blocked. Non-technical Codex users no longer paste the one command that
-  can't work there.
+  (`npm install --save-dev basedagents`) and the two allowed domains, with a
+  plain-language note that a cold `npx` at task time is blocked. Non-technical
+  Codex users no longer paste the one command that can't work there.
+- **The agent hands the human off — everywhere.** `register`'s CLI output, the
+  `agent.json` `sandbox` section (`after_setup_tell_human`, `task_phase_agent_prompt`),
+  the `#codex` docs, and the `llms.txt` mirrors all now state that registering is
+  only step one: run `keyring init`, ask for the human's email, and point them to
+  `app.basedagents.ai/start` to claim the agent and connect keys. Fixes the
+  reported dead end where an agent registered and then went quiet. The Codex
+  Setup script is now **install-only** (the interactive `register` was wrong for
+  a non-interactive setup script); register + the hand-off happen at task time.
+- **`SANDBOX_SPEC.md`** documents the shipped §4.6 contract and specs the next
+  lever: an **AGENTS.md auto-setup convention** (`basedagents` devDependency +
+  a managed `AGENTS.md` block, scaffolded by a proposed `basedagents sandbox
+  init`) that installs BasedAgents through the environment's normal setup with no
+  env-settings step — closing the last manual gap, except the allowlist, which no
+  committed file can set.
 
 ### Added — static dependency rule (homepage spec §4.6, `basedagents` 0.6.1)
 
