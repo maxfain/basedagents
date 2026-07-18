@@ -75,18 +75,23 @@ Do the network-dependent work during setup instead:
    `basedagents` bundles `@basedagents/keyring` as a dependency, so one entry is
    enough. Then `npx basedagents keyring init` resolves the local copy — zero
    registry calls during the locked-down task phase. (Requires basedagents@0.6.1+.)
-2. Register during setup (network open): `npx basedagents register`. The human
-   claim can happen any time afterward; it does not need the sandbox to reach out.
-3. Allowlist two hosts for the task phase: api.basedagents.ai and app.basedagents.ai.
+   Note: `npx basedagents register` is INTERACTIVE, so it does not belong in a
+   non-interactive setup script — run register/init at task time (allowlist below),
+   or non-interactively in setup with `register --manifest ./basedagents.json`.
+2. Allowlist two hosts for the task phase: api.basedagents.ai and app.basedagents.ai.
+3. Hand off to the human. Registering is only step one — do NOT stop there. Run
+   `npx basedagents keyring init` (or call invite_owner with the human's email),
+   then tell the human to finish at https://app.basedagents.ai/start and connect
+   the keys you need. Until a human claims you, you hold nothing. An agent that
+   registers and then goes quiet has left the person who asked for keys stuck.
 
-Codex cloud, concretely — put this in the environment's Setup script field (runs
-with network):
+Codex cloud, concretely — Setup script field (runs with network), install only:
      npm install --save-dev basedagents
-     npx basedagents register
-and add api.basedagents.ai + app.basedagents.ai to the environment's allowed
-domains for the task phase. Then `npx basedagents keyring init` at task time
-resolves the local install. The same two lines work in an AGENTS.md setup section
-or any repo setup hook — they just have to run before egress is cut.
+Add api.basedagents.ai + app.basedagents.ai to the environment's allowed domains.
+Then, in the first task, tell the agent: "set up BasedAgents Keyring" — it runs
+`npx basedagents keyring init` (resolves the local install), registers, and hands
+the human the claim link. For a zero-env-settings option, see the AGENTS.md
+auto-setup convention in SANDBOX_SPEC.md.
 
 Diagnose it with `basedagents keyring doctor` — it probes the npm registry, the
 BasedAgents API, and a generic HTTPS host, and when it sees the phase-blocked

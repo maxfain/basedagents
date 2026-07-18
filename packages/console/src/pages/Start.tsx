@@ -34,15 +34,16 @@ function errText(err: unknown): string {
 }
 
 // Runs in the Codex environment's setup phase (network open), so a fresh `npx`
-// at task time never has to reach the registry.
-const CODEX_SETUP = 'npm install --save-dev basedagents\nnpx basedagents register';
+// at task time never has to reach the registry. Install only — nothing
+// interactive; the agent runs keyring init and hands you off at task time.
+const CODEX_SETUP = 'npm install --save-dev basedagents';
 
 /** The Codex / cloud-sandbox door: install during setup, not at task time. */
 function CloudSetup() {
   const [copied, setCopied] = useState(false);
   return (
     <div className="agent-setup">
-      <div className="start-prompt-label">Paste this into your Codex environment&rsquo;s Setup script:</div>
+      <div className="start-prompt-label">1. Paste this into your Codex environment&rsquo;s Setup script:</div>
       <div className="code-block cmd-row">
         <pre className="start-script">{CODEX_SETUP}</pre>
         <button
@@ -58,10 +59,14 @@ function CloudSetup() {
         </button>
       </div>
       <p className="field-hint start-or">
-        Codex and similar cloud sandboxes switch the internet off while your agent works, so
-        BasedAgents has to be installed during setup — a fresh <code>npx</code> at task time is
-        blocked. Then add <code>api.basedagents.ai</code> and <code>app.basedagents.ai</code> to the
-        environment&rsquo;s allowed domains.
+        Codex switches the internet off while your agent works, so a fresh <code>npx</code> at task
+        time is blocked — install during setup. 2. Add <code>api.basedagents.ai</code> and{' '}
+        <code>app.basedagents.ai</code> to the environment&rsquo;s allowed domains.
+      </p>
+      <p className="field-hint">
+        3. Then, in your first task, tell your agent:{' '}
+        <em>&ldquo;set up BasedAgents Keyring and give me the link to connect keys.&rdquo;</em> It runs{' '}
+        <code>keyring init</code> and hands you the page to finish.
       </p>
       <p className="field-hint">
         Full guide:{' '}

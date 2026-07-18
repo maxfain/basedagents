@@ -129,20 +129,23 @@ app.basedagents.ai</pre>
     </ol>
 
     <h3 id="codex">Codex cloud: copy-paste setup</h3>
-    <p>In your Codex environment, put the network-dependent work in the <strong>Setup script</strong> field (it runs while the network is open) and add the two hosts to the environment&rsquo;s <strong>allowed domains</strong> for the agent/task phase.</p>
-    <p><strong>Setup script</strong> (runs with network):</p>
-    <pre># Install BasedAgents into the project while the network is still open.
-# `basedagents` bundles @basedagents/keyring, so one line covers both.
-npm install --save-dev basedagents
-
-# Optional but recommended: mint the agent's ag_ identity now (needs network).
-npx basedagents register</pre>
-    <p><strong>Allowed domains</strong> for the task phase:</p>
+    <p>Two one-time things in your Codex environment, then a normal prompt to your agent.</p>
+    <p><strong>1. Setup script</strong> (runs while the network is open — just install; nothing interactive here):</p>
+    <pre># `basedagents` bundles @basedagents/keyring, so one line covers both.
+npm install --save-dev basedagents</pre>
+    <p><strong>2. Allowed domains</strong> for the task phase (so the agent can reach the control plane to register and to hand off to you):</p>
     <pre>api.basedagents.ai
 app.basedagents.ai</pre>
-    <p>Then, at task time, the canonical command resolves the local install with no registry call:</p>
-    <pre>npx basedagents keyring init</pre>
-    <p>Prefer to commit it? The same two lines work in an <code>AGENTS.md</code> setup section or any repo setup hook — the only requirement is that they run <em>before</em> egress is cut. Requires <code>basedagents@0.6.1</code> or newer (earlier versions still shell out to <code>npx</code> for the keyring at task time).</p>
+    <p><strong>3. Then, in your first task, tell your agent:</strong></p>
+    <pre>Set up BasedAgents Keyring: run npx basedagents keyring init and follow
+its instructions, then tell me how to finish and connect keys.</pre>
+    <p>Because BasedAgents is already installed, <code>npx basedagents keyring init</code> resolves the local copy with no registry call. It registers the agent, then opens the claim page and hands you off:</p>
+
+    <div class="note">
+      <strong>What your agent should tell you next.</strong> After <code>keyring init</code> (or <code>register</code>), the agent&rsquo;s job is to put <em>you</em> in charge: it asks for your email, calls the <code>invite_owner</code> tool, and points you at <a href="https://app.basedagents.ai/start">https://app.basedagents.ai/start</a> to claim it and connect the keys it needs. Until you do, the agent holds nothing. If your agent stalls after registering, tell it: <em>&ldquo;run <code>npx basedagents keyring init</code> and give me the link to connect keys.&rdquo;</em>
+    </div>
+
+    <p>Requires <code>basedagents@0.6.1</code> or newer (earlier versions shell out to <code>npx</code> for the keyring at task time). Prefer to commit it? See the auto-setup convention in <a href="https://github.com/maxfain/basedagents/blob/main/SANDBOX_SPEC.md">SANDBOX_SPEC.md</a> — an <code>AGENTS.md</code> + devDependency pattern that installs BasedAgents through the environment&rsquo;s normal setup, with no env-settings step at all.</p>
 
     <div class="note">
       <strong>Diagnose it:</strong> once <code>basedagents</code> is installed, run <code>basedagents keyring doctor</code>. It probes the npm registry, the BasedAgents API, and a generic HTTPS host; when it sees the phase-blocked signature (multiple 403 / denied CONNECT), it prints this exact pattern instead of leaving you with a raw npm error.

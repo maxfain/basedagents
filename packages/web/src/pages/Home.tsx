@@ -14,8 +14,10 @@ const HERO_PROMPT =
   'Set up BasedAgents Keyring for this project: run\nnpx @basedagents/keyring init and follow its instructions.';
 const CLOSING_PROMPT = 'Set up BasedAgents Keyring: run npx @basedagents/keyring init';
 // Codex-style cloud agents block egress at task time, so a cold `npx` there
-// 403s. The install has to run in the environment's setup phase instead.
-const CODEX_SETUP = 'npm install --save-dev basedagents\nnpx basedagents register';
+// 403s. The install has to run in the environment's setup phase instead —
+// install only (nothing interactive); register + the hand-off happen at task
+// time with api/app.basedagents.ai allowlisted.
+const CODEX_SETUP = 'npm install --save-dev basedagents';
 
 /** Fire-and-forget onboarding funnel ping. Never blocks or breaks the UI. */
 function ping(event: string, provider?: string): void {
@@ -108,14 +110,16 @@ function HeroSetup(): React.ReactElement {
       ) : (
         <>
           <CopyPrompt
-            label="Paste this into your Codex environment's Setup script:"
+            label="1. Paste into your Codex environment's Setup script:"
             text={CODEX_SETUP}
             tag="home_codex"
           />
           <p className="home-paste-alt">
-            Codex turns the internet off while your agent works, so it has to grab BasedAgents during
-            setup — a fresh <code>npx</code> at task time is blocked. Then allow{' '}
-            <code>api.basedagents.ai</code> + <code>app.basedagents.ai</code> for the task phase.{' '}
+            Codex cuts the internet at task time, so a fresh <code>npx</code> then is blocked — install
+            it during setup. 2. Allow <code>api.basedagents.ai</code> + <code>app.basedagents.ai</code>.
+            3. In your first task, tell your agent:{' '}
+            <em>&ldquo;set up BasedAgents Keyring and give me the link to connect keys.&rdquo;</em> It
+            registers, then hands you off to <a href="https://app.basedagents.ai/start">app.basedagents.ai/start</a>.{' '}
             <a href="/docs/agents#codex">Full guide →</a>
           </p>
         </>
