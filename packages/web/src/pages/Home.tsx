@@ -13,6 +13,9 @@ import { API_BASE } from '../api/client';
 const HERO_PROMPT =
   'Set up BasedAgents Keyring for this project: run\nnpx @basedagents/keyring init and follow its instructions.';
 const CLOSING_PROMPT = 'Set up BasedAgents Keyring: run npx @basedagents/keyring init';
+// Codex-style cloud agents block egress at task time, so a cold `npx` there
+// 403s. The install has to run in the environment's setup phase instead.
+const CODEX_SETUP = 'npm install --save-dev basedagents\nnpx basedagents register';
 
 /** Fire-and-forget onboarding funnel ping. Never blocks or breaks the UI. */
 function ping(event: string, provider?: string): void {
@@ -28,7 +31,15 @@ function ping(event: string, provider?: string): void {
   }
 }
 
-function CopyPrompt({ label, text }: { label: string; text: string }): React.ReactElement {
+function CopyPrompt({
+  label,
+  text,
+  tag = 'home',
+}: {
+  label: string;
+  text: string;
+  tag?: string;
+}): React.ReactElement {
   const [copied, setCopied] = useState(false);
   return (
     <div className="home-paste">
@@ -43,12 +54,72 @@ function CopyPrompt({ label, text }: { label: string; text: string }): React.Rea
               setCopied(true);
               setTimeout(() => setCopied(false), 2000);
             });
-            ping('copy_command', 'home');
+            ping('copy_command', tag);
           }}
         >
           {copied ? 'Copied ✓' : 'Copy'}
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Hero setup, branched by where the agent runs. Local agents (Claude Code,
+ * Cursor, a terminal) have network — the one-liner just works. Codex-style cloud
+ * sandboxes cut egress at task time, so a cold `npx` there 403s; the install has
+ * to happen in the environment's setup phase. Showing the wrong command to a
+ * Codex user is the dead end we're routing around.
+ */
+function HeroSetup(): React.ReactElement {
+  const [lane, setLane] = useState<'local' | 'cloud'>('local');
+  return (
+    <div className="home-setup">
+      <div className="home-lanes" role="tablist" aria-label="Where does your agent run?">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={lane === 'local'}
+          className={`home-lane ${lane === 'local' ? 'active' : ''}`}
+          onClick={() => setLane('local')}
+        >
+          Claude Code, Cursor, or terminal
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={lane === 'cloud'}
+          className={`home-lane ${lane === 'cloud' ? 'active' : ''}`}
+          onClick={() => setLane('cloud')}
+        >
+          Codex / cloud sandbox
+        </button>
+      </div>
+
+      {lane === 'local' ? (
+        <>
+          <CopyPrompt label="Paste this into Claude Code:" text={HERO_PROMPT} />
+          <p className="home-paste-alt">
+            or <code>npx @basedagents/keyring init</code> in your terminal · or{' '}
+            <a href="https://app.basedagents.ai/start">start in your browser →</a> — one email field, no
+            password
+          </p>
+        </>
+      ) : (
+        <>
+          <CopyPrompt
+            label="Paste this into your Codex environment's Setup script:"
+            text={CODEX_SETUP}
+            tag="home_codex"
+          />
+          <p className="home-paste-alt">
+            Codex turns the internet off while your agent works, so it has to grab BasedAgents during
+            setup — a fresh <code>npx</code> at task time is blocked. Then allow{' '}
+            <code>api.basedagents.ai</code> + <code>app.basedagents.ai</code> for the task phase.{' '}
+            <a href="/docs/agents#codex">Full guide →</a>
+          </p>
+        </>
+      )}
     </div>
   );
 }
@@ -105,12 +176,7 @@ export default function Home(): React.ReactElement {
           plaintext file. Give Claude Code, Codex, and Cursor their own scoped keys — see everything
           they hold, cut them off in one tap.
         </p>
-        <CopyPrompt label="Paste this into Claude Code:" text={HERO_PROMPT} />
-        <p className="home-paste-alt">
-          or <code>npx @basedagents/keyring init</code> in your terminal · or{' '}
-          <a href="https://app.basedagents.ai/start">start in your browser →</a> — one email field, no
-          password
-        </p>
+        <HeroSetup />
         <p className="home-tags">Free for 3 agents · Open source · One paste or one email — never a form</p>
       </header>
 

@@ -192,7 +192,8 @@ a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 
 /* ── /start (the web "Get started" door) ── */
 .auth-card-wide { max-width: 520px; }
-.start-doors { display: flex; gap: 0.4rem; margin: 1.25rem 0 1rem; border-bottom: 1px solid var(--border); }
+.start-doors { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 1.25rem 0 1rem; border-bottom: 1px solid var(--border); }
+.start-script { margin: 0; flex: 1; white-space: pre; font: inherit; }
 .start-door { font: inherit; font-weight: 600; font-size: 0.92rem; color: var(--muted); background: none; border: none; border-bottom: 2px solid transparent; padding: 0.5rem 0.6rem; margin-bottom: -1px; cursor: pointer; }
 .start-door.active { color: var(--text); border-bottom-color: var(--accent-strong); }
 .start-door:hover { color: var(--text); }

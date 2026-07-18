@@ -444,6 +444,31 @@ h3 {
   max-width: 42rem;
 }
 
+.home-setup { margin-top: 30px; max-width: 46rem; }
+.home-lanes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.home-lane {
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+.home-lane:hover { color: var(--text-secondary); border-color: var(--border-hover); }
+.home-lane.active {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+}
+.home-setup .home-paste { margin-top: 0; }
 .home-paste {
   margin-top: 30px;
   background: var(--bg-secondary);
