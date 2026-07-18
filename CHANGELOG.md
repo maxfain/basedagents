@@ -62,6 +62,17 @@ proxy 403. The contract now works there.
   reported dead end where an agent registered and then went quiet. The Codex
   Setup script is now **install-only** (the interactive `register` was wrong for
   a non-interactive setup script); register + the hand-off happen at task time.
+- **Sandbox-aware paste prompts (cold-window recovery).** Field finding: most
+  people start in a fresh Codex window and paste the setup prompt into a *task*,
+  where npm is already blocked — and at that moment the pasted prompt is the
+  *only* channel that reaches the agent (no registry, no docs, no package on
+  disk, and no safe lockfile-consistent repo edit). The canonical prompts
+  (homepage hero + closing, console `AgentSetupPrompt` used by `/start`, `/home`,
+  `/welcome`) now carry the recovery inline: if npm is blocked, do not retry —
+  relay to the human: add `npm install --save-dev basedagents` to the Setup
+  script, allow the two domains, start a new task. `agent.json` gains
+  `on_403_relay_to_human`; the `#codex` docs and `llms.txt` mirrors repeat it;
+  `SANDBOX_SPEC.md` §2b records the design constraint.
 - **`SANDBOX_SPEC.md`** documents the shipped §4.6 contract and specs the next
   lever: an **AGENTS.md auto-setup convention** (`basedagents` devDependency +
   a managed `AGENTS.md` block, scaffolded by a proposed `basedagents sandbox

@@ -9,9 +9,15 @@
  */
 import { useState } from 'react';
 
+// The pasted prompt is the only channel that reaches an agent in a cold cloud
+// sandbox at task time (no network, no docs, no package on disk), so the
+// blocked-npm recovery must travel inside the prompt itself.
 export const AGENT_PROMPT =
-  'Set up BasedAgents Keyring for this project: run npx @basedagents/keyring init and follow its instructions.';
-export const TERMINAL_CMD = 'npx @basedagents/keyring init';
+  'Set up BasedAgents Keyring for this project: run npx basedagents keyring init and follow its ' +
+  'instructions. If npm is blocked (403 — a cloud sandbox at task time), do not retry. Instead ' +
+  'tell me: "Add npm install --save-dev basedagents to this environment\'s Setup script, allow ' +
+  'api.basedagents.ai and app.basedagents.ai, then start a new task and ask me again."';
+export const TERMINAL_CMD = 'npx basedagents keyring init';
 
 export function CopyBlock({ text, big = false }: { text: string; big?: boolean }) {
   const [copied, setCopied] = useState(false);
