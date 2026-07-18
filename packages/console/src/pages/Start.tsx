@@ -1,11 +1,15 @@
 /**
  * /start — the web "Get started" door (onboarding redesign §2, page-copy v1).
  *
- * Two doors, terminal-primary:
- *   • "I'm at my terminal" (default): the paste-into-Claude-Code block — the
+ * Three doors, terminal-primary:
+ *   • "Start with your agent" (default): the paste-into-Claude-Code block — the
  *     agent installs its own keyring. This is the ICP path.
  *   • "Start in your browser": one email field → magic link. No password, no
  *     profile fields, no plan picker — one field is not a signup form.
+ *   • "Codex / cloud": the setup-script recipe. Codex-style sandboxes cut egress
+ *     at task time, so a cold `npx` there is blocked (§4.6) — the install has to
+ *     run in the environment's setup phase. Showing a Codex user the plain
+ *     one-liner is a dead end, so this door hands them the one that works.
  *
  * The magic-link click lands back here as /start#t=…:
  *   • a returning account → a look session, straight to home;
@@ -29,7 +33,47 @@ function errText(err: unknown): string {
   return String(err);
 }
 
-type Door = 'terminal' | 'browser';
+// Runs in the Codex environment's setup phase (network open), so a fresh `npx`
+// at task time never has to reach the registry.
+const CODEX_SETUP = 'npm install --save-dev basedagents\nnpx basedagents register';
+
+/** The Codex / cloud-sandbox door: install during setup, not at task time. */
+function CloudSetup() {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="agent-setup">
+      <div className="start-prompt-label">Paste this into your Codex environment&rsquo;s Setup script:</div>
+      <div className="code-block cmd-row">
+        <pre className="start-script">{CODEX_SETUP}</pre>
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={() =>
+            void navigator.clipboard.writeText(CODEX_SETUP).then(() => {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            })
+          }
+        >
+          {copied ? 'Copied ✓' : 'Copy'}
+        </button>
+      </div>
+      <p className="field-hint start-or">
+        Codex and similar cloud sandboxes switch the internet off while your agent works, so
+        BasedAgents has to be installed during setup — a fresh <code>npx</code> at task time is
+        blocked. Then add <code>api.basedagents.ai</code> and <code>app.basedagents.ai</code> to the
+        environment&rsquo;s allowed domains.
+      </p>
+      <p className="field-hint">
+        Full guide:{' '}
+        <a className="link" href="https://basedagents.ai/docs/agents#codex">
+          basedagents.ai/docs/agents#codex
+        </a>
+      </p>
+    </div>
+  );
+}
+
+type Door = 'terminal' | 'browser' | 'cloud';
 type Phase = 'doors' | 'sending' | 'sent' | 'finishing' | 'command';
 
 export default function Start() {
@@ -137,11 +181,22 @@ export default function Start() {
               >
                 Start in your browser
               </button>
+              <button
+                role="tab"
+                className={`start-door ${door === 'cloud' ? 'active' : ''}`}
+                onClick={() => setDoor('cloud')}
+              >
+                Codex / cloud
+              </button>
             </div>
 
             {door === 'terminal' ? (
               <div className="start-panel">
                 <AgentSetupPrompt />
+              </div>
+            ) : door === 'cloud' ? (
+              <div className="start-panel">
+                <CloudSetup />
               </div>
             ) : (
               <form onSubmit={onEmail} className="form start-panel">

@@ -46,6 +46,14 @@ proxy 403. The contract now works there.
   task time fails with `npm E403` before any BasedAgents code runs (the package
   must be installed during setup) — so an agent that hits the 403 finds the fix
   instead of a dead end.
+- **Onboarding routes by where the agent runs.** The homepage hero and the
+  console `/start` page now branch the first step: local agents (Claude Code,
+  Cursor, terminal) get the zero-config `npx …keyring init` one-liner, while a
+  new "Codex / cloud sandbox" lane hands over the Setup-script recipe
+  (`npm install --save-dev basedagents` + `npx basedagents register`) and the
+  two allowed domains, with a plain-language note that a cold `npx` at task time
+  is blocked. Non-technical Codex users no longer paste the one command that
+  can't work there.
 
 ### Added — static dependency rule (homepage spec §4.6, `basedagents` 0.6.1)
 
