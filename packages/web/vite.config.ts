@@ -16,6 +16,7 @@ const STATIC_PAGES: Record<string, string> = {
   '/keyring': '/keyring.html',
   '/registry': '/registry.html',
   '/docs/agents': '/docs/agents.html',
+  '/codex': '/codex.html',
 };
 
 function devStaticPages() {
@@ -48,6 +49,7 @@ export default defineConfig({
         keyring: resolve(root, 'keyring.html'),
         registry: resolve(root, 'registry.html'),
         docsAgents: resolve(root, 'docs/agents.html'),
+        codex: resolve(root, 'codex.html'),
       },
     },
   },

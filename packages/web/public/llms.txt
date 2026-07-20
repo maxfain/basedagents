@@ -27,9 +27,10 @@ the human off to https://app.basedagents.ai/start to claim it and connect keys.
 Agents: registering is only step one — do not stop there; always run keyring init
 and give the human the claim link. If npx fails with E403 at task time, do not
 retry and do not go quiet — you cannot install from inside the task. Relay to
-your human: "Add `npm install --save-dev basedagents` to this environment's
-Setup script, allow api.basedagents.ai + app.basedagents.ai, then start a new
-task and ask me again." Diagnose with `basedagents keyring doctor`.
+your human verbatim: "Open basedagents.ai/codex for the one-time fix, then start
+a new task." (That human-facing page covers it; the underlying steps if asked:
+`npm install --save-dev basedagents` in the environment's Setup script, allow
+api.basedagents.ai + app.basedagents.ai.) Diagnose with `basedagents keyring doctor`.
 Full guide: https://basedagents.ai/docs/agents#sandboxes (auto-setup convention:
 SANDBOX_SPEC.md)
 

@@ -71,11 +71,14 @@ code E403` before any BasedAgents code runs. The package must already be on disk
 IF YOU (an agent) JUST HIT THAT E403: do not retry, and do not go quiet. You
 cannot fix it from inside the task — there is no network, and editing
 package.json without regenerating package-lock.json would break the next
-`npm ci`. Relay this to your human verbatim: "Add `npm install --save-dev
-basedagents` to this environment's Setup script, allow api.basedagents.ai and
-app.basedagents.ai in its allowed domains, then start a new task and ask me to
-set up Keyring again." (Or: run `npm install --save-dev basedagents` in the repo
-locally and push — then every future task has it.)
+`npm ci`. Relay this to your human verbatim: "Open basedagents.ai/codex for the
+one-time fix, then start a new task." That page (human-facing, their browser is
+unrestricted) walks them through it. The underlying steps, if they ask you
+directly: add `npm install --save-dev basedagents` to the environment's Setup
+script, allow api.basedagents.ai and app.basedagents.ai in its allowed domains,
+then start a new task. (Or: run `npm install --save-dev basedagents` in the repo
+locally and push — then every future task has it.) Put the fix in your task
+summary too, not only mid-log.
 
 Do the network-dependent work during setup instead:
 
