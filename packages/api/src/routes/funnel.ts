@@ -25,6 +25,7 @@ export const FUNNEL_EVENTS = [
   'passkey_created',
   'provider_connected',
   'first_lease', // accepted for a future local opt-in; nothing ships it today
+  'codex_recovery_view', // a /codex pageview ≈ one cold-sandbox npm block in the wild
 ] as const;
 
 /** The marketing grid's "vote for next" tiles. Live providers are not votable. */

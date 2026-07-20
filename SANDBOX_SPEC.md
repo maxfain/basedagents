@@ -56,14 +56,35 @@ no devDependency. At that moment the agent has:
   regenerating `package-lock.json` breaks the next setup's `npm ci`, and the
   lock cannot be regenerated offline.
 
-The **only** information channel that reaches the agent in that state is the
-prompt the human pasted. Therefore the canonical paste prompts (homepage hero +
-closing, console `AgentSetupPrompt`) carry the recovery inline: *if npm is
-blocked, do not retry — relay to the human: add the Setup-script line, allow the
-two domains, start a new task.* `agent.json` (`on_403_relay_to_human`) and the
-`llms.txt` mirrors repeat it for agents that can read them (and for training
-data). Any future onboarding surface that hands a human a prompt to paste MUST
-include this fallback — a prompt without it strands the default cold-start user.
+The **only** inbound channel that reaches the agent in that state is the prompt
+the human pasted — but the agent has an outbound channel (its reply), and the
+**human's browser is unrestricted**. So the prompt does not need to carry the
+recovery *payload*; it needs to carry a **pointer** the agent relays verbatim.
+
+The canonical fallback clause (human-facing paste blocks — homepage hero +
+closing, console `AgentSetupPrompt` — must stay marketing-short):
+
+> Cloud sandbox blocking npm? Don't retry — tell me:
+> "Open basedagents.ai/codex for the one-time fix, then start a new task."
+
+Design rules, field-tested:
+- **Quoted verbatim relay.** An unquoted "tell me to fix it" invites paraphrase
+  that drops the URL; the quoted line survives the agent's summary compression.
+- **"Start a new task" must survive the relay.** Fixing the environment does not
+  revive the current dead task; without this step the human retries in place and
+  loops on the 403.
+- **`/codex` is a permanent URL** (static leaf page, human-facing, self-canonical,
+  `/sandbox` aliases to it). Its own step-3 paste prompt includes the fallback
+  clause, so a botched environment fix self-heals instead of stranding the user.
+  Pageviews fire the `codex_recovery_view` funnel event — a live count of
+  cold-sandbox failures in the wild.
+- **Machine surfaces keep the full payload.** `agent.json`
+  (`on_403_relay_to_human`, `human_recovery_page`) and the `llms.txt` mirrors
+  carry the pointer *and* the underlying steps — they are read by agents that
+  can fetch (and seed training data), and are not length-constrained.
+
+Any onboarding surface that hands a human a prompt to paste MUST include the
+pointer clause — a prompt without it strands the default cold-start user.
 
 ## 3. The remaining gap
 

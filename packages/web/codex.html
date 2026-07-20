@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- STATIC, human-facing recovery page (SANDBOX_SPEC §2b). This is the short
+       URL an agent relays when a cloud sandbox blocks npm at task time — the
+       agent can't reach the web, but the human's browser can. Keep it a static
+       leaf (served as an asset at /codex ahead of the SPA fallback) and keep the
+       copy non-technical: the reader just watched their agent fail. -->
+  <title>Codex blocked the install? The two-minute fix — BasedAgents</title>
+  <meta name="description" content="Cloud sandboxes like Codex turn off the internet while your agent works. Configure the environment once — install during setup, allow two domains — and your agent sets up Keyring without a hitch." />
+  <link rel="canonical" href="https://basedagents.ai/codex" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg-primary:#0A0A0B; --bg-secondary:#111113; --accent:#6366F1; --accent-hover:#818CF8; --text-primary:#FAFAFA; --text-secondary:#A1A1AA; --text-tertiary:#52525B; --border:rgba(255,255,255,0.06); --font-sans:'Inter',-apple-system,sans-serif; --font-mono:'JetBrains Mono',monospace; }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    html { font-size:16px; line-height:1.6; -webkit-font-smoothing:antialiased; }
+    body { font-family:var(--font-sans); background:var(--bg-primary); color:var(--text-primary); }
+    a { color:var(--accent); text-decoration:none; } a:hover { color:var(--accent-hover); }
+    code { font-family:var(--font-mono); color:#C7D2FE; }
+    .nav { border-bottom:1px solid var(--border); }
+    .nav-inner { max-width:900px; margin:0 auto; padding:14px 24px; display:flex; gap:18px; align-items:center; }
+    .nav-logo { display:flex; align-items:center; gap:8px; color:var(--text-primary); font-weight:700; }
+    .nav-logo-mark { color:var(--accent); font-family:var(--font-mono); }
+    main { max-width:640px; margin:0 auto; padding:56px 24px 80px; }
+    h1 { font-size:1.9rem; letter-spacing:-0.02em; line-height:1.25; }
+    .lede { color:var(--text-secondary); margin-top:14px; font-size:1.05rem; }
+    ol.steps { margin:34px 0 0 0; list-style:none; counter-reset:step; }
+    ol.steps > li { counter-increment:step; margin-bottom:30px; padding-left:52px; position:relative; }
+    ol.steps > li::before { content:counter(step); position:absolute; left:0; top:0; width:34px; height:34px; border-radius:50%; background:var(--bg-secondary); border:1px solid var(--border); color:var(--accent); font-weight:700; display:flex; align-items:center; justify-content:center; }
+    ol.steps h2 { font-size:1.05rem; }
+    ol.steps p { color:var(--text-secondary); margin-top:6px; font-size:0.95rem; }
+    pre { font-family:var(--font-mono); font-size:0.88rem; line-height:1.55; background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:12px 14px; margin-top:10px; color:#C7D2FE; overflow-x:auto; white-space:pre; }
+    .note { background:var(--bg-secondary); border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:8px; padding:14px 16px; margin-top:34px; color:var(--text-secondary); font-size:0.95rem; }
+    .note strong { color:var(--text-primary); }
+    .foot { margin-top:40px; color:var(--text-tertiary); font-size:0.9rem; }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="/" class="nav-logo"><span class="nav-logo-mark">&lt;&gt;</span><span>BasedAgents</span></a>
+    </div>
+  </nav>
+  <main>
+    <h1>Your agent hit a wall. Here&rsquo;s the two-minute fix.</h1>
+    <p class="lede">Cloud sandboxes like Codex turn off the internet while your agent works, so it couldn&rsquo;t download BasedAgents mid-task. Set the environment up once — after that, it never happens again.</p>
+
+    <ol class="steps">
+      <li>
+        <h2>Add one line to your environment&rsquo;s Setup script</h2>
+        <p>In your Codex environment settings, find the <strong>Setup script</strong> field (it runs while the network is still on) and add:</p>
+        <pre>npm install --save-dev basedagents</pre>
+      </li>
+      <li>
+        <h2>Allow two domains</h2>
+        <p>In the same settings, add these to the environment&rsquo;s <strong>allowed domains</strong>:</p>
+        <pre>api.basedagents.ai
+app.basedagents.ai</pre>
+      </li>
+      <li>
+        <h2>Start a new task and ask again</h2>
+        <p>Open a fresh task and paste:</p>
+        <!-- Self-healing: this is the canonical prompt WITH the pointer clause,
+             so if the environment fix was botched, the retry still relays here
+             instead of stranding the human (SANDBOX_SPEC §2b). -->
+        <pre>Set up BasedAgents Keyring for this project: run
+npx basedagents keyring init and follow its instructions.
+Cloud sandbox blocking npm? Don't retry — tell me:
+"Open basedagents.ai/codex for the one-time fix, then start a new task."</pre>
+        <p>This time it installs nothing over the network — it&rsquo;s already there. Your agent sets up its keyring and hands you a link to finish at <a href="https://app.basedagents.ai/start">app.basedagents.ai/start</a>.</p>
+      </li>
+    </ol>
+
+    <div class="note">
+      <strong>Prefer to fix it in the repo instead?</strong> On your own computer, run <code>npm install --save-dev basedagents</code> in the project and push the change. Every future task then has it preinstalled — no environment settings at all.
+    </div>
+
+    <p class="foot">Why this happens, in depth (for the technically curious — or your agent): <a href="/docs/agents#codex">the sandbox guide</a>.</p>
+  </main>
+  <script>
+    // Each view of this page ≈ one cold-sandbox failure in the wild — the only
+    // measurable signal that path emits. Fire-and-forget; never breaks the page.
+    try {
+      fetch('https://api.basedagents.ai/v1/funnel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event: 'codex_recovery_view' }),
+        keepalive: true,
+      }).catch(function () {});
+    } catch (e) { /* no-op */ }
+  </script>
+</body>
+</html>
