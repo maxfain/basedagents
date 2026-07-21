@@ -8,6 +8,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Vercel recipe v2 matches the live Create Token form (`@basedagents/keyring` 0.5.3)
+
+First real logged-in run reached the form and surfaced three drifts:
+
+- The live form has a REQUIRED **Scope** dropdown v1 never touched → Create
+  failed validation. v2 opens Scope and picks the first option (the personal
+  account); a checkpoint covers the rest.
+- The expiration control's visible text is **"Select Date"**, not "Expiration" —
+  added fallbacks for the real control and regex-text fallbacks for the
+  "90 days" option.
+- When creation fails, the assisted-paste prompt now says plainly that Enter
+  cancels safely (nothing saved, re-run safe) instead of appearing to demand a
+  token that doesn't exist.
+
 ### Fixed — Keyring browser runs with the Chromium sandbox ON (`@basedagents/keyring` 0.5.2)
 
 Playwright disables Chromium's OS sandbox by default (`--no-sandbox`), which

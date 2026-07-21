@@ -19,7 +19,10 @@ export const VERCEL_TOKENS_URL = 'https://vercel.com/account/settings/tokens';
 
 export const vercelBootstrapRecipe: Recipe = {
   id: 'vercel-bootstrap',
-  version: 1,
+  // v2 (field-tested 2026-07 against the live form): the Create Token form has
+  // a REQUIRED Scope dropdown v1 missed, and the expiration control's visible
+  // text is "Select Date", not "Expiration".
+  version: 2,
   provider: 'vercel',
   allowedDomains: ['vercel.com'],
   login: {
@@ -50,15 +53,38 @@ export const vercelBootstrapRecipe: Recipe = {
       param: 'token_name',
     },
     {
+      // The live form REQUIRES a scope. The first option in the list is the
+      // personal account (what provisioning needs); teams come after.
+      id: 'open-scope',
+      kind: 'click',
+      target: { role: 'combobox', name: 'Scope', description: 'the Scope dropdown' },
+      fallbacks: [{ css: 'text=Select scope', description: 'the Scope dropdown (fallback)' }],
+    },
+    {
+      id: 'pick-scope',
+      kind: 'click',
+      target: {
+        css: '[role="option"]',
+        description: 'your personal account in the Scope list (the first option — pick your account, not a team)',
+      },
+    },
+    {
       id: 'open-expiration',
       kind: 'click',
       target: { role: 'combobox', name: 'Expiration', description: 'the Expiration dropdown' },
-      fallbacks: [{ css: 'select[name="expiry"]', description: 'the Expiration dropdown (fallback)' }],
+      fallbacks: [
+        { css: 'text=Select Date', description: 'the Expiration dropdown (fallback — its visible text)' },
+        { css: 'select[name="expiry"]', description: 'the Expiration dropdown (fallback 2)' },
+      ],
     },
     {
       id: 'pick-expiration',
       kind: 'click',
       target: { role: 'option', name: '90 days', description: 'the "90 days" expiration option' },
+      fallbacks: [
+        { css: 'text=/^90 ?days?$/i', description: 'the "90 days" option (fallback)' },
+        { role: 'menuitem', name: '90 days', description: 'the "90 days" option (fallback 2)' },
+      ],
     },
     {
       id: 'submit',

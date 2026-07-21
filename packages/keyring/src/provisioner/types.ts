@@ -14,7 +14,10 @@ export interface RecipeLocator {
   role?: string;
   /** Accessible name (visible label) to match with the role. */
   name?: string;
-  /** CSS selector — used when role/name is absent, or as a fallback locator. */
+  /**
+   * Playwright selector (CSS, `text=…`, `text=/regex/i`, …) — used when
+   * role/name is absent, or as a fallback locator.
+   */
   css?: string;
   /** Human words for checkpoint messages, e.g. "the Create button". */
   description: string;
