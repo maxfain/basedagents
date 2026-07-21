@@ -39,6 +39,8 @@ export interface CredentialMeta {
   rotation_policy?: string;
   /** Provider-side key ID if known — enables Provisioner burn/rotate by ID. */
   provider_key_id?: string;
+  /** Provider-side team/scope slug the token is bound to (e.g. Vercel teamId). */
+  provider_team?: string;
   /** ISO expiry of the provider-side token, when known (drives auto-rotate). */
   provider_expires_at?: string;
   /**

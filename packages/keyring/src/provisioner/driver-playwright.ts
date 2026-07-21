@@ -46,10 +46,12 @@ interface PwPage {
   url(): string;
   getByRole(role: string, opts?: { name?: string }): PwLocator;
   locator(css: string): PwLocator;
+  evaluate<T>(fn: string): Promise<T>;
 }
 interface PwContext {
   pages(): PwPage[];
   newPage(): Promise<PwPage>;
+  grantPermissions(permissions: string[], opts?: { origin?: string }): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -112,6 +114,10 @@ export class PlaywrightDriver implements Driver {
         `\`npx playwright install chromium\` once, then retry. (${(lastErr as Error)?.message ?? 'unknown error'})`
       );
     }
+    // Clipboard read powers the Copy-button capture route. Best-effort — some
+    // channels/platforms refuse; the engine then degrades to assisted paste.
+    try { await context.grantPermissions(['clipboard-read', 'clipboard-write']); } catch { /* optional */ }
+
     const page = context.pages()[0] ?? (await context.newPage());
     return new PlaywrightDriver(context, page);
   }
@@ -152,6 +158,10 @@ export class PlaywrightDriver implements Driver {
       if (v) return v;
     } catch { /* not an input — fall through to text */ }
     return (await l.textContent({ timeout: timeoutMs })) ?? '';
+  }
+
+  async readClipboard(): Promise<string> {
+    return this.page.evaluate<string>('navigator.clipboard.readText()');
   }
 
   async close(): Promise<void> {

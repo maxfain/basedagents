@@ -195,12 +195,26 @@ async function runStep(
   }
 
   // capture — the one step a human can't do by hand into our memory: a failed
-  // capture degrades to the assisted-paste flow (§4: never a dead end).
+  // capture degrades to clipboard-via-Copy-button, then the assisted-paste flow
+  // (§4: never a dead end).
   if (found) {
     const value = (await driver.read(found, timeoutMs)).trim();
     if (value.length > 0) {
       captured.set(step.secretKey, value);
       return 'ok';
+    }
+  }
+  if (step.copyButton) {
+    const btn = await locate(driver, step.copyButton, step.copyButtonFallbacks, 3_000);
+    if (btn) {
+      try {
+        await driver.click(btn, 3_000);
+        const clip = (await driver.readClipboard()).trim();
+        if (clip.length > 0) {
+          captured.set(step.secretKey, clip);
+          return 'ok';
+        }
+      } catch { /* clipboard unavailable — fall through to paste */ }
     }
   }
   return 'fallback_paste';
