@@ -56,6 +56,13 @@ export type RecipeStep =
       fallbacks?: RecipeLocator[];
       /** Key under which the captured secret is returned. Write-only: engines never log it. */
       secretKey: string;
+      /**
+       * Clipboard route (field-driven): when the DOM locators all miss, click
+       * this (the dialog's own Copy button) and read the clipboard — works for
+       * ANY dialog structure, which unknown DOM shapes defeat.
+       */
+      copyButton?: RecipeLocator;
+      copyButtonFallbacks?: RecipeLocator[];
       timeoutMs?: number;
     };
 
@@ -99,6 +106,8 @@ export interface Driver {
   selectOption(locator: RecipeLocator, optionLabel: string, timeoutMs: number): Promise<void>;
   /** Read a value (input value or text content). Throws if unresolvable. */
   read(locator: RecipeLocator, timeoutMs: number): Promise<string>;
+  /** Read the page clipboard (used after clicking a dialog's Copy button). Throws if unavailable. */
+  readClipboard(): Promise<string>;
   close(): Promise<void>;
 }
 

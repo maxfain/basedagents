@@ -671,7 +671,7 @@ export class Keyring {
   async updateCredentialMeta(
     owner: AgentKeypair,
     credentialRef: string,
-    patch: Partial<Pick<CredentialMeta, 'provider_key_id' | 'provider_expires_at' | 'scope' | 'rotation_policy' | 'label'>>
+    patch: Partial<Pick<CredentialMeta, 'provider_key_id' | 'provider_expires_at' | 'provider_team' | 'scope' | 'rotation_policy' | 'label'>>
   ): Promise<CredentialPublic> {
     return this.store.withLock(async () => {
       const vault = this.store.readVault();

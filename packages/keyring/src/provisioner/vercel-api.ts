@@ -45,13 +45,27 @@ export interface MintResult {
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
+/**
+ * Vercel's error for a team-scoped token calling create-token without the
+ * matching ?teamId (observed live: `To create a token you must be
+ * authenticated to scope "maxfaingezicht-5224"`). Returns the slug, or null.
+ */
+export function scopeSlugFrom403(err: unknown): string | null {
+  if (!(err instanceof VercelApiError) || err.status !== 403) return null;
+  const m = /authenticated to scope ["']([\w.-]+)["']/.exec(err.message);
+  return m ? m[1] : null;
+}
+
 export class VercelApi {
   constructor(
     private readonly token: string,
-    private readonly fetchImpl: FetchLike = fetch
+    private readonly fetchImpl: FetchLike = fetch,
+    /** Team slug/id — appended as ?teamId= to every call when set (team-scoped tokens require it). */
+    private readonly teamId?: string
   ) {}
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    if (this.teamId) path += `${path.includes('?') ? '&' : '?'}teamId=${encodeURIComponent(this.teamId)}`;
     const res = await this.fetchImpl(`${API}${path}`, {
       method,
       headers: {

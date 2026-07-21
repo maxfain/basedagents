@@ -16,7 +16,7 @@ import type { CredentialPublic, GrantConstraints } from '../types.js';
 import type { Driver, EngineHooks, RunOutcome } from './types.js';
 import { runRecipe } from './engine.js';
 import { vercelBootstrapRecipe } from './recipes/vercel.js';
-import { VercelApi, VercelApiError } from './vercel-api.js';
+import { VercelApi, VercelApiError, scopeSlugFrom403 } from './vercel-api.js';
 
 export const PROV_LABEL = 'Vercel provisioning token';
 const PROV_EXPIRY_DAYS = 90;
@@ -61,21 +61,50 @@ export interface ConnectResult {
 const slug = (s: string): string =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24) || 'agent';
 
-function api(deps: ConnectDeps, token: string): VercelApi {
-  return new VercelApi(token, deps.fetchImpl);
+function api(deps: ConnectDeps, token: string, teamId?: string): VercelApi {
+  return new VercelApi(token, deps.fetchImpl, teamId);
+}
+
+/**
+ * Mint a token, transparently satisfying Vercel's team-scope requirement: a
+ * team-scoped provisioning token gets `403 …authenticated to scope "<slug>"`
+ * without ?teamId — parse the slug out of the refusal and retry with it.
+ */
+async function mintWithScopeRetry(
+  deps: ConnectDeps,
+  provValue: string,
+  teamId: string | undefined,
+  name: string,
+  days: number
+): Promise<{ minted: Awaited<ReturnType<VercelApi['createToken']>>; teamId?: string }> {
+  try {
+    return { minted: await api(deps, provValue, teamId).createToken(name, days), teamId };
+  } catch (err) {
+    const discovered = scopeSlugFrom403(err);
+    if (!discovered || discovered === teamId) throw err;
+    deps.hooks.info(`Vercel wants this minted under scope "${discovered}" — retrying with it.`);
+    return { minted: await api(deps, provValue, discovered).createToken(name, days), teamId: discovered };
+  }
 }
 
 /** A valid provisioning token value, bootstrapping via the browser if needed. */
-async function ensureProvisioner(deps: ConnectDeps): Promise<{ value: string; browserRan: boolean }> {
+async function ensureProvisioner(
+  deps: ConnectDeps
+): Promise<{ value: string; browserRan: boolean; teamId?: string; credentialId: string }> {
   const { kr, owner, hooks } = deps;
 
   const existing = kr.findProvisioner('vercel');
   if (existing) {
     const value = kr.provisionerValue(owner, existing.credential_id);
     try {
-      await api(deps, value).whoami();
+      await api(deps, value, existing.provider_team).whoami();
       const rotated = await maybeRotateProvisioner(deps, existing, value);
-      return { value: rotated ?? value, browserRan: false };
+      return {
+        value: rotated ?? value,
+        browserRan: false,
+        teamId: existing.provider_team,
+        credentialId: existing.credential_id,
+      };
     } catch (err) {
       if (!(err instanceof VercelApiError) || (err.status !== 401 && err.status !== 403)) throw err;
       hooks.info('The stored provisioning token was rejected by Vercel — re-running the one-time browser setup.');
@@ -152,7 +181,7 @@ async function ensureProvisioner(deps: ConnectDeps): Promise<{ value: string; br
     if (strays.length > 0) hooks.info(`Cleaned up ${strays.length} stray provisioning token(s) from earlier attempts.`);
   } catch { /* cosmetic cleanup — never fail the connect over it */ }
 
-  return { value, browserRan: true };
+  return { value, browserRan: true, credentialId: credential.credential_id };
 }
 
 /** Value-free description of why a captured string can't be a real token. */
@@ -208,14 +237,15 @@ async function maybeRotateProvisioner(
   if (msLeft > PROV_ROTATE_WINDOW_DAYS * 24 * 60 * 60 * 1000) return null;
 
   deps.hooks.info('Provisioning token nears expiry — rotating it via the API (no browser needed).');
-  const client = api(deps, value);
   const tokenName = `ba/provisioning/${randomBytes(4).toString('hex')}`;
-  const minted = await client.createToken(tokenName, PROV_EXPIRY_DAYS);
-  await api(deps, minted.bearerToken).whoami(); // verify before swapping
+  const { minted, teamId } = await mintWithScopeRetry(deps, value, existing.provider_team, tokenName, PROV_EXPIRY_DAYS);
+  const client = api(deps, value, teamId);
+  await api(deps, minted.bearerToken, teamId).whoami(); // verify before swapping
   await deps.kr.updateCredentialSecret(deps.owner, existing.credential_id, minted.bearerToken);
   await deps.kr.updateCredentialMeta(deps.owner, existing.credential_id, {
     provider_key_id: minted.meta.id,
     provider_expires_at: minted.meta.expiresAt ? new Date(minted.meta.expiresAt).toISOString() : undefined,
+    provider_team: teamId,
   });
   const oldBurn = existing.provider_key_id ? await client.deleteToken(existing.provider_key_id) : 'already_gone';
   await deps.kr.recordProvisioner(deps.owner, 'provisioner_rotate', {
@@ -233,12 +263,17 @@ export async function connectVercel(
 ): Promise<ConnectResult> {
   const { kr, owner } = deps;
   const days = opts.expiryDays ?? AGENT_TOKEN_EXPIRY_DAYS_DEFAULT;
-  const { value: provValue, browserRan } = await ensureProvisioner(deps);
+  const prov = await ensureProvisioner(deps);
+  const { value: provValue, browserRan } = prov;
 
   const grant8 = randomBytes(4).toString('hex');
   const tokenName = `ba/${slug(opts.agentName ?? opts.agentRef)}/${grant8}`;
   deps.hooks.info(`Minting ${tokenName} via the Vercel API (${days}-day expiry)…`);
-  const minted = await api(deps, provValue).createToken(tokenName, days);
+  const { minted, teamId } = await mintWithScopeRetry(deps, provValue, prov.teamId, tokenName, days);
+  if (teamId && teamId !== prov.teamId) {
+    // Remember the scope so every future mint/rotate/burn carries it directly.
+    await kr.updateCredentialMeta(owner, prov.credentialId, { provider_team: teamId });
+  }
   const expiresAtIso = new Date(minted.meta.expiresAt ?? Date.now() + days * 86_400_000).toISOString();
 
   const credential = await kr.addCredential(owner, {

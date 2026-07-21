@@ -8,6 +8,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — team-scope minting + clipboard capture (`@basedagents/keyring` 0.5.7)
+
+Fifth live run BOOTSTRAPPED (paste salvage worked, stray cleanup ran) and then
+hit the real Vercel scope model: the token was scoped to the personal team
+("Max's projects"), and `POST /v3/user/tokens` refuses team-scoped auth without
+`?teamId` — `403: To create a token you must be authenticated to scope "<slug>"`.
+That state was self-perpetuating: the vault held a working provisioning token,
+so every re-run skipped the browser and re-hit the same 403.
+
+- **Scope-aware minting.** The API client carries an optional `teamId` on every
+  call; `mintWithScopeRetry` parses the slug straight out of the 403 refusal,
+  retries with it, and persists it on the credential (`provider_team`) so every
+  future mint/rotate/burn carries it from the start. Test-pinned end-to-end
+  (mint retries once, second connect passes teamId immediately).
+- **The recipe prefers "Full Account" scope** when Vercel offers it (mints
+  without teamId at all); otherwise first option + the retry covers it.
+- **Clipboard capture kills the copy-paste step.** When the DOM locators miss
+  the token dialog, the engine clicks the dialog's own **Copy** button and reads
+  the clipboard (permission granted at launch) — works for any dialog structure.
+  Terminal paste remains the floor, not the norm.
+
 ### Fixed — capture salvage: a visible token is never thrown away (`@basedagents/keyring` 0.5.6)
 
 Fourth live run drove the ENTIRE form (scope, native-select expiration, submit —

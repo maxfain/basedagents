@@ -39,6 +39,8 @@ interface FakeOpts {
   /** URL the page "lands on" after the given step's action. */
   hijackAfter?: { description: string; url: string };
   loggedIn?: boolean;
+  /** What readClipboard returns after a Copy-button click; absent = clipboard unavailable. */
+  clipboardValue?: string;
 }
 
 class FakeDriver implements Driver {
@@ -68,6 +70,11 @@ class FakeDriver implements Driver {
     if (!this.resolves(l)) throw new Error(`not found: ${l.description}`);
     this.log.push(`select ${l.description}=${label}`);
   }
+  async readClipboard(): Promise<string> {
+    if (this.opts.clipboardValue == null) throw new Error('clipboard unavailable');
+    this.log.push('read clipboard');
+    return this.opts.clipboardValue;
+  }
   async read(l: RecipeLocator): Promise<string> {
     if (!this.resolves(l)) throw new Error(`not found: ${l.description}`);
     return this.opts.captureValue ?? '';
@@ -86,7 +93,7 @@ function autoHooks(record?: string[]): EngineHooks {
 
 // ── Vercel API fetch mock (contract shapes verified live against production) ──
 
-function vercelFetch(state: { tokens: Array<{ id: string; name: string; expiresAt: number }>; burned: string[]; badTokens?: string[] }) {
+function vercelFetch(state: { tokens: Array<{ id: string; name: string; expiresAt: number }>; burned: string[]; badTokens?: string[]; requireTeam?: string }) {
   let seq = 0;
   const impl = async (url: string, init?: RequestInit): Promise<Response> => {
     const auth = ((init?.headers as Record<string, string>)?.Authorization ?? '').replace('Bearer ', '');
@@ -99,6 +106,10 @@ function vercelFetch(state: { tokens: Array<{ id: string; name: string; expiresA
     const method = (init?.method ?? 'GET').toUpperCase();
     if (path === '/v2/user') return json(200, { user: { username: 'canary' } });
     if (path === '/v3/user/tokens' && method === 'POST') {
+      const teamId = new URL(url).searchParams.get('teamId');
+      if (state.requireTeam && teamId !== state.requireTeam) {
+        return json(403, { error: { code: 'forbidden', message: `To create a token you must be authenticated to scope "${state.requireTeam}"` } });
+      }
       const body = JSON.parse(String(init?.body)) as { name: string; expiresAt: number };
       const meta = { id: `tok_${++seq}`, name: body.name, expiresAt: body.expiresAt };
       state.tokens.push(meta);
@@ -254,7 +265,7 @@ describe('provisioning credential guardrails', () => {
 
 describe('VercelApi', () => {
   it('mints with the verified {name, expiresAt} contract and burns by id', async () => {
-    const state = { tokens: [] as Array<{ id: string; name: string; expiresAt: number }>, burned: [] as string[] };
+    const state: { tokens: Array<{ id: string; name: string; expiresAt: number }>; burned: string[]; badTokens?: string[]; requireTeam?: string } = { tokens: [], burned: [] };
     const client = new VercelApi('prov-token', vercelFetch(state));
     const minted = await client.createToken('ba/claude/abc123', 30);
     expect(minted.bearerToken).toContain(minted.meta.id);
@@ -280,7 +291,7 @@ async function connectFixture(opts: { captureValue?: string } = {}) {
   const agent = await generateKeypair();
   const agentId = publicKeyToAgentId(agent.publicKey);
   await kr.addIdentity(owner, agentId, { name: 'claude-code' });
-  const state = { tokens: [] as Array<{ id: string; name: string; expiresAt: number }>, burned: [] as string[] };
+  const state: { tokens: Array<{ id: string; name: string; expiresAt: number }>; burned: string[]; badTokens?: string[]; requireTeam?: string } = { tokens: [], burned: [] };
   const infoLines: string[] = [];
   let launches = 0;
   const deps = {
@@ -361,6 +372,41 @@ describe('connectVercel (bootstrap-then-API)', () => {
     const result = await connectVercel(f.deps, { agentRef: 'claude-code' });
     expect(result.browserRan).toBe(true);
     expect(f.kr.findProvisioner('vercel')).not.toBeNull();
+  });
+
+  it('clipboard route: all DOM capture locators miss, Copy button + clipboard save the run', async () => {
+    const f = await connectFixture();
+    f.deps.launchDriver = async () => new FakeDriver({
+      missing: [
+        'the new token value in the dialog',
+        'the new token value (fallback)',
+        'the new token value (fallback 2)',
+        'the new token value (fallback 3)',
+      ],
+      clipboardValue: SECRET,
+    });
+    let pasteAsked = 0;
+    f.deps.pasteFallback = async () => { pasteAsked += 1; return null; };
+    const result = await connectVercel(f.deps, { agentRef: 'claude-code' });
+    expect(result.browserRan).toBe(true);
+    expect(pasteAsked).toBe(0); // clipboard made terminal paste unnecessary
+    expect(f.kr.findProvisioner('vercel')).not.toBeNull();
+  });
+
+  it('team-scoped provisioning token: mint retries with the slug from the 403 and persists it', async () => {
+    const f = await connectFixture();
+    f.state.requireTeam = 'maxfaingezicht-5224';
+    const result = await connectVercel(f.deps, { agentRef: 'claude-code' });
+    expect(result.credential.provider_key_id).toBeTruthy();
+    // The slug is remembered on the provisioning credential for future mints.
+    expect(f.kr.findProvisioner('vercel')?.provider_team).toBe('maxfaingezicht-5224');
+
+    // Second connect mints with teamId from the start — zero browser, no retry needed.
+    const other = await generateKeypair();
+    const otherId = publicKeyToAgentId(other.publicKey);
+    await f.kr.addIdentity(f.owner, otherId, { name: 'cursor' });
+    const second = await connectVercel(f.deps, { agentRef: 'cursor' });
+    expect(second.browserRan).toBe(false);
   });
 
   it('bootstrap sweeps stray ba/provisioning tokens from earlier failed attempts', async () => {

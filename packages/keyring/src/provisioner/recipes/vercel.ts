@@ -67,12 +67,16 @@ export const vercelBootstrapRecipe: Recipe = {
       ],
     },
     {
+      // Prefer full-account scope when Vercel offers it (a full-account token
+      // mints without teamId); otherwise the first option is the personal
+      // team, and the API client handles its teamId requirement.
       id: 'pick-scope',
       kind: 'click',
-      target: {
+      target: { role: 'option', name: 'Full Account', description: 'the "Full Account" scope option' },
+      fallbacks: [{
         css: '[role="option"]',
-        description: 'your personal account in the Scope list (the first option — pick your account, not a team)',
-      },
+        description: 'your personal account in the Scope list (the first option — pick your account, not another team)',
+      }],
     },
     {
       // Expiration is a NATIVE <select> (field-verified: OS-rendered menu with
@@ -107,6 +111,13 @@ export const vercelBootstrapRecipe: Recipe = {
         { css: 'code', description: 'the new token value (fallback 3)' },
       ],
       secretKey: 'token_value',
+      // DOM shape of the dialog is unconfirmed in the field — but every token
+      // dialog has a Copy button. Click it, read the clipboard.
+      copyButton: { role: 'button', name: 'Copy', description: 'the Copy button in the dialog' },
+      copyButtonFallbacks: [
+        { css: '[aria-label="Copy"]', description: 'the Copy button (fallback)' },
+        { css: 'text=Copy', description: 'the Copy button (fallback 2)' },
+      ],
       timeoutMs: 15_000,
     },
   ],
