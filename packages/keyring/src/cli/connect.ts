@@ -83,7 +83,8 @@ export async function cmdConnect(args: string[], dir: string | undefined): Promi
       pasteFallback: async (message) => {
         console.log('');
         console.log(`  ${message}`);
-        const v = await promptHidden('  Paste token (input hidden): ');
+        console.log('  (If NO token is visible — creation may have failed — just press Enter to cancel; nothing is saved, and re-running is safe.)');
+        const v = await promptHidden('  Paste token, or Enter to cancel (input hidden): ');
         return v.trim() || null;
       },
     },
