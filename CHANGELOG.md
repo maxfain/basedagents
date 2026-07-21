@@ -8,6 +8,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — capture salvage: a visible token is never thrown away (`@basedagents/keyring` 0.5.6)
+
+Fourth live run drove the ENTIRE form (scope, native-select expiration, submit —
+token created and shown), then failed at the last inch: the captured DOM value
+didn't authenticate, and the old code hard-errored — discarding a valid,
+once-shown token and stranding an orphan at the provider.
+
+- **Verify-or-salvage**: a captured value that fails auth (401/403) degrades to
+  assisted paste (two attempts) instead of erroring — the token on screen is
+  shown once and must never be wasted. Network failures are reported as such
+  ("the token in the dialog is still valid"), never as "rejected".
+- **Shape check before verify**: masked ("vc_ab…"), whitespace-y, or too-short
+  captures skip the doomed API call and go straight to paste. Diagnostics are
+  value-free (length only).
+- **Capture locators dialog-scoped first** — the page has other readonly inputs;
+  a wrong grab cost a whole run.
+- **Stray sweep**: after a successful bootstrap, orphaned `ba/provisioning/*`
+  tokens from earlier failed attempts are burned automatically (never the
+  current one, never user-made tokens).
+
 ### Fixed — Vercel recipe v4: native-select expiration (`@basedagents/keyring` 0.5.5)
 
 Third live run: Scope now selects correctly (v3's placeholder locator works),
