@@ -8,6 +8,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Keyring browser runs with the Chromium sandbox ON (`@basedagents/keyring` 0.5.2)
+
+Playwright disables Chromium's OS sandbox by default (`--no-sandbox`), which
+made the Keyring window show "Stability and security will suffer" — exactly the
+wrong banner for a window driving the user's real provider session. The driver
+now launches with `chromiumSandbox: true`: banner gone, real sandbox on.
+
 ### Fixed — Provisioner consent UX (`@basedagents/keyring` 0.5.1)
 
 Two field-reported issues from the first real `connect vercel` run:
