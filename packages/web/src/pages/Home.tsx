@@ -185,57 +185,77 @@ export default function Home(): React.ReactElement {
     <div className="home">
       {/* Hero */}
       <header className="home-hero">
-        <h1 className="home-h1">Stop pasting master keys into .env</h1>
+        <h1 className="home-h1">Never paste a key into a chat again</h1>
         <p className="home-lede">
-          Your coding agent doesn't need your AWS root and your Supabase service role sitting in a
-          plaintext file. Give Claude Code, Codex, and Cursor their own scoped keys — see everything
-          they hold, cut them off in one tap.
+          Sooner or later your AI asks you to paste a key so it can deploy, save, or publish for you.
+          Don't. Keyring gives your agent its own key to each account — you approve with a tap, see
+          everything it can touch, and cut it off any time.
         </p>
         <HeroSetup />
-        <p className="home-tags">Free for 3 agents · Open source · One paste or one email — never a form</p>
+        <p className="home-tags">Free for 3 agents · Open source · Your agent sets it up — about a minute</p>
       </header>
 
-      {/* The story */}
+      {/* The three steps */}
       <section className="home-section">
-        <h2 className="home-h2">The story</h2>
+        <h2 className="home-h2">Three steps, and the last two are just clicking</h2>
+        <ol className="home-steps">
+          <li>
+            <b>Copy the prompt above into your agent.</b> It sets everything up and hands you back a
+            link.
+          </li>
+          <li>
+            <b>Click the link.</b> One email field, no password — that's your control screen.
+          </li>
+          <li>
+            <b>Tap Approve when your agent asks.</b> Your first yes creates a passkey — the Face ID
+            prompt — and from then on it's just: your agent asks, you tap.
+          </li>
+        </ol>
+      </section>
+
+      {/* The moment */}
+      <section className="home-section">
+        <h2 className="home-h2">The key your agent asks for opens everything</h2>
         <p>
-          Handing your agent a <code>.env</code> file is handing it the master key to the building.
-          Keyring hands it a hotel key card: opens one door, expires on its own, the front desk can
-          deactivate it in a second — and there's a log of every door it ever opened.
+          When an agent says &ldquo;paste your key here,&rdquo; that key usually opens the whole
+          account — and pasting it into the chat means it lives in the conversation forever. Keyring
+          is the hotel front desk instead: your agent gets a key card that opens one door, expires on
+          its own, can be switched off in a second — and every door it opens is on the record.
         </p>
       </section>
 
-      {/* Control strip */}
+      {/* The three verbs */}
       <section className="home-section">
-        <h2 className="home-h2">You stay in control</h2>
+        <h2 className="home-h2">You only ever do three things</h2>
         <div className="home-tiles">
           <div className="home-tile">
-            <b>Every key, one screen.</b>
-            <p>Which agent holds what, and when it was last used.</p>
+            <b>Connect.</b>
+            <p>Say yes once and your agent gets its own key to that one account — your passwords and sign-ins stay yours.</p>
           </div>
           <div className="home-tile">
-            <b>Approve from your phone.</b>
-            <p>New requests buzz you; one tap says yes.</p>
+            <b>Approve.</b>
+            <p>Anything new, your phone asks. One tap to allow, one to refuse — and every yes stays visible on one screen.</p>
           </div>
           <div className="home-tile">
-            <b>The kill switch.</b>
-            <p>Everything an agent holds, gone in a second — and it tells you if anything outside Keyring can still act.</p>
+            <b>Cut off.</b>
+            <p>The kill switch takes back everything an agent holds, in one second — and tells you if anything outside Keyring can still act.</p>
           </div>
         </div>
       </section>
 
       {/* Under the hood: the registry */}
       <section className="home-section">
-        <h2 className="home-h2">Under the hood: the BasedAgents registry</h2>
+        <h2 className="home-h2">Under the hood</h2>
         <p>
-          Keyring works because every key is bound to a <strong>cryptographic identity</strong>. Agents
-          register in the public BasedAgents registry — an Ed25519 keypair, a proof-of-work stamp, a
-          permanent <code>ag_</code> ID no one can fake. You claim your agents with your email; your
-          first approval mints a passkey that signs every grant. The result is a verifiable chain of
-          authority from a human decision to every key an agent ever uses — not a database row that says
-          "trust us."
+          Every key is cryptographically tied to one agent — a permanent <code>ag_</code> ID in the
+          open BasedAgents registry that no one can fake. Every yes you give is signed with your
+          passkey, so there is a provable line from your decision to every key your agent uses — not
+          a database row that says "trust us."
         </p>
-        <p style={{ marginTop: 14 }}>The registry is open, platform-neutral, and free to build on.</p>
+        <p style={{ marginTop: 14 }}>
+          The registry is open, platform-neutral, and free to build on. Engineers: the deep dive
+          lives at <a href="/keyring">/keyring</a>.
+        </p>
         <div className="home-cta-links">
           <a href="/registry">Explore the registry →</a>
           <a href="/docs/agents"><code>npx basedagents register</code></a>
@@ -261,7 +281,8 @@ export default function Home(): React.ReactElement {
 
       {/* Works with your stack */}
       <section className="home-section">
-        <h2 className="home-h2">Works with your stack</h2>
+        <h2 className="home-h2">Works with what your agent uses</h2>
+        <p>Your agent probably deploys and saves with these. Vote for what you need next.</p>
         <div className="home-grid">
           {LIVE_PROVIDERS.map((name) => (
             <div key={name} className="home-gtile home-gtile-live">

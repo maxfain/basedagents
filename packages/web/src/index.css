@@ -549,6 +549,20 @@ h3 {
   margin-bottom: 4px;
 }
 
+.home-steps {
+  margin: 8px 0 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 12px;
+}
+.home-steps li {
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+.home-steps li b {
+  color: var(--text-primary);
+}
+
 .home-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
