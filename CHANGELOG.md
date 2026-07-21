@@ -8,6 +8,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Provisioner v1: Vercel (`@basedagents/keyring` 0.5.0)
+
+Mint, rotate, and burn Vercel tokens on the user's behalf using their own
+authenticated session — Playwright on a dedicated Keyring browser profile,
+headful, consent-first. First provider implementation of the Provisioner spec;
+the engine is provider-generic, the recipe is Vercel's.
+
+- **Bootstrap-then-API.** The browser runs ONCE per account, minting a classic
+  account-scope *provisioning credential*; every mint/verify/rotate/burn after
+  that is API-by-id (second connect: zero browser, seconds). The Vercel token
+  API contract was verified against production (strict `{name, expiresAt}`
+  schema — which also proves the API cannot mint narrower scopes today; the
+  credential card records the honest account-wide blast radius).
+- **Provisioning credential guardrails.** New `provisioner` credential class:
+  never leasable, never grantable to any agent through any path (enforced at
+  the single grant choke point + a belt-and-braces lease deny), invisible to
+  agent listings, auto-rotated ~14 days before expiry (one API mint + one burn,
+  no browser), individually burnable.
+- **Recipe engine.** Recipes are data (role-based locators + CSS fallbacks);
+  the engine enforces the domain allowlist on every navigation and after every
+  step (a tampered recipe is refused before consent), pauses at checkpoints for
+  human handoff instead of crashing, halts all steps during login, and degrades
+  a failed capture to assisted paste — never a dead end. Secret values exist
+  only in the returned capture map: never in transcripts, events, or output.
+- **CLI + kill switch.** `based connect vercel` (consent sheet → window →
+  done-card with real blast radius; refuses headless with the sandbox-routing
+  message). `based kill` now also burns the agent's Vercel tokens at the
+  provider by id and reports per-token status; the provisioning credential is
+  never auto-burned.
+- **Weekly canary** (`canary-vercel.yml` + `scripts/canary-vercel.mjs`): live
+  API mint→verify→list→burn cycle plus the recipe's logged-out page contract,
+  filing an issue on drift. Requires a `VERCEL_CANARY_TOKEN` repo secret;
+  skips cleanly without it.
+- Console Vercel card now shows the automatic path
+  (`npx basedagents keyring connect vercel`) above assisted paste. Marketing
+  site nav gains a Blog link. `basedagents` 0.6.3 picks up the keyring 0.5.0
+  dependency range.
+
 ### npm releases in this cut
 
 - **`@basedagents/keyring` 0.3.0 → 0.4.1** — Custody Fixes v0.1.1 (execution

@@ -14,6 +14,12 @@ export interface ProviderCard {
   placeholder: string;
   looksValid: (token: string) => boolean;
   hint: string;
+  /**
+   * Provisioner path: a command the human runs on THEIR computer that mints a
+   * scoped token automatically (browser once, API afterwards). Shown above the
+   * assisted-paste steps when present.
+   */
+  automatic?: { command: string; blurb: string };
 }
 
 export const PROVIDER_CARDS: ProviderCard[] = [
@@ -30,6 +36,10 @@ export const PROVIDER_CARDS: ProviderCard[] = [
     placeholder: 'Paste your Vercel token',
     looksValid: (t) => t.trim().length >= 20,
     hint: 'Vercel tokens are long random strings (24+ characters).',
+    automatic: {
+      command: 'npx basedagents keyring connect vercel',
+      blurb: 'Automatic — run this on your computer; it opens a window once, then future tokens take seconds.',
+    },
   },
   {
     id: 'supabase',

@@ -80,6 +80,25 @@ export async function cmdKill(args: string[], dir: string | undefined): Promise<
     printRevocationNotes();
   }
 
+  // Provisioner §6: revoking a grant blocks Keyring leases, but the token still
+  // works at the PROVIDER until burned. Burn every provider-side token this
+  // agent held, by id, and report per-token — honesty over green checkmarks.
+  const revokedCredIds = result.revoked_grant_ids
+    .map((gid) => vault.grants[gid]?.credential_id)
+    .filter((c): c is string => Boolean(c));
+  if (revokedCredIds.length > 0) {
+    const { burnVercelTokensForAgent } = await import('../provisioner/connect.js');
+    const burns = await burnVercelTokensForAgent({ kr, owner: kr.ownerKeypair() }, [...new Set(revokedCredIds)]);
+    if (burns.length > 0) {
+      console.log('');
+      console.log('Provider-side burn (Vercel):');
+      for (const b of burns) {
+        const mark = b.result === 'burned' || b.result === 'already_gone' ? '✓' : '⚠';
+        console.log(`    ${mark} ${b.label}: ${b.result}`);
+      }
+    }
+  }
+
   // Custody Fix 2: the kill switch is only honest if it also reports what
   // Keyring's revocation does NOT reach. Green only when residuals = 0.
   console.log('');
