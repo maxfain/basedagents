@@ -87,6 +87,80 @@ async function mintWithScopeRetry(
   }
 }
 
+/**
+ * Drive the browser recipe to mint ONE token and return its verified value.
+ * Shared by the provisioning bootstrap and the browser-per-mint fallback (the
+ * ladder's last rung, for accounts whose tokens cannot mint via the API).
+ */
+async function browserMintValue(
+  deps: ConnectDeps,
+  tokenName: string,
+  expirationLabel: string,
+  purpose: string[]
+): Promise<{ value: string; transcript: Array<{ step: string; result: string }> }> {
+  const { hooks } = deps;
+  const outcome: RunOutcome = await runRecipe(
+    vercelBootstrapRecipe,
+    deps.launchDriver, // engine launches AFTER consent (§3)
+    hooks,
+    { token_name: tokenName, expiration_label: expirationLabel },
+    purpose
+  );
+
+  let value: string | null = null;
+  let transcript: Array<{ step: string; result: string }> = [];
+  if (outcome.status === 'completed') {
+    const captured = (outcome.captured.get('token_value') ?? '').trim();
+    transcript = outcome.transcript;
+    // DOM capture can grab a masked display ("vc_ab…"), a copy-button label, or
+    // the wrong readonly input entirely — sanity-check the SHAPE before trusting
+    // it, and report only value-free diagnostics (length / masking), never the
+    // string itself.
+    const problem = capturedShapeProblem(captured);
+    if (problem) {
+      hooks.info(`The value I grabbed from the page ${problem} — falling back to paste.`);
+    } else {
+      value = captured;
+    }
+  } else if (outcome.status === 'fallback_paste') {
+    transcript = [...outcome.transcript, { step: outcome.atStep, result: 'manual' }];
+  } else {
+    throw new Error(`Connect stopped: ${outcome.reason}`);
+  }
+
+  // §5 step 6 — verify immediately; a bad capture must not be enshrined. The
+  // token on the user's screen is shown ONCE, so a failed capture/verify must
+  // degrade to paste — never discard a valid visible token.
+  return { value: await verifyOrSalvage(deps, value), transcript };
+}
+
+/** Closest browser expiration option at or above the requested days. */
+function expirationLabelForDays(days: number): string {
+  if (days <= 1) return '1 Day';
+  if (days <= 7) return '7 Days';
+  if (days <= 30) return '30 Days';
+  if (days <= 60) return '60 Days';
+  if (days <= 90) return '90 Days';
+  if (days <= 180) return '180 Days';
+  return '1 Year';
+}
+
+/** Remove a provisioning credential that turned out unable to mint: burn its
+ *  provider-side token best-effort (a token may delete itself), drop it from
+ *  the vault, and say so. */
+async function discardProvisioner(deps: ConnectDeps, credentialId: string): Promise<void> {
+  const { kr, owner, hooks } = deps;
+  try {
+    const cred = kr.credentialsView().find((c) => c.credential_id === credentialId);
+    if (cred?.provider_key_id) {
+      const value = kr.provisionerValue(owner, credentialId);
+      await api(deps, value, cred.provider_team).deleteToken(cred.provider_key_id);
+    }
+  } catch { /* best-effort provider-side cleanup */ }
+  await kr.removeCredential(owner, credentialId);
+  hooks.info('Discarded the provisioning token that could not mint (burned at Vercel where possible).');
+}
+
 /** A valid provisioning token value, bootstrapping via the browser if needed. */
 async function ensureProvisioner(
   deps: ConnectDeps
@@ -114,42 +188,10 @@ async function ensureProvisioner(
 
   // ── Bootstrap (browser, once per account) ──
   const tokenName = `ba/provisioning/${randomBytes(4).toString('hex')}`;
-  const outcome: RunOutcome = await runRecipe(
-    vercelBootstrapRecipe,
-    deps.launchDriver, // engine launches AFTER consent (§3)
-    hooks,
-    { token_name: tokenName },
-    [
-      `Keyring then creates a Vercel token FOR you — named ${tokenName}, expiring in ${PROV_EXPIRY_DAYS} days. Nothing for you to click.`,
-      'That token can mint other tokens, so future connects need no browser at all.',
-    ]
-  );
-
-  let value: string | null = null;
-  let transcript: Array<{ step: string; result: string }> = [];
-  if (outcome.status === 'completed') {
-    const captured = (outcome.captured.get('token_value') ?? '').trim();
-    transcript = outcome.transcript;
-    // DOM capture can grab a masked display ("vc_ab…"), a copy-button label, or
-    // the wrong readonly input entirely — sanity-check the SHAPE before trusting
-    // it, and report only value-free diagnostics (length / masking), never the
-    // string itself.
-    const problem = capturedShapeProblem(captured);
-    if (problem) {
-      hooks.info(`The value I grabbed from the page ${problem} — falling back to paste.`);
-    } else {
-      value = captured;
-    }
-  } else if (outcome.status === 'fallback_paste') {
-    transcript = [...outcome.transcript, { step: outcome.atStep, result: 'manual' }];
-  } else {
-    throw new Error(`Connect stopped: ${outcome.reason}`);
-  }
-
-  // §5 step 6 — verify immediately; a bad capture must not be enshrined. The
-  // token on the user's screen is shown ONCE, so a failed capture/verify must
-  // degrade to paste — never discard a valid visible token.
-  value = await verifyOrSalvage(deps, value);
+  const { value, transcript } = await browserMintValue(deps, tokenName, '90 Days', [
+    `Keyring then creates a Vercel token FOR you — named ${tokenName}, expiring in ${PROV_EXPIRY_DAYS} days. Nothing for you to click.`,
+    'That token can mint other tokens, so future connects need no browser at all.',
+  ]);
 
   // Find the provider-side id so burn/rotate work by id.
   const client = api(deps, value);
@@ -263,25 +305,68 @@ export async function connectVercel(
 ): Promise<ConnectResult> {
   const { kr, owner } = deps;
   const days = opts.expiryDays ?? AGENT_TOKEN_EXPIRY_DAYS_DEFAULT;
-  const prov = await ensureProvisioner(deps);
-  const { value: provValue, browserRan } = prov;
+  let prov = await ensureProvisioner(deps);
+  let browserRan = prov.browserRan;
 
   const grant8 = randomBytes(4).toString('hex');
   const tokenName = `ba/${slug(opts.agentName ?? opts.agentRef)}/${grant8}`;
   deps.hooks.info(`Minting ${tokenName} via the Vercel API (${days}-day expiry)…`);
-  const { minted, teamId } = await mintWithScopeRetry(deps, provValue, prov.teamId, tokenName, days);
-  if (teamId && teamId !== prov.teamId) {
-    // Remember the scope so every future mint/rotate/burn carries it directly.
-    await kr.updateCredentialMeta(owner, prov.credentialId, { provider_team: teamId });
+
+  // The mint ladder (field-driven): API mint → re-bootstrap with full-account
+  // access and retry → mint in the browser itself. Vercel refuses token
+  // creation for team-scoped auth even WITH ?teamId ("use a token with access
+  // to this scope"), so an old team-scoped provisioning token is unfixable by
+  // parameters alone.
+  const tryApiMint = async (): Promise<Awaited<ReturnType<VercelApi['createToken']>> | null> => {
+    try {
+      const r = await mintWithScopeRetry(deps, prov.value, prov.teamId, tokenName, days);
+      if (r.teamId && r.teamId !== prov.teamId) {
+        // Remember the scope so every future mint/rotate/burn carries it directly.
+        await kr.updateCredentialMeta(owner, prov.credentialId, { provider_team: r.teamId });
+      }
+      return r.minted;
+    } catch (err) {
+      if (err instanceof VercelApiError && err.status === 403) return null;
+      throw err;
+    }
+  };
+
+  let minted = await tryApiMint();
+  let mintedScope = VERCEL_AGENT_TOKEN_SCOPE;
+
+  if (!minted && !prov.browserRan) {
+    deps.hooks.info('This provisioning token cannot mint via the API — redoing the one-time browser setup (full-account access).');
+    await discardProvisioner(deps, prov.credentialId);
+    prov = await ensureProvisioner(deps);
+    browserRan = true;
+    minted = await tryApiMint();
   }
+
+  if (!minted) {
+    deps.hooks.info('Vercel does not allow API minting for this account — creating the agent token in the browser instead.');
+    const { value } = await browserMintValue(deps, tokenName, expirationLabelForDays(days), [
+      `Keyring then creates a Vercel token FOR you — named ${tokenName}, expiring in ${expirationLabelForDays(days)}. Nothing for you to click.`,
+    ]);
+    browserRan = true;
+    mintedScope = 'as selected in the browser (see the token on the Vercel dashboard)';
+    let lookedUp;
+    try {
+      lookedUp = (await api(deps, prov.value, prov.teamId).listTokens()).find((t) => t.name === tokenName);
+    } catch { lookedUp = undefined; }
+    minted = {
+      meta: lookedUp ?? { id: '', name: tokenName, expiresAt: Date.now() + days * 86_400_000 },
+      bearerToken: value,
+    };
+  }
+
   const expiresAtIso = new Date(minted.meta.expiresAt ?? Date.now() + days * 86_400_000).toISOString();
 
   const credential = await kr.addCredential(owner, {
     label: `Vercel token (${opts.agentName ?? opts.agentRef})`,
     provider: 'vercel',
     env_var: 'VERCEL_TOKEN',
-    scope: VERCEL_AGENT_TOKEN_SCOPE,
-    provider_key_id: minted.meta.id,
+    scope: mintedScope,
+    provider_key_id: minted.meta.id || undefined,
     provider_expires_at: expiresAtIso,
   }, minted.bearerToken);
 
@@ -292,9 +377,9 @@ export async function connectVercel(
     credentialId: credential.credential_id,
     context: `connect vercel for ${opts.agentRef}`,
     detail: {
-      token_id: minted.meta.id,
+      token_id: minted.meta.id || null,
       token_name: tokenName,
-      scope: VERCEL_AGENT_TOKEN_SCOPE,
+      scope: mintedScope,
       expires_at: expiresAtIso,
       grant_id: grant.grant_id,
       browser_ran: browserRan,
@@ -306,7 +391,7 @@ export async function connectVercel(
     grantId: grant.grant_id,
     agentId: grant.agent_id,
     tokenName,
-    scope: VERCEL_AGENT_TOKEN_SCOPE,
+    scope: mintedScope,
     expiresAt: expiresAtIso,
     browserRan,
   };

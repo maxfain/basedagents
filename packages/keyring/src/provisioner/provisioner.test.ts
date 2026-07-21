@@ -93,7 +93,7 @@ function autoHooks(record?: string[]): EngineHooks {
 
 // ── Vercel API fetch mock (contract shapes verified live against production) ──
 
-function vercelFetch(state: { tokens: Array<{ id: string; name: string; expiresAt: number }>; burned: string[]; badTokens?: string[]; requireTeam?: string }) {
+function vercelFetch(state: { tokens: Array<{ id: string; name: string; expiresAt: number }>; burned: string[]; badTokens?: string[]; requireTeam?: string; apiMintForbidden?: boolean }) {
   let seq = 0;
   const impl = async (url: string, init?: RequestInit): Promise<Response> => {
     const auth = ((init?.headers as Record<string, string>)?.Authorization ?? '').replace('Bearer ', '');
@@ -106,6 +106,9 @@ function vercelFetch(state: { tokens: Array<{ id: string; name: string; expiresA
     const method = (init?.method ?? 'GET').toUpperCase();
     if (path === '/v2/user') return json(200, { user: { username: 'canary' } });
     if (path === '/v3/user/tokens' && method === 'POST') {
+      if (state.apiMintForbidden) {
+        return json(403, { error: { code: 'forbidden', message: 'Not authorized: Trying to access resource under scope "maxfaingezicht-5224". You must re-authenticate to this scope or use a token with access to this scope.' } });
+      }
       const teamId = new URL(url).searchParams.get('teamId');
       if (state.requireTeam && teamId !== state.requireTeam) {
         return json(403, { error: { code: 'forbidden', message: `To create a token you must be authenticated to scope "${state.requireTeam}"` } });
@@ -265,7 +268,7 @@ describe('provisioning credential guardrails', () => {
 
 describe('VercelApi', () => {
   it('mints with the verified {name, expiresAt} contract and burns by id', async () => {
-    const state: { tokens: Array<{ id: string; name: string; expiresAt: number }>; burned: string[]; badTokens?: string[]; requireTeam?: string } = { tokens: [], burned: [] };
+    const state: { tokens: Array<{ id: string; name: string; expiresAt: number }>; burned: string[]; badTokens?: string[]; requireTeam?: string; apiMintForbidden?: boolean } = { tokens: [], burned: [] };
     const client = new VercelApi('prov-token', vercelFetch(state));
     const minted = await client.createToken('ba/claude/abc123', 30);
     expect(minted.bearerToken).toContain(minted.meta.id);
@@ -291,7 +294,7 @@ async function connectFixture(opts: { captureValue?: string } = {}) {
   const agent = await generateKeypair();
   const agentId = publicKeyToAgentId(agent.publicKey);
   await kr.addIdentity(owner, agentId, { name: 'claude-code' });
-  const state: { tokens: Array<{ id: string; name: string; expiresAt: number }>; burned: string[]; badTokens?: string[]; requireTeam?: string } = { tokens: [], burned: [] };
+  const state: { tokens: Array<{ id: string; name: string; expiresAt: number }>; burned: string[]; badTokens?: string[]; requireTeam?: string; apiMintForbidden?: boolean } = { tokens: [], burned: [] };
   const infoLines: string[] = [];
   let launches = 0;
   const deps = {
@@ -407,6 +410,32 @@ describe('connectVercel (bootstrap-then-API)', () => {
     await f.kr.addIdentity(f.owner, otherId, { name: 'cursor' });
     const second = await connectVercel(f.deps, { agentRef: 'cursor' });
     expect(second.browserRan).toBe(false);
+  });
+
+  it('mint ladder rung 3: API minting forbidden entirely → agent token minted in the browser', async () => {
+    const f = await connectFixture();
+    f.state.apiMintForbidden = true;
+    const result = await connectVercel(f.deps, { agentRef: 'claude-code' });
+    // Bootstrap browser + agent-token browser = two launches, and it SUCCEEDS.
+    expect(f.launches()).toBe(2);
+    expect(result.browserRan).toBe(true);
+    expect(result.scope).toContain('browser');
+    const lease = await f.kr.lease(f.agent, result.credential.credential_id);
+    expect(lease.value).toBe(SECRET);
+  });
+
+  it('mint ladder rung 2: an existing prov that cannot mint is discarded and re-bootstrapped', async () => {
+    const f = await connectFixture();
+    await connectVercel(f.deps, { agentRef: 'claude-code' }); // healthy first connect (1 launch)
+    f.state.apiMintForbidden = true;
+    const other = await generateKeypair();
+    await f.kr.addIdentity(f.owner, publicKeyToAgentId(other.publicKey), { name: 'cursor' });
+    const second = await connectVercel(f.deps, { agentRef: 'cursor' });
+    // Existing prov fails to mint → re-bootstrap (launch 2) → still forbidden →
+    // browser-per-mint (launch 3). Never a dead end.
+    expect(f.launches()).toBe(3);
+    expect(second.browserRan).toBe(true);
+    expect(f.kr.findProvisioner('vercel')).not.toBeNull(); // fresh prov kept for burns/list
   });
 
   it('bootstrap sweeps stray ba/provisioning tokens from earlier failed attempts', async () => {

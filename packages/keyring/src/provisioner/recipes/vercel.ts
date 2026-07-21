@@ -90,6 +90,9 @@ export const vercelBootstrapRecipe: Recipe = {
         { css: 'select', description: 'the Expiration dropdown (fallback 2)' },
       ],
       optionLabel: '90 Days',
+      // Overridable so the same recipe mints agent tokens (browser-per-mint
+      // fallback) with their own expiry.
+      optionLabelParam: 'expiration_label',
     },
     {
       id: 'submit',

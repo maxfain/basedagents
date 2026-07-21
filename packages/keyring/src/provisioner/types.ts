@@ -47,6 +47,8 @@ export type RecipeStep =
       fallbacks?: RecipeLocator[];
       /** Exact visible label of the option, e.g. "90 Days". */
       optionLabel: string;
+      /** Params key that overrides optionLabel when present (reusable recipes). */
+      optionLabelParam?: string;
       timeoutMs?: number;
     }
   | {

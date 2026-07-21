@@ -8,6 +8,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the mint ladder: browser-per-mint fallback (`@basedagents/keyring` 0.5.8)
+
+Sixth live run settled it: Vercel refuses token creation for team-scoped auth
+even WITH ?teamId ("use a token with access to this scope") — for accounts
+without a full-account token, **the browser is the mint path, period** (the
+founder called it). Minting is now a three-rung ladder that cannot dead-end:
+
+1. **API mint** (with the persisted teamId) — the fast path when it works.
+2. **Re-bootstrap once**: an older provisioning token that cannot mint is
+   discarded (burned at Vercel where possible) and the browser setup re-runs,
+   now preferring "Full Account" scope — which can mint via the API.
+3. **Browser-per-mint**: if the API still refuses, the SAME recipe mints the
+   agent token itself in the browser (parameterized name + expiry), verified
+   and vaulted like any other. The credential card records the honest
+   browser-selected scope.
+
+The recipe's expiration step is parameterized (`expiration_label`) so one
+recipe serves both provisioning (90 Days) and agent tokens (mapped from
+--days). Ladder is test-pinned end-to-end: rung-3 fresh connect = 2 browser
+launches and succeeds; rung-2 existing-prov case = discard → re-bootstrap →
+per-mint (3 launches), never a dead end.
+
 ### Fixed — team-scope minting + clipboard capture (`@basedagents/keyring` 0.5.7)
 
 Fifth live run BOOTSTRAPPED (paste salvage worked, stray cleanup ran) and then
