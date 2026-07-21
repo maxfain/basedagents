@@ -164,6 +164,10 @@ export class PlaywrightDriver implements Driver {
     return this.page.evaluate<string>('navigator.clipboard.readText()');
   }
 
+  async writeClipboard(text: string): Promise<void> {
+    await this.page.evaluate<void>(`navigator.clipboard.writeText(${JSON.stringify(text)})`);
+  }
+
   async close(): Promise<void> {
     await this.context.close();
   }

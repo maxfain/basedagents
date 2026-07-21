@@ -305,6 +305,12 @@ export async function connectVercel(
 ): Promise<ConnectResult> {
   const { kr, owner } = deps;
   const days = opts.expiryDays ?? AGENT_TOKEN_EXPIRY_DAYS_DEFAULT;
+
+  // Validate the grantee BEFORE any minting: a provider-side token is an
+  // external side effect, and an unknown identity must fail here — not after
+  // a token already exists at Vercel (field-reported orphan).
+  const agentId = kr.resolveAgent(kr.vault(), opts.agentRef);
+
   let prov = await ensureProvisioner(deps);
   let browserRan = prov.browserRan;
 
@@ -361,17 +367,27 @@ export async function connectVercel(
 
   const expiresAtIso = new Date(minted.meta.expiresAt ?? Date.now() + days * 86_400_000).toISOString();
 
-  const credential = await kr.addCredential(owner, {
-    label: `Vercel token (${opts.agentName ?? opts.agentRef})`,
-    provider: 'vercel',
-    env_var: 'VERCEL_TOKEN',
-    scope: mintedScope,
-    provider_key_id: minted.meta.id || undefined,
-    provider_expires_at: expiresAtIso,
-  }, minted.bearerToken);
+  let credential: CredentialPublic | undefined;
+  let grant;
+  try {
+    credential = await kr.addCredential(owner, {
+      label: `Vercel token (${opts.agentName ?? opts.agentRef})`,
+      provider: 'vercel',
+      env_var: 'VERCEL_TOKEN',
+      scope: mintedScope,
+      provider_key_id: minted.meta.id || undefined,
+      provider_expires_at: expiresAtIso,
+    }, minted.bearerToken);
 
-  const constraints: GrantConstraints = { expires_at: expiresAtIso };
-  const grant = await kr.createGrant(owner, credential.credential_id, opts.agentRef, constraints);
+    const constraints: GrantConstraints = { expires_at: expiresAtIso };
+    grant = await kr.createGrant(owner, credential.credential_id, agentId, constraints);
+  } catch (err) {
+    // Compensating rollback: a minted provider-side token must not outlive a
+    // failed vault write — burn it and drop the half-written credential.
+    try { if (credential) await kr.removeCredential(owner, credential.credential_id); } catch { /* best effort */ }
+    try { if (minted.meta.id) await api(deps, prov.value, prov.teamId).deleteToken(minted.meta.id); } catch { /* best effort */ }
+    throw err;
+  }
 
   await kr.recordProvisioner(owner, 'provisioner_mint', {
     credentialId: credential.credential_id,

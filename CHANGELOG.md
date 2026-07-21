@@ -8,6 +8,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — capture provenance + no orphaned mints (`@basedagents/keyring` 0.5.9)
+
+Two field reports from the first fully-working day:
+
+- **"Did the clipboard capture work, or did it work because I clicked Copy?"**
+  Legitimate doubt — and a real corner: a stale clipboard (the human's own
+  Copy click) could have masqueraded as an engine capture. The engine now
+  PRE-CLEARS the clipboard before its own Copy click (a non-empty read can only
+  come from our click), clears it again after capture (a live token in a
+  clipboard manager is a leak surface), and SAYS which route fired: "Captured
+  the token straight from the page (…)" vs "Clicked the dialog's Copy button
+  and read the clipboard (cleared it afterwards)". Test-pinned: a stale
+  clipboard value falls through to honest paste.
+- **`connect --agent max_test` minted a token, then failed "Unknown identity"**
+  — leaving an orphaned live token at Vercel and an ungranted credential in
+  the vault. The grantee is now validated BEFORE any minting (CLI shows the
+  vault's roster and how agents join); if a post-mint vault write ever fails,
+  a compensating rollback burns the minted token and drops the half-written
+  credential. And `based rm` on a Vercel credential now burns the token at the
+  provider by id (when a provisioning token is on hand) instead of leaving it
+  alive — custody honesty for cleanup, which also disposes of the orphan this
+  bug created.
+
 ### Fixed — the mint ladder: browser-per-mint fallback (`@basedagents/keyring` 0.5.8)
 
 Sixth live run settled it: Vercel refuses token creation for team-scoped auth

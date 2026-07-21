@@ -39,15 +39,18 @@ interface FakeOpts {
   /** URL the page "lands on" after the given step's action. */
   hijackAfter?: { description: string; url: string };
   loggedIn?: boolean;
-  /** What readClipboard returns after a Copy-button click; absent = clipboard unavailable. */
+  /** Initial clipboard contents (e.g. a human's earlier Copy); absent = clipboard unavailable. */
   clipboardValue?: string;
+  /** What an ENGINE click on the Copy button puts in the clipboard. */
+  copyProduces?: string;
 }
 
 class FakeDriver implements Driver {
   url = 'about:blank';
   log: string[] = [];
   closed = false;
-  constructor(private opts: FakeOpts) {}
+  private clipboard: string | undefined;
+  constructor(private opts: FakeOpts) { this.clipboard = opts.clipboardValue; }
   private resolves(l: RecipeLocator): boolean {
     if ((this.opts.missing ?? []).includes(l.description)) return false;
     if (l.description.includes('Create button on the Tokens page')) return this.opts.loggedIn !== false;
@@ -59,6 +62,9 @@ class FakeDriver implements Driver {
   async click(l: RecipeLocator): Promise<void> {
     if (!this.resolves(l)) throw new Error(`not found: ${l.description}`);
     this.log.push(`click ${l.description}`);
+    if (l.description.includes('Copy button') && this.opts.copyProduces != null) {
+      this.clipboard = this.opts.copyProduces;
+    }
     const h = this.opts.hijackAfter;
     if (h && l.description === h.description) this.url = h.url;
   }
@@ -71,9 +77,13 @@ class FakeDriver implements Driver {
     this.log.push(`select ${l.description}=${label}`);
   }
   async readClipboard(): Promise<string> {
-    if (this.opts.clipboardValue == null) throw new Error('clipboard unavailable');
+    if (this.clipboard == null) throw new Error('clipboard unavailable');
     this.log.push('read clipboard');
-    return this.opts.clipboardValue;
+    return this.clipboard;
+  }
+  async writeClipboard(text: string): Promise<void> {
+    this.clipboard = text;
+    this.log.push('write clipboard');
   }
   async read(l: RecipeLocator): Promise<string> {
     if (!this.resolves(l)) throw new Error(`not found: ${l.description}`);
@@ -386,7 +396,8 @@ describe('connectVercel (bootstrap-then-API)', () => {
         'the new token value (fallback 2)',
         'the new token value (fallback 3)',
       ],
-      clipboardValue: SECRET,
+      clipboardValue: '',
+      copyProduces: SECRET,
     });
     let pasteAsked = 0;
     f.deps.pasteFallback = async () => { pasteAsked += 1; return null; };
@@ -394,6 +405,24 @@ describe('connectVercel (bootstrap-then-API)', () => {
     expect(result.browserRan).toBe(true);
     expect(pasteAsked).toBe(0); // clipboard made terminal paste unnecessary
     expect(f.kr.findProvisioner('vercel')).not.toBeNull();
+  });
+
+  it('a stale clipboard value can never masquerade as an engine capture (pre-clear)', async () => {
+    const f = await connectFixture();
+    f.deps.launchDriver = async () => new FakeDriver({
+      missing: [
+        'the new token value in the dialog',
+        'the new token value (fallback)',
+        'the new token value (fallback 2)',
+        'the new token value (fallback 3)',
+      ],
+      clipboardValue: 'STALE_HUMAN_COPY_1234567890abcdef', // human clicked Copy earlier
+      // engine's own click produces nothing (wrong element labeled Copy)
+    });
+    let pasteAsked = 0;
+    f.deps.pasteFallback = async () => { pasteAsked += 1; return 'PASTED_real_token_value_1234567890abcdef'; };
+    await connectVercel(f.deps, { agentRef: 'claude-code' });
+    expect(pasteAsked).toBe(1); // stale value was wiped, engine fell to paste honestly
   });
 
   it('team-scoped provisioning token: mint retries with the slug from the 403 and persists it', async () => {
@@ -436,6 +465,15 @@ describe('connectVercel (bootstrap-then-API)', () => {
     expect(f.launches()).toBe(3);
     expect(second.browserRan).toBe(true);
     expect(f.kr.findProvisioner('vercel')).not.toBeNull(); // fresh prov kept for burns/list
+  });
+
+  it('unknown agent identity fails BEFORE any token is minted (no provider side effects)', async () => {
+    const f = await connectFixture();
+    await connectVercel(f.deps, { agentRef: 'claude-code' }); // healthy bootstrap
+    const before = f.state.tokens.length;
+    await expect(connectVercel(f.deps, { agentRef: 'max_test' })).rejects.toMatchObject({ code: 'unknown_identity' });
+    expect(f.state.tokens.length).toBe(before); // nothing minted at Vercel
+    expect(f.kr.credentialsView().filter((c) => !c.provisioner)).toHaveLength(1); // no orphan credential
   });
 
   it('bootstrap sweeps stray ba/provisioning tokens from earlier failed attempts', async () => {

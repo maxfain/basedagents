@@ -197,11 +197,13 @@ async function runStep(
 
   // capture — the one step a human can't do by hand into our memory: a failed
   // capture degrades to clipboard-via-Copy-button, then the assisted-paste flow
-  // (§4: never a dead end).
+  // (§4: never a dead end). Every successful route SAYS which one it was, so a
+  // run is never ambiguous about how the value was obtained.
   if (found) {
     const value = (await driver.read(found, timeoutMs)).trim();
     if (value.length > 0) {
       captured.set(step.secretKey, value);
+      hooks.info(`Captured the token straight from the page (${found.description}).`);
       return 'ok';
     }
   }
@@ -209,10 +211,17 @@ async function runStep(
     const btn = await locate(driver, step.copyButton, step.copyButtonFallbacks, 3_000);
     if (btn) {
       try {
+        // Pre-clear: a stale clipboard (e.g. the human clicked Copy themselves)
+        // must never masquerade as a successful engine capture — after this,
+        // a non-empty read can only come from OUR click.
+        await driver.writeClipboard('');
         await driver.click(btn, 3_000);
         const clip = (await driver.readClipboard()).trim();
         if (clip.length > 0) {
           captured.set(step.secretKey, clip);
+          // Hygiene: don't leave a live token in the clipboard (managers log it).
+          try { await driver.writeClipboard(''); } catch { /* best effort */ }
+          hooks.info('Clicked the dialog\'s Copy button and read the clipboard (cleared it afterwards).');
           return 'ok';
         }
       } catch { /* clipboard unavailable — fall through to paste */ }
