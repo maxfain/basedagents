@@ -94,6 +94,10 @@ export class PlaywrightDriver implements Driver {
         context = await chromium.launchPersistentContext(KEYRING_PROFILE_DIR, {
           headless: false,
           viewport: null,
+          // Playwright disables Chromium's OS sandbox by default (it passes
+          // --no-sandbox, and the browser shows a scary warning banner). This
+          // window drives the user's real provider session — keep the sandbox ON.
+          chromiumSandbox: true,
           ...extra,
         });
         break;
