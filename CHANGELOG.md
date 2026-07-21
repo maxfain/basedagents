@@ -8,6 +8,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — clean `npm audit`, 93 fewer packages (`@basedagents/keyring` 0.5.10)
+
+Field report: `npm install basedagents` printed "4 moderate severity
+vulnerabilities" — a bad look for a key-custody tool. All four were one
+advisory (GHSA-frvp-7c67-39w9, path traversal in `@hono/node-server`'s
+Windows static file serving) counted at each link of the chain
+hono → `@modelcontextprotocol/sdk` → keyring → basedagents. No version pin
+fixes it: the patch only exists in `@hono/node-server` 2.x, every MCP SDK
+release pins `^1.x`, and SDK releases below 1.25 carry a **high**-severity
+advisory of their own. The vulnerable code is the SDK's HTTP transport — which
+our stdio-only MCP server never imports.
+
+- **Vendored the SDK's stdio slice.** `build:dist` now esbuild-bundles exactly
+  what we use (`McpServer` + `StdioServerTransport`, tree-shaken) into
+  `dist/mcp/sdk-vendor.js`, and `@modelcontextprotocol/sdk` moved to
+  devDependencies. The bundle guard fails the build if an SDK upgrade ever
+  pulls a non-allowlisted package (express/hono/jose stay out forever) or any
+  external import other than zod + node builtins. `zod` stays a real (shared)
+  dependency so our tool schemas and the server validate with one instance;
+  range tightened to `^3.25.0` (the bundle imports `zod/v3`/`zod/v4` subpaths
+  that 3.24 lacks).
+- **Result, measured on the packed tarball:** fresh install is 7 packages,
+  `npm audit` finds 0 vulnerabilities (was: 100 packages, 4 moderate).
+- **New smoke gate.** `smoke:mcp` drives the BUILT server over real stdio
+  (initialize → tools/list, asserts all 7 tools) — run in CI and before every
+  publish, since unit tests exercise src against the devDependency, not the
+  vendored bundle.
+
+Note for anyone who saw the audit warning: do NOT run `npm audit fix --force`
+— it "fixes" by downgrading `basedagents` to 0.6.0, which predates key custody.
+Upgrading to keyring 0.5.10 makes the warning disappear for real.
+
 ### Fixed — capture provenance + no orphaned mints (`@basedagents/keyring` 0.5.9)
 
 Two field reports from the first fully-working day:

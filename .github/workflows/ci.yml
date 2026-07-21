@@ -37,6 +37,12 @@ jobs:
       - name: Build all workspaces
         run: npm run build
 
+      # The MCP server ships a vendored (esbuild-bundled) stdio slice of the
+      # MCP SDK. Unit tests exercise src against the devDependency, so drive
+      # the BUILT server over real stdio to prove the bundle actually runs.
+      - name: MCP stdio smoke (vendored SDK bundle)
+        run: npm run smoke:mcp --workspace=packages/keyring
+
   smoke:
     name: Clean-container smoke (packed npx install)
     runs-on: ubuntu-latest
