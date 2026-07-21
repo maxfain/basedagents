@@ -19,10 +19,11 @@ export const VERCEL_TOKENS_URL = 'https://vercel.com/account/settings/tokens';
 
 export const vercelBootstrapRecipe: Recipe = {
   id: 'vercel-bootstrap',
-  // v2 (field-tested 2026-07 against the live form): the Create Token form has
-  // a REQUIRED Scope dropdown v1 missed, and the expiration control's visible
-  // text is "Select Date", not "Expiration".
-  version: 2,
+  // v3 (field-tested 2026-07, two live runs): the Create Token form is inline
+  // (no opener button — v1/v2 clicked the submit prematurely); Scope is a
+  // REQUIRED search-input whose "Select scope" is a placeholder attribute;
+  // Expiration's control shows "Select Date"; the submit is labeled "Create".
+  version: 3,
   provider: 'vercel',
   allowedDomains: ['vercel.com'],
   login: {
@@ -37,12 +38,10 @@ export const vercelBootstrapRecipe: Recipe = {
   steps: [
     { id: 'open-tokens', kind: 'goto', url: VERCEL_TOKENS_URL },
     {
-      id: 'open-create',
-      kind: 'click',
-      target: { role: 'button', name: 'Create', description: 'the Create button' },
-      fallbacks: [{ css: 'button[type="submit"]', description: 'the Create button (fallback)' }],
-    },
-    {
+      // The Create Token form is INLINE on the tokens page (field-verified) —
+      // there is no opener button; v1/v2's "open-create" click was hitting the
+      // SUBMIT button prematurely, which is where the red validation errors
+      // came from. First interaction is the name field itself.
       id: 'fill-name',
       kind: 'fill',
       target: { role: 'textbox', name: 'Token name', description: 'the token name field' },
@@ -53,12 +52,17 @@ export const vercelBootstrapRecipe: Recipe = {
       param: 'token_name',
     },
     {
-      // The live form REQUIRES a scope. The first option in the list is the
-      // personal account (what provisioning needs); teams come after.
+      // REQUIRED scope. The control is a SEARCH-STYLE input whose "Select
+      // scope" is a placeholder attribute (field-verified) — placeholders are
+      // invisible to role-name and text= locators, hence the [placeholder=…]
+      // primary. First option in the opened list = the personal account.
       id: 'open-scope',
       kind: 'click',
-      target: { role: 'combobox', name: 'Scope', description: 'the Scope dropdown' },
-      fallbacks: [{ css: 'text=Select scope', description: 'the Scope dropdown (fallback)' }],
+      target: { css: '[placeholder="Select scope"]', description: 'the Scope dropdown' },
+      fallbacks: [
+        { role: 'combobox', name: 'Scope', description: 'the Scope dropdown (fallback)' },
+        { css: 'text=Select scope', description: 'the Scope dropdown (fallback 2)' },
+      ],
     },
     {
       id: 'pick-scope',
@@ -71,10 +75,11 @@ export const vercelBootstrapRecipe: Recipe = {
     {
       id: 'open-expiration',
       kind: 'click',
-      target: { role: 'combobox', name: 'Expiration', description: 'the Expiration dropdown' },
+      target: { css: '[placeholder="Select Date"]', description: 'the Expiration dropdown' },
       fallbacks: [
         { css: 'text=Select Date', description: 'the Expiration dropdown (fallback — its visible text)' },
-        { css: 'select[name="expiry"]', description: 'the Expiration dropdown (fallback 2)' },
+        { role: 'combobox', name: 'Expiration', description: 'the Expiration dropdown (fallback 2)' },
+        { css: 'select[name="expiry"]', description: 'the Expiration dropdown (fallback 3)' },
       ],
     },
     {
@@ -89,8 +94,9 @@ export const vercelBootstrapRecipe: Recipe = {
     {
       id: 'submit',
       kind: 'click',
-      target: { role: 'button', name: 'Create Token', description: 'the Create Token submit button' },
-      fallbacks: [{ role: 'button', name: 'Create', description: 'the submit button (fallback)' }],
+      // Field-verified: the inline form's submit is labeled "Create".
+      target: { role: 'button', name: 'Create', description: 'the Create button' },
+      fallbacks: [{ role: 'button', name: 'Create Token', description: 'the Create button (fallback)' }],
     },
     {
       // The one-time value shown in the success dialog, straight DOM → vault.
