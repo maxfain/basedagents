@@ -29,6 +29,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
             <a href="/keyring">Keyring</a>
             <a href="/registry">Registry</a>
             <a href="/docs/getting-started">Docs</a>
+            <a href="/blog">Blog</a>
             <a href="/#pricing">Pricing</a>
             <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">GitHub</a>
             <a
@@ -50,6 +51,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
           <a href="/keyring" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Keyring</a>
           <a href="/registry" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Registry</a>
           <a href="/docs/getting-started" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Docs</a>
+          <a href="/blog" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Blog</a>
           <a href="/#pricing" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Pricing</a>
           <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">GitHub</a>
           <a href="https://app.basedagents.ai/start" style={{ textDecoration: 'none', color: 'var(--accent)', fontWeight: 600 }}>

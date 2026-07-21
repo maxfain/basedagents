@@ -37,8 +37,17 @@ export interface CredentialMeta {
   scope?: string;
   /** Free-form rotation policy note, e.g. "rotate every 90d". */
   rotation_policy?: string;
-  /** Provider-side key ID if known — enables future Provisioner burn/rotate. */
+  /** Provider-side key ID if known — enables Provisioner burn/rotate by ID. */
   provider_key_id?: string;
+  /** ISO expiry of the provider-side token, when known (drives auto-rotate). */
+  provider_expires_at?: string;
+  /**
+   * Provisioning credential (Provisioner spec §1) — a provider token whose only
+   * purpose is MINTING other tokens (e.g. Vercel classic account-scope). Never
+   * leasable, never grantable to an agent, invisible to agent-facing surfaces;
+   * usable only by the daemon's provisioner module under the owner key.
+   */
+  provisioner?: boolean;
 }
 
 export interface Credential extends CredentialMeta {
@@ -147,7 +156,13 @@ export type AccessEventType =
   | 'request_approved'
   | 'request_denied'
   | 'passkey_anchored'
-  | 'passkey_removed';
+  | 'passkey_removed'
+  // Provisioner (browser bootstrap + API mint/rotate/burn). Details carry step
+  // ids and provider token ids — never secret values.
+  | 'provisioner_bootstrap'
+  | 'provisioner_mint'
+  | 'provisioner_rotate'
+  | 'provisioner_burn';
 
 /**
  * Append-only signed record (KEYRING_SPEC §3):

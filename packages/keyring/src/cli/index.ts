@@ -16,10 +16,11 @@ import { cmdGrant, cmdRevoke, cmdKill, cmdRequests, cmdApprove, cmdDeny } from '
 import { cmdTimeline } from './timeline.js';
 import { cmdRun } from './run.js';
 import { cmdDoctor } from './doctor.js';
+import { cmdConnect } from './connect.js';
 import { cmdAdmin, cmdMcp } from './serve.js';
 import { cmdLink, cmdSync } from './sync.js';
 
-const VERSION = '0.4.1';
+const VERSION = '0.5.0';
 
 const HELP = `
 based — BasedAgents Keyring: scoped, revocable credentials for AI agents
@@ -39,6 +40,9 @@ Vault:
   verify-log                            Verify the log's hash chain + signatures
 
 Credentials:
+  connect <provider> [--agent <ref>] [--days <n>]
+                                        Mint a scoped token for an agent — browser once to
+                                        set up provisioning, then API-only (v1: vercel)
   add <label> [--provider <p>] [--env <VAR>] [--scope <s>] [--rotation <note>]
               [--provider-key-id <id>] [--value <secret>]
                                         Add a secret (--value, piped stdin, or hidden prompt)
@@ -94,6 +98,7 @@ type CommandHandler = (args: string[], dir: string | undefined) => Promise<void>
 const COMMANDS: Record<string, CommandHandler> = {
   init: cmdInit,
   add: cmdAdd,
+  connect: cmdConnect,
   'update-secret': cmdUpdateSecret,
   rm: cmdRemove,
   identity: cmdIdentity,

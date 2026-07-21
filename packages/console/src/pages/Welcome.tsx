@@ -67,9 +67,18 @@ function ConnectCard({
       </div>
 
       {phase.kind === 'idle' && (
-        <button className="btn btn-primary" onClick={onOpen}>
-          Connect {card.label}
-        </button>
+        <>
+          {card.automatic && (
+            <p className="field-hint">
+              {card.automatic.blurb}
+              <br />
+              <code>{card.automatic.command}</code>
+            </p>
+          )}
+          <button className="btn btn-primary" onClick={onOpen}>
+            Connect {card.label}
+          </button>
+        </>
       )}
 
       {phase.kind === 'open' && (

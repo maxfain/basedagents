@@ -1,0 +1,66 @@
+# Provisioner drift canary (spec §4): run the full Vercel recipe weekly against
+# a dedicated test account, so UI drift is caught here — never by users. Fails
+# file an issue with the failing step id.
+#
+# Requires repository secrets (skipped cleanly when absent):
+#   VERCEL_CANARY_TOKEN — a provisioning-class token for the TEST account, used
+#     to (a) seed the vault non-interactively and (b) verify + clean up minted
+#     canary tokens. The browser half of the recipe needs a live session cookie,
+#     which cannot ship as a CI secret safely — so the canary exercises the
+#     bootstrap-then-API path from an existing provisioner (the every-connect
+#     path) end-to-end, and the recipe's page contract via logged-out probes.
+name: Canary — Vercel provisioner
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays 06:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Build keyring
+        run: npm run build:dist --workspace=packages/keyring
+
+      - name: Check canary secret
+        id: gate
+        run: |
+          if [ -n "${{ secrets.VERCEL_CANARY_TOKEN }}" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "VERCEL_CANARY_TOKEN not set — skipping live canary."
+          fi
+
+      - name: Live canary (API mint→verify→burn + page contract)
+        if: steps.gate.outputs.run == 'true'
+        env:
+          VERCEL_CANARY_TOKEN: ${{ secrets.VERCEL_CANARY_TOKEN }}
+        run: xvfb-run --auto-servernum node scripts/canary-vercel.mjs
+
+      - name: File issue on failure
+        if: failure() && steps.gate.outputs.run == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Vercel provisioner canary failed (${new Date().toISOString().slice(0,10)})`,
+              body: 'The weekly Vercel canary failed — likely dashboard/API drift. See the run: ' +
+                    `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['provisioner', 'canary'],
+            });

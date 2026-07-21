@@ -41,7 +41,7 @@ export class KeyringError extends Error {
     | 'not_owner' | 'unknown_identity' | 'unknown_credential' | 'unknown_grant' | 'unknown_request'
     | 'duplicate' | 'no_grant' | 'grant_revoked' | 'grant_expired' | 'usage_cap'
     | 'no_sealed_copy' | 'bad_signature' | 'invalid_input' | 'not_anchored'
-    | 'value_release_disabled'
+    | 'value_release_disabled' | 'provisioner_only'
   ) {
     super(message);
     this.name = 'KeyringError';
@@ -393,6 +393,16 @@ export class Keyring {
       throw new KeyringError('max_uses must be a positive integer', 'invalid_input');
     }
     const credential = this.resolveCredential(vault, credentialRef);
+    // Provisioner guardrail (spec §1): a provisioning credential mints other
+    // tokens — it must never be grantable to any agent, through ANY path (this
+    // is the single choke point for grant/approveRequest/applyApprovedGrant).
+    if (credential.provisioner) {
+      throw new KeyringError(
+        `"${credential.label}" is a provisioning credential — it mints tokens and can never be granted to an agent. ` +
+        'Mint an agent-scoped token instead (based connect).',
+        'provisioner_only'
+      );
+    }
     const agentId = this.resolveAgent(vault, agentRef);
     if (agentId === vault.owner.agent_id) {
       throw new KeyringError('The owner already holds every credential — grants are for agent identities', 'invalid_input');
@@ -625,6 +635,75 @@ export class Keyring {
    * Kill switch — revoke every active grant an identity holds, in one operation.
    * Provider-side burns are v0.2 (Provisioner); this closes the vault side instantly.
    */
+  /**
+   * Owner-only raw value of a PROVISIONING credential, for the daemon's
+   * provisioner module (API mint/rotate/burn). Deliberately refuses standard
+   * credentials — this is not a general secret reader; agent-facing paths go
+   * through lease() with all its gates. No event here: every provisioner
+   * operation emits its own provisioner_* event with the full (value-free) story.
+   */
+  provisionerValue(owner: AgentKeypair, credentialRef: string): string {
+    const vault = this.store.readVault();
+    this.assertOwner(vault, owner);
+    const credential = this.resolveCredential(vault, credentialRef);
+    if (!credential.provisioner) {
+      throw new KeyringError(
+        `"${credential.label}" is not a provisioning credential — only provisioner-class secrets are readable here`,
+        'provisioner_only'
+      );
+    }
+    const box = credential.sealed[vault.owner.agent_id];
+    if (!box) throw new KeyringError('Vault is corrupt: owner sealed copy missing', 'no_sealed_copy');
+    const plaintext = openSealedBox(owner.privateKey, box);
+    const value = new TextDecoder().decode(plaintext);
+    plaintext.fill(0);
+    return value;
+  }
+
+  /** The provisioning credential for a provider, if one exists. */
+  findProvisioner(provider: string): CredentialPublic | null {
+    const vault = this.store.readVault();
+    const hit = Object.values(vault.credentials).find(c => c.provisioner && c.provider === provider);
+    return hit ? stripSealed(hit) : null;
+  }
+
+  /** Patch non-secret credential metadata (rotate updates provider ids/expiry). */
+  async updateCredentialMeta(
+    owner: AgentKeypair,
+    credentialRef: string,
+    patch: Partial<Pick<CredentialMeta, 'provider_key_id' | 'provider_expires_at' | 'scope' | 'rotation_policy' | 'label'>>
+  ): Promise<CredentialPublic> {
+    return this.store.withLock(async () => {
+      const vault = this.store.readVault();
+      this.assertOwner(vault, owner);
+      const credential = this.resolveCredential(vault, credentialRef);
+      Object.assign(credential, patch, { updated_at: nowIso() });
+      this.store.writeVault(vault);
+      await this.emit(vault, owner, 'credential_updated', {
+        credentialId: credential.credential_id,
+        detail: { patched: Object.keys(patch) },
+      });
+      return stripSealed(credential);
+    });
+  }
+
+  /** One signed provisioner_* AccessEvent. Detail must never contain values. */
+  async recordProvisioner(
+    owner: AgentKeypair,
+    type: 'provisioner_bootstrap' | 'provisioner_mint' | 'provisioner_rotate' | 'provisioner_burn',
+    fields: { credentialId?: string; context?: string; detail: Record<string, unknown> }
+  ): Promise<AccessEvent> {
+    return this.store.withLock(async () => {
+      const vault = this.store.readVault();
+      this.assertOwner(vault, owner);
+      return this.emit(vault, owner, type, {
+        credentialId: fields.credentialId,
+        context: fields.context,
+        detail: fields.detail,
+      });
+    });
+  }
+
   async killSwitch(owner: AgentKeypair, agentRef: string, reason?: string): Promise<{ agent_id: string; revoked_grant_ids: string[] }> {
     return this.store.withLock(async () => {
       const vault = this.store.readVault();
@@ -773,6 +852,17 @@ export class Keyring {
         await this.recordDenial(vault, agentKeypair, credential.credential_id, grantId ?? null, context, reason);
         throw new KeyringError(`Lease denied for "${credential.label}": ${reason}`, code);
       };
+
+      // Provisioner guardrail (spec §1): provisioning credentials are usable
+      // only by the daemon's provisioner module — never leasable by anyone,
+      // regardless of grants (belt-and-braces above the no-grant rule).
+      if (credential.provisioner) {
+        return deny(
+          'provisioning credential — it mints tokens and is never leasable; usable only by the daemon\'s provisioner',
+          'provisioner_only',
+          active?.grant_id
+        );
+      }
 
       if (!active) {
         if (grants.some(g => g.status === 'revoked')) {
