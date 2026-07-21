@@ -36,6 +36,20 @@ export type RecipeStep =
       timeoutMs?: number;
     }
   | {
+      /**
+       * Choose an option in a NATIVE <select>. Clicking native dropdowns is
+       * impossible for the driver (the OS renders the popup), so this maps to
+       * Playwright's selectOption on the element itself.
+       */
+      id: string;
+      kind: 'select';
+      target: RecipeLocator;
+      fallbacks?: RecipeLocator[];
+      /** Exact visible label of the option, e.g. "90 Days". */
+      optionLabel: string;
+      timeoutMs?: number;
+    }
+  | {
       id: string;
       kind: 'capture';
       target: RecipeLocator;
@@ -81,6 +95,8 @@ export interface Driver {
   /** Throws if the locator cannot be resolved within the timeout. */
   click(locator: RecipeLocator, timeoutMs: number): Promise<void>;
   fill(locator: RecipeLocator, value: string, timeoutMs: number): Promise<void>;
+  /** Native-<select> option pick by exact visible label. Throws if not applicable. */
+  selectOption(locator: RecipeLocator, optionLabel: string, timeoutMs: number): Promise<void>;
   /** Read a value (input value or text content). Throws if unresolvable. */
   read(locator: RecipeLocator, timeoutMs: number): Promise<string>;
   close(): Promise<void>;

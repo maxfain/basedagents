@@ -64,6 +64,10 @@ class FakeDriver implements Driver {
     if (!this.resolves(l)) throw new Error(`not found: ${l.description}`);
     this.log.push(`fill ${l.description}=${value}`);
   }
+  async selectOption(l: RecipeLocator, label: string): Promise<void> {
+    if (!this.resolves(l)) throw new Error(`not found: ${l.description}`);
+    this.log.push(`select ${l.description}=${label}`);
+  }
   async read(l: RecipeLocator): Promise<string> {
     if (!this.resolves(l)) throw new Error(`not found: ${l.description}`);
     return this.opts.captureValue ?? '';
