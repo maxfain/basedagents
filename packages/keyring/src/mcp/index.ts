@@ -20,8 +20,7 @@
  * Vault location: ~/.basedagents/keyring, override with BASEDAGENTS_KEYRING_DIR.
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { McpServer, StdioServerTransport } from './sdk-vendor.js';
 import { z } from 'zod';
 import { Keyring, KeyringError } from '../keyring.js';
 import { runBrokered, renderBrokered } from './broker.js';
@@ -31,7 +30,7 @@ import type { GrantConstraints } from '../types.js';
 import { DEFAULT_LEASE_TTL_SECONDS } from '../types.js';
 import { publicKeyToAgentId, hexToBytes, base58Decode } from '../util.js';
 
-const VERSION = '0.5.9';
+const VERSION = '0.5.10';
 
 // ─── Identity / keypair ─────────────────────────────────────────────────────
 
