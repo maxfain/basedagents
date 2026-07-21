@@ -32,12 +32,19 @@ export function hostAllowed(url: string, allowedDomains: string[]): boolean {
   });
 }
 
-/** The plain-words consent plan for a recipe run (no secrets, no selectors). */
+/**
+ * The plain-words consent plan for a recipe run (no secrets, no selectors).
+ * Voice matters (field-tested): every line says what KEYRING will do, so it
+ * never reads as instructions the human must carry out on the provider's site.
+ * Their only jobs are logging in (if asked) and watching.
+ */
 export function describePlan(recipe: Recipe, purpose: string[]): string[] {
   return [
-    `Open ${recipe.allowedDomains[0]} in the Keyring browser window (visible, on this computer).`,
+    `Keyring opens its own browser window at ${recipe.allowedDomains[0]} — visible, on this computer.`,
+    'If the page asks you to log in, you log in; Keyring waits and never records what you type.',
     ...purpose,
-    'Save the result straight into your local vault — it is never shown, logged, or sent anywhere else.',
+    'You watch; Keyring clicks. If it gets stuck on a step, it asks you to do that one step by hand.',
+    'The result goes straight into your local vault — never shown, logged, or sent anywhere else.',
     `The window can only visit: ${recipe.allowedDomains.join(', ')} — anything else aborts.`,
   ];
 }
@@ -57,7 +64,7 @@ async function locate(
 
 export async function runRecipe(
   recipe: Recipe,
-  driver: Driver,
+  launchDriver: () => Promise<Driver>,
   hooks: EngineHooks,
   params: Record<string, string>,
   purpose: string[]
@@ -76,6 +83,11 @@ export async function runRecipe(
   if (!(await hooks.consent(describePlan(recipe, purpose)))) {
     return { status: 'aborted', atStep: null, reason: 'cancelled at consent' };
   }
+
+  // §3 "consent sheet BEFORE launch" — the window opens only after the human
+  // says yes. (Field-tested: launching first leaves a confusing blank window
+  // sitting behind the terminal prompt.)
+  const driver = await launchDriver();
 
   const transcript: Array<{ step: string; result: 'ok' | 'manual' }> = [];
   const captured = new Map<string, string>();
