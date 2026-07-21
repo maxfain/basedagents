@@ -98,10 +98,13 @@ export const vercelBootstrapRecipe: Recipe = {
       // The one-time value shown in the success dialog, straight DOM → vault.
       id: 'capture-token',
       kind: 'capture',
-      target: { css: 'input[readonly]', description: 'the new token value in the dialog' },
+      // Dialog-scoped first: the page itself has other readonly inputs, and a
+      // wrong grab costs a whole run (field-tested).
+      target: { css: '[role="dialog"] input[readonly]', description: 'the new token value in the dialog' },
       fallbacks: [
-        { css: 'code', description: 'the new token value (fallback)' },
-        { role: 'textbox', description: 'the new token value (fallback 2)' },
+        { css: '[role="dialog"] code', description: 'the new token value (fallback)' },
+        { css: 'input[readonly]', description: 'the new token value (fallback 2)' },
+        { css: 'code', description: 'the new token value (fallback 3)' },
       ],
       secretKey: 'token_value',
       timeoutMs: 15_000,

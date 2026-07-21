@@ -187,7 +187,12 @@ describe('recipe engine', () => {
   it('failed capture degrades to assisted paste with the window left open', async () => {
     const driver = new FakeDriver({
       captureValue: SECRET,
-      missing: ['the new token value in the dialog', 'the new token value (fallback)', 'the new token value (fallback 2)'],
+      missing: [
+        'the new token value in the dialog',
+        'the new token value (fallback)',
+        'the new token value (fallback 2)',
+        'the new token value (fallback 3)',
+      ],
     });
     const out = await runRecipe(vercelBootstrapRecipe, async () => driver, autoHooks(), { token_name: 'x' }, []);
     expect(out.status).toBe('fallback_paste');
@@ -283,7 +288,7 @@ async function connectFixture(opts: { captureValue?: string } = {}) {
     hooks: autoHooks(infoLines),
     launchDriver: async () => { launches += 1; return new FakeDriver({ captureValue: opts.captureValue ?? SECRET }); },
     fetchImpl: vercelFetch(state),
-    pasteFallback: async () => null,
+    pasteFallback: (async () => null) as (message: string) => Promise<string | null>,
   };
   return { kr, owner, agent, agentId, state, deps, infoLines, launches: () => launches };
 }
@@ -325,12 +330,46 @@ describe('connectVercel (bootstrap-then-API)', () => {
     expect(f.launches()).toBe(1); // still just the bootstrap launch
   });
 
-  it('rejected capture is never enshrined — vault stays empty', async () => {
+  it('rejected capture salvages via paste — the visible token is never thrown away', async () => {
     const f = await connectFixture();
-    // Make whoami fail for the captured browser token only.
+    // The captured browser value doesn't authenticate; the human pastes the real one.
     (f.state as { badTokens?: string[] }).badTokens = [SECRET];
-    await expect(connectVercel(f.deps, { agentRef: 'claude-code' })).rejects.toThrow(/rejected by Vercel/);
+    const GOOD = 'PASTED_real_token_value_1234567890abcdef';
+    let pasteAsked = 0;
+    f.deps.pasteFallback = async () => { pasteAsked += 1; return GOOD; };
+    const result = await connectVercel(f.deps, { agentRef: 'claude-code' });
+    expect(pasteAsked).toBe(1);
+    expect(result.browserRan).toBe(true);
+    expect(f.kr.findProvisioner('vercel')).not.toBeNull();
+    // The rejected capture value is nowhere in events; the pasted one isn't either.
+    const events = JSON.stringify(f.kr.timeline({}));
+    expect(events).not.toContain(SECRET);
+    expect(events).not.toContain(GOOD);
+  });
+
+  it('rejected capture + cancelled paste saves nothing', async () => {
+    const f = await connectFixture();
+    (f.state as { badTokens?: string[] }).badTokens = [SECRET];
+    await expect(connectVercel(f.deps, { agentRef: 'claude-code' })).rejects.toThrow(/cancelled during assisted paste/);
     expect(f.kr.findProvisioner('vercel')).toBeNull();
+  });
+
+  it('masked capture (ellipsis) skips straight to paste without a doomed verify', async () => {
+    const f = await connectFixture({ captureValue: 'vc_abc…' });
+    const GOOD = 'PASTED_real_token_value_1234567890abcdef';
+    f.deps.pasteFallback = async () => GOOD;
+    const result = await connectVercel(f.deps, { agentRef: 'claude-code' });
+    expect(result.browserRan).toBe(true);
+    expect(f.kr.findProvisioner('vercel')).not.toBeNull();
+  });
+
+  it('bootstrap sweeps stray ba/provisioning tokens from earlier failed attempts', async () => {
+    const f = await connectFixture();
+    f.state.tokens.push({ id: 'tok_stray', name: 'ba/provisioning/deadbeef', expiresAt: Date.now() + 86_400_000 });
+    f.state.tokens.push({ id: 'tok_user', name: 'Login with otp', expiresAt: Date.now() + 86_400_000 });
+    await connectVercel(f.deps, { agentRef: 'claude-code' });
+    expect(f.state.burned).toContain('tok_stray');
+    expect(f.state.burned).not.toContain('tok_user'); // never touch user-made tokens
   });
 
   it('kill switch burns the agent token at the provider, by id', async () => {
