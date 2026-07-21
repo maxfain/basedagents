@@ -85,15 +85,14 @@ async function ensureProvisioner(deps: ConnectDeps): Promise<{ value: string; br
 
   // ── Bootstrap (browser, once per account) ──
   const tokenName = `ba/provisioning/${randomBytes(4).toString('hex')}`;
-  const driver = await deps.launchDriver();
   const outcome: RunOutcome = await runRecipe(
     vercelBootstrapRecipe,
-    driver,
+    deps.launchDriver, // engine launches AFTER consent (§3)
     hooks,
     { token_name: tokenName },
     [
-      `Create a token named ${tokenName} (expires in ${PROV_EXPIRY_DAYS} days).`,
-      'This token can mint other tokens — Keyring uses it so future connects need no browser at all.',
+      `Keyring then creates a Vercel token FOR you — named ${tokenName}, expiring in ${PROV_EXPIRY_DAYS} days. Nothing for you to click.`,
+      'That token can mint other tokens, so future connects need no browser at all.',
     ]
   );
 

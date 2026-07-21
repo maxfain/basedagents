@@ -125,7 +125,7 @@ describe('recipe engine', () => {
 
   it('completes the happy path and captures the value — window closed after', async () => {
     const driver = new FakeDriver({ captureValue: SECRET });
-    const out = await runRecipe(vercelBootstrapRecipe, driver, autoHooks(), { token_name: 'ba/prov/x' }, []);
+    const out = await runRecipe(vercelBootstrapRecipe, async () => driver, autoHooks(), { token_name: 'ba/prov/x' }, []);
     expect(out.status).toBe('completed');
     if (out.status !== 'completed') return;
     expect(out.captured.get('token_value')).toBe(SECRET);
@@ -139,7 +139,7 @@ describe('recipe engine', () => {
       captureValue: SECRET,
       hijackAfter: { description: 'the Create button', url: 'https://phish.example/steal' },
     });
-    const out = await runRecipe(vercelBootstrapRecipe, driver, autoHooks(), { token_name: 'x' }, []);
+    const out = await runRecipe(vercelBootstrapRecipe, async () => driver, autoHooks(), { token_name: 'x' }, []);
     expect(out.status).toBe('aborted');
     if (out.status !== 'aborted') return;
     expect(out.reason).toContain('left the allowed domains');
@@ -153,7 +153,7 @@ describe('recipe engine', () => {
     };
     let consentAsked = false;
     const hooks = { ...autoHooks(), consent: async () => { consentAsked = true; return true; } };
-    const out = await runRecipe(evil, new FakeDriver({}), hooks, { token_name: 'x' }, []);
+    const out = await runRecipe(evil, async () => new FakeDriver({}), hooks, { token_name: 'x' }, []);
     expect(out.status).toBe('aborted');
     expect(consentAsked).toBe(false);
   });
@@ -165,7 +165,7 @@ describe('recipe engine', () => {
       ...autoHooks(),
       checkpoint: async (stepId, message) => { checkpoints.push(`${stepId}: ${message}`); return 'continue'; },
     };
-    const out = await runRecipe(vercelBootstrapRecipe, driver, hooks, { token_name: 'x' }, []);
+    const out = await runRecipe(vercelBootstrapRecipe, async () => driver, hooks, { token_name: 'x' }, []);
     expect(out.status).toBe('completed');
     if (out.status !== 'completed') return;
     expect(checkpoints.some((c) => c.startsWith('open-create'))).toBe(true);
@@ -175,7 +175,7 @@ describe('recipe engine', () => {
   it('login checkpoint: no steps run until the session exists; abort works', async () => {
     const driver = new FakeDriver({ loggedIn: false });
     const hooks: EngineHooks = { ...autoHooks(), login: async () => 'abort' };
-    const out = await runRecipe(vercelBootstrapRecipe, driver, hooks, { token_name: 'x' }, []);
+    const out = await runRecipe(vercelBootstrapRecipe, async () => driver, hooks, { token_name: 'x' }, []);
     expect(out.status).toBe('aborted');
     expect(driver.log.filter((l) => l.startsWith('click'))).toHaveLength(0);
   });
@@ -185,17 +185,36 @@ describe('recipe engine', () => {
       captureValue: SECRET,
       missing: ['the new token value in the dialog', 'the new token value (fallback)', 'the new token value (fallback 2)'],
     });
-    const out = await runRecipe(vercelBootstrapRecipe, driver, autoHooks(), { token_name: 'x' }, []);
+    const out = await runRecipe(vercelBootstrapRecipe, async () => driver, autoHooks(), { token_name: 'x' }, []);
     expect(out.status).toBe('fallback_paste');
     expect(driver.closed).toBe(false); // value is on the user's screen
   });
 
-  it('cancelling the consent sheet runs nothing', async () => {
-    const driver = new FakeDriver({});
+  it('cancelling the consent sheet runs nothing — the window never even opens', async () => {
+    let launched = 0;
     const hooks: EngineHooks = { ...autoHooks(), consent: async () => false };
-    const out = await runRecipe(vercelBootstrapRecipe, driver, hooks, { token_name: 'x' }, []);
+    const out = await runRecipe(
+      vercelBootstrapRecipe,
+      async () => { launched += 1; return new FakeDriver({}); },
+      hooks, { token_name: 'x' }, []
+    );
     expect(out.status).toBe('aborted');
-    expect(driver.log).toHaveLength(0);
+    expect(launched).toBe(0); // §3: consent BEFORE launch — no blank window
+  });
+
+  it('the window opens only AFTER consent is given', async () => {
+    const order: string[] = [];
+    const hooks: EngineHooks = {
+      ...autoHooks(),
+      consent: async () => { order.push('consent'); return true; },
+    };
+    const out = await runRecipe(
+      vercelBootstrapRecipe,
+      async () => { order.push('launch'); return new FakeDriver({ captureValue: SECRET }); },
+      hooks, { token_name: 'x' }, []
+    );
+    expect(out.status).toBe('completed');
+    expect(order).toEqual(['consent', 'launch']);
   });
 });
 

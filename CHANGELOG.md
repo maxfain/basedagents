@@ -8,6 +8,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Provisioner consent UX (`@basedagents/keyring` 0.5.1)
+
+Two field-reported issues from the first real `connect vercel` run:
+
+- **The browser window now opens only AFTER consent** (spec §3 "consent sheet
+  before launch"). Previously the blank Keyring window appeared behind the
+  terminal before the Proceed? prompt — confusing, and out of spec. The engine
+  now takes a launcher and invokes it post-consent; a test pins the ordering.
+- **Consent copy says who does what.** "Create a token named ba/…" read like an
+  instruction to the human. Every plan line is now in Keyring's voice ("Keyring
+  then creates a Vercel token FOR you — nothing for you to click"), with the
+  human's only jobs stated up front: log in if asked, and watch.
+
 ### Added — Provisioner v1: Vercel (`@basedagents/keyring` 0.5.0)
 
 Mint, rotate, and burn Vercel tokens on the user's behalf using their own
