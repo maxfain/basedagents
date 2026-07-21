@@ -181,15 +181,16 @@ async function runStep(
   if (step.kind === 'select') {
     // Native <select>: pick by label. A missing element OR a missing label both
     // degrade to the human doing it (the OS popup is theirs anyway).
+    const label = (step.optionLabelParam && params[step.optionLabelParam]) || step.optionLabel;
     if (found) {
       try {
-        await driver.selectOption(found, step.optionLabel, timeoutMs);
+        await driver.selectOption(found, label, timeoutMs);
         return 'ok';
       } catch { /* fall through to checkpoint */ }
     }
     const choice = await hooks.checkpoint(
       step.id,
-      `I couldn't set ${step.target.description} to "${step.optionLabel}". Pick it yourself in the window, then press Continue.`
+      `I couldn't set ${step.target.description} to "${label}". Pick it yourself in the window, then press Continue.`
     );
     return choice === 'continue' ? 'manual' : 'aborted';
   }
