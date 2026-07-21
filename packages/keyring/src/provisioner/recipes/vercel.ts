@@ -19,11 +19,13 @@ export const VERCEL_TOKENS_URL = 'https://vercel.com/account/settings/tokens';
 
 export const vercelBootstrapRecipe: Recipe = {
   id: 'vercel-bootstrap',
-  // v3 (field-tested 2026-07, two live runs): the Create Token form is inline
-  // (no opener button — v1/v2 clicked the submit prematurely); Scope is a
-  // REQUIRED search-input whose "Select scope" is a placeholder attribute;
-  // Expiration's control shows "Select Date"; the submit is labeled "Create".
-  version: 3,
+  // v4 (field-tested 2026-07, three live runs): inline form, Scope is a
+  // search-input with a placeholder attribute (v3 fixed — confirmed working),
+  // and Expiration is a NATIVE <select> whose OS popup can't be clicked —
+  // handled with a selectOption step. Options observed live:
+  // 1 Hour / 1 Day / 7 Days / 30 Days / 60 Days / 90 Days / 180 Days / 1 Year /
+  // No Expiration. Submit is "Create".
+  version: 4,
   provider: 'vercel',
   allowedDomains: ['vercel.com'],
   login: {
@@ -73,23 +75,17 @@ export const vercelBootstrapRecipe: Recipe = {
       },
     },
     {
-      id: 'open-expiration',
-      kind: 'click',
-      target: { css: '[placeholder="Select Date"]', description: 'the Expiration dropdown' },
+      // Expiration is a NATIVE <select> (field-verified: OS-rendered menu with
+      // options "1 Hour … 90 Days … No Expiration"). Native popups cannot be
+      // clicked by the driver — selectOption on the element is the only way.
+      id: 'set-expiration',
+      kind: 'select',
+      target: { css: 'select:has-text("Select Date")', description: 'the Expiration dropdown' },
       fallbacks: [
-        { css: 'text=Select Date', description: 'the Expiration dropdown (fallback — its visible text)' },
-        { role: 'combobox', name: 'Expiration', description: 'the Expiration dropdown (fallback 2)' },
-        { css: 'select[name="expiry"]', description: 'the Expiration dropdown (fallback 3)' },
+        { role: 'combobox', name: 'Expiration', description: 'the Expiration dropdown (fallback)' },
+        { css: 'select', description: 'the Expiration dropdown (fallback 2)' },
       ],
-    },
-    {
-      id: 'pick-expiration',
-      kind: 'click',
-      target: { role: 'option', name: '90 days', description: 'the "90 days" expiration option' },
-      fallbacks: [
-        { css: 'text=/^90 ?days?$/i', description: 'the "90 days" option (fallback)' },
-        { role: 'menuitem', name: '90 days', description: 'the "90 days" option (fallback 2)' },
-      ],
+      optionLabel: '90 Days',
     },
     {
       id: 'submit',

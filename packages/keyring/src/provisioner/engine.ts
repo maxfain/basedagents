@@ -178,6 +178,22 @@ async function runStep(
     return choice === 'continue' ? 'manual' : 'aborted';
   }
 
+  if (step.kind === 'select') {
+    // Native <select>: pick by label. A missing element OR a missing label both
+    // degrade to the human doing it (the OS popup is theirs anyway).
+    if (found) {
+      try {
+        await driver.selectOption(found, step.optionLabel, timeoutMs);
+        return 'ok';
+      } catch { /* fall through to checkpoint */ }
+    }
+    const choice = await hooks.checkpoint(
+      step.id,
+      `I couldn't set ${step.target.description} to "${step.optionLabel}". Pick it yourself in the window, then press Continue.`
+    );
+    return choice === 'continue' ? 'manual' : 'aborted';
+  }
+
   // capture — the one step a human can't do by hand into our memory: a failed
   // capture degrades to the assisted-paste flow (§4: never a dead end).
   if (found) {

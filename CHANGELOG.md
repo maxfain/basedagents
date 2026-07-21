@@ -8,6 +8,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Vercel recipe v4: native-select expiration (`@basedagents/keyring` 0.5.5)
+
+Third live run: Scope now selects correctly (v3's placeholder locator works),
+and the Expiration list turned out to be a **native `<select>`** — its
+OS-rendered popup cannot be clicked by any driver. New `select` step kind maps
+to Playwright's `selectOption` on the element (exact label "90 Days", options
+observed live: 1 Hour → No Expiration); a failed select degrades to the
+checkpoint handoff like every other step.
+
 ### Fixed — Vercel recipe v3: inline form + placeholder controls (`@basedagents/keyring` 0.5.4)
 
 Second live run (0.5.3) checkpointed at the Scope dropdown and taught us the

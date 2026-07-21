@@ -37,6 +37,7 @@ interface PwLocator {
   waitFor(opts: { state: 'visible'; timeout: number }): Promise<void>;
   click(opts: { timeout: number }): Promise<void>;
   fill(value: string, opts: { timeout: number }): Promise<void>;
+  selectOption(values: { label: string }, opts: { timeout: number }): Promise<string[]>;
   inputValue(opts: { timeout: number }): Promise<string>;
   textContent(opts: { timeout: number }): Promise<string | null>;
 }
@@ -138,6 +139,10 @@ export class PlaywrightDriver implements Driver {
 
   async fill(locator: RecipeLocator, value: string, timeoutMs: number): Promise<void> {
     await toLocator(this.page, locator).fill(value, { timeout: timeoutMs });
+  }
+
+  async selectOption(locator: RecipeLocator, optionLabel: string, timeoutMs: number): Promise<void> {
+    await toLocator(this.page, locator).selectOption({ label: optionLabel }, { timeout: timeoutMs });
   }
 
   async read(locator: RecipeLocator, timeoutMs: number): Promise<string> {
