@@ -8,6 +8,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — speak to the vibe coder, not the engineer (web + console)
+
+The ICP is a not-so-technical builder who lives inside Claude Code or Codex
+and has never heard of .env. Every human-facing surface now sells the moment
+("your agent just asked you to paste a key"), not the mechanism:
+
+- **Homepage rewrite.** Hero is now "Never paste a key into a chat again";
+  the lede names the paste-moment in outcome words (deploy, save, publish).
+  New "Three steps, and the last two are just clicking" section (copy the
+  prompt → click the link → tap Approve). "The story" reframed around the
+  key-that-opens-everything; the control tiles became the three verbs
+  (Connect / Approve / Cut off); "Under the hood" rewritten to pass the
+  banned-words rule. index.html title/meta/OG/JSON-LD/noscript all match.
+  The agent-facing prompts (HERO_PROMPT, CLOSING_PROMPT, CODEX_SETUP) are
+  byte-identical — the pointer contract is untouched.
+- **Console /welcome is now a live checklist.** Three steps that tick
+  themselves off as the system observes them: agent set itself up (active
+  agent exists) → connect an account (a connection stored on the user's
+  machine) → say yes when it asks (first ask decided). The page polls
+  connections + asks every 2.5s while open; the connect cards live inside
+  step 2 unchanged (browser-side sealing untouched). Pending asks surface in
+  step 3 phrased by outcome with a "review and allow" hand-off to /home.
+- **Outcome phrasebook** (`lib/outcomes.ts`): novice surfaces describe an ask
+  by what it lets the agent DO — "put your site live · Vercel", "use your
+  database · Supabase", "see and take payments · Stripe" — never by the name
+  of the thing it unlocks. /home's "Wants to…" rows now use it.
+- **Lint widened.** The banned-words rule (grant/lease/delegation/identity/
+  credential/owner) now also covers the marketing homepage and the
+  phrasebook — 12 surfaces clean.
+
+No keyring/npm changes — ships with the next web + console deploy. All 6
+passkey E2E scenarios pass against the new surfaces.
+
 ### Changed — clean `npm audit`, 93 fewer packages (`@basedagents/keyring` 0.5.10)
 
 Field report: `npm install basedagents` printed "4 moderate severity

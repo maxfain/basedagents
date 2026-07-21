@@ -18,6 +18,7 @@ import { useOwner } from '../state/session.js';
 import { approveRequest } from '../lib/approve.js';
 import { runAction } from '../lib/ceremony.js';
 import { ensurePasskey } from '../lib/firstApproval.js';
+import { askPhrase } from '../lib/outcomes.js';
 import { AgentSetupPrompt } from '../components/AgentSetup.js';
 import type { ConnectionInfo, Delegation, KeyringRequest } from '../api/types.js';
 
@@ -172,10 +173,15 @@ export default function Home() {
                     <span>since {new Date(d.created_at).toLocaleDateString()}</span>
                   </div>
 
-                  {asking.map((req) => (
+                  {asking.map((req) => {
+                    const ask = askPhrase(req.provider, req.credential_label ?? req.credential_id);
+                    return (
                     <div key={req.id} className="asking">
                       <span className="asking-text">
-                        Wants to use <strong>{req.credential_label ?? req.credential_id}</strong>
+                        Wants to <strong>{ask.action}</strong>
+                        {ask.via && (
+                          <span className="muted"> · {ask.via} ({req.credential_label ?? req.credential_id})</span>
+                        )}
                         {req.note && <em className="muted"> — “{req.note}”</em>}
                       </span>
                       <span className="asking-actions">
@@ -195,7 +201,8 @@ export default function Home() {
                         </button>
                       </span>
                     </div>
-                  ))}
+                    );
+                  })}
 
                   <div className="chips">
                     {canUse.length === 0 ? (

@@ -29,6 +29,11 @@ const SURFACES = [
   'packages/console/src/components/AgentSetup.tsx',
   'packages/console/src/components/Layout.tsx',
   'packages/console/src/lib/providerCards.ts',
+  'packages/console/src/lib/outcomes.ts',
+  // The marketing homepage speaks to the same base-case human — same rule.
+  // (The "Are you an agent?" section is agent-facing but must still pass:
+  // machine copy that needs the technical words belongs on /docs/agents.)
+  'packages/web/src/pages/Home.tsx',
 ];
 
 const BANNED = /\b(grant|lease|delegation|identity|credential|owner)(s|ed|ing)?\b/i;

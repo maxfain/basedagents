@@ -1,12 +1,18 @@
 /**
- * /welcome — the connect cards (onboarding redesign Move 3) + the done screen.
+ * /welcome — the live checklist (ICP redesign): three steps that tick
+ * themselves off as the system observes them happen, so a base-case user
+ * never wonders "did it work?".
  *
- * Each card: deep link to the provider's token page, three visual steps, one
- * paste field with a shape check. The paste is SEALED IN THIS BROWSER to the
- * vault key on the user's machine (lib/seal.ts) — this site only ever relays
- * ciphertext. The terminal (still running `init`, or a later `based sync`)
- * opens it locally, checks it against the provider, stores it, and the card
- * flips to ✓ when the poll sees the confirmation.
+ *   1. Set up your agent          ✓ when an agent is active for this account
+ *   2. Connect an account         ✓ when a connection is stored on their machine
+ *   3. Say yes when it asks       ✓ when they've decided their first ask
+ *
+ * Step 2 keeps the connect cards: deep link to the provider's token page,
+ * three visual steps, one paste field with a shape check. The paste is SEALED
+ * IN THIS BROWSER to the vault key on the user's machine (lib/seal.ts) — this
+ * site only ever relays ciphertext. The terminal (still running `init`, or a
+ * later `based sync`) opens it locally, checks it against the provider,
+ * stores it, and the card flips to ✓ when the poll sees the confirmation.
  *
  * Base-case surface — the banned-words rule applies (scripts/lint-ui-words.mjs).
  */
@@ -16,10 +22,11 @@ import { control, ControlApiError } from '../api/control.js';
 import { useOwner } from '../state/session.js';
 import { sealForOwner } from '../lib/seal.js';
 import { funnelPing } from '../lib/funnel.js';
+import { askPhrase } from '../lib/outcomes.js';
 import { AgentSetupPrompt } from '../components/AgentSetup.js';
 import { PROVIDER_CARDS } from '../lib/providerCards.js';
 import type { ProviderCard } from '../lib/providerCards.js';
-import type { ConnectionInfo } from '../api/types.js';
+import type { ConnectionInfo, KeyringRequest } from '../api/types.js';
 
 const POLL_MS = 2500;
 
@@ -158,6 +165,8 @@ export default function Welcome() {
   const [phases, setPhases] = useState<Record<string, CardPhase>>(
     () => Object.fromEntries(PROVIDER_CARDS.map((c) => [c.id, { kind: 'idle' } as CardPhase])),
   );
+  const [serverConnections, setServerConnections] = useState<ConnectionInfo[]>([]);
+  const [asks, setAsks] = useState<KeyringRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
   const phasesRef = useRef(phases);
   phasesRef.current = phases;
@@ -166,29 +175,62 @@ export default function Welcome() {
     setPhases((p) => ({ ...p, [cardId]: phase }));
   }, []);
 
-  // One shared poll while any card is waiting on the user's machine.
-  useEffect(() => {
-    const waiting = Object.values(phases).some((p) => p.kind === 'waiting');
-    if (!waiting) return;
-    const timer = setInterval(() => {
-      void control.listConnections().then(({ connections }) => {
-        const byId = new Map<string, ConnectionInfo>(connections.map((c) => [c.id, c]));
-        for (const [cardId, phase] of Object.entries(phasesRef.current)) {
-          if (phase.kind !== 'waiting') continue;
-          const conn = byId.get(phase.connectionId);
-          if (!conn) continue;
-          if (conn.status === 'stored') {
-            setPhase(cardId, { kind: 'connected' });
-            funnelPing('provider_connected', conn.provider);
-          }
-          if (conn.status === 'failed') {
-            setPhase(cardId, { kind: 'failed', reason: conn.failure_reason ?? 'That didn’t work — check the token and try again.' });
-          }
+  // One load for everything the checklist observes; also flips waiting cards
+  // and hydrates cards for connections stored on an earlier visit.
+  const load = useCallback(async () => {
+    try {
+      const [conns, reqs] = await Promise.all([control.listConnections(), control.listRequests()]);
+      // Identity-preserving: unchanged payloads must not re-render the tree.
+      const fp = (rows: ReadonlyArray<{ id: string; status: string }>) =>
+        rows.map((r) => `${r.id}:${r.status}`).join('|');
+      setServerConnections((prev) => (fp(prev) === fp(conns.connections) ? prev : conns.connections));
+      setAsks((prev) => (fp(prev) === fp(reqs.requests) ? prev : reqs.requests));
+      const byId = new Map<string, ConnectionInfo>(conns.connections.map((c) => [c.id, c]));
+      for (const [cardId, phase] of Object.entries(phasesRef.current)) {
+        if (phase.kind !== 'waiting') continue;
+        const conn = byId.get(phase.connectionId);
+        if (!conn) continue;
+        if (conn.status === 'stored') {
+          setPhase(cardId, { kind: 'connected' });
+          funnelPing('provider_connected', conn.provider);
         }
-      }).catch(() => { /* transient — next tick retries */ });
-    }, POLL_MS);
-    return () => clearInterval(timer);
-  }, [phases, setPhase]);
+        if (conn.status === 'failed') {
+          setPhase(cardId, { kind: 'failed', reason: conn.failure_reason ?? 'That didn’t work — check the token and try again.' });
+        }
+      }
+      // A provider stored on a previous visit shows as connected, not as a
+      // fresh Connect button (idle only — never stomp an in-progress card;
+      // no funnel ping — it already counted when it first stored).
+      const stored = new Set(
+        conns.connections
+          .filter((c) => c.agent_id === agentId && c.status === 'stored')
+          .map((c) => c.provider),
+      );
+      for (const card of PROVIDER_CARDS) {
+        if (stored.has(card.id) && phasesRef.current[card.id]?.kind === 'idle') {
+          setPhase(card.id, { kind: 'connected' });
+        }
+      }
+    } catch {
+      /* transient — next tick retries */
+    }
+  }, [setPhase, agentId]);
+
+  // The page ticks itself off: fetch immediately, then keep watching while
+  // open. Each tick awaits the previous one, so slow responses can't overlap.
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = async () => {
+      await load();
+      if (alive) timer = setTimeout(() => void tick(), POLL_MS);
+    };
+    void tick();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [load]);
 
   async function submit(card: ProviderCard): Promise<void> {
     const phase = phasesRef.current[card.id];
@@ -219,6 +261,23 @@ export default function Welcome() {
 
   if (!owner) return null; // Protected route guarantees a session.
 
+  const agentAsks = asks.filter((r) => r.agent_id === agentId);
+  const pendingAsks = agentAsks.filter((r) => r.status === 'pending');
+  const step1Done = Boolean(agentId);
+  const step2Done =
+    connectedCount > 0 ||
+    serverConnections.some((c) => c.agent_id === agentId && c.status === 'stored');
+  const step3Done = agentAsks.some((r) => r.status !== 'pending');
+  const allDone = step1Done && step2Done && step3Done;
+
+  const stepClass = (done: boolean, active: boolean) =>
+    `check-step${done ? ' done' : active ? ' active' : ''}`;
+
+  const firstAsk = pendingAsks[0];
+  const firstAskPhrase = firstAsk
+    ? askPhrase(firstAsk.provider, firstAsk.credential_label ?? firstAsk.credential_id)
+    : null;
+
   return (
     <div className="page">
       <h1>{agentName} is yours</h1>
@@ -229,8 +288,7 @@ export default function Welcome() {
         </div>
       ) : (
         <p className="page-lede">
-          Give it something to work with. Connect a service below — you stay in control and can
-          cut it off anytime.
+          Three steps — this page ticks them off by itself as they happen.
         </p>
       )}
 
@@ -238,46 +296,99 @@ export default function Welcome() {
 
       {/* When the claim was plan-blocked the agent has no active connection, so
           a connect attempt would fail server-side AFTER the user minted a real
-          token — don't show the cards at all until it's active. */}
+          token — don't show the checklist at all until it's active. */}
       {state.planBlocked ? (
         <div className="empty">
           <p>Connecting a service unlocks once this agent is active.</p>
           <p className="muted">Switch it on from your plan, then come back here.</p>
         </div>
-      ) : agentId ? (
-        <ul className="connect-grid">
-          {PROVIDER_CARDS.map((card) => (
-            <ConnectCard
-              key={card.id}
-              card={card}
-              phase={phases[card.id]}
-              onOpen={() => {
-                window.open(card.tokenUrl, '_blank', 'noopener');
-                setPhase(card.id, { kind: 'open', token: '', shapeWarn: false });
-              }}
-              onToken={(token) => setPhase(card.id, { kind: 'open', token, shapeWarn: false })}
-              onSubmit={() => void submit(card)}
-              onRetry={() => setPhase(card.id, { kind: 'open', token: '', shapeWarn: false })}
-            />
-          ))}
-        </ul>
       ) : (
-        <div className="empty">
-          <p>No agent is connected to this account yet.</p>
-          <p className="muted">Set it up first — hand this to your agent, or run it yourself:</p>
-          <AgentSetupPrompt />
-        </div>
+        <ol className="checklist">
+          <li className={stepClass(step1Done, true)}>
+            <span className="check-mark">{step1Done ? '✓' : '1'}</span>
+            <div className="check-body">
+              <b>{step1Done ? `${agentName} set itself up` : 'Set up your agent'}</b>
+              {step1Done ? (
+                <p className="muted">It has its own ID and can ask you for things — nothing more yet.</p>
+              ) : (
+                <>
+                  <p className="muted">Hand this to your agent, or run it yourself:</p>
+                  <AgentSetupPrompt />
+                </>
+              )}
+            </div>
+          </li>
+
+          <li className={stepClass(step2Done, step1Done)}>
+            <span className="check-mark">{step2Done ? '✓' : '2'}</span>
+            <div className="check-body">
+              <b>Connect an account</b>
+              <p className="muted">
+                {step2Done
+                  ? 'Connected. Add more whenever you like.'
+                  : agentId
+                    ? `Pick one thing ${agentName} can use. You can take it back any time.`
+                    : `Once ${agentName} is set up, you'll pick one thing it can use — and can take it back any time.`}
+              </p>
+              {agentId && (
+                <ul className="connect-grid">
+                  {PROVIDER_CARDS.map((card) => (
+                    <ConnectCard
+                      key={card.id}
+                      card={card}
+                      phase={phases[card.id]}
+                      onOpen={() => {
+                        window.open(card.tokenUrl, '_blank', 'noopener');
+                        setPhase(card.id, { kind: 'open', token: '', shapeWarn: false });
+                      }}
+                      onToken={(token) => setPhase(card.id, { kind: 'open', token, shapeWarn: false })}
+                      onSubmit={() => void submit(card)}
+                      onRetry={() => setPhase(card.id, { kind: 'open', token: '', shapeWarn: false })}
+                    />
+                  ))}
+                </ul>
+              )}
+            </div>
+          </li>
+
+          {/* A pending ask re-activates the step — never "checked off and
+              asking at once", and the review-and-allow link is never dimmed. */}
+          <li className={stepClass(step3Done && !firstAsk, step2Done || Boolean(firstAsk))}>
+            <span className="check-mark">{step3Done && !firstAsk ? '✓' : '3'}</span>
+            <div className="check-body">
+              <b>Say yes when it asks</b>
+              {firstAsk && firstAskPhrase ? (
+                <p>
+                  {agentName} is asking to <strong>{firstAskPhrase.action}</strong>
+                  {firstAskPhrase.via ? <span className="muted"> · {firstAskPhrase.via}</span> : null}
+                  {pendingAsks.length > 1 ? ` (and ${pendingAsks.length - 1} more)` : ''} —{' '}
+                  <Link className="link" to="/home">review and allow →</Link>
+                </p>
+              ) : step3Done ? (
+                <p className="muted">You&rsquo;ve done this — new asks show up on your home page.</p>
+              ) : (
+                <p className="muted">
+                  When {agentName} needs something new, it asks — right here and on your home
+                  page. One tap says yes
+                  {owner.has_passkey
+                    ? '.'
+                    : ', and your first yes creates your passkey — the Face ID prompt, once.'}
+                </p>
+              )}
+            </div>
+          </li>
+        </ol>
       )}
 
       <div className="panel welcome-done">
-        <h2>{connectedCount > 0 ? 'You’re set' : 'Good to know'}</h2>
+        <h2>{allDone ? 'You’re set' : 'Good to know'}</h2>
         <p className="panel-note">
           {agentName} can only use what you connect here, every use is recorded, and the{' '}
           <strong>kill switch</strong> on your home page cuts off everything at once — no
           questions asked.
         </p>
         <button className="btn btn-primary" onClick={() => navigate('/home')}>
-          {connectedCount > 0 ? 'Done — take me home' : 'Skip for now'}
+          {allDone ? 'Done — take me home' : 'Skip for now'}
         </button>
       </div>
     </div>

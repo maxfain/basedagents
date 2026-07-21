@@ -190,6 +190,22 @@ a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 .welcome-done { margin-top: 2.5rem; }
 .welcome-done .btn { margin-top: 0.75rem; }
 
+/* ── /welcome live checklist ── */
+.checklist { list-style: none; margin: 1.25rem 0 0; padding: 0; display: grid; gap: 0.9rem; }
+.check-step { display: flex; gap: 0.9rem; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.2rem; }
+.check-step.active { border-color: var(--accent); }
+.check-step.done { border-color: #1d4a30; }
+/* Dim only the marker/title of not-yet steps — body copy and links keep AA contrast. */
+.check-step:not(.active):not(.done) .check-mark,
+.check-step:not(.active):not(.done) .check-body > b { opacity: 0.72; }
+.check-mark { flex: none; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border); color: var(--muted); font-weight: 600; font-size: 0.9rem; }
+.check-step.active .check-mark { border-color: var(--accent); color: var(--accent); }
+.check-step.done .check-mark { background: rgba(74, 222, 128, 0.12); border-color: #1d4a30; color: var(--ok); }
+.check-body { flex: 1; min-width: 0; }
+.check-body > b { display: block; margin-bottom: 0.2rem; }
+.check-body .connect-grid { margin-top: 0.9rem; }
+.check-body .agent-setup { margin-top: 0.6rem; }
+
 /* ── /start (the web "Get started" door) ── */
 .auth-card-wide { max-width: 520px; }
 .start-doors { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 1.25rem 0 1rem; border-bottom: 1px solid var(--border); }
