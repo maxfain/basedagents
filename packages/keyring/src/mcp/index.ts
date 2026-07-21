@@ -31,7 +31,7 @@ import type { GrantConstraints } from '../types.js';
 import { DEFAULT_LEASE_TTL_SECONDS } from '../types.js';
 import { publicKeyToAgentId, hexToBytes, base58Decode } from '../util.js';
 
-const VERSION = '0.5.3';
+const VERSION = '0.5.4';
 
 // ─── Identity / keypair ─────────────────────────────────────────────────────
 

@@ -168,8 +168,8 @@ describe('recipe engine', () => {
     const out = await runRecipe(vercelBootstrapRecipe, async () => driver, hooks, { token_name: 'x' }, []);
     expect(out.status).toBe('completed');
     if (out.status !== 'completed') return;
-    expect(checkpoints.some((c) => c.startsWith('open-create'))).toBe(true);
-    expect(out.transcript.find((t) => t.step === 'open-create')?.result).toBe('manual');
+    expect(checkpoints.some((c) => c.startsWith('submit'))).toBe(true);
+    expect(out.transcript.find((t) => t.step === 'submit')?.result).toBe('manual');
   });
 
   it('login checkpoint: no steps run until the session exists; abort works', async () => {

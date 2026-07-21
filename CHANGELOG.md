@@ -8,6 +8,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Vercel recipe v3: inline form + placeholder controls (`@basedagents/keyring` 0.5.4)
+
+Second live run (0.5.3) checkpointed at the Scope dropdown and taught us the
+rest of the real form:
+
+- The Create Token form is **inline** on the tokens page — there is no opener
+  button, so the old `open-create` step was clicking the SUBMIT button
+  prematurely (the source of the red validation errors). Removed; the first
+  interaction is the name field.
+- The Scope control is a **search-style input whose "Select scope" is a
+  placeholder attribute** — invisible to role-name and `text=` locators. The
+  primary locator is now `[placeholder="Select scope"]`; same treatment for
+  Expiration's `[placeholder="Select Date"]`.
+- The submit is labeled **"Create"** (not "Create Token") — primary/fallback
+  swapped.
+
 ### Fixed — Vercel recipe v2 matches the live Create Token form (`@basedagents/keyring` 0.5.3)
 
 First real logged-in run reached the form and surfaced three drifts:
