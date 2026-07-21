@@ -175,12 +175,16 @@ export default function Welcome() {
     setPhases((p) => ({ ...p, [cardId]: phase }));
   }, []);
 
-  // One load for everything the checklist observes; also flips waiting cards.
+  // One load for everything the checklist observes; also flips waiting cards
+  // and hydrates cards for connections stored on an earlier visit.
   const load = useCallback(async () => {
     try {
       const [conns, reqs] = await Promise.all([control.listConnections(), control.listRequests()]);
-      setServerConnections(conns.connections);
-      setAsks(reqs.requests);
+      // Identity-preserving: unchanged payloads must not re-render the tree.
+      const fp = (rows: ReadonlyArray<{ id: string; status: string }>) =>
+        rows.map((r) => `${r.id}:${r.status}`).join('|');
+      setServerConnections((prev) => (fp(prev) === fp(conns.connections) ? prev : conns.connections));
+      setAsks((prev) => (fp(prev) === fp(reqs.requests) ? prev : reqs.requests));
       const byId = new Map<string, ConnectionInfo>(conns.connections.map((c) => [c.id, c]));
       for (const [cardId, phase] of Object.entries(phasesRef.current)) {
         if (phase.kind !== 'waiting') continue;
@@ -194,16 +198,38 @@ export default function Welcome() {
           setPhase(cardId, { kind: 'failed', reason: conn.failure_reason ?? 'That didn’t work — check the token and try again.' });
         }
       }
+      // A provider stored on a previous visit shows as connected, not as a
+      // fresh Connect button (idle only — never stomp an in-progress card;
+      // no funnel ping — it already counted when it first stored).
+      const stored = new Set(
+        conns.connections
+          .filter((c) => c.agent_id === agentId && c.status === 'stored')
+          .map((c) => c.provider),
+      );
+      for (const card of PROVIDER_CARDS) {
+        if (stored.has(card.id) && phasesRef.current[card.id]?.kind === 'idle') {
+          setPhase(card.id, { kind: 'connected' });
+        }
+      }
     } catch {
       /* transient — next tick retries */
     }
-  }, [setPhase]);
+  }, [setPhase, agentId]);
 
-  // The page ticks itself off: fetch immediately, then keep watching while open.
+  // The page ticks itself off: fetch immediately, then keep watching while
+  // open. Each tick awaits the previous one, so slow responses can't overlap.
   useEffect(() => {
-    void load();
-    const timer = setInterval(() => void load(), POLL_MS);
-    return () => clearInterval(timer);
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = async () => {
+      await load();
+      if (alive) timer = setTimeout(() => void tick(), POLL_MS);
+    };
+    void tick();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
   }, [load]);
 
   async function submit(card: ProviderCard): Promise<void> {
@@ -300,7 +326,9 @@ export default function Welcome() {
               <p className="muted">
                 {step2Done
                   ? 'Connected. Add more whenever you like.'
-                  : `Pick one thing ${agentName} can use. You can take it back any time.`}
+                  : agentId
+                    ? `Pick one thing ${agentName} can use. You can take it back any time.`
+                    : `Once ${agentName} is set up, you'll pick one thing it can use — and can take it back any time.`}
               </p>
               {agentId && (
                 <ul className="connect-grid">
@@ -323,8 +351,10 @@ export default function Welcome() {
             </div>
           </li>
 
-          <li className={stepClass(step3Done, step2Done)}>
-            <span className="check-mark">{step3Done ? '✓' : '3'}</span>
+          {/* A pending ask re-activates the step — never "checked off and
+              asking at once", and the review-and-allow link is never dimmed. */}
+          <li className={stepClass(step3Done && !firstAsk, step2Done || Boolean(firstAsk))}>
+            <span className="check-mark">{step3Done && !firstAsk ? '✓' : '3'}</span>
             <div className="check-body">
               <b>Say yes when it asks</b>
               {firstAsk && firstAskPhrase ? (
@@ -338,8 +368,8 @@ export default function Welcome() {
                 <p className="muted">You&rsquo;ve done this — new asks show up on your home page.</p>
               ) : (
                 <p className="muted">
-                  When {agentName} needs something new, it asks — here and on your phone. One tap
-                  says yes
+                  When {agentName} needs something new, it asks — right here and on your home
+                  page. One tap says yes
                   {owner.has_passkey
                     ? '.'
                     : ', and your first yes creates your passkey — the Face ID prompt, once.'}

@@ -179,7 +179,9 @@ export default function Home() {
                     <div key={req.id} className="asking">
                       <span className="asking-text">
                         Wants to <strong>{ask.action}</strong>
-                        {ask.via && <span className="muted"> · {ask.via}</span>}
+                        {ask.via && (
+                          <span className="muted"> · {ask.via} ({req.credential_label ?? req.credential_id})</span>
+                        )}
                         {req.note && <em className="muted"> — “{req.note}”</em>}
                       </span>
                       <span className="asking-actions">

@@ -207,7 +207,7 @@ export default function Home(): React.ReactElement {
             <b>Click the link.</b> One email field, no password — that's your control screen.
           </li>
           <li>
-            <b>Tap Approve when your agent asks.</b> Your first yes creates a passkey — the Face ID
+            <b>Tap Allow when your agent asks.</b> Your first yes creates a passkey — the Face ID
             prompt — and from then on it's just: your agent asks, you tap.
           </li>
         </ol>
@@ -234,7 +234,7 @@ export default function Home(): React.ReactElement {
           </div>
           <div className="home-tile">
             <b>Approve.</b>
-            <p>Anything new, your phone asks. One tap to allow, one to refuse — and every yes stays visible on one screen.</p>
+            <p>Anything new waits for your OK. One tap to allow, one to refuse — and every yes stays visible on one screen.</p>
           </div>
           <div className="home-tile">
             <b>Cut off.</b>
