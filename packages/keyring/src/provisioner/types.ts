@@ -110,6 +110,8 @@ export interface Driver {
   read(locator: RecipeLocator, timeoutMs: number): Promise<string>;
   /** Read the page clipboard (used after clicking a dialog's Copy button). Throws if unavailable. */
   readClipboard(): Promise<string>;
+  /** Overwrite the page clipboard — pre-clear before an engine Copy click and post-capture hygiene. */
+  writeClipboard(text: string): Promise<void>;
   close(): Promise<void>;
 }
 

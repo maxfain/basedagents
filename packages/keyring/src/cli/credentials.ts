@@ -80,6 +80,24 @@ export async function cmdRemove(args: string[], dir: string | undefined): Promis
     }
   }
 
+  // Custody honesty: removing from the vault does not kill the token at the
+  // provider. Burn it by id when we can (Vercel + provisioning token on hand).
+  if (credential.provider === 'vercel' && credential.provider_key_id && !credential.provisioner) {
+    try {
+      const { VercelApi } = await import('../provisioner/vercel-api.js');
+      const prov = kr.findProvisioner('vercel');
+      if (prov) {
+        const value = kr.provisionerValue(kr.ownerKeypair(), prov.credential_id);
+        const status = await new VercelApi(value, undefined, prov.provider_team).deleteToken(credential.provider_key_id);
+        console.log(`✓ Burned the token at Vercel (${status})`);
+      } else {
+        console.log('⚠ No provisioning token — delete it in the Vercel dashboard too.');
+      }
+    } catch (err) {
+      console.log(`⚠ Could not burn at Vercel (${(err as Error).message}) — delete it in the dashboard too.`);
+    }
+  }
+
   await kr.removeCredential(kr.ownerKeypair(), credential.credential_id);
   console.log(`✓ Removed "${credential.label}" and ${grantCount} grant(s)`);
 }

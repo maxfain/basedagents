@@ -64,6 +64,17 @@ export async function cmdConnect(args: string[], dir: string | undefined): Promi
     else if (identities.length === 0) throw new CliError('No agent identities yet — run `based init` first.');
     else throw new CliError(`Multiple agents in this vault — pick one with --agent <name|ag_…>.`);
   }
+  // Fail HERE, with the roster, before any token is minted at the provider.
+  try {
+    kr.resolveAgent(kr.vault(), agentRef);
+  } catch {
+    const known = identities.map((i) => i.name ?? i.agent_id).join(', ') || '(none)';
+    throw new CliError(
+      `Unknown agent "${agentRef}". This vault knows: ${known}.\n` +
+      'Tokens are minted FOR an agent that already exists here — agents register themselves via ' +
+      '`npx basedagents keyring init` (or add one with `based identity add <ag_…> --name <n>`).'
+    );
+  }
   const agentName = identities.find((i) => i.agent_id === agentRef || i.name === agentRef)?.name ?? agentRef;
 
   const days = flags.values['days'] ? Number(flags.values['days']) : undefined;
