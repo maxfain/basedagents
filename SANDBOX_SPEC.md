@@ -100,10 +100,31 @@ Design rules, field-tested (in both directions):
   revive the current dead task; without this step the human retries in place and
   loops on the 403.
 - **`/codex` is a permanent URL** (static leaf page, human-facing, self-canonical,
-  `/sandbox` aliases to it). Its own step-3 paste prompt includes the fallback
-  clause, so a botched environment fix self-heals instead of stranding the user.
-  Pageviews fire the `codex_recovery_view` funnel event — a live count of
-  cold-sandbox failures in the wild.
+  `/sandbox` aliases to it). Pageviews fire the `codex_recovery_view` funnel
+  event — a live count of cold-sandbox failures in the wild.
+- **The retry prompt must DIVERGE (field-tested 2026-07).** The first `/codex`
+  iteration's step-3 paste prompt was byte-identical to the original pointer
+  prompt, on the theory that a botched environment fix would "self-heal" by
+  relaying back to `/codex`. Field screenshots falsified that: a user followed
+  the page, the fix didn't take (classic miss: the Setup-script line pasted
+  into the *chat* instead of the environment settings — the agent then
+  obligingly ran `npm install` under a dead network), and the retry produced
+  the identical 403 → the identical "open basedagents.ai/codex" relay → a loop
+  with zero new signal. The step-3 prompt now has the agent check
+  `node_modules/.bin/basedagents` BEFORE touching npm and, on a miss, relay a
+  *different* message that names what didn't take ("the install didn't run
+  during setup — step 1 goes in the environment settings…"); an allowlist miss
+  gets its own relay line. Rule: every recovery prompt must produce a distinct
+  next message on failure — never the message that led to it.
+- **The setup log is the ground truth.** Codex prints an "Environment setup"
+  log per task; its auto setup runs `npm install --no-save --no-package-lock`
+  against the repo's `package.json`. "No installations were performed" ⇒
+  neither the Setup script nor a committed devDependency was in effect for the
+  environment that task used. Corollary: because auto setup installs
+  `package.json` dependencies with the network open, a devDependency committed
+  from the human's own machine (lockfile regenerated properly) rides the
+  *automatic* install with no Setup-script edit at all — `/codex` now offers
+  that as an equal path (§4's convention, minus the AGENTS.md block).
 - **Machine surfaces keep the full payload.** `agent.json`
   (`on_403_relay_to_human`, `human_recovery_page`) and the `llms.txt` mirrors
   carry the pointer *and* the underlying steps — they are read by agents that

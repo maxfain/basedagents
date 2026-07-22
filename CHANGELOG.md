@@ -8,6 +8,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the /codex recovery page no longer loops (field report, web)
+
+Field report with screenshots: a user followed basedagents.ai/codex, started a
+new task, and hit the identical E403 — so their agent relayed the same "open
+basedagents.ai/codex" pointer again. An infinite loop. Root cause: the page's
+step-3 retry prompt was the original pointer prompt again (the "self-heal"
+theory this replaces in SANDBOX_SPEC §2b), so when step 1 didn't take — the
+classic miss is pasting the Setup-script line into the *chat* instead of the
+environment settings, where the agent obligingly runs `npm install` under a
+dead network — the second failure carried zero new signal. The setup log in
+the screenshots told the story: auto setup only, "No installations were
+performed."
+
+- **/codex step 3 is now diagnostic.** The retry prompt has the agent check
+  `node_modules/.bin/basedagents` BEFORE touching npm. Present → run init
+  (the 403 only ever blocked the registry). Missing → the agent names what
+  didn't take, own words ("the install didn't run during setup — step 1 goes
+  in the environment settings, not this chat"). Control-plane unreachable →
+  the allowed-domains diagnosis. Composes with the skeptical-agent prompt
+  rules (provenance, expected behavior, tripwire; never script the reply).
+  Rule recorded in SANDBOX_SPEC §2b: a recovery prompt must never re-emit
+  the message that led to it.
+- **/codex step 1 says where the field lives** — environment settings, not a
+  message to the agent — and offers committing the devDependency as an equal
+  path A (Codex's automatic setup npm-installs the repo's `package.json`
+  while the network is open, so a pushed devDependency needs no environment
+  settings at all; installing is still step zero). New note: how to verify
+  from the task's "Environment setup" log ("No installations were performed"
+  = step 1 didn't take).
+- **Machine surfaces mirror the divergence** so agents that can fetch do the
+  same: `agent.json` `sandbox` gains `on_repeat_403_relay_to_human` +
+  `how_to_verify_setup_worked` (and `on_403_relay_to_human` now says
+  check-disk-first), with matching updates to `llms.txt`, `llms-full.txt`,
+  and `/docs/agents#codex`.
+
+Static web content only — ships with the next web deploy; no keyring/npm
+changes. The first-touch pointer prompts (homepage hero/closing, console
+`AgentSetupPrompt`) are untouched: routing a cold failure to /codex is still
+correct — the page it lands on just stopped being a circle.
+
 ### Fixed — init survives a missing browser opener (`@basedagents/keyring` 0.5.14)
 
 The first fully-successful Codex run (0.5.13: proxy fix confirmed live —

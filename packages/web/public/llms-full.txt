@@ -71,14 +71,31 @@ code E403` before any BasedAgents code runs. The package must already be on disk
 IF YOU (an agent) JUST HIT THAT E403: do not retry, and do not go quiet. You
 cannot fix it from inside the task — there is no network, and editing
 package.json without regenerating package-lock.json would break the next
-`npm ci`. Tell your human — in your own words, but with the URL exact — that
-the one-time fix is at basedagents.ai/codex and to start a NEW task after. That
-page (human-facing, their browser is unrestricted) walks them through it. The underlying steps, if they ask you
-directly: add `npm install --save-dev basedagents` to the environment's Setup
-script, allow api.basedagents.ai and app.basedagents.ai in its allowed domains,
-then start a new task. (Or: run `npm install --save-dev basedagents` in the repo
-locally and push — then every future task has it.) Put the fix in your task
-summary too, not only mid-log.
+`npm ci`. First check `ls node_modules/.bin/basedagents`: if it exists, run the
+local copy directly — the 403 only blocks the registry, not code already on
+disk. If it is missing, tell your human — in your own words, but with the URL
+exact — that the one-time fix is at basedagents.ai/codex and to start a NEW
+task after. That page (human-facing, their browser is unrestricted) walks them
+through it. The underlying steps, if they ask you directly: add
+`npm install --save-dev basedagents` to the environment's Setup script — a
+field in the environment SETTINGS; a task-time `npm install` can never
+substitute, the network is already off — allow api.basedagents.ai and
+app.basedagents.ai in its allowed domains, then start a new task. (Or: run
+`npm install --save-dev basedagents` in the repo locally and push — then every
+future task has it.) Put the fix in your task summary too, not only mid-log.
+
+IF THE HUMAN ALREADY FOLLOWED basedagents.ai/codex and the package is STILL not
+on disk, the environment fix did not take — most common: the Setup-script line
+was pasted into the chat instead of the environment settings, or saved on a
+different environment than the task uses. Do NOT send them back to
+basedagents.ai/codex with the same message (that loops the human back to the
+same page with no new signal). Tell them — own words, exact terms: the install
+didn't run during setup; re-do step 1 on basedagents.ai/codex IN THE
+ENVIRONMENT SETTINGS, or commit `npm install --save-dev basedagents` to the
+repo from their own computer; then start a NEW task. Ground truth for the
+human: the task's "Environment setup" log — if it ends with "No installations
+were performed", neither the Setup script nor a committed devDependency was in
+effect.
 
 Do the network-dependent work during setup instead:
 
