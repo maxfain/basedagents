@@ -47,7 +47,7 @@
   </nav>
   <main>
     <h1>Your agent hit a wall. Here&rsquo;s the two-minute fix.</h1>
-    <p class="lede">Cloud sandboxes like Codex turn off the internet while your agent works, so it couldn&rsquo;t download BasedAgents mid-task. Set the environment up once — after that, it never happens again.</p>
+    <p class="lede">Cloud sandboxes like Codex turn off most of the internet while your agent works — so it either couldn&rsquo;t download BasedAgents mid-task, or installed it fine and then couldn&rsquo;t reach <code>api.basedagents.ai</code>. Set the environment up once — after that, it never happens again.</p>
 
     <ol class="steps">
       <li>
@@ -78,6 +78,10 @@ the one-time fix is at basedagents.ai/codex, then I start a new task.</pre>
         <p>This time it installs nothing over the network — it&rsquo;s already there. Your agent sets up its keyring and hands you a link to finish at <a href="https://app.basedagents.ai/start">app.basedagents.ai/start</a>.</p>
       </li>
     </ol>
+
+    <div class="note">
+      <strong>Which steps do you actually need?</strong> If your agent hit an npm error (E403), do all three. If it said the install worked but it couldn&rsquo;t reach <code>api.basedagents.ai</code>, you only need step 2 — then start a new task (step 3). Anything your agent already set up locally is saved; asking again is safe.
+    </div>
 
     <div class="note">
       <strong>Prefer to fix it in the repo instead?</strong> On your own computer, run <code>npm install --save-dev basedagents</code> in the project and push the change. Every future task then has it preinstalled — no environment settings at all.

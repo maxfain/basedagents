@@ -73,6 +73,13 @@ Design rules, field-tested (in both directions):
   step ("keep the URL exact"). But scripting the agent's EXACT reply
   (`tell me: "…"`) reads as output-steering to a security-conscious agent and
   got the entire setup refused in the field. Pin the content, not the wording.
+- **There are two walls, not one.** Field-hit both: (a) npm blocked at task
+  time (E403 before any of our code runs) and (b) npm ALLOWED but
+  api.basedagents.ai not in the environment's allowed domains — `init` then
+  creates the vault + agent locally and fails only at the link step. `init`
+  must stay resumable (re-run reuses vault + agent) and must print the /codex
+  pointer itself in that state, flavored for the allowed-domains step — the
+  agent should not have to improvise the relay.
 - **Survive the skeptical agent.** The setup prompt is indistinguishable from a
   supply-chain phish unless it gives the agent something to verify: provenance
   links (npm package name, GitHub repo, docs URL — exact, so a bad search

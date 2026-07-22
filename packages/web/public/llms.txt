@@ -32,7 +32,10 @@ retry and do not go quiet — you cannot install from inside the task. Tell your
 human — own words, URL exact — the one-time fix is at basedagents.ai/codex and
 to start a NEW task after. (That human-facing page covers it; steps if asked:
 `npm install --save-dev basedagents` in the environment's Setup script, allow
-api.basedagents.ai + app.basedagents.ai.) Diagnose with `basedagents keyring doctor`.
+api.basedagents.ai + app.basedagents.ai.) The other wall: npm works but
+api.basedagents.ai is blocked — init saves the vault/agent and re-running in a
+NEW task resumes; the human just adds the two allowed domains (same page).
+Diagnose with `basedagents keyring doctor`.
 Full guide: https://basedagents.ai/docs/agents#sandboxes (auto-setup convention:
 SANDBOX_SPEC.md)
 
