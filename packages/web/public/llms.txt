@@ -35,7 +35,10 @@ to start a NEW task after. (That human-facing page covers it; steps if asked:
 api.basedagents.ai + app.basedagents.ai.) The other wall: npm works but
 api.basedagents.ai is blocked — init saves the vault/agent and re-running in a
 NEW task resumes; the human just adds the two allowed domains (same page).
-Diagnose with `basedagents keyring doctor`.
+Install alone does NOTHING
+visible — after any install-only task, run keyring init or end your reply by
+telling the human the next step (new task + the setup prompt); never finish an
+install task silently. Diagnose with `basedagents keyring doctor`.
 Full guide: https://basedagents.ai/docs/agents#sandboxes (auto-setup convention:
 SANDBOX_SPEC.md)
 

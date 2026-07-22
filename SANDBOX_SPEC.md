@@ -80,6 +80,13 @@ Design rules, field-tested (in both directions):
   must stay resumable (re-run reuses vault + agent) and must print the /codex
   pointer itself in that state, flavored for the allowed-domains step — the
   agent should not have to improvise the relay.
+- **Never end a task without the next step.** Field-hit: an install-only task
+  ("npm install --save-dev basedagents") completed correctly and silently — the
+  human saw "done" with nothing to do next. Installing is step zero; every
+  surface that suggests the install command must pair it with its successor
+  (start a new task, paste the setup prompt), and agent-facing docs must tell
+  agents to END install replies with that next step (agent.json
+  `after_install_tell_human`).
 - **Survive the skeptical agent.** The setup prompt is indistinguishable from a
   supply-chain phish unless it gives the agent something to verify: provenance
   links (npm package name, GitHub repo, docs URL — exact, so a bad search
