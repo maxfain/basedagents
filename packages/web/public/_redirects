@@ -11,6 +11,14 @@
 # Signup is retired — the web door is /start on the console.
 /signup            https://app.basedagents.ai/start   301
 
+# Console paths typed on the marketing domain bounce to the console instead of
+# silently falling through to the homepage (a field-tested dead end — the
+# checklist lives at app.basedagents.ai/welcome, not here).
+/welcome           https://app.basedagents.ai/welcome  301
+/home              https://app.basedagents.ai/home     301
+/login             https://app.basedagents.ai/login    301
+/approvals         https://app.basedagents.ai/approvals 301
+
 # Generic alias for the sandbox recovery page (codex.html is served as an asset
 # at /codex ahead of these rules). Destination is the pretty URL, NEVER the
 # .html asset — see the warning above.
