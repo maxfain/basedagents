@@ -56,7 +56,9 @@ export function proxyHint(): string {
   const proxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.ALL_PROXY || '';
   return '\n\nIf you are behind a proxy or in a sandboxed agent environment, outbound HTTPS may be ' +
     'filtered. Allow api.basedagents.ai through your egress policy' +
-    (proxy ? ` / proxy (${proxy})` : '') + ', or pass --api <reachable url>.';
+    (proxy
+      ? ` — a proxy is set (${proxy}) and the keyring routes through it automatically, so the proxy itself is likely refusing this host`
+      : '') + ', or pass --api <reachable url>.';
 }
 
 export class ControlClient {

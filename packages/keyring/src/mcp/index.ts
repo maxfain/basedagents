@@ -30,7 +30,7 @@ import type { GrantConstraints } from '../types.js';
 import { DEFAULT_LEASE_TTL_SECONDS } from '../types.js';
 import { publicKeyToAgentId, hexToBytes, base58Decode } from '../util.js';
 
-const VERSION = '0.5.12';
+const VERSION = '0.5.13';
 
 // ─── Identity / keypair ─────────────────────────────────────────────────────
 
@@ -423,6 +423,10 @@ server.tool(
 // ─── Start ──────────────────────────────────────────────────────────────────
 
 async function main() {
+  // invite_owner (and future control-plane calls) fetch from inside sandboxes
+  // whose allowed-domains egress rides an HTTP(S)_PROXY — honor it.
+  const { installEnvProxy } = await import('../net/proxy.js');
+  await installEnvProxy();
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // Server runs until stdin closes

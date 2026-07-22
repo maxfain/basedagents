@@ -20,7 +20,7 @@ import { cmdConnect } from './connect.js';
 import { cmdAdmin, cmdMcp } from './serve.js';
 import { cmdLink, cmdSync } from './sync.js';
 
-const VERSION = '0.5.12';
+const VERSION = '0.5.13';
 
 const HELP = `
 based — BasedAgents Keyring: scoped, revocable credentials for AI agents
@@ -146,6 +146,11 @@ function extractDir(args: string[]): { dir: string | undefined; rest: string[] }
 }
 
 export async function main(): Promise<void> {
+  // Sandboxes announce their allowed-domains egress via HTTP(S)_PROXY; Node
+  // fetch ignores those on its own. Must run before any network call.
+  const { installEnvProxy } = await import('../net/proxy.js');
+  await installEnvProxy();
+
   const argv = process.argv.slice(2);
   const separator = argv.indexOf('--');
   const beforeSeparator = separator === -1 ? argv : argv.slice(0, separator);
