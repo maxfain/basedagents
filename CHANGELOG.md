@@ -8,6 +8,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — honor the sandbox egress proxy (`@basedagents/keyring` 0.5.13)
+
+Follow-up to the "second wall": the Codex environment had BOTH domains
+allowed all along. The real cause — Codex implements allowed-domains with an
+HTTP(S) proxy announced via HTTPS_PROXY/HTTP_PROXY env vars; npm and curl
+honor those (so the install worked), but Node's built-in fetch does not, so
+every keyring network call tried a direct connection and died even for
+allowed hosts. Reproduced and fix-verified in a live proxied sandbox: plain
+fetch blocked; fetch behind undici's EnvHttpProxyAgent reached the real API.
+
+- CLI and MCP entrypoints now install `EnvHttpProxyAgent` as the global
+  fetch dispatcher whenever proxy env vars are present (NO_PROXY honored —
+  local dev against localhost unaffected; TLS verification never touched;
+  no proxy vars → exact previous behavior). New dependency: `undici`
+  (zero-dep; consumer install is now 8 packages, still 0 audit findings).
+- `proxyHint` no longer tells users to configure what is now automatic —
+  when a proxy is set it points at the proxy's own policy instead.
+- agent.json gains `proxy_aware` in the sandbox block, including the
+  operational catch: a repo lockfile pinned to an older keyring keeps the
+  bug — `npm update basedagents @basedagents/keyring` after upgrading.
+
 ### Fixed — the second sandbox wall (`@basedagents/keyring` 0.5.12 + /codex)
 
 Field report: in a Codex task, npm worked (install + lockfile committed by
