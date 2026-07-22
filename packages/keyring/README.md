@@ -21,7 +21,7 @@ Keyring fixes 1 and 2 today and is honest about 3 (see [Security model](#securit
 The whole onboarding is one command, run in the terminal where your agent works:
 
 ```bash
-npx @basedagents/keyring init
+npx @basedagents/keyring@latest init
 ```
 
 It creates the local vault (everything sensitive stays on your machine),

@@ -121,6 +121,24 @@ Design rules, field-tested (in both directions):
   trips the "stop if anything differs" wire — a field agent stopped for
   exactly this. The expected-behavior line now carries the reuse guarantee
   everywhere the create claim appears.
+- **The fourth wall is the npx cache — pin the version by wall (field-hit
+  2026-07).** Same machine, next attempt: the permission gate cleared, the
+  command ran, and the CLI answered `Unknown option: --start` — npx had
+  cached the tree for the bare `basedagents` spec months earlier, and npx
+  NEVER re-resolves a cached bare spec, so a stale CLI met a prompt written
+  for the current one. "Cold npx resolves latest" is only true for machines
+  that never ran the command before; every returning machine is a
+  stale-cache machine. Rule — the canonical command differs by wall, on
+  purpose: **local surfaces pin `@latest`** (`npx basedagents@latest keyring
+  init`), forcing re-resolution every run; **sandbox surfaces keep the bare
+  name** (`npx basedagents keyring init`), because `@latest` forces a
+  registry lookup the task phase blocks while the bare name resolves the
+  preinstalled copy with zero registry calls. Backstops: `parseFlags` now
+  explains itself on an unknown option (stale-cache hint + the `@latest`
+  command — the old copy can't be taught, but every future one names the
+  next skew), and the wrapper's dependency range must be bumped WITH each
+  keyring minor (`^0.5.0` silently excluded 0.6.0) — the sdk pins
+  `^0.6.0` as of 0.6.4.
 - **"Start a new task" must survive the relay.** Fixing the environment does not
   revive the current dead task; without this step the human retries in place and
   loops on the 403.

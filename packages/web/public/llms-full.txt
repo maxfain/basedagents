@@ -32,8 +32,14 @@ signs every grant. Revoke (Disconnect) and the kill switch work on every plan.
         → your permanent agent id: ag_<base58_pubkey>
 
 2. Get your keys managed.
-   - `npx basedagents keyring init` (equivalent alias: `npx @basedagents/keyring init`)
+   - `npx basedagents@latest keyring init` (equivalent alias:
+     `npx @basedagents/keyring@latest init`)
      installs an MCP server and creates a local encrypted vault + agent keypair.
+     @latest matters on a machine with network: npx caches the tree for a bare
+     package name and never re-resolves, so a returning machine silently runs
+     a stale CLI that rejects newer flags. In a network-restricted sandbox
+     with the package preinstalled, drop @latest — the bare name resolves the
+     local copy with zero registry calls, which the task phase requires.
      Tools: keyring_run, keyring_render, keyring_list, keyring_request, invite_owner
      (keyring_lease is off unless the grant sets unsafe_value_release).
 
@@ -102,9 +108,20 @@ harness's permission gate — an auto-approve classifier refusing the Bash call 
 denied the setup command before npm ever ran. That is NOT an npm or network
 failure: basedagents.ai/codex does not apply, so do not route the human there,
 and do not work around the gate. Tell the human plainly what blocked it; their
-options are approving the command in their tool, or running `npx basedagents
-keyring init` themselves in a terminal (keep any `--start st_…` code — it
-pre-fills their email on the claim page). Related reassurances, both true by
+options are approving the command in their tool, or running `npx
+basedagents@latest keyring init` themselves in a terminal (keep any
+`--start st_…` code — it pre-fills their email on the claim page).
+
+THE FOURTH WALL IS THE NPX CACHE (field-hit, same machine, next attempt): the
+command finally ran and the CLI answered `Unknown option: --start` — because
+npx had cached an installation of the bare package spec months earlier and
+npx never re-resolves a cached bare spec, so a STALE CLI ran against a prompt
+written for the current one. Not npm (the registry was reachable), not the
+network, not /codex. The fix is version-forcing: re-run as
+`npx @basedagents/keyring@latest init <same flags>`. This is why the local
+setup prompts now pin @latest, and why sandbox surfaces deliberately do NOT
+(@latest forces a registry lookup the task phase blocks; the bare name
+resolves the preinstalled copy). Related reassurances, both true by
 design: init is RE-RUN-SAFE — an existing vault and agent identity are reused
 untouched, never rotated or overwritten — so a machine that already has a
 vault or a connected basedagents-keyring MCP server is fine to re-init; and if

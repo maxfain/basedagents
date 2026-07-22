@@ -53,7 +53,17 @@ export function parseFlags(args: string[], spec: { value?: string[]; switch?: st
       } else if (switchFlags.has(name)) {
         parsed.switches.add(name);
       } else {
-        throw new CliError(`Unknown option: ${arg}`);
+        // The fourth wall (field-hit): a setup prompt written against a newer
+        // release supplies a flag this npx-cached copy predates — npx reuses
+        // its cached tree for a bare package spec and never re-resolves, so
+        // "Unknown option" on a prompt-supplied flag usually means STALE CLI,
+        // not a bad prompt. Say so; only @latest busts the cache.
+        throw new CliError(
+          `Unknown option: ${arg}\n` +
+            `  If a setup prompt supplied this flag, this may be an older, npx-cached copy ` +
+            `of the CLI (run \`based --version\` to see which). The latest version runs with:\n` +
+            `    npx @basedagents/keyring@latest <command>`,
+        );
       }
     } else {
       parsed.positional.push(arg);

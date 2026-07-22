@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from 'react';
 import { control } from '../api/control.js';
 import { AuthBrand } from '../components/AuthBrand.js';
 
-const COMMAND = 'npx @basedagents/keyring init';
+const COMMAND = 'npx @basedagents/keyring@latest init';
 
 export default function Invited() {
   const [state, setState] = useState<'working' | 'ok' | 'expired'>('working');

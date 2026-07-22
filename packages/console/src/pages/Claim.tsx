@@ -63,7 +63,7 @@ export default function Claim() {
           <>
             <h1 className="auth-title">That didn&rsquo;t work</h1>
             <p className="auth-lede">{error}</p>
-            <div className="code-block cmd">npx @basedagents/keyring init</div>
+            <div className="code-block cmd">npx @basedagents/keyring@latest init</div>
             <div className="auth-switch">
               <a className="link" href="/login">Sign in</a>
             </div>

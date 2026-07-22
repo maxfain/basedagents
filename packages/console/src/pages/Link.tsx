@@ -1,5 +1,5 @@
 /**
- * /link?code=XXXX — the ONE page `npx @basedagents/keyring init` opens.
+ * /link?code=XXXX — the ONE page `npx @basedagents/keyring@latest init` opens.
  *
  * Base-case surface: one email field under "Take control of this agent".
  * Submitting sends the magic link; the click in the inbox (the /claim page)
@@ -83,7 +83,7 @@ export default function LinkPage() {
               Run the setup command again in your terminal — everything you already set up is
               saved, and a fresh link opens right away.
             </p>
-            <div className="code-block cmd">npx @basedagents/keyring init</div>
+            <div className="code-block cmd">npx @basedagents/keyring@latest init</div>
           </>
         ) : alreadyClaimed ? (
           <>
