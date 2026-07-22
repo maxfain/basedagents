@@ -8,6 +8,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the keyring version has exactly one source (`@basedagents/keyring`)
+
+The 0.5.15 release nearly shipped an MCP server that reported itself as
+0.5.14: the version lived in three places (package.json, the CLI's
+`--version` constant, the MCP server's `serverInfo.version`), and the bump
+missed one — caught at the publish gate, unpublishable-forever if it hadn't
+been. The class of bug is now structural, not procedural:
+
+- New `src/version.ts` reads the version from package.json at runtime via
+  `createRequire` and both former constants import it. `createRequire`
+  rather than a JSON import because package.json sits outside tsc's rootDir;
+  runtime resolution works unchanged from every layout the module lives in —
+  `src/` (vitest, tsx), `dist/` (the built package), and the installed
+  tarball — since each sits one directory below the package root.
+- Verified in all three layouts: unit suite from src, `based --version` +
+  the stdio MCP smoke against dist, and a packed tarball installed into a
+  scratch project (`keyring --version` → the package.json version).
+
+Future releases bump one field. No behavior change; ships with the next
+keyring publish.
+
 ### Added — the start code: the browser door now remembers your email (control plane + console + `@basedagents/keyring` 0.5.15)
 
 Field finding on the /start "Start in your browser" door: for a first-time
