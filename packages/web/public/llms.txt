@@ -28,11 +28,18 @@ domains. Then at task time tell the agent: "set up BasedAgents Keyring" — it r
 the human off to https://app.basedagents.ai/start to claim it and connect keys.
 Agents: registering is only step one — do not stop there; always run keyring init
 and give the human the claim link. If npx fails with E403 at task time, do not
-retry and do not go quiet — you cannot install from inside the task. Tell your
-human — own words, URL exact — the one-time fix is at basedagents.ai/codex and
-to start a NEW task after. (That human-facing page covers it; steps if asked:
-`npm install --save-dev basedagents` in the environment's Setup script, allow
-api.basedagents.ai + app.basedagents.ai.) The other wall: npm works but
+retry and do not go quiet — you cannot install from inside the task. First check
+`ls node_modules/.bin/basedagents`: if it exists, run the local copy (the 403 only
+blocks the registry). If missing, tell your human — own words, URL exact — the
+one-time fix is at basedagents.ai/codex and to start a NEW task after. If they say
+they already followed that page and the package is STILL missing, the fix didn't
+take (the classic miss: the Setup-script line pasted into the chat instead of the
+environment settings) — do not send them back with the same message; tell them,
+own words: the install didn't run during setup, re-do step 1 in the environment
+settings (or commit it to the repo from their computer), then a NEW task. (Steps
+if asked: `npm install --save-dev basedagents` in the environment's Setup script
+OR committed as a devDependency, allow api.basedagents.ai +
+app.basedagents.ai.) The other wall: npm works but
 api.basedagents.ai is blocked — init saves the vault/agent and re-running in a
 NEW task resumes; the human just adds the two allowed domains (same page).
 Install alone does NOTHING

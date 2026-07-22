@@ -127,8 +127,9 @@ export const control = {
   linkStatus(code: string): Promise<LinkInfo> {
     return request('GET', `/link/${encodeURIComponent(code)}`);
   },
-  linkClaim(code: string, email: string): Promise<{ ok: true }> {
-    return request('POST', `/link/${encodeURIComponent(code)}/claim`, { email });
+  /** Omit `email` to send to the start-code-attached address on the link. */
+  linkClaim(code: string, email?: string): Promise<{ ok: true }> {
+    return request('POST', `/link/${encodeURIComponent(code)}/claim`, email ? { email } : {});
   },
   claimFinish(token: string): Promise<ClaimResult> {
     return request('POST', '/claim/finish', { token });
@@ -142,7 +143,7 @@ export const control = {
   startEmail(email: string): Promise<{ ok: true }> {
     return request('POST', '/start/email', { email });
   },
-  startFinish(token: string): Promise<{ has_account: boolean }> {
+  startFinish(token: string): Promise<{ has_account: boolean; start_code?: string }> {
     return request('POST', '/start/finish', { token });
   },
   inviteClaim(token: string): Promise<{ ok: true; email: string; next_step: string }> {

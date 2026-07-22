@@ -20,7 +20,7 @@ import { cmdConnect } from './connect.js';
 import { cmdAdmin, cmdMcp } from './serve.js';
 import { cmdLink, cmdSync } from './sync.js';
 
-const VERSION = '0.5.14';
+const VERSION = '0.5.15';
 
 const HELP = `
 based — BasedAgents Keyring: scoped, revocable credentials for AI agents
@@ -35,6 +35,8 @@ Vault:
   init                                  Set everything up: vault, agent, MCP config,
                                         and the browser link to take control
        [--name <agent name>] [--api <url>] [--yes] [--no-link] [--no-browser]
+       [--start <code>]                     (code from app.basedagents.ai/start —
+                                             pre-fills your email on the link page)
        [--bare] [--owner-keypair <file>]   (--bare = vault only, the old behavior)
   export [--out <file>]                 Signed JSON export of the access log
   verify-log                            Verify the log's hash chain + signatures

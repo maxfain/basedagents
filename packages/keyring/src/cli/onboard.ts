@@ -13,7 +13,10 @@
  * No signup form, no naming questions, no scope questions. Flags for the
  * advanced door: --name, --api, --no-link (vault+identity only), --no-browser,
  * --no-watch (exit right after the claim), --bare (the original vault-only
- * init), --yes (skip prompts).
+ * init), --yes (skip prompts), --start <code> (the browser-door hand-off: a
+ * single-use code from app.basedagents.ai/start that pre-addresses the claim
+ * email so the /link page needs one click, not re-typing — it carries no
+ * authority, and a stale code silently falls back to the email field).
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -98,7 +101,7 @@ function surfaceSweep(): void {
 
 export async function cmdInit(args: string[], dir: string | undefined): Promise<void> {
   const flags = parseFlags(args, {
-    value: ['owner-keypair', 'name', 'api'],
+    value: ['owner-keypair', 'name', 'api', 'start'],
     switch: ['bare', 'no-link', 'no-browser', 'no-watch', 'yes'],
   });
   const api = flags.values['api'] ?? DEFAULT_KEYRING_API;
@@ -213,6 +216,7 @@ export async function cmdInit(args: string[], dir: string | undefined): Promise<
       agent_public_key: agentPublicKeyB58,
       agent_name: agentName,
       vault_signature: vaultSignature,
+      ...(flags.values['start'] ? { start_code: flags.values['start'] } : {}),
     });
   } catch {
     console.log(`⚠ Could not reach ${api}. Your vault and agent are saved — re-running init is safe.`);
@@ -232,11 +236,20 @@ export async function cmdInit(args: string[], dir: string | undefined): Promise<
   }
   const url = link.json.url as string;
   const code = link.json.code as string;
+  const emailHint = typeof link.json.email_hint === 'string' ? link.json.email_hint : undefined;
 
   console.log('Take control of this agent — open:');
   console.log('');
   console.log(`    ${url}`);
   console.log('');
+  if (emailHint) {
+    // Start-code hand-off worked: the page already knows where to send the
+    // confirmation — say so, so an agent relaying this output can tell its
+    // human exactly which inbox to watch.
+    console.log(`  Your email is already filled in — the confirmation goes to ${emailHint}.`);
+  } else if (flags.values['start']) {
+    console.log('  (The code from the start page was stale — enter your email on the page instead.)');
+  }
   if (!flags.switches.has('no-browser')) openBrowser(url);
   console.log('Waiting for you to finish in the browser (Ctrl-C is safe — nothing is lost)…');
 

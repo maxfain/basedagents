@@ -8,6 +8,91 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the start code: the browser door now remembers your email (control plane + console + `@basedagents/keyring` 0.5.15)
+
+Field finding on the /start "Start in your browser" door: for a first-time
+visitor the whole email → inbox → click round trip bought nothing. The
+verified email was discarded at `start/finish`, the visitor got the same
+generic prompt as the homepage, and minutes later the /link page made them
+type the same email again and click a second magic link. The two halves are
+now joined by a **start code** (CONTROL_PLANE §8, "the start code"):
+
+- **Control plane.** `POST /start/finish` (first-time branch) also mints a
+  single-use `st_…` code — sha256-stored beside the magic-link tokens
+  (`purpose='start_code'`), 60-minute TTL, bound to the just-verified email.
+  `POST /link` accepts an optional `start_code`, consumes it atomically after
+  the link code exists (a failed create never burns it), attaches the email
+  to the link code, and answers with a **masked** `email_hint`; stale or
+  reused codes degrade silently to the email field — never an error that
+  strands `init`. `GET /link/:code` exposes only the masked form (the
+  endpoint is unauthenticated; the full address never leaves the server).
+  `POST /link/:code/claim` now works with no body email — the confirmation
+  goes to the attached address; a typed address still wins.
+- **The invariant is deliberately untouched.** The code carries NO authority:
+  it only pre-addresses the confirmation email. The claim still requires the
+  magic-link click (inbox possession) atop the vault-key-signed link code
+  (machine possession). The code travels through low-integrity channels
+  (chat transcripts, shell history), so it must never ratify anything; a
+  leaked code lets someone pre-address a claim email to its owner — exactly
+  what typing that address into /link already does.
+- **Console.** /start's post-click screen renders the prompt with
+  `--start st_…` appended (only that authenticated screen — every other
+  surface keeps the byte-identical generic prompt), and says why: "the code
+  inside remembers your email." /link with an attached address becomes one
+  click — "we'll send the link to m•••@example.com" — with "Use a different
+  email" as the fallback.
+- **Keyring CLI (0.5.15).** `init --start <code>` forwards the code when
+  creating the link code and prints where the confirmation goes, so an agent
+  relaying init's output can point its human at the right inbox. A stale
+  code prints a one-line note and falls back to the page's email field.
+
+Covered by five new ladder tests — the end-to-end pre-addressed claim (click
+still ratifies), single-use, silent degradation + clean 400 when nothing is
+attached and nothing typed, masked-only exposure, typed-beats-attached — and
+a new E2E scenario 7 driving the whole hand-off in real Chromium: /start →
+code extracted from the rendered prompt → `init --start` → one-click /link
+(full address never rendered) → magic link → account with the door email.
+
+### Fixed — the /codex recovery page no longer loops (field report, web)
+
+Field report with screenshots: a user followed basedagents.ai/codex, started a
+new task, and hit the identical E403 — so their agent relayed the same "open
+basedagents.ai/codex" pointer again. An infinite loop. Root cause: the page's
+step-3 retry prompt was the original pointer prompt again (the "self-heal"
+theory this replaces in SANDBOX_SPEC §2b), so when step 1 didn't take — the
+classic miss is pasting the Setup-script line into the *chat* instead of the
+environment settings, where the agent obligingly runs `npm install` under a
+dead network — the second failure carried zero new signal. The setup log in
+the screenshots told the story: auto setup only, "No installations were
+performed."
+
+- **/codex step 3 is now diagnostic.** The retry prompt has the agent check
+  `node_modules/.bin/basedagents` BEFORE touching npm. Present → run init
+  (the 403 only ever blocked the registry). Missing → the agent names what
+  didn't take, own words ("the install didn't run during setup — step 1 goes
+  in the environment settings, not this chat"). Control-plane unreachable →
+  the allowed-domains diagnosis. Composes with the skeptical-agent prompt
+  rules (provenance, expected behavior, tripwire; never script the reply).
+  Rule recorded in SANDBOX_SPEC §2b: a recovery prompt must never re-emit
+  the message that led to it.
+- **/codex step 1 says where the field lives** — environment settings, not a
+  message to the agent — and offers committing the devDependency as an equal
+  path A (Codex's automatic setup npm-installs the repo's `package.json`
+  while the network is open, so a pushed devDependency needs no environment
+  settings at all; installing is still step zero). New note: how to verify
+  from the task's "Environment setup" log ("No installations were performed"
+  = step 1 didn't take).
+- **Machine surfaces mirror the divergence** so agents that can fetch do the
+  same: `agent.json` `sandbox` gains `on_repeat_403_relay_to_human` +
+  `how_to_verify_setup_worked` (and `on_403_relay_to_human` now says
+  check-disk-first), with matching updates to `llms.txt`, `llms-full.txt`,
+  and `/docs/agents#codex`.
+
+Static web content only — ships with the next web deploy; no keyring/npm
+changes. The first-touch pointer prompts (homepage hero/closing, console
+`AgentSetupPrompt`) are untouched: routing a cold failure to /codex is still
+correct — the page it lands on just stopped being a circle.
+
 ### Fixed — init survives a missing browser opener (`@basedagents/keyring` 0.5.14)
 
 The first fully-successful Codex run (0.5.13: proxy fix confirmed live —

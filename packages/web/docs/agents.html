@@ -130,7 +130,7 @@ app.basedagents.ai</pre>
 
     <h3 id="codex">Codex cloud: copy-paste setup</h3>
     <p>Two one-time things in your Codex environment, then a normal prompt to your agent. (Non-technical, or your agent just sent you here? The friendlier walk-through of the same steps is <a href="/codex">basedagents.ai/codex</a>.)</p>
-    <p><strong>1. Setup script</strong> (runs while the network is open — just install; nothing interactive here):</p>
+    <p><strong>1. Setup script</strong> (runs while the network is open — just install; nothing interactive here). This is a field in the <em>environment settings</em>, not something to paste into a task: at task time the network is already off, so the same line in the chat reproduces the 403. Committing it instead (<code>npm install --save-dev basedagents</code> on your own machine, then push) is equivalent — Codex&rsquo;s automatic setup installs the project&rsquo;s dependencies while the network is open:</p>
     <pre># `basedagents` bundles @basedagents/keyring, so one line covers both.
 npm install --save-dev basedagents</pre>
     <p><strong>2. Allowed domains</strong> for the task phase (so the agent can reach the control plane to register and to hand off to you):</p>
@@ -146,6 +146,10 @@ app.basedagents.ai</pre>
 
     <div class="note">
       <strong>Started cold — agent already hit the 403?</strong> That's the normal first touch: most people open a fresh Codex window and paste the setup prompt into a <em>task</em>, where the network is already off. The agent cannot recover from inside the task (no registry, no docs, no package — and editing <code>package.json</code> alone would desync the lockfile and break the next <code>npm ci</code>). Our paste prompts now carry the recovery inline, so the agent's correct move is to relay it: add the Setup-script line above, allow the two domains, and <strong>start a new task</strong>. If your agent got a 403 and went quiet, that is what to do.
+    </div>
+
+    <div class="note">
+      <strong>Followed <a href="/codex">/codex</a> and the retry still 403&rsquo;d?</strong> Then the install never ran during setup — the classic miss is putting the Setup-script line in a message to the agent instead of the environment settings, or saving it on a different environment than the task uses. The task's <em>Environment setup</em> log is the ground truth: if it ends with &ldquo;No installations were performed&rdquo;, neither the Setup script nor a committed devDependency was in effect. The <a href="/codex">/codex</a> retry prompt has the agent check <code>node_modules/.bin/basedagents</code> before touching npm and name what's missing, so the second failure tells you which of the two steps didn't take instead of looping you back to the same page.
     </div>
 
     <p>Requires <code>basedagents@0.6.1</code> or newer (earlier versions shell out to <code>npx</code> for the keyring at task time). Prefer to commit it? Run <code>npm install --save-dev basedagents</code> in the repo on your own machine and push — Codex&rsquo;s normal setup install then puts it on disk for every future task, no env settings needed. The full convention is specced in <a href="https://github.com/maxfain/basedagents/blob/main/SANDBOX_SPEC.md">SANDBOX_SPEC.md</a>.</p>

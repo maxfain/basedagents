@@ -1024,6 +1024,20 @@ export class ControlStore {
     );
   }
 
+  /**
+   * Attach a start-code-verified email to a still-pending link code (the
+   * browser-door hand-off). Status stays 'pending' — nothing has been sent;
+   * /link renders the masked address with a one-click send instead of an
+   * empty email field. markLinkEmailSent overwrites on actual submission.
+   */
+  async attachLinkEmail(linkCodeId: string, email: string): Promise<void> {
+    await this.db.run(
+      `UPDATE link_codes SET email = ? WHERE id = ? AND status = 'pending'`,
+      email,
+      linkCodeId
+    );
+  }
+
   /** Record the claim email + move pending → email_sent (idempotent re-send allowed). */
   async markLinkEmailSent(linkCodeId: string, email: string): Promise<void> {
     await this.db.run(
@@ -1048,7 +1062,7 @@ export class ControlStore {
 
   async createMagicLinkToken(input: {
     tokenHash: string;
-    purpose: 'claim' | 'login' | 'start';
+    purpose: 'claim' | 'login' | 'start' | 'start_code';
     email: string;
     linkCodeId?: string;
     ownerId?: string;

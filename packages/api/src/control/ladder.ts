@@ -32,6 +32,10 @@
  *     POST /claim/finish            magic-link token → owner+delegation+binding+session
  *     POST /login/email             magic-link login (look-only session)
  *     POST /login/email/finish      token → session
+ *     POST /start/email             browser door: magic link to ANY address
+ *     POST /start/finish            token → session (returning) | agent command
+ *                                   + a start code binding the verified email
+ *                                   (first-time; pre-addresses the /link claim)
  *   Agent-facing (AgentSig):
  *     POST /invites                 invite_owner(email)
  *     POST /invites/claim           invite magic-link → verified, shows init instructions
@@ -54,11 +58,15 @@ import { agentAuthAllowUnregistered } from '../middleware/auth.js';
 import { checkAgentLimit } from './entitlements.js';
 import { emailSenderFromEnv, consoleOrigin } from './email.js';
 import type { EmailSender } from './email.js';
-import { base58Decode, sha256, bytesToHex, verifySignature } from '../crypto/index.js';
+import { base58Decode, base58Encode, sha256, bytesToHex, verifySignature } from '../crypto/index.js';
 import { base64urlEncode } from './webauthn.js';
 
 const LINK_CODE_TTL_SECONDS = 1800; // 30m — init → browser → email round trip
 const MAGIC_LINK_TTL_SECONDS = 900; // 15m
+// The browser-door start code sits UPSTREAM of the link code: it has to
+// survive the gap between the inbox click and the human actually pasting the
+// prompt to an agent, so it outlives both TTLs above.
+const START_CODE_TTL_SECONDS = 3600; // 60m
 const INVITE_TTL_SECONDS = 72 * 3600; // 72h (spec §2b)
 const INVITES_PER_AGENT_PER_DAY = 3;
 const INVITE_RESEND_MIN_SECONDS = 15 * 60;
@@ -121,7 +129,18 @@ const CreateLinkSchema = z.object({
   /** Ed25519 signature by the VAULT key over linkCanonical(...) — proof the
    *  caller physically holds the vault private key (base64). */
   vault_signature: z.string().min(1),
+  /** Browser-door hand-off (`init --start st_…`): a single-use code minted at
+   *  /start/finish, bound to the there-verified email. Carries NO authority —
+   *  it only pre-addresses the claim email. Invalid/expired codes are ignored
+   *  (the /link page falls back to its email field), never an error. */
+  start_code: z.string().max(64).optional(),
 });
+
+/** `m•••@example.com` — all any unauthenticated surface ever sees of it. */
+function maskEmail(email: string): string {
+  const at = email.indexOf('@');
+  return at > 0 ? `${email[0]}•••${email.slice(at)}` : `${email[0] ?? ''}•••`;
+}
 
 /**
  * The message the vault key signs to prove possession when creating a link
@@ -133,7 +152,8 @@ function linkCanonical(vaultPublicKey: string, agentId: string, agentPublicKey: 
   return `keyring-link:v1:${vaultPublicKey}:${agentId}:${agentPublicKey}`;
 }
 
-const ClaimSubmitSchema = z.object({ email: z.string().email() });
+// email is optional when the link code carries a start-code-attached address.
+const ClaimSubmitSchema = z.object({ email: z.string().email().optional() });
 const TokenSchema = z.object({ token: z.string().min(1) });
 const EmailLoginSchema = z.object({ email: z.string().email() });
 const InviteSchema = z.object({ email: z.string().email() });
@@ -222,17 +242,33 @@ app.post('/link', async (c) => {
   }
 
   const store = getStore(c);
-  const { code } = await store.createLinkCode({
+  const { id: linkId, code } = await store.createLinkCode({
     vaultPublicKey: parsed.data.vault_public_key,
     agentId: parsed.data.agent_id,
     agentPublicKey: parsed.data.agent_public_key,
     agentName: parsed.data.agent_name,
     ttlSeconds: LINK_CODE_TTL_SECONDS,
   });
+
+  // Browser-door hand-off: consume the start code (single-use, atomic) AFTER
+  // the link code exists, so a failed create never burns it. On success the
+  // verified email rides the link code and /link skips the re-typing; on a
+  // stale/reused code we degrade silently to the email field — a hint is
+  // never worth failing `init` over.
+  let emailHint: string | undefined;
+  if (parsed.data.start_code) {
+    const start = await store.consumeMagicLinkToken(sha256hex(parsed.data.start_code), 'start_code', nowIso());
+    if (start) {
+      await store.attachLinkEmail(linkId, start.email);
+      emailHint = maskEmail(start.email);
+    }
+  }
+
   return c.json({
     code,
     url: `${consoleOrigin(c.env)}/link?code=${code}`,
     expires_in_seconds: LINK_CODE_TTL_SECONDS,
+    ...(emailHint ? { email_hint: emailHint } : {}),
   });
 });
 
@@ -247,6 +283,11 @@ app.get('/link/:code', async (c) => {
     status: expired ? 'expired' : link.status, // pending | email_sent | claimed | expired
     agent_id: link.agent_id,
     agent_name: link.agent_name,
+    // Start-code-attached address, MASKED — this endpoint is unauthenticated
+    // (the code is in a URL), so the full email never leaves the server.
+    ...(link.email && !expired && link.status !== 'claimed'
+      ? { email_hint: maskEmail(link.email) }
+      : {}),
   });
 });
 
@@ -268,7 +309,11 @@ app.post('/link/:code/claim', async (c) => {
     return err(c, 404, 'not_found', 'this link has expired — run the setup command again');
   }
 
-  const email = parsed.data.email.trim().toLowerCase();
+  // A typed email always wins ("use a different email"); with none, fall back
+  // to the start-code-attached address. The confirmation email + click are
+  // NEVER skipped — the start code pre-addresses, it does not ratify.
+  const email = parsed.data.email?.trim().toLowerCase() ?? link.email;
+  if (!email) return err(c, 400, 'bad_request', 'a valid email is required');
   await store.markLinkEmailSent(link.id, email);
 
   const token = base64urlEncode(randomBytes(32));
@@ -503,12 +548,27 @@ app.post('/start/finish', async (c) => {
 
   // Returning owner → mint the look session. First-time visitor → no account
   // yet; the console shows the agent-paste command (setup still happens where
-  // the agent lives, never a browser-side vault).
+  // the agent lives, never a browser-side vault) — but the just-verified email
+  // is NOT discarded: a single-use start code binds it, rides the prompt as
+  // `--start st_…`, and pre-addresses the eventual /link claim (CONTROL_PLANE
+  // §8, "the start code"). The code carries no authority — the magic-link
+  // click still ratifies.
   if (consumed.owner_id) {
     await mintSession(c, consumed.owner_id, { method: 'email' });
     return c.json({ has_account: true });
   }
-  return c.json({ has_account: false });
+  const startCode = `st_${base58Encode(randomBytes(9))}`;
+  await store.createMagicLinkToken({
+    tokenHash: sha256hex(startCode),
+    purpose: 'start_code',
+    email: consumed.email,
+    ttlSeconds: START_CODE_TTL_SECONDS,
+  });
+  return c.json({
+    has_account: false,
+    start_code: startCode,
+    start_code_expires_in_seconds: START_CODE_TTL_SECONDS,
+  });
 });
 
 // ── Agent-first entry: invite_owner ──

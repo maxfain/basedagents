@@ -47,34 +47,52 @@
   </nav>
   <main>
     <h1>Your agent hit a wall. Here&rsquo;s the two-minute fix.</h1>
-    <p class="lede">Cloud sandboxes like Codex turn off most of the internet while your agent works — so it either couldn&rsquo;t download BasedAgents mid-task, or installed it fine and then couldn&rsquo;t reach <code>api.basedagents.ai</code>. Set the environment up once — after that, it never happens again.</p>
+    <p class="lede">Cloud sandboxes like Codex turn off most of the internet while your agent works — so it either couldn&rsquo;t download BasedAgents mid-task, or installed it fine and then couldn&rsquo;t reach <code>api.basedagents.ai</code>. Set things up once — after that, it never happens again.</p>
 
     <ol class="steps">
       <li>
-        <h2>Add one line to your environment&rsquo;s Setup script</h2>
-        <p>In your Codex environment settings, find the <strong>Setup script</strong> field (it runs while the network is still on) and add:</p>
+        <h2>Get BasedAgents installed while the internet is still on</h2>
+        <p>Two ways — either one works. <strong>Pick whichever is easier for you:</strong></p>
+        <p><strong>A. Commit it to the project (no Codex settings needed).</strong> On your own computer — or as its own agent task — run this in the project folder and push the change:</p>
         <pre>npm install --save-dev basedagents</pre>
+        <p>Codex installs your project&rsquo;s dependencies during environment setup, while the internet is still on — so it&rsquo;s on disk for every future task automatically. <strong>Installing is step zero, not setup</strong> — nothing visible happens until your agent runs the step&nbsp;3 prompt in a new task.</p>
+        <p><strong>B. Or use the environment&rsquo;s Setup script.</strong> In Codex, open your <strong>environment settings</strong> (Environments &rarr; this project &rarr; Edit), find the <strong>Setup script</strong> field, add the same line, and save:</p>
+        <pre>npm install --save-dev basedagents</pre>
+        <p><strong>This goes in the settings screen — not in a message to your agent.</strong> By the time your agent can run commands, the internet is already off, so the same line pasted into the chat fails with the exact error that sent you here.</p>
       </li>
       <li>
         <h2>Allow two domains</h2>
-        <p>In the same settings, add these to the environment&rsquo;s <strong>allowed domains</strong>:</p>
+        <p>Needed with either option above. In the environment settings, add these to the environment&rsquo;s <strong>allowed domains</strong>:</p>
         <pre>api.basedagents.ai
 app.basedagents.ai</pre>
       </li>
       <li>
         <h2>Start a new task and ask again</h2>
         <p>Open a fresh task and paste:</p>
-        <!-- Self-healing: this is the canonical prompt WITH the pointer clause,
-             so if the environment fix was botched, the retry still relays here
-             instead of stranding the human (SANDBOX_SPEC §2b). -->
+        <!-- Two rules meet here (SANDBOX_SPEC §2b). DIVERGE: the retry must
+             never reproduce the prompt that led here — the agent verifies the
+             local install BEFORE touching npm, and each failure names what
+             didn't take instead of pointing back at this page. SKEPTICAL:
+             provenance links, expected behavior, a safety-aligned tripwire —
+             and never script the agent's exact reply (pin the content, not
+             the wording). -->
         <pre>Set up BasedAgents Keyring — open source (npm: basedagents ·
 github.com/maxfain/basedagents · docs: basedagents.ai/docs/agents).
-Run: npx basedagents keyring init
-It should create a local vault, register your agent ID, and print a link for
-me to take control in my browser. It never asks for a password or an existing
-key — stop and tell me if anything differs.
-Sandbox blocking npm? Don't work around it — tell me (keep the URL exact):
-the one-time fix is at basedagents.ai/codex, then I start a new task.</pre>
+It should already be installed here, so don't install anything from
+npm — this sandbox blocks it. First check:
+ls node_modules/.bin/basedagents
+- If it exists, run: npx basedagents keyring init
+  It should create a local vault, register your agent ID, and print
+  a link for me to take control in my browser. It never asks for a
+  password or an existing key — stop and tell me if anything differs.
+- If it is missing, the install didn't run during setup. Don't work
+  around it — tell me in your own words (keep the URL exact): re-do
+  step 1 at basedagents.ai/codex, in the environment settings or the
+  repo, not in this chat; then I start a new task.
+- If init can't reach api.basedagents.ai, tell me (URL exact): allow
+  api.basedagents.ai and app.basedagents.ai in the environment's
+  allowed domains — step 2 at basedagents.ai/codex — then I start a
+  new task.</pre>
         <p>This time it installs nothing over the network — it&rsquo;s already there. Your agent sets up its keyring and hands you a link to finish at <a href="https://app.basedagents.ai/start">app.basedagents.ai/start</a>.</p>
       </li>
     </ol>
@@ -84,7 +102,7 @@ the one-time fix is at basedagents.ai/codex, then I start a new task.</pre>
     </div>
 
     <div class="note">
-      <strong>Prefer to fix it in the repo instead?</strong> On your own computer (or as its own agent task), run <code>npm install --save-dev basedagents</code> in the project and push the change. Every future task then has it preinstalled. <strong>Installing is step zero, not setup</strong> — nothing visible happens until your agent runs the step&nbsp;3 prompt. Once the install lands, start a new task and paste step&nbsp;3. (Step&nbsp;2's allowed domains are still needed either way.)
+      <strong>How to know step 1 worked:</strong> the new task&rsquo;s <em>Environment setup</em> log (the black panel at the top) will show <code>basedagents</code> being installed. If it still ends with &ldquo;No installations were performed&rdquo;, step 1 didn&rsquo;t take on the environment this task uses — and your agent will now tell you exactly that, instead of sending you back to this page.
     </div>
 
     <p class="foot">Why this happens, in depth (for the technically curious — or your agent): <a href="/docs/agents#codex">the sandbox guide</a>.</p>

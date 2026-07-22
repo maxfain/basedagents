@@ -31,7 +31,10 @@ page where a single email field puts you in control. It then stays running so
 the tokens you connect in the browser are sealed to your vault key and stored
 locally as they arrive — no second terminal trip. Flags for the advanced door:
 `--bare` (vault only), `--no-link` (skip the hosted link), `--no-browser`,
-`--no-watch` (exit right after the claim), `--yes`, `--api <url>`.
+`--no-watch` (exit right after the claim), `--yes`, `--api <url>`,
+`--start <code>` (the code from app.basedagents.ai/start — pre-fills your
+email on the link page so it's one click; carries no authority, and a stale
+code just falls back to the email field).
 
 While talking to the hosted control plane, `init` sends two anonymous funnel
 pings (`init_run`, `mcp_config_written`) — an event name and a random per-run
