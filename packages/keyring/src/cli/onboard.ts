@@ -211,13 +211,18 @@ export async function cmdInit(args: string[], dir: string | undefined): Promise<
       vault_signature: vaultSignature,
     });
   } catch {
-    console.log(`⚠ Could not reach ${api}. Your vault and agent are saved.`);
-    console.log('  Finish anytime with:  based init');
+    console.log(`⚠ Could not reach ${api}. Your vault and agent are saved — re-running init is safe.`);
+    console.log('  On your own machine? Check the network and finish with:  based init');
+    console.log('  In a cloud sandbox (Codex-style)? You cannot fix this from inside the task —');
+    console.log('  the human must allow api.basedagents.ai and app.basedagents.ai in the');
+    console.log('  environment settings (walkthrough: basedagents.ai/codex), then start a NEW task.');
     console.log(proxyHint().trimStart());
     return;
   }
   if (link.status !== 200 || typeof link.json.url !== 'string') {
-    console.log(`⚠ Could not reach ${api} (${link.status}). Set up later with: based init --api <url>`);
+    console.log(`⚠ Could not reach ${api} (${link.status}). Your vault and agent are saved — re-running init is safe.`);
+    console.log('  Cloud sandbox? The human allows api.basedagents.ai + app.basedagents.ai in the');
+    console.log('  environment settings (walkthrough: basedagents.ai/codex), then starts a NEW task.');
     if (link.status === 403 || link.status === 407) console.log(proxyHint().trimStart());
     return;
   }

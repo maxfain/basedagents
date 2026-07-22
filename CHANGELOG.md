@@ -8,6 +8,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the second sandbox wall (`@basedagents/keyring` 0.5.12 + /codex)
+
+Field report: in a Codex task, npm worked (install + lockfile committed by
+the agent) but `api.basedagents.ai` wasn't in the allowed domains — `init`
+created the vault and agent, failed at the link step, and its message said
+"Finish anytime with: based init", which inside a dead sandbox task is a
+retry loop. The agent improvised the /codex relay on its own; now it doesn't
+have to:
+
+- **`init` routes the failure itself**: on an unreachable control plane it
+  says the vault/agent are saved and re-running is safe, and — for the
+  sandbox case — that the human must allow api.basedagents.ai +
+  app.basedagents.ai (walkthrough: basedagents.ai/codex) and start a NEW
+  task. Resume was already safe by design (re-run reuses vault + agent).
+- **/codex now covers both walls**: broadened lede, plus a "which steps do
+  you actually need?" note (E403 → all three; API unreachable → just step 2
+  + new task).
+- **agent.json gains `on_api_unreachable`** alongside `on_403_relay_to_human`;
+  llms.txt carries the same clause; SANDBOX_SPEC §2b records the two-wall
+  failure matrix as a design rule.
+
 ### Changed — the setup prompt now survives a skeptical agent (all prompt surfaces)
 
 Field report: a security-conscious agent REFUSED the hero prompt outright,
