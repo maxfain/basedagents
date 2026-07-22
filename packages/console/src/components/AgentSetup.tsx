@@ -27,6 +27,20 @@ export const AGENT_PROMPT =
   'the one-time fix is at basedagents.ai/codex, then I start a new task.';
 export const TERMINAL_CMD = 'npx basedagents keyring init';
 
+/**
+ * The start-code variant (browser door, /start after the magic-link click):
+ * `--start st_…` carries the there-verified email into the claim, so the
+ * /link page needs one click instead of re-typing it (CONTROL_PLANE §8, "the
+ * start code"). Rendered ONLY on that authenticated screen — every other
+ * surface keeps the byte-identical generic prompt.
+ */
+export function buildTerminalCmd(startCode?: string): string {
+  return startCode ? `${TERMINAL_CMD} --start ${startCode}` : TERMINAL_CMD;
+}
+export function buildAgentPrompt(startCode?: string): string {
+  return startCode ? AGENT_PROMPT.replace(TERMINAL_CMD, buildTerminalCmd(startCode)) : AGENT_PROMPT;
+}
+
 export function CopyBlock({ text, big = false }: { text: string; big?: boolean }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -48,13 +62,19 @@ export function CopyBlock({ text, big = false }: { text: string; big?: boolean }
 }
 
 /** Paste-to-your-agent (primary) + run-it-yourself (secondary). */
-export function AgentSetupPrompt({ label = 'Paste this into Claude Code:' }: { label?: string }) {
+export function AgentSetupPrompt({
+  label = 'Paste this into Claude Code:',
+  startCode,
+}: {
+  label?: string;
+  startCode?: string;
+}) {
   return (
     <div className="agent-setup">
       <div className="start-prompt-label">{label}</div>
-      <CopyBlock text={AGENT_PROMPT} />
+      <CopyBlock text={buildAgentPrompt(startCode)} />
       <p className="field-hint start-or">
-        or run it yourself: <code>{TERMINAL_CMD}</code>
+        or run it yourself: <code>{buildTerminalCmd(startCode)}</code>
       </p>
     </div>
   );

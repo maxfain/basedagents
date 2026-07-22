@@ -134,9 +134,11 @@ interface InitResult {
   agentName: string;
   code: string;
   email: string;
+  /** Masked address when a start code was forwarded (`e•••@example.com`). */
+  emailHint?: string;
 }
 
-async function initLink(): Promise<InitResult> {
+async function initLink(startCode?: string): Promise<InitResult> {
   const vault = await generateKeypair();
   const agent = await generateKeypair();
   const agentId = publicKeyToAgentId(agent.publicKey);
@@ -148,7 +150,7 @@ async function initLink(): Promise<InitResult> {
   const sig = await ed.signAsync(new TextEncoder().encode(canonical), vault.privateKey);
   let bin = '';
   for (const b of sig) bin += String.fromCharCode(b);
-  const { code } = await apiJson<{ code: string }>('/v1/owner/link', {
+  const { code, email_hint } = await apiJson<{ code: string; email_hint?: string }>('/v1/owner/link', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -157,9 +159,14 @@ async function initLink(): Promise<InitResult> {
       agent_public_key: agentB58,
       agent_name: agentName,
       vault_signature: btoa(bin),
+      ...(startCode ? { start_code: startCode } : {}),
     }),
   });
-  return { vault, agent, agentId, agentName, code, email: `e2e-${Date.now()}-${counter}@example.com` };
+  return {
+    vault, agent, agentId, agentName, code,
+    email: `e2e-${Date.now()}-${counter}@example.com`,
+    emailHint: email_hint,
+  };
 }
 
 // ─── UI flows ───
@@ -482,4 +489,47 @@ test('6. /start browser door: returning account signs in with one email field; a
   await expect(page.getByRole('heading', { name: /one step to finish/ })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText('Paste this to your agent:')).toBeVisible();
   await expect(page).toHaveURL(/\/start/); // no session, no redirect to /home
+});
+
+test('7. the start code: the browser-door email rides the prompt into /link — one click, the magic link still ratifies', async ({ page }) => {
+  // A brand-new human starts in the browser. The email they verify there must
+  // survive into the claim without ever being re-typed.
+  const email = `e2e-start-${Date.now()}@example.com`;
+  await page.goto('/start');
+  await page.getByRole('tab', { name: 'Start in your browser' }).click();
+  await page.getByLabel('Email').fill(email);
+  await page.getByRole('button', { name: 'Email me a link' }).click();
+  const token = await magicToken(email, '/start');
+  await page.goto('/login');
+  await page.goto(`/start#t=${token}`);
+  await expect(page.getByRole('heading', { name: /one step to finish/ })).toBeVisible({ timeout: 20_000 });
+
+  // The rendered prompt carries the start code — that IS the hand-off.
+  const prompt = await page.locator('.agent-setup .code-block').first().textContent();
+  const startCode = /--start (st_[A-Za-z0-9]+)/.exec(prompt ?? '')?.[1];
+  expect(startCode).toBeTruthy();
+
+  // `init --start <code>` → the link code comes back pre-addressed (masked).
+  const init = await initLink(startCode);
+  expect(init.emailHint).toBe(`${email[0]}•••@example.com`);
+
+  // /link is one click: masked address on show, no email field, and the full
+  // address is never rendered.
+  await page.goto(`/link?code=${init.code}`);
+  await expect(page.getByRole('heading', { name: 'Take control of this agent' })).toBeVisible();
+  await expect(page.getByText(init.emailHint!)).toBeVisible();
+  await expect(page.getByLabel('Email')).toHaveCount(0);
+  await expect(page.getByText(email)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Send me the link' }).click();
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+
+  // The magic-link click is still the ratifying moment; the account comes out
+  // carrying the door email, look-only session, id derived from the vault key.
+  const claimToken = await magicToken(email, '/claim');
+  await page.goto(`/claim#t=${claimToken}`);
+  await expect(page).toHaveURL(/\/welcome/, { timeout: 20_000 });
+  const session = await me(page);
+  expect(session.owner_id).toBe(`ow_${base58Encode(init.vault.publicKey)}`);
+  expect(session.session_method).toBe('email');
+  expect(session.has_passkey).toBe(false);
 });

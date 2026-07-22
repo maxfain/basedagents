@@ -88,6 +88,7 @@ export default function Start() {
   const [phase, setPhase] = useState<Phase>('doors');
   const [email, setEmail] = useState('');
   const [sentTo, setSentTo] = useState('');
+  const [startCode, setStartCode] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const ran = useRef(false); // StrictMode: consume the token once
 
@@ -101,12 +102,16 @@ export default function Start() {
     setPhase('finishing');
     void control
       .startFinish(token)
-      .then(async ({ has_account }) => {
+      .then(async ({ has_account, start_code }) => {
         if (has_account) {
           await refresh();
           navigate('/home', { replace: true });
         } else {
-          setPhase('command'); // first-time visitor → hand the command to the agent
+          // First-time visitor → hand the command to the agent. The start
+          // code inside it carries the just-verified email to the final step,
+          // so the finish page already knows where to send the confirmation.
+          setStartCode(start_code);
+          setPhase('command');
         }
       })
       .catch(() => {
@@ -144,9 +149,10 @@ export default function Start() {
             <h1 className="auth-title">You&rsquo;re in — one step to finish</h1>
             <p className="auth-lede">
               Hand this to your coding agent (Claude Code, Codex, or Cursor). It sets everything up
-              where it works and opens the page that connects it to you.
+              where it works — and the code inside remembers your email, so the last step is one
+              click, not another form.
             </p>
-            <AgentSetupPrompt label="Paste this to your agent:" />
+            <AgentSetupPrompt label="Paste this to your agent:" startCode={startCode} />
             <div className="start-preview">
               <span className="muted">Then connect what it can use —</span>
               <span className="start-tags">

@@ -66,6 +66,8 @@ export interface LinkInfo {
   status: 'pending' | 'email_sent' | 'claimed' | 'expired';
   agent_id: string;
   agent_name: string | null;
+  /** Masked start-code-attached address (`m•••@…`) — never the full email. */
+  email_hint?: string | null;
 }
 
 export interface ClaimResult {

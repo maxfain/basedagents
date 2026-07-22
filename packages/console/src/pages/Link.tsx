@@ -28,6 +28,7 @@ export default function LinkPage() {
   const [link, setLink] = useState<LinkInfo | null | 'missing'>(null);
   const [email, setEmail] = useState('');
   const [sentTo, setSentTo] = useState<string | null>(null);
+  const [otherEmail, setOtherEmail] = useState(false); // "use a different email"
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,14 +50,20 @@ export default function LinkPage() {
   const agentName = link !== 'missing' ? (link.agent_name ?? 'your agent') : 'your agent';
   const dead = link === 'missing' || link.status === 'expired';
   const alreadyClaimed = link !== 'missing' && link.status === 'claimed';
+  // Masked address carried over from the /start page (never the full email).
+  const emailHint = link !== 'missing' ? (link.email_hint ?? null) : null;
+  const prefilled = emailHint !== null && !otherEmail;
 
   async function onSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
     setBusy(true);
     setError(null);
+    // Pre-filled: no email in the request — the server sends to the address
+    // the start code attached. Typed: that address wins.
+    const typed = prefilled ? undefined : email.trim();
     try {
-      await control.linkClaim(code, email.trim());
-      setSentTo(email.trim());
+      await control.linkClaim(code, typed);
+      setSentTo(typed ?? emailHint);
     } catch (err) {
       setError(errText(err));
     } finally {
@@ -89,6 +96,30 @@ export default function LinkPage() {
             <p className="auth-lede">
               We sent a link to <strong>{sentTo}</strong>. Click it within 15 minutes to take
               control of {agentName}. You can close this page.
+            </p>
+          </>
+        ) : prefilled ? (
+          <>
+            <h1 className="auth-title">Take control of this agent</h1>
+            <p className="auth-lede">
+              <strong>{agentName}</strong> is set up on your machine and waiting for you. We
+              already have your email from the page where you started — we&rsquo;ll send the link
+              that puts you in charge to <strong>{emailHint}</strong>.
+            </p>
+            <form onSubmit={onSubmit} className="form">
+              <button className="btn btn-primary" type="submit" disabled={busy} autoFocus>
+                {busy ? 'Sending…' : 'Send me the link'}
+              </button>
+            </form>
+            {error && <div className="banner banner-error">{error}</div>}
+            <p className="field-hint" style={{ marginTop: '1rem' }}>
+              Not you?{' '}
+              <button type="button" className="link" onClick={() => setOtherEmail(true)}>
+                Use a different email
+              </button>
+            </p>
+            <p className="field-hint">
+              Nothing happens without the link — and everything sensitive stays on your machine.
             </p>
           </>
         ) : (

@@ -197,6 +197,32 @@ Two adjacent flows share the machinery:
   agent. There is deliberately **no browser-side vault**: setup always happens
   where the agent lives, so the vault private key never enters a browser. The
   console's `/signup` 301s to `/start`.
+- **The start code (browser door → claim hand-off).** Field finding, 2026-07:
+  the first-time `/start` path verified an email and then *discarded* it — the
+  visitor was shown the generic agent prompt, and minutes later `/link` made
+  them type the same email again and click a second magic link. The two halves
+  are now joined by a **start code**: `/start/finish` (first-time branch) also
+  mints a single-use `st_…` code — sha256-stored in `magic_link_tokens`
+  (`purpose='start_code'`), 60-minute TTL, bound to the just-verified email —
+  and the console renders the agent prompt with `--start <code>` appended
+  (only on that authenticated screen; every other surface keeps the generic
+  prompt). `init` forwards it when creating the link code; `POST /link`
+  consumes it and attaches the email to the link code, so `/link` shows
+  "confirmation goes to `m•••@…`" with a one-click send ("use a different
+  email" remains the fallback), and the CLI can tell the agent which inbox to
+  point the human at.
+  **The code carries no authority.** It only pre-addresses the confirmation
+  email; the claim still requires the magic-link click (inbox possession) atop
+  the vault-key-signed link code (machine possession) — the §8 invariant is
+  untouched, deliberately: the code travels through low-integrity channels
+  (chat transcripts, shell history), so it must never ratify anything. A
+  leaked or guessed code lets someone pre-address a claim email to its owner —
+  exactly what typing a victim's address into `/link` already does, and the
+  same "if you didn't run the setup command, ignore this email" copy covers
+  both. The unauthenticated link-status endpoint only ever exposes the
+  **masked** form; the full address never leaves the server. Expired or
+  reused codes degrade silently to the email field — never an error that
+  strands `init`.
 
 ---
 

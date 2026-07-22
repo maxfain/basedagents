@@ -471,13 +471,93 @@ describe('the /start browser door (Get started)', () => {
   it('first-time visitor: email is sent, finish yields no account + no session (setup stays on the machine)', async () => {
     sentEmails = [];
     // Unlike /login/email, /start emails ANY address (the finish page is useful
-    // either way) — but a brand-new address gets no session, just the command.
+    // either way) — but a brand-new address gets no session, just the command
+    // plus a start code that carries the verified email to the claim.
     expect((await post('/v1/owner/start/email', { email: 'brand-new@example.com' })).status).toBe(200);
     expect(sentEmails).toHaveLength(1);
     const finish = await post('/v1/owner/start/finish', { token: lastMagicToken() });
     expect(finish.status).toBe(200);
-    expect(await finish.json()).toEqual({ has_account: false });
+    const body = (await finish.json()) as Record<string, unknown>;
+    expect(body.has_account).toBe(false);
+    expect(body.start_code).toMatch(/^st_/);
     expect(finish.headers.get('set-cookie')).toBeNull();
+  });
+});
+
+describe('the start code: browser-door email rides the prompt into the claim', () => {
+  /** /start email → magic-link click → the start code the console would render. */
+  async function startCodeFor(email: string): Promise<string> {
+    sentEmails = [];
+    expect((await post('/v1/owner/start/email', { email })).status).toBe(200);
+    const finish = await post('/v1/owner/start/finish', { token: lastMagicToken() });
+    expect(finish.status).toBe(200);
+    const body = (await finish.json()) as { has_account: boolean; start_code?: string };
+    expect(body.has_account).toBe(false);
+    expect(body.start_code).toBeDefined();
+    return body.start_code!;
+  }
+
+  it('pre-addresses the claim end to end — and the click still ratifies', async () => {
+    const startCode = await startCodeFor('door@example.com');
+
+    // init forwards the code; the link comes back pre-addressed (masked).
+    const idn = await newInitIdentity();
+    const linkRes = await post('/v1/owner/link', { ...(await linkBody(idn, 'Claude Code @ laptop')), start_code: startCode });
+    expect(linkRes.status).toBe(200);
+    const linkJson = (await linkRes.json()) as { code: string; email_hint?: string };
+    expect(linkJson.email_hint).toBe('d•••@example.com');
+
+    // The unauthenticated status endpoint shows ONLY the masked form.
+    const statusRes = await get(`/v1/owner/link/${linkJson.code}`);
+    const statusText = await statusRes.text();
+    expect(statusText).toContain('d•••@example.com');
+    expect(statusText).not.toContain('door@example.com');
+
+    // One-click claim: no email in the body — it goes to the attached address.
+    sentEmails = [];
+    expect((await post(`/v1/owner/link/${linkJson.code}/claim`, {})).status).toBe(200);
+    expect(sentEmails).toHaveLength(1);
+    expect(sentEmails[0].to).toBe('door@example.com');
+
+    // The magic-link click is still the ratifying moment — nothing was
+    // claimed before it, and after it the owner carries the door email.
+    const finishRes = await post('/v1/owner/claim/finish', { token: lastMagicToken() });
+    expect(finishRes.status).toBe(200);
+    const owner = await store.getOwner(idn.ownerId);
+    expect(owner!.email).toBe('door@example.com');
+    expect(owner!.email_verified).toBe(1);
+  });
+
+  it('is single-use: a second /link with the same code gets no hint', async () => {
+    const startCode = await startCodeFor('once@example.com');
+    const first = await post('/v1/owner/link', { ...(await linkBody(await newInitIdentity())), start_code: startCode });
+    expect(((await first.json()) as { email_hint?: string }).email_hint).toBe('o•••@example.com');
+
+    const second = await post('/v1/owner/link', { ...(await linkBody(await newInitIdentity())), start_code: startCode });
+    expect(second.status).toBe(200); // degrade, never fail init
+    expect(((await second.json()) as { email_hint?: string }).email_hint).toBeUndefined();
+  });
+
+  it('a stale or bogus code degrades silently to the email field', async () => {
+    const res = await post('/v1/owner/link', { ...(await linkBody(await newInitIdentity())), start_code: 'st_bogus' });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { code: string; email_hint?: string };
+    expect(json.email_hint).toBeUndefined();
+
+    // No attached address + no typed address = a clean 400, not a send.
+    sentEmails = [];
+    expect((await post(`/v1/owner/link/${json.code}/claim`, {})).status).toBe(400);
+    expect(sentEmails).toHaveLength(0);
+  });
+
+  it('"use a different email": a typed address beats the attached one', async () => {
+    const startCode = await startCodeFor('first@example.com');
+    const linkRes = await post('/v1/owner/link', { ...(await linkBody(await newInitIdentity())), start_code: startCode });
+    const { code } = (await linkRes.json()) as { code: string };
+
+    sentEmails = [];
+    expect((await post(`/v1/owner/link/${code}/claim`, { email: 'second@example.com' })).status).toBe(200);
+    expect(sentEmails[0].to).toBe('second@example.com');
   });
 });
 
