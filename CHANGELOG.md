@@ -8,6 +8,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — init survives a missing browser opener (`@basedagents/keyring` 0.5.14)
+
+The first fully-successful Codex run (0.5.13: proxy fix confirmed live —
+registration + claim link through the sandbox proxy) surfaced one last
+crash: after printing the claim link, init tried to auto-open a browser;
+`xdg-open` doesn't exist in the container, and a missing spawn target
+surfaces as an ASYNC 'error' event that an outer try/catch cannot catch —
+unhandled, it killed the process. init now attaches an error handler (the
+printed URL is the fallback) and continues into the claim-wait, so the
+post-claim watcher can store connect-card tokens during the same task.
+
 ### Fixed — install-only tasks no longer dead-end (web copy + agent contract)
 
 Field report: a Codex task given just `npm install --save-dev basedagents`
