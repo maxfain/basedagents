@@ -8,6 +8,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — install-only tasks no longer dead-end (web copy + agent contract)
+
+Field report: a Codex task given just `npm install --save-dev basedagents`
+did exactly that — committed the dependency + lockfile — and ended with no
+next step for the human. Correct behavior for the prompt; a dead end for
+the funnel. Installing is step zero, and now every surface says so:
+
+- /codex repo-fix note pairs the install with its successor ("start a new
+  task and paste step 3").
+- agent.json gains `after_install_tell_human`: never end an install reply
+  at "installed" — run init if the task has network, otherwise end with
+  the human's next step.
+- llms.txt + /docs/agents carry the same rule; SANDBOX_SPEC records it as
+  a design rule ("Never end a task without the next step").
+
 ### Fixed — honor the sandbox egress proxy (`@basedagents/keyring` 0.5.13)
 
 Follow-up to the "second wall": the Codex environment had BOTH domains

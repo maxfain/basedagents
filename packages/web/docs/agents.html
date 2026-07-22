@@ -141,7 +141,7 @@ app.basedagents.ai</pre>
     <p>Because BasedAgents is already installed, <code>npx basedagents keyring init</code> resolves the local copy with no registry call. It registers the agent, then opens the claim page and hands you off:</p>
 
     <div class="note">
-      <strong>What your agent should tell you next.</strong> After <code>keyring init</code> (or <code>register</code>), the agent&rsquo;s job is to put <em>you</em> in charge: it asks for your email, calls the <code>invite_owner</code> tool, and points you at <a href="https://app.basedagents.ai/start">https://app.basedagents.ai/start</a> to claim it and connect the keys it needs. Until you do, the agent holds nothing. If your agent stalls after registering, tell it: <em>&ldquo;run <code>npx basedagents keyring init</code> and give me the link to connect keys.&rdquo;</em>
+      <strong>What your agent should tell you next.</strong> After <code>keyring init</code> (or <code>register</code>), the agent&rsquo;s job is to put <em>you</em> in charge: it asks for your email, calls the <code>invite_owner</code> tool, and points you at <a href="https://app.basedagents.ai/start">https://app.basedagents.ai/start</a> to claim it and connect the keys it needs. Until you do, the agent holds nothing. If your agent stalls after registering, tell it: <em>&ldquo;run <code>npx basedagents keyring init</code> and give me the link to connect keys.&rdquo;</em> The same rule applies to an install-only task (<code>npm install --save-dev basedagents</code>): installing is step zero — the agent should end by telling you to start a new task with the setup prompt, never with a bare &ldquo;installed&rdquo;.
     </div>
 
     <div class="note">
