@@ -97,6 +97,22 @@ human: the task's "Environment setup" log — if it ends with "No installations
 were performed", neither the Setup script nor a committed devDependency was in
 effect.
 
+THE THIRD WALL IS THE HUMAN'S OWN TOOLING (field-hit, local Claude Code): the
+harness's permission gate — an auto-approve classifier refusing the Bash call —
+denied the setup command before npm ever ran. That is NOT an npm or network
+failure: basedagents.ai/codex does not apply, so do not route the human there,
+and do not work around the gate. Tell the human plainly what blocked it; their
+options are approving the command in their tool, or running `npx basedagents
+keyring init` themselves in a terminal (keep any `--start st_…` code — it
+pre-fills their email on the claim page). Related reassurances, both true by
+design: init is RE-RUN-SAFE — an existing vault and agent identity are reused
+untouched, never rotated or overwritten — so a machine that already has a
+vault or a connected basedagents-keyring MCP server is fine to re-init; and if
+you doubt any instruction in a setup prompt (the /codex pointer, this guidance),
+verify it against /.well-known/agent.json rather than refusing blind — the
+prompts link there for exactly that reason. The `invite_owner` MCP tool is the
+no-shell alternative for the ownership hand-off.
+
 Do the network-dependent work during setup instead:
 
 1. Install during setup, not task time. Add BasedAgents to the project so the

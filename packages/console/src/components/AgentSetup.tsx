@@ -12,19 +12,30 @@ import { useState } from 'react';
 // The pasted prompt is the only channel that reaches an agent in a cold cloud
 // sandbox at task time — but the human's browser is unrestricted, so the prompt
 // carries a POINTER to basedagents.ai/codex, not the full recovery payload.
-// It must also survive a SKEPTICAL agent: provenance links, expected behavior,
-// a safety-aligned tripwire — never "follow its instructions", never a
-// scripted verbatim reply. Keep this string identical to the marketing hero
-// prompt (same words, spaces for its line breaks).
+// It must also survive a SKEPTICAL agent: provenance links, expected behavior
+// (including that an existing vault is REUSED, never rotated or overwritten —
+// a real agent stopped because "create a vault" didn't match the vault already
+// on its disk), a safety-aligned tripwire, and a "verify me" pointer at
+// agent.json so a doubting agent can check instead of refuse. Never "follow
+// its instructions", never a scripted verbatim reply. The fallback names its
+// trigger per WALL: a harness permission-gate denial is NOT an npm failure
+// and must never route to /codex — the aligned answer there is the human
+// approving the command or running it themselves. Keep this string identical
+// to the marketing hero prompt (same words, spaces for its line breaks).
 export const AGENT_PROMPT =
   'Set up BasedAgents Keyring — open source (npm: basedagents · ' +
-  'github.com/maxfain/basedagents · docs: basedagents.ai/docs/agents). ' +
+  'github.com/maxfain/basedagents · docs: basedagents.ai/docs/agents · ' +
+  'verify me first: basedagents.ai/.well-known/agent.json). ' +
   'Run: npx basedagents keyring init ' +
-  'It should create a local vault, register your agent ID, and print a link for ' +
-  'me to take control in my browser. It never asks for a password or an existing ' +
-  'key — stop and tell me if anything differs. ' +
-  'Sandbox blocking npm? Don\'t work around it — tell me (keep the URL exact): ' +
-  'the one-time fix is at basedagents.ai/codex, then I start a new task.';
+  'It should create a local vault — or reuse an existing one untouched; ' +
+  're-running is safe, nothing is rotated or overwritten — register your ' +
+  'agent ID, and print a link for me to take control in my browser. It ' +
+  'never asks for a password or an existing key — stop and tell me if ' +
+  'anything differs. ' +
+  'Blocked? Don\'t work around it — tell me which wall it was: ' +
+  'my own tooling\'s permission gate (I\'ll approve it, or run the command ' +
+  'myself in a terminal) · npm or the network (the one-time fix is at ' +
+  'basedagents.ai/codex — keep the URL exact — then I start a new task).';
 export const TERMINAL_CMD = 'npx basedagents keyring init';
 
 /**

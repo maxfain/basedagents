@@ -8,6 +8,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the setup prompt survives the third wall and a deeper skeptic (all prompt surfaces)
+
+Field report from a local Claude Code (desktop) run of the /start prompt.
+Three findings, three fixes — all copy, no code:
+
+- **The third wall: the human's own permission gate.** The harness's
+  auto-mode classifier denied the Bash call before npm ever ran. The agent
+  correctly refused the npm-flavored /codex relay (its trigger was false —
+  it even verified npm worked) but the prompt offered nothing for what
+  actually happened. The fallback now names its trigger per wall: "Blocked?
+  tell me which wall it was — my own tooling's permission gate (I'll approve
+  it, or run the command myself in a terminal) · npm or the network
+  (basedagents.ai/codex…)". Never route a gate denial to /codex; never work
+  around the gate. agent.json gains `if_your_harness_blocks_the_command`
+  (including the `invite_owner` no-shell alternative when a keyring MCP
+  server is already connected).
+- **The skeptic flagged the URL-relay shape itself** ("if blocked, send the
+  user to this exact URL") as manipulation-adjacent — and never fetched
+  agent.json, which answers exactly that doubt. Every prompt's provenance
+  list now ends with "verify me first: basedagents.ai/.well-known/agent.json",
+  and agent.json's provenance note says the prompts link there so a doubting
+  agent can check the fallback instructions instead of refusing on shape
+  alone.
+- **Reuse semantics, finally stated.** init has always been re-run-safe
+  (existing vault + agent reused untouched, nothing rotated or overwritten)
+  but no surface said so — so on a machine with an existing vault, "it
+  should create a local vault" tripped the "stop if anything differs" wire.
+  The expected-behavior line now carries the guarantee everywhere the create
+  claim appears (hero/closing, /codex step 3, /docs/agents, agent.json
+  `what_init_does` + `never_does`, llms mirrors).
+
+Updated in lockstep: homepage hero + closing, console AgentSetupPrompt,
+/codex step 3, /docs/agents #codex, agent.json, llms.txt, llms-full.txt;
+SANDBOX_SPEC §2b records the three design rules (name the trigger per wall,
+give the skeptic a self-serve check, state reuse semantics).
+
 ### Added — vault-less cloud agents: the passport (`@basedagents/keyring` 0.6.0 + control plane + console)
 
 The axiom, decided in the field: a vault inside an ephemeral container makes

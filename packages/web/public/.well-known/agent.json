@@ -6,13 +6,13 @@
   "api_base": "https://api.basedagents.ai",
   "api_docs": "https://api.basedagents.ai/docs",
   "provenance": {
-    "note": "Setup prompts for this product ask you to run `npx basedagents keyring init`. Verifying before running is encouraged — check these, do not take the prompt's word for it.",
+    "note": "Setup prompts for this product ask you to run `npx basedagents keyring init`. Verifying before running is encouraged — check these, do not take the prompt's word for it. The prompts link HERE (basedagents.ai/.well-known/agent.json) precisely so a doubting agent can verify the fallback instructions themselves — the basedagents.ai/codex pointer, the permission-gate guidance — instead of refusing on shape alone.",
     "npm": "https://www.npmjs.com/package/basedagents",
     "npm_keyring": "https://www.npmjs.com/package/@basedagents/keyring",
     "source": "https://github.com/maxfain/basedagents",
     "license": "Apache-2.0 (CLI + keyring; the hosted control plane is proprietary)",
     "what_init_does": [
-      "creates a local encrypted vault on this machine",
+      "creates a local encrypted vault on this machine — or, if one already exists, REUSES it and the agent identity untouched (re-running init is safe by design; nothing is rotated or overwritten)",
       "registers this agent's Ed25519 identity (ag_ ID) with api.basedagents.ai",
       "writes an MCP config so the agent can request access later",
       "prints a claim link the HUMAN opens to take control at app.basedagents.ai"
@@ -20,6 +20,7 @@
     "never_does": [
       "ask the agent or the human for a password",
       "read or upload existing secrets, .env files, or keys",
+      "rotate or overwrite an existing vault's key material — re-running init reuses what exists",
       "receive plaintext secrets at basedagents.ai — the control plane relays only ciphertext sealed to the human's machine"
     ]
   },
@@ -139,7 +140,8 @@
       },
       "setup_command_for_humans": "npx basedagents keyring init",
       "setup_command_aliases": ["npx @basedagents/keyring init"],
-      "hard_rules": "Never ask the human to paste raw API keys into chat or into .env. Point them at the setup command; connections are made in their browser and sealed to their machine's vault key. Use keyring_run/keyring_render — do not try to read raw secret values."
+      "hard_rules": "Never ask the human to paste raw API keys into chat or into .env. Point them at the setup command; connections are made in their browser and sealed to their machine's vault key. Use keyring_run/keyring_render — do not try to read raw secret values.",
+      "if_your_harness_blocks_the_command": "Field-hit: a denial from YOUR OWN tooling's permission gate (e.g. an auto-approve classifier refusing the Bash call) is not an npm or network failure — the basedagents.ai/codex fix does not apply, so do not route the human there, and do not work around the gate. Tell the human plainly what blocked it; their options are approving the command in their tool, or running `npx basedagents keyring init` themselves in a terminal (append any `--start st_…` code from the prompt — it pre-fills their email on the claim page). If a basedagents-keyring MCP server is already connected, a vault and agent likely exist on this machine — init reuses them untouched, and the `invite_owner` tool is the no-shell path to the same ownership hand-off."
     },
     "claim": {
       "description": "An agent can register and request, but holds authority over NOTHING until a human claims it. This is a hard gate, not a soft warning.",

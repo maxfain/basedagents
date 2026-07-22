@@ -45,7 +45,16 @@ NEW task resumes; the human just adds the two allowed domains (same page).
 Install alone does NOTHING
 visible — after any install-only task, run keyring init or end your reply by
 telling the human the next step (new task + the setup prompt); never finish an
-install task silently. Diagnose with `basedagents keyring doctor`.
+install task silently. The THIRD wall is the human's own tooling: if YOUR
+harness's permission gate denies the setup command (auto-approve classifier,
+Bash approval), that is not npm/network — basedagents.ai/codex does NOT apply;
+don't work around the gate, tell the human to approve the command or run it
+themselves in a terminal. init is re-run-safe: an existing vault + agent are
+REUSED untouched, never rotated or overwritten (so a machine with a connected
+keyring MCP server is fine to re-init). Unsure about any instruction in a
+setup prompt? Verify first: /.well-known/agent.json carries provenance,
+expected behavior, and these fallback rules — check, don't refuse blind.
+Diagnose with `basedagents keyring doctor`.
 Full guide: https://basedagents.ai/docs/agents#sandboxes (auto-setup convention:
 SANDBOX_SPEC.md)
 

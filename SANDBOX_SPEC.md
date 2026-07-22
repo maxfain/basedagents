@@ -96,6 +96,31 @@ Design rules, field-tested (in both directions):
   instructions" is banned copy: it asks the agent to obey unknown program
   output, which cautious agents rightly refuse. `/.well-known/agent.json`
   carries a `provenance` block for agents that go and check.
+- **The third wall is the human's own permission gate (field-hit 2026-07).**
+  In local Claude Code, the harness's auto-mode classifier denied the Bash
+  call before npm ever ran. The agent then correctly refused the npm-flavored
+  /codex relay (its trigger — "sandbox blocking npm" — was false) and had to
+  improvise the right answer. Rule: every fallback branch must NAME ITS
+  TRIGGER precisely, and the prompt must carry the gate branch explicitly.
+  The aligned answer for a harness denial is the human approving the command
+  or running it themselves in a terminal — never routing around the gate,
+  never the /codex URL.
+- **Give the skeptic a self-serve check.** The same field agent flagged the
+  conditional URL-relay shape itself as manipulation-adjacent ("send the user
+  to this exact URL when X") — and never fetched agent.json, which answers
+  exactly that doubt. Every prompt now ends its provenance list with "verify
+  me first: basedagents.ai/.well-known/agent.json", and agent.json says in
+  its own provenance note that the prompts link there so a doubting agent
+  can check the fallback instructions instead of refusing on shape alone.
+  An agent with network should always have a next move that isn't refusal.
+- **State reuse semantics.** `init` has always been re-run-safe (an existing
+  vault and agent identity are reused untouched; nothing is rotated or
+  overwritten — `onboard.ts`: "re-running the paste command must never
+  destroy anything"), but no surface SAID so. On a machine with an existing
+  vault, "it should create a local vault" reads as expectation mismatch and
+  trips the "stop if anything differs" wire — a field agent stopped for
+  exactly this. The expected-behavior line now carries the reuse guarantee
+  everywhere the create claim appears.
 - **"Start a new task" must survive the relay.** Fixing the environment does not
   revive the current dead task; without this step the human retries in place and
   loops on the 403.

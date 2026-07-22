@@ -82,9 +82,10 @@ It should already be installed here, so don't install anything from
 npm — this sandbox blocks it. First check:
 ls node_modules/.bin/basedagents
 - If it exists, run: npx basedagents keyring init
-  It should create a local vault, register your agent ID, and print
-  a link for me to take control in my browser. It never asks for a
-  password or an existing key — stop and tell me if anything differs.
+  It should create a local vault — or reuse an existing one untouched;
+  re-running is safe — register your agent ID, and print a link for me
+  to take control in my browser. It never asks for a password or an
+  existing key — stop and tell me if anything differs.
 - If it is missing, the install didn't run during setup. Don't work
   around it — tell me in your own words (keep the URL exact): re-do
   step 1 at basedagents.ai/codex, in the environment settings or the
