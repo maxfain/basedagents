@@ -20,7 +20,7 @@ import { cmdConnect } from './connect.js';
 import { cmdAdmin, cmdMcp } from './serve.js';
 import { cmdLink, cmdSync } from './sync.js';
 
-const VERSION = '0.5.13';
+const VERSION = '0.5.14';
 
 const HELP = `
 based — BasedAgents Keyring: scoped, revocable credentials for AI agents

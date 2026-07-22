@@ -45,6 +45,10 @@ function openBrowser(url: string): void {
   const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
   try {
     const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+    // A missing opener (xdg-open in a container) surfaces as an ASYNC 'error'
+    // event — unhandled, it crashes the whole process AFTER the link printed
+    // (field-hit in a Codex task). Swallow it: the printed URL is the fallback.
+    child.on('error', () => { /* printed URL is the fallback */ });
     child.unref();
   } catch {
     /* printed URL is the fallback */
