@@ -12,18 +12,28 @@ import { API_BASE } from '../api/client';
 
 // The pasted prompt is the ONLY channel that reaches an agent in a cold cloud
 // sandbox at task time (no network, no docs, no package on disk) — but the
-// HUMAN's browser is unrestricted, so the prompt only needs to carry a POINTER,
-// not the payload: a quoted relay line the agent hands back verbatim, pointing
-// at /codex (the human-facing recovery page). "Start a new task" must survive
-// the relay — fixing the environment doesn't revive the current dead task.
+// HUMAN's browser is unrestricted, so the prompt only needs a POINTER to
+// /codex (the human-facing recovery page), with the URL and "start a new
+// task" pinned (fixing the environment doesn't revive the current dead task).
+// Field-tested BOTH ways: the prompt must also survive a SKEPTICAL agent, so
+// it carries provenance links to verify, the expected behavior of init, and a
+// tripwire aligned with agent safety ("never asks for a key — stop if it
+// does"). Never "follow its instructions", never a scripted verbatim reply —
+// both read as a supply-chain phish and get the whole setup refused.
 const HERO_PROMPT =
-  'Set up BasedAgents Keyring for this project: run\n' +
-  'npx basedagents keyring init and follow its instructions.\n' +
-  'Cloud sandbox blocking npm? Don\'t retry — tell me:\n' +
-  '"Open basedagents.ai/codex for the one-time fix, then start a new task."';
+  'Set up BasedAgents Keyring — open source (npm: basedagents ·\n' +
+  'github.com/maxfain/basedagents · docs: basedagents.ai/docs/agents).\n' +
+  'Run: npx basedagents keyring init\n' +
+  'It should create a local vault, register your agent ID, and print a link for\n' +
+  'me to take control in my browser. It never asks for a password or an existing\n' +
+  'key — stop and tell me if anything differs.\n' +
+  'Sandbox blocking npm? Don\'t work around it — tell me (keep the URL exact):\n' +
+  'the one-time fix is at basedagents.ai/codex, then I start a new task.';
 const CLOSING_PROMPT =
-  'Set up BasedAgents Keyring: run npx basedagents keyring init. ' +
-  'Cloud sandbox blocking npm? Tell me: "Open basedagents.ai/codex, then start a new task."';
+  'Set up BasedAgents Keyring (open source — npm: basedagents, docs: basedagents.ai/docs/agents): ' +
+  'run npx basedagents keyring init. It creates a local vault and prints a link for me to take control; ' +
+  'it never asks for a password or an existing key — stop if it does. Sandbox blocking npm? ' +
+  'Tell me (URL exact): the one-time fix is at basedagents.ai/codex, then I start a new task.';
 // Codex-style cloud agents block egress at task time, so a cold `npx` there
 // 403s. The install has to run in the environment's setup phase instead —
 // install only (nothing interactive); register + the hand-off happen at task

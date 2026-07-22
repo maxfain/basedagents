@@ -64,12 +64,24 @@ recovery *payload*; it needs to carry a **pointer** the agent relays verbatim.
 The canonical fallback clause (human-facing paste blocks — homepage hero +
 closing, console `AgentSetupPrompt` — must stay marketing-short):
 
-> Cloud sandbox blocking npm? Don't retry — tell me:
-> "Open basedagents.ai/codex for the one-time fix, then start a new task."
+> Sandbox blocking npm? Don't work around it — tell me (keep the URL exact):
+> the one-time fix is at basedagents.ai/codex, then I start a new task.
 
-Design rules, field-tested:
-- **Quoted verbatim relay.** An unquoted "tell me to fix it" invites paraphrase
-  that drops the URL; the quoted line survives the agent's summary compression.
+Design rules, field-tested (in both directions):
+- **URL-exact relay, own words.** An unquoted "tell me to fix it" invites
+  paraphrase that drops the URL — so the clause pins the URL and the new-task
+  step ("keep the URL exact"). But scripting the agent's EXACT reply
+  (`tell me: "…"`) reads as output-steering to a security-conscious agent and
+  got the entire setup refused in the field. Pin the content, not the wording.
+- **Survive the skeptical agent.** The setup prompt is indistinguishable from a
+  supply-chain phish unless it gives the agent something to verify: provenance
+  links (npm package name, GitHub repo, docs URL — exact, so a bad search
+  doesn't "prove" we don't exist), the EXPECTED behavior of `init`, and a
+  tripwire aligned WITH agent safety ("it never asks for a password or an
+  existing key — stop and tell me if anything differs"). "Follow its
+  instructions" is banned copy: it asks the agent to obey unknown program
+  output, which cautious agents rightly refuse. `/.well-known/agent.json`
+  carries a `provenance` block for agents that go and check.
 - **"Start a new task" must survive the relay.** Fixing the environment does not
   revive the current dead task; without this step the human retries in place and
   loops on the 403.

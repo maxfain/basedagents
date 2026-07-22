@@ -11,12 +11,20 @@ import { useState } from 'react';
 
 // The pasted prompt is the only channel that reaches an agent in a cold cloud
 // sandbox at task time — but the human's browser is unrestricted, so the prompt
-// carries a POINTER (a quoted relay line to basedagents.ai/codex), not the full
-// recovery payload. Keep this string identical to the marketing hero prompt.
+// carries a POINTER to basedagents.ai/codex, not the full recovery payload.
+// It must also survive a SKEPTICAL agent: provenance links, expected behavior,
+// a safety-aligned tripwire — never "follow its instructions", never a
+// scripted verbatim reply. Keep this string identical to the marketing hero
+// prompt (same words, spaces for its line breaks).
 export const AGENT_PROMPT =
-  'Set up BasedAgents Keyring for this project: run npx basedagents keyring init and follow its ' +
-  'instructions. Cloud sandbox blocking npm? Don\'t retry — tell me: ' +
-  '"Open basedagents.ai/codex for the one-time fix, then start a new task."';
+  'Set up BasedAgents Keyring — open source (npm: basedagents · ' +
+  'github.com/maxfain/basedagents · docs: basedagents.ai/docs/agents). ' +
+  'Run: npx basedagents keyring init ' +
+  'It should create a local vault, register your agent ID, and print a link for ' +
+  'me to take control in my browser. It never asks for a password or an existing ' +
+  'key — stop and tell me if anything differs. ' +
+  'Sandbox blocking npm? Don\'t work around it — tell me (keep the URL exact): ' +
+  'the one-time fix is at basedagents.ai/codex, then I start a new task.';
 export const TERMINAL_CMD = 'npx basedagents keyring init';
 
 export function CopyBlock({ text, big = false }: { text: string; big?: boolean }) {
