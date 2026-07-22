@@ -44,6 +44,7 @@ const SQL = [
   '0026_owner_billing.sql',
   '0027_authority_ladder.sql',
   '0029_provision_connections.sql',
+  '0030_cloud_passport.sql',
 ].map((f) => readFileSync(join(MIGRATIONS, f), 'utf-8'));
 
 const te = new TextEncoder();
@@ -772,5 +773,53 @@ describe('connect cards: sealed in the browser, resolved by the daemon', () => {
     const after = (await (await get('/v1/owner/connections', cookie)).json()) as { connections: Array<Record<string, unknown>> };
     expect(after.connections[0].status).toBe('stored');
     expect(after.connections[0].kind).toBe('provision');
+  });
+
+  it('cloud passport: handoff is ciphertext-only and one-shot; shelf gates on a fulfilled passport', async () => {
+    const idn = await newInitIdentity();
+    const { code } = (await (await post('/v1/owner/link', await linkBody(idn, 'CC'))).json()) as { code: string };
+    await post(`/v1/owner/link/${code}/claim`, { email: 'passport@example.com' });
+    const finish = await post('/v1/owner/claim/finish', { token: lastMagicToken() });
+    const cookie = sessionCookie(finish);
+
+    // Before any passport: shelf deposits are refused, reads come back empty.
+    const putBefore = (await (await daemonRequest(idn, 'PUT', '/v1/owner/daemon/shelf', { snapshot: [] })).json()) as { enabled: boolean };
+    expect(putBefore.enabled).toBe(false);
+    const shelfBefore = (await (await daemonRequest(idn, 'GET', '/v1/owner/daemon/shelf')).json()) as { enabled: boolean; credentials: unknown[] };
+    expect(shelfBefore.enabled).toBe(false);
+
+    // Console files a handoff — a public key only, no secret in either direction.
+    const create = await post('/v1/owner/passport', { browser_public_key: 'B'.repeat(44) }, cookie);
+    expect(create.status).toBe(200);
+    const { id } = (await create.json()) as { id: string };
+    const pending = (await (await get(`/v1/owner/passport/${id}`, cookie)).json()) as { status: string; sealed_passport: string | null };
+    expect(pending.status).toBe('pending');
+    expect(pending.sealed_passport).toBeNull();
+
+    // Daemon pulls the request and fulfills it with sealed ciphertext.
+    const pulled = (await (await daemonRequest(idn, 'GET', '/v1/owner/daemon/passport')).json()) as { handoffs: Array<Record<string, unknown>> };
+    expect(pulled.handoffs).toHaveLength(1);
+    expect(pulled.handoffs[0].browser_public_key).toBe('B'.repeat(44));
+    expect((await daemonRequest(idn, 'POST', `/v1/owner/daemon/passport/${id}/fulfill`, { sealed_passport: 'SEALED-TO-BROWSER' })).status).toBe(200);
+
+    // The console consumes it EXACTLY once; the plane blanks the ciphertext.
+    const got = (await (await get(`/v1/owner/passport/${id}`, cookie)).json()) as { status: string; sealed_passport: string | null };
+    expect(got.status).toBe('fulfilled');
+    expect(got.sealed_passport).toBe('SEALED-TO-BROWSER');
+    const again = (await (await get(`/v1/owner/passport/${id}`, cookie)).json()) as { status: string; sealed_passport: string | null };
+    expect(again.status).toBe('consumed');
+    expect(again.sealed_passport).toBeNull();
+    const raw = rawDb.prepare(`SELECT sealed_passport FROM passport_handoffs WHERE id = ?`).get(id) as { sealed_passport: string };
+    expect(raw.sealed_passport).toBe('');
+
+    // Shelf now enabled: snapshot semantics — absence deletes.
+    const row = (cid: string) => ({ credential_id: cid, v: 1, meta: '{"label":"x"}', sealed: '{"ow":"AAA"}', grants: '[]' });
+    const put1 = (await (await daemonRequest(idn, 'PUT', '/v1/owner/daemon/shelf', { snapshot: [row('cred_a'), row('cred_b')] })).json()) as { ok: boolean; enabled: boolean };
+    expect(put1).toEqual({ ok: true, enabled: true });
+    const shelf1 = (await (await daemonRequest(idn, 'GET', '/v1/owner/daemon/shelf')).json()) as { enabled: boolean; credentials: Array<{ credential_id: string }> };
+    expect(shelf1.credentials.map((r) => r.credential_id)).toEqual(['cred_a', 'cred_b']);
+    await daemonRequest(idn, 'PUT', '/v1/owner/daemon/shelf', { snapshot: [row('cred_a')] });
+    const shelf2 = (await (await daemonRequest(idn, 'GET', '/v1/owner/daemon/shelf')).json()) as { enabled: boolean; credentials: Array<{ credential_id: string }> };
+    expect(shelf2.credentials.map((r) => r.credential_id)).toEqual(['cred_a']);
   });
 });

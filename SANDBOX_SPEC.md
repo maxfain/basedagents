@@ -209,6 +209,60 @@ It:
   (register / claim) cannot complete — this is a hard boundary of the platform,
   not something BasedAgents can code around.
 
+## 4b. Vault-less cloud agents — the passport (SHIPPING)
+
+**Axiom (decided):** a vault inside an ephemeral container makes no sense. A
+sandboxed agent is a **vault-less client**: durable in the container is
+NOTHING; the container holds an identity + authority loaded from the
+environment, plus a per-task materialized CACHE of sealed credentials.
+
+**Identity fact that shapes everything:** the owner id IS the vault public key
+(`ow_<base58(pub)>`), daemonAuth derives the owner from the presented key, and
+sealed blobs are pinned to that key. Therefore the passport carries the SAME
+owner keypair (plus the agent keypair) — proof-of-possession lets laptop and
+cloud authenticate concurrently with zero identity-model changes.
+
+**The passport handoff (private keys never transit the transcript or the
+control plane):**
+1. First cloud task: `init` runs as today — creates the (container-local)
+   keys, registers, prints the claim link, enters the post-claim watch loop.
+2. The human claims in the console. The console (browser) generates an
+   EPHEMERAL X25519 keypair and files a passport request carrying only the
+   browser public key.
+3. The still-running `init` watch loop sees the request, seals
+   {owner keypair, agent keypair, agent name} to the browser key (the same
+   sealed-box construction as connect cards, reversed direction), and posts
+   the ciphertext. Nothing is printed.
+4. The console opens it CLIENT-SIDE and shows the blob once: "paste this into
+   your environment's Secrets as BASEDAGENTS_PASSPORT." The control plane saw
+   ciphertext; the transcript saw nothing.
+5. Every later task: `init` finds BASEDAGENTS_PASSPORT → materializes the
+   vault into the container from (passport keys + the control-plane shelf),
+   same agent, already claimed, no link ceremony.
+
+**The shelf (control-plane sealed-credential store):** a `sealed_credentials`
+table holding, per credential: metadata + the sealed boxes (owner + grantee
+copies) — ciphertext only, exactly what vault.json holds. Daemons DEPOSIT
+after storing/granting (only once a passport exists for the owner — laptop-
+only owners keep today's no-retention behavior) and cloud tasks GET it to
+materialize. Serving is daemonAuth-only (same owner key). `rm` and the kill
+switch DELETE shelf rows — revocation must reach the shelf or "the sealed
+copy is deleted" becomes a lie.
+
+**Honesty ledger (copy that changes meaning under the passport):** "nothing
+secret ever leaves this machine" holds only for laptop-mode vaults; cloud mode
+must say instead: "your keys live in your environment's Secrets and as
+ciphertext on the control plane — we can never open them; leak of the passport
+is equivalent to leak of a laptop vault." The passport is owner authority
+hosted by a third party: the kill switch + provider-side burns + shelf
+deletion are the mitigations, and the passkey approval layer stays intact (a
+passport holder cannot approve NEW access — approvals still need your
+passkey).
+
+**PRF-ready:** the passport blob and every shelf row carry a `v` field. v1 =
+sealed to the owner key. v2 (later) = wrapped by a passkey-PRF-derived key for
+"ask me every time" credentials — same shelf, second wrapping, no migration.
+
 ## 5. Acceptance criteria
 
 - `npx basedagents sandbox init` on a fresh repo adds the devDependency, writes

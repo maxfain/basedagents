@@ -170,6 +170,30 @@ export class ControlClient {
     await this.signedFetch('POST', `/v1/owner/daemon/connections/${encodeURIComponent(id)}/resolve`, body);
   }
 
+  /** Pending passport requests from the console (browser public keys only). */
+  async getPassportHandoffs(): Promise<Array<{ id: string; browser_public_key: string }>> {
+    const r = await this.signedFetch<{ handoffs: Array<{ id: string; browser_public_key: string }> }>(
+      'GET', '/v1/owner/daemon/passport');
+    return r.handoffs;
+  }
+
+  /** Deliver a passport sealed to the browser's ephemeral key. Ciphertext only. */
+  async fulfillPassportHandoff(id: string, sealedPassport: string): Promise<void> {
+    await this.signedFetch('POST', `/v1/owner/daemon/passport/${encodeURIComponent(id)}/fulfill`, {
+      sealed_passport: sealedPassport,
+    });
+  }
+
+  /** The control-plane shelf: sealed credential ciphertext for cloud re-materialization. */
+  async getShelf(): Promise<{ enabled: boolean; credentials: Array<{ credential_id: string; v: number; meta: string; sealed: string; grants: string }> }> {
+    return this.signedFetch('GET', '/v1/owner/daemon/shelf');
+  }
+
+  /** Whole-snapshot deposit — the server refuses until a passport exists (enabled: false). */
+  async putShelfSnapshot(snapshot: Array<{ credential_id: string; v: number; meta: string; sealed: string; grants: string }>): Promise<{ ok: boolean; enabled: boolean }> {
+    return this.signedFetch('PUT', '/v1/owner/daemon/shelf', { snapshot });
+  }
+
   /**
    * Agent-first entry: invite an owner by email (MCP `invite_owner`). Signed
    * with whatever keypair this client was constructed with — for invites that
