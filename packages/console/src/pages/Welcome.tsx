@@ -40,7 +40,7 @@ type CardPhase =
   | { kind: 'idle' }
   | { kind: 'open'; token: string; shapeWarn: boolean }
   | { kind: 'sending' }
-  | { kind: 'waiting'; connectionId: string }
+  | { kind: 'waiting'; connectionId: string; via?: 'seal' | 'provision'; slow?: boolean }
   | { kind: 'connected' }
   | { kind: 'failed'; reason: string };
 
@@ -54,6 +54,7 @@ function ConnectCard({
   card,
   phase,
   onOpen,
+  onAuto,
   onToken,
   onSubmit,
   onRetry,
@@ -61,6 +62,7 @@ function ConnectCard({
   card: ProviderCard;
   phase: CardPhase;
   onOpen: () => void;
+  onAuto: () => void;
   onToken: (token: string) => void;
   onSubmit: () => void;
   onRetry: () => void;
@@ -70,22 +72,43 @@ function ConnectCard({
       <div className="connect-head">
         <span className="connect-name">{card.label}</span>
         {phase.kind === 'connected' && <span className="connect-ok">✓ Connected</span>}
-        {phase.kind === 'waiting' && <span className="connect-wait">Storing on your machine…</span>}
+        {phase.kind === 'waiting' && (
+          <span className="connect-wait">
+            {phase.via === 'provision' ? 'Working on your machine…' : 'Storing on your machine…'}
+          </span>
+        )}
       </div>
 
       {phase.kind === 'idle' && (
-        <>
-          {card.automatic && (
+        card.automatic?.remote ? (
+          <>
+            <p className="field-hint">{card.automatic.blurb}</p>
+            <div className="connect-actions">
+              <button className="btn btn-primary" onClick={onAuto}>
+                Do it for me
+              </button>
+              <button className="btn btn-ghost" onClick={onOpen}>
+                Paste a token instead
+              </button>
+            </div>
             <p className="field-hint">
-              {card.automatic.blurb}
-              <br />
-              <code>{card.automatic.command}</code>
+              or run <code>{card.automatic.command}</code> in a terminal on that computer.
             </p>
-          )}
-          <button className="btn btn-primary" onClick={onOpen}>
-            Connect {card.label}
-          </button>
-        </>
+          </>
+        ) : (
+          <>
+            {card.automatic && (
+              <p className="field-hint">
+                {card.automatic.blurb}
+                <br />
+                <code>{card.automatic.command}</code>
+              </p>
+            )}
+            <button className="btn btn-primary" onClick={onOpen}>
+              Connect {card.label}
+            </button>
+          </>
+        )
       )}
 
       {phase.kind === 'open' && (
@@ -126,10 +149,25 @@ function ConnectCard({
       {phase.kind === 'sending' && <p className="muted">Sending…</p>}
 
       {phase.kind === 'waiting' && (
-        <p className="field-hint">
-          The terminal window where you ran setup is storing this now. If you closed it, run{' '}
-          <code>based sync</code> there.
-        </p>
+        phase.via === 'provision' ? (
+          <p className="field-hint">
+            Asked the computer where your agent lives to connect. The first time, a browser
+            window opens there — sign in if it asks, then watch it work. This flips to ✓ by
+            itself.
+            {phase.slow && (
+              <>
+                <br />
+                Still waiting — is that computer awake, with setup running? You can also paste
+                a token instead; nothing breaks.
+              </>
+            )}
+          </p>
+        ) : (
+          <p className="field-hint">
+            The terminal window where you ran setup is storing this now. If you closed it, run{' '}
+            <code>based sync</code> there.
+          </p>
+        )
       )}
 
       {phase.kind === 'failed' && (
@@ -198,17 +236,23 @@ export default function Welcome() {
           setPhase(cardId, { kind: 'failed', reason: conn.failure_reason ?? 'That didn’t work — check the token and try again.' });
         }
       }
-      // A provider stored on a previous visit shows as connected, not as a
-      // fresh Connect button (idle only — never stomp an in-progress card;
-      // no funnel ping — it already counted when it first stored).
-      const stored = new Set(
-        conns.connections
-          .filter((c) => c.agent_id === agentId && c.status === 'stored')
-          .map((c) => c.provider),
-      );
+      // Hydrate idle cards from server state (idle only — never stomp an
+      // in-progress card): a provider stored on a previous visit shows as
+      // connected (no funnel ping — it already counted when it first stored),
+      // and a provision request still being worked on resumes its waiting
+      // state, so leaving and returning can't fire a duplicate request.
       for (const card of PROVIDER_CARDS) {
-        if (stored.has(card.id) && phasesRef.current[card.id]?.kind === 'idle') {
+        if (phasesRef.current[card.id]?.kind !== 'idle') continue;
+        const mine = conns.connections.filter((c) => c.agent_id === agentId && c.provider === card.id);
+        if (mine.some((c) => c.status === 'stored')) {
           setPhase(card.id, { kind: 'connected' });
+          continue;
+        }
+        const inflight = mine.find(
+          (c) => c.kind === 'provision' && (c.status === 'pending' || c.status === 'processing'),
+        );
+        if (inflight) {
+          setPhase(card.id, { kind: 'waiting', connectionId: inflight.id, via: 'provision' });
         }
       }
     } catch {
@@ -252,6 +296,34 @@ export default function Welcome() {
         sealed_secret: sealed,
       });
       setPhase(card.id, { kind: 'waiting', connectionId: id });
+    } catch (err) {
+      setPhase(card.id, { kind: 'failed', reason: errText(err) });
+    }
+  }
+
+  // "Do it for me": ask the machine where the agent lives to run the
+  // Provisioner itself. No secret travels in either direction — the row is
+  // just a request; the daemon mints, vaults, and confirms.
+  async function submitProvision(card: ProviderCard): Promise<void> {
+    if (!owner || !agentId) return;
+    setPhase(card.id, { kind: 'sending' });
+    setError(null);
+    try {
+      const { id } = await control.createConnection({
+        agent_id: agentId,
+        provider: card.id,
+        kind: 'provision',
+        label: card.label,
+        env_var: card.envVar,
+      });
+      setPhase(card.id, { kind: 'waiting', connectionId: id, via: 'provision' });
+      // After 30s with no news, add the "is that computer awake?" hint.
+      setTimeout(() => {
+        const p = phasesRef.current[card.id];
+        if (p.kind === 'waiting' && p.connectionId === id && p.via === 'provision') {
+          setPhase(card.id, { ...p, slow: true });
+        }
+      }, 30_000);
     } catch (err) {
       setPhase(card.id, { kind: 'failed', reason: errText(err) });
     }
@@ -341,9 +413,16 @@ export default function Welcome() {
                         window.open(card.tokenUrl, '_blank', 'noopener');
                         setPhase(card.id, { kind: 'open', token: '', shapeWarn: false });
                       }}
+                      onAuto={() => void submitProvision(card)}
                       onToken={(token) => setPhase(card.id, { kind: 'open', token, shapeWarn: false })}
                       onSubmit={() => void submit(card)}
-                      onRetry={() => setPhase(card.id, { kind: 'open', token: '', shapeWarn: false })}
+                      onRetry={() =>
+                        setPhase(
+                          card.id,
+                          // Automatic cards go back to the choice; paste-only cards back to the paste form.
+                          card.automatic?.remote ? { kind: 'idle' } : { kind: 'open', token: '', shapeWarn: false },
+                        )
+                      }
                     />
                   ))}
                 </ul>

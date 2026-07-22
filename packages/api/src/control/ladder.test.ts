@@ -43,6 +43,7 @@ const SQL = [
   '0025_owner_recovery.sql',
   '0026_owner_billing.sql',
   '0027_authority_ladder.sql',
+  '0029_provision_connections.sql',
 ].map((f) => readFileSync(join(MIGRATIONS, f), 'utf-8'));
 
 const te = new TextEncoder();
@@ -633,5 +634,63 @@ describe('connect cards: sealed in the browser, resolved by the daemon', () => {
       agent_id: 'ag_SomeStranger', provider: 'vercel', sealed_secret: 'AAAA',
     }, cookie);
     expect(res.status).toBe(400);
+  });
+
+  it('provision kind: no secret in flight, hidden from old daemons, delivered on request', async () => {
+    const idn = await newInitIdentity();
+    const { code } = (await (await post('/v1/owner/link', await linkBody(idn, 'CC'))).json()) as { code: string };
+    await post(`/v1/owner/link/${code}/claim`, { email: 'provision@example.com' });
+    const finish = await post('/v1/owner/claim/finish', { token: lastMagicToken() });
+    const cookie = sessionCookie(finish);
+
+    // The schema is strict in both directions: provision never carries a
+    // secret, sealed always does, and only recipe-backed providers provision.
+    expect((await post('/v1/owner/connections', {
+      agent_id: idn.agentId, provider: 'vercel', kind: 'provision', sealed_secret: 'AAAA',
+    }, cookie)).status).toBe(400);
+    expect((await post('/v1/owner/connections', {
+      agent_id: idn.agentId, provider: 'vercel',
+    }, cookie)).status).toBe(400);
+    expect((await post('/v1/owner/connections', {
+      agent_id: idn.agentId, provider: 'supabase', kind: 'provision',
+    }, cookie)).status).toBe(400);
+
+    const create = await post('/v1/owner/connections', {
+      agent_id: idn.agentId, provider: 'vercel', kind: 'provision', label: 'Vercel', env_var: 'VERCEL_TOKEN',
+    }, cookie);
+    expect(create.status).toBe(200);
+    const { id } = (await create.json()) as { id: string };
+
+    // An old daemon (no ?include) never receives the provision row…
+    const oldPull = (await (await daemonRequest(idn, 'GET', '/v1/owner/daemon/connections')).json()) as { connections: unknown[] };
+    expect(oldPull.connections).toHaveLength(0);
+
+    // …a new daemon asks for it; the signature covers the pathname only, so
+    // the query rides outside the signed message (exactly what the client does).
+    const path = '/v1/owner/daemon/connections';
+    const ts = Math.floor(Date.now() / 1000);
+    const bodyHash = bytesToHex(sha256(te.encode('')));
+    const sig = await ed.signAsync(te.encode(`GET:${path}:${ts}:${bodyHash}`), idn.vaultPriv);
+    let bin = '';
+    for (const b of sig) bin += String.fromCharCode(b);
+    const pullRes = await app.request(`${path}?include=provision`, {
+      method: 'GET',
+      headers: { Authorization: `AgentSig ${base58Encode(idn.vaultPub)}:${btoa(bin)}`, 'X-Timestamp': String(ts) },
+    });
+    expect(pullRes.status).toBe(200);
+    const pulled = (await pullRes.json()) as { connections: Array<Record<string, unknown>> };
+    expect(pulled.connections).toHaveLength(1);
+    expect(pulled.connections[0].kind).toBe('provision');
+    expect(pulled.connections[0].sealed_secret).toBe('');
+
+    // Claim + resolve ride the same rails as sealed rows.
+    const claim = (await (await daemonRequest(idn, 'POST', `/v1/owner/daemon/connections/${id}/claim`)).json()) as { claimed: boolean };
+    expect(claim.claimed).toBe(true);
+    expect((await daemonRequest(idn, 'POST', `/v1/owner/daemon/connections/${id}/resolve`, {
+      daemon_credential_id: 'cred_prov_1',
+    })).status).toBe(200);
+    const after = (await (await get('/v1/owner/connections', cookie)).json()) as { connections: Array<Record<string, unknown>> };
+    expect(after.connections[0].status).toBe('stored');
+    expect(after.connections[0].kind).toBe('provision');
   });
 });

@@ -8,6 +8,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the console Connect button (`@basedagents/keyring` 0.5.11 + control plane + console)
+
+The last terminal-shaped step in the base-case flow is gone: the Vercel card
+now has a **"Do it for me"** button. Clicking it asks the computer where the
+agent lives — via the daemon's existing authed watch loop — to run the
+Provisioner itself: visible browser once per machine (the human signs in and
+watches), API-only forever after. No secret ever travels through the control
+plane in either direction; the row is just a request, and the daemon mints,
+vaults, and confirms exactly like a sealed paste.
+
+- **Control plane**: migration 0029 adds `kind` ('sealed' default |
+  'provision') to pending_connections. Provision rows carry no ciphertext
+  (schema-enforced both ways) and only recipe-backed providers (vercel)
+  accept them. `GET /daemon/connections` hides provision rows from daemons
+  that don't ask (`?include=provision`) — an old daemon can never misread
+  one as sealed.
+- **Daemon** (`based sync` / `--watch`, keyring 0.5.11): provision rows run
+  `connectVercel` with unattended-safe engine hooks — consent was the
+  console click (the plan echoes into the daemon log), login waits for the
+  human at the visible window (bounded), checkpoints stop cleanly instead of
+  hanging, and failures resolve with plain-words reasons ("That agent is not
+  set up on this computer — run the setup command here first."). Same
+  exactly-once claim/resolve dance as sealed rows.
+- **Console**: the automatic card shows "Do it for me" / "Paste a token
+  instead"; waiting state says a window may open on that computer (first
+  time only) and adds an "is that computer awake?" hint after 30s. Leaving
+  and returning resumes the in-flight state from the server — no duplicate
+  requests, and a stored provider card can't be re-submitted.
+
 ### Changed — speak to the vibe coder, not the engineer (web + console)
 
 The ICP is a not-so-technical builder who lives inside Claude Code or Codex

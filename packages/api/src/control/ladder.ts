@@ -138,14 +138,33 @@ const TokenSchema = z.object({ token: z.string().min(1) });
 const EmailLoginSchema = z.object({ email: z.string().email() });
 const InviteSchema = z.object({ email: z.string().email() });
 
-const CreateConnectionSchema = z.object({
-  agent_id: z.string().min(1),
-  provider: z.string().min(1).max(40),
-  label: z.string().max(120).optional(),
-  env_var: z.string().max(80).optional(),
-  /** base64 sealed box → the owner's vault key. NEVER a raw secret. */
-  sealed_secret: z.string().min(1).max(20_000),
-});
+/** Providers the daemon can provision end-to-end (Provisioner recipes). */
+const PROVISION_PROVIDERS = new Set(['vercel']);
+
+const CreateConnectionSchema = z
+  .object({
+    agent_id: z.string().min(1),
+    provider: z.string().min(1).max(40),
+    label: z.string().max(120).optional(),
+    env_var: z.string().max(80).optional(),
+    /**
+     * 'sealed' (default): the browser sealed a pasted token; sealed_secret is
+     * required ciphertext. 'provision': the daemon mints the token itself —
+     * no secret travels in either direction, so sealed_secret must be absent.
+     */
+    kind: z.enum(['sealed', 'provision']).optional(),
+    /** base64 sealed box → the owner's vault key. NEVER a raw secret. */
+    sealed_secret: z.string().min(1).max(20_000).optional(),
+  })
+  .superRefine((v, ctx) => {
+    if ((v.kind ?? 'sealed') === 'sealed') {
+      if (!v.sealed_secret) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'sealed_secret required for sealed connections' });
+      }
+    } else if (v.sealed_secret) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'provision connections never carry a secret' });
+    }
+  });
 
 const ResolveConnectionSchema = z
   .object({
@@ -596,13 +615,19 @@ app.post('/connections', ownerSession, async (c) => {
     return err(c, 400, 'bad_request', 'that agent is not connected to this account');
   }
 
+  const kind = parsed.data.kind ?? 'sealed';
+  if (kind === 'provision' && !PROVISION_PROVIDERS.has(parsed.data.provider)) {
+    return err(c, 400, 'bad_request', 'that provider cannot be set up automatically yet');
+  }
+
   const id = await store.createPendingConnection({
     ownerId,
     agentId: parsed.data.agent_id,
     provider: parsed.data.provider,
     label: parsed.data.label,
     envVar: parsed.data.env_var,
-    sealedSecret: parsed.data.sealed_secret,
+    sealedSecret: parsed.data.sealed_secret ?? '',
+    kind,
   });
   return c.json({ id, status: 'pending' });
 });
@@ -613,7 +638,7 @@ app.get('/connections', ownerSession, async (c) => {
   // Never echo ciphertext back to the browser — status only.
   return c.json({
     connections: rows.map((r) => ({
-      id: r.id, agent_id: r.agent_id, provider: r.provider, label: r.label,
+      id: r.id, agent_id: r.agent_id, provider: r.provider, label: r.label, kind: r.kind,
       status: r.status, failure_reason: r.failure_reason, created_at: r.created_at,
     })),
   });
@@ -624,11 +649,16 @@ app.get('/connections', ownerSession, async (c) => {
 app.get('/daemon/connections', daemonAuth, async (c) => {
   const store = getStore(c);
   const rows = await store.listPendingConnections(getOwnerId(c), 'pending');
+  // Provision rows only go to daemons that ask for them (?include=provision) —
+  // an older daemon must never receive a row it would misread as sealed.
+  const includeProvision = (c.req.query('include') ?? '').split(',').includes('provision');
   return c.json({
-    connections: rows.map((r) => ({
-      id: r.id, agent_id: r.agent_id, provider: r.provider, label: r.label,
-      env_var: r.env_var, sealed_secret: r.sealed_secret, created_at: r.created_at,
-    })),
+    connections: rows
+      .filter((r) => r.kind !== 'provision' || includeProvision)
+      .map((r) => ({
+        id: r.id, agent_id: r.agent_id, provider: r.provider, label: r.label,
+        env_var: r.env_var, sealed_secret: r.sealed_secret, kind: r.kind, created_at: r.created_at,
+      })),
   });
 });
 

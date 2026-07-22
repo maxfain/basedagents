@@ -80,7 +80,10 @@ export interface ConnectionInfo {
   agent_id: string;
   provider: string;
   label: string | null;
-  status: 'pending' | 'stored' | 'failed';
+  /** 'sealed' = browser-sealed paste; 'provision' = minted by the user's machine. */
+  kind?: 'sealed' | 'provision';
+  /** 'processing' = a daemon has claimed the row and is working on it. */
+  status: 'pending' | 'processing' | 'stored' | 'failed';
   failure_reason: string | null;
   created_at: string;
 }
