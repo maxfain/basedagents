@@ -8,7 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Added — the start code: the browser door now remembers your email (control plane + console + `@basedagents/keyring` 0.5.11)
+### Added — the start code: the browser door now remembers your email (control plane + console + `@basedagents/keyring` 0.5.15)
 
 Field finding on the /start "Start in your browser" door: for a first-time
 visitor the whole email → inbox → click round trip bought nothing. The
@@ -41,7 +41,7 @@ now joined by a **start code** (CONTROL_PLANE §8, "the start code"):
   inside remembers your email." /link with an attached address becomes one
   click — "we'll send the link to m•••@example.com" — with "Use a different
   email" as the fallback.
-- **Keyring CLI (0.5.11).** `init --start <code>` forwards the code when
+- **Keyring CLI (0.5.15).** `init --start <code>` forwards the code when
   creating the link code and prints where the confirmation goes, so an agent
   relaying init's output can point its human at the right inbox. A stale
   code prints a one-line note and falls back to the page's email field.
