@@ -28,7 +28,7 @@ const HERO_PROMPT =
   'Set up BasedAgents Keyring — open source (npm: basedagents ·\n' +
   'github.com/maxfain/basedagents · docs: basedagents.ai/docs/agents ·\n' +
   'verify me first: basedagents.ai/.well-known/agent.json).\n' +
-  'Run: npx basedagents keyring init\n' +
+  'Run: npx basedagents@latest keyring init\n' +
   'It should create a local vault — or reuse an existing one untouched;\n' +
   're-running is safe, nothing is rotated or overwritten — register your\n' +
   'agent ID, and print a link for me to take control in my browser. It\n' +
@@ -40,7 +40,7 @@ const HERO_PROMPT =
   'basedagents.ai/codex — keep the URL exact — then I start a new task).';
 const CLOSING_PROMPT =
   'Set up BasedAgents Keyring (open source — npm: basedagents, docs: basedagents.ai/docs/agents, ' +
-  'verify: basedagents.ai/.well-known/agent.json): run npx basedagents keyring init. ' +
+  'verify: basedagents.ai/.well-known/agent.json): run npx basedagents@latest keyring init. ' +
   'It creates a local vault (an existing one is reused untouched) and prints a link for me to take control; ' +
   'it never asks for a password or an existing key — stop if it does. Blocked? Don\'t work around it — ' +
   'tell me which wall: my permission gate (I\'ll approve it or run it myself) or npm/network ' +
@@ -134,7 +134,7 @@ function HeroSetup(): React.ReactElement {
         <>
           <CopyPrompt label="Paste this into Claude Code:" text={HERO_PROMPT} />
           <p className="home-paste-alt">
-            or <code>npx @basedagents/keyring init</code> in your terminal · or{' '}
+            or <code>npx @basedagents/keyring@latest init</code> in your terminal · or{' '}
             <a href="https://app.basedagents.ai/start">start in your browser →</a> — one email field, no
             password
           </p>
@@ -290,7 +290,7 @@ export default function Home(): React.ReactElement {
         <div className="home-agent-box">
           <ol>
             <li>Register yourself: <code>npx basedagents register</code></li>
-            <li>Get your keys managed: <code>npx @basedagents/keyring init</code></li>
+            <li>Get your keys managed: <code>npx @basedagents/keyring@latest init</code></li>
             <li>Then ask your human for their email and call <code>invite_owner</code> — they stay in charge.</li>
           </ol>
           <p style={{ marginTop: 12 }}>

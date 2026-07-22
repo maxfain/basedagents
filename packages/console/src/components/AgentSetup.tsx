@@ -20,13 +20,20 @@ import { useState } from 'react';
 // its instructions", never a scripted verbatim reply. The fallback names its
 // trigger per WALL: a harness permission-gate denial is NOT an npm failure
 // and must never route to /codex — the aligned answer there is the human
-// approving the command or running it themselves. Keep this string identical
-// to the marketing hero prompt (same words, spaces for its line breaks).
+// approving the command or running it themselves. The command pins @latest
+// on purpose (fourth wall, field-hit): npx caches the tree for a bare
+// package spec and never re-resolves, so a returning machine runs a stale
+// CLI that rejects newer flags ("Unknown option: --start"); @latest forces
+// re-resolution every run. Sandbox surfaces (/codex step 3) keep the BARE
+// name for the opposite reason — @latest needs a registry lookup the task
+// phase blocks, while the bare name resolves the preinstalled local copy.
+// Keep this string identical to the marketing hero prompt (same words,
+// spaces for its line breaks).
 export const AGENT_PROMPT =
   'Set up BasedAgents Keyring — open source (npm: basedagents · ' +
   'github.com/maxfain/basedagents · docs: basedagents.ai/docs/agents · ' +
   'verify me first: basedagents.ai/.well-known/agent.json). ' +
-  'Run: npx basedagents keyring init ' +
+  'Run: npx basedagents@latest keyring init ' +
   'It should create a local vault — or reuse an existing one untouched; ' +
   're-running is safe, nothing is rotated or overwritten — register your ' +
   'agent ID, and print a link for me to take control in my browser. It ' +
@@ -36,7 +43,7 @@ export const AGENT_PROMPT =
   'my own tooling\'s permission gate (I\'ll approve it, or run the command ' +
   'myself in a terminal) · npm or the network (the one-time fix is at ' +
   'basedagents.ai/codex — keep the URL exact — then I start a new task).';
-export const TERMINAL_CMD = 'npx basedagents keyring init';
+export const TERMINAL_CMD = 'npx basedagents@latest keyring init';
 
 /**
  * The start-code variant (browser door, /start after the magic-link click):

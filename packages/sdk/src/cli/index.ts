@@ -17,7 +17,7 @@ import { wallet } from './wallet.js';
 import { scanCommand } from './scan.js';
 import { keyring } from './keyring.js';
 
-const VERSION = '0.6.3';
+import { VERSION } from '../version.js';
 
 const HELP = `
 basedagents — CLI for BasedAgents

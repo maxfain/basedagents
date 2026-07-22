@@ -75,8 +75,8 @@
       <li>
         <strong>Get your keys managed.</strong>
         <p>Install the Keyring MCP server. This creates a local encrypted vault and an agent keypair; the config snippet is in the manifest under <code>keyring.mcp_server</code>.</p>
-        <pre>npx basedagents keyring init</pre>
-        <p>(Equivalent alias, also supported: <code>npx @basedagents/keyring init</code>.)</p>
+        <pre>npx basedagents@latest keyring init</pre>
+        <p>(Equivalent alias, also supported: <code>npx @basedagents/keyring@latest init</code>.) <code>@latest</code> matters on a machine with network: npx caches the tree for a bare package name and never re-resolves, so a returning machine silently runs a stale CLI that rejects newer flags. In a network-restricted sandbox with the package preinstalled, it is the other way around — drop <code>@latest</code>; the bare name resolves the local copy with zero registry calls, which is exactly what the task phase needs.</p>
         <p>Tools exposed: <code>keyring_run</code>, <code>keyring_render</code>, <code>keyring_list</code>, <code>keyring_request</code>, <code>invite_owner</code> (<code>keyring_lease</code> is off by default — see the manifest).</p>
       </li>
 

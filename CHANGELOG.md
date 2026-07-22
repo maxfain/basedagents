@@ -8,6 +8,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the fourth wall: the npx cache (`basedagents` 0.6.4 + keyring + all prompt surfaces)
+
+Field report, same desktop machine, next attempt: the permission gate
+cleared, the command ran — and the CLI answered `Unknown option: --start`.
+npx had cached the tree for the bare `basedagents` spec back on Jul 16 and
+npx never re-resolves a cached bare spec, so keyring 0.5.9 met a prompt
+written for 0.5.15. "Cold npx resolves latest" is only true for machines
+that never ran the command; every returning machine is a stale-cache
+machine. While verifying, a second latent break surfaced: the sdk pinned
+`@basedagents/keyring: ^0.5.0`, which silently EXCLUDES the unpublished
+0.6.0 — the passport could never have reached the wrapper.
+
+- **The canonical command now differs by wall, on purpose.** Local surfaces
+  pin `@latest` (`npx basedagents@latest keyring init`) — forced
+  re-resolution every run, cache permanently busted. Sandbox surfaces keep
+  the bare name: `@latest` forces a registry lookup the task phase blocks,
+  while the bare name resolves the preinstalled copy with zero registry
+  calls. Applied across hero + closing (Home.tsx, keyring.html), console
+  AgentSetupPrompt/TERMINAL_CMD (the `--start` injection composes), /link,
+  /claim, /invited expired-screens, /docs/agents (with the why), keyring
+  README, agent.json (`setup_command_for_humans`, aliases, new `why_latest`
+  + `if_the_cli_rejects_a_prompt_flag`), llms mirrors.
+- **`parseFlags` explains itself on an unknown option**: stale-cache hint +
+  the `@latest` re-run command. The cached 0.5.9 can't be taught, but every
+  future version names the next skew instead of crashing cryptically.
+- **sdk 0.6.4**: keyring range bumped to `^0.6.0` (publish alongside keyring
+  0.6.0 — the rule is now recorded: bump the wrapper's range WITH every
+  keyring minor), and the sdk CLI version is single-sourced from
+  package.json via `src/version.ts` — same fix the keyring got, same
+  almost-shipped-a-lie reason.
+- **Lockstep audit catch**: keyring.html's hero/closing prompts and
+  agent.json's `task_phase_agent_prompt` were still pre-#51 copy (no verify
+  pointer, no reuse guarantee, no wall branch) — brought current.
+- SANDBOX_SPEC §2b records wall #4 and the pin-the-version-by-wall rule.
+
 ### Changed — the setup prompt survives the third wall and a deeper skeptic (all prompt surfaces)
 
 Field report from a local Claude Code (desktop) run of the /start prompt.

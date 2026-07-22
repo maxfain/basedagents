@@ -69,13 +69,17 @@ app.basedagents.ai</pre>
       <li>
         <h2>Start a new task and ask again</h2>
         <p>Open a fresh task and paste:</p>
-        <!-- Two rules meet here (SANDBOX_SPEC §2b). DIVERGE: the retry must
+        <!-- Three rules meet here (SANDBOX_SPEC §2b). DIVERGE: the retry must
              never reproduce the prompt that led here — the agent verifies the
              local install BEFORE touching npm, and each failure names what
              didn't take instead of pointing back at this page. SKEPTICAL:
              provenance links, expected behavior, a safety-aligned tripwire —
              and never script the agent's exact reply (pin the content, not
-             the wording). -->
+             the wording). BARE NAME, no @latest, on purpose: @latest forces a
+             registry lookup this sandbox blocks at task time, while the bare
+             name resolves the preinstalled local copy with zero registry
+             calls — the opposite trade from the local prompts, which pin
+             @latest to bust npx's stale cache. -->
         <pre>Set up BasedAgents Keyring — open source (npm: basedagents ·
 github.com/maxfain/basedagents · docs: basedagents.ai/docs/agents).
 It should already be installed here, so don't install anything from
