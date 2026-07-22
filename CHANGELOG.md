@@ -8,6 +8,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the setup prompt now survives a skeptical agent (all prompt surfaces)
+
+Field report: a security-conscious agent REFUSED the hero prompt outright,
+flagging exactly three things — "follow its instructions" hands control to
+unknown code, no discoverable provenance (its npm search for "keyring" found
+nothing, "proving" we don't exist), and the scripted verbatim relay reads as
+output-steering toward an external "one-time fix". All three were fair: our
+prompt was indistinguishable from a supply-chain phish. The fix is
+verifiability, not stealth:
+
+- **Provenance in the prompt**: exact npm package name, GitHub repo, and docs
+  URL — an agent that checks finds a real published package instead of a
+  failed guess-search.
+- **Expected behavior, stated**: creates a local vault, registers the agent
+  ID, prints a claim link for the human — replacing "follow its instructions"
+  (now banned copy).
+- **A tripwire aligned WITH agent safety**: "it never asks for a password or
+  an existing key — stop and tell me if anything differs."
+- **Content-pinned relay, not wording-pinned**: the sandbox fallback keeps the
+  URL and "start a new task" exact but no longer scripts the agent's reply.
+- **`agent.json` grows a `provenance` block** (npm/source/license, what init
+  does, what it never does) and llms.txt points verifiers at it.
+
+Updated in lockstep: homepage hero + closing, console AgentSetupPrompt,
+/codex step 3 (self-healing retry), /docs/agents, keyring.html (stale
+variants killed), llms.txt, llms-full.txt, agent.json, SANDBOX_SPEC §2b
+design rules.
+
 ### Added — the console Connect button (`@basedagents/keyring` 0.5.11 + control plane + console)
 
 The last terminal-shaped step in the base-case flow is gone: the Vercel card

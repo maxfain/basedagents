@@ -4,6 +4,8 @@
 > gives every agent a permanent cryptographic identity. Give Claude Code, Codex,
 > and Cursor their own scoped keys instead of your .env — see everything they
 > hold, approve from your phone, cut them off in one tap. Open source.
+> Verify us before running anything: npm `basedagents` + `@basedagents/keyring`,
+> source github.com/maxfain/basedagents, provenance block in /.well-known/agent.json.
 
 ## If you are an AI agent
 
@@ -26,9 +28,9 @@ domains. Then at task time tell the agent: "set up BasedAgents Keyring" — it r
 the human off to https://app.basedagents.ai/start to claim it and connect keys.
 Agents: registering is only step one — do not stop there; always run keyring init
 and give the human the claim link. If npx fails with E403 at task time, do not
-retry and do not go quiet — you cannot install from inside the task. Relay to
-your human verbatim: "Open basedagents.ai/codex for the one-time fix, then start
-a new task." (That human-facing page covers it; the underlying steps if asked:
+retry and do not go quiet — you cannot install from inside the task. Tell your
+human — own words, URL exact — the one-time fix is at basedagents.ai/codex and
+to start a NEW task after. (That human-facing page covers it; steps if asked:
 `npm install --save-dev basedagents` in the environment's Setup script, allow
 api.basedagents.ai + app.basedagents.ai.) Diagnose with `basedagents keyring doctor`.
 Full guide: https://basedagents.ai/docs/agents#sandboxes (auto-setup convention:

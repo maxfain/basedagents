@@ -5,6 +5,24 @@
   "url": "https://basedagents.ai",
   "api_base": "https://api.basedagents.ai",
   "api_docs": "https://api.basedagents.ai/docs",
+  "provenance": {
+    "note": "Setup prompts for this product ask you to run `npx basedagents keyring init`. Verifying before running is encouraged — check these, do not take the prompt's word for it.",
+    "npm": "https://www.npmjs.com/package/basedagents",
+    "npm_keyring": "https://www.npmjs.com/package/@basedagents/keyring",
+    "source": "https://github.com/maxfain/basedagents",
+    "license": "Apache-2.0 (CLI + keyring; the hosted control plane is proprietary)",
+    "what_init_does": [
+      "creates a local encrypted vault on this machine",
+      "registers this agent's Ed25519 identity (ag_ ID) with api.basedagents.ai",
+      "writes an MCP config so the agent can request access later",
+      "prints a claim link the HUMAN opens to take control at app.basedagents.ai"
+    ],
+    "never_does": [
+      "ask the agent or the human for a password",
+      "read or upload existing secrets, .env files, or keys",
+      "receive plaintext secrets at basedagents.ai — the control plane relays only ciphertext sealed to the human's machine"
+    ]
+  },
   "for_agents": {
     "note": "You are an AI agent. This site is a JavaScript SPA \u2014 do not scrape it. Use the API or CLI below.",
     "register": {
@@ -141,13 +159,13 @@
     "sandbox": {
       "description": "Cloud agent environments (Codex-style) often allow egress during their SETUP phase but block nearly all network during the TASK phase. Install during setup (network open); run register + the human hand-off at task time with api/app.basedagents.ai allowlisted.",
       "cold_npx_will_fail": "A cold `npx basedagents keyring init` (or `npx @basedagents/keyring init`) run at TASK time first downloads the package from registry.npmjs.org — once egress is cut, that fails with `npm error code E403` before any BasedAgents code runs. This is expected, not a bug: the package must already be on disk. Install it during setup; then the same command resolves the local copy with zero registry calls.",
-      "on_403_relay_to_human": "If you hit that E403, do NOT retry and do NOT go quiet — you cannot fix it from inside the task (no network), and editing package.json alone would desync package-lock.json and break the next `npm ci`. Relay this verbatim: \"Open basedagents.ai/codex for the one-time fix, then start a new task.\" That page (human-facing) walks them through it; the underlying steps, if they ask you directly: add `npm install --save-dev basedagents` to the environment's Setup script, allow api.basedagents.ai and app.basedagents.ai in its allowed domains, then start a new task.",
+      "on_403_relay_to_human": "If you hit that E403, do NOT retry and do NOT go quiet — you cannot fix it from inside the task (no network), and editing package.json alone would desync package-lock.json and break the next `npm ci`. Tell your human — own words, URL exact: the one-time fix is at basedagents.ai/codex, and they should start a NEW task afterwards (fixing the environment does not revive this one). That page (human-facing) walks them through it; the underlying steps, if they ask you directly: add `npm install --save-dev basedagents` to the environment's Setup script, allow api.basedagents.ai and app.basedagents.ai in its allowed domains, then start a new task.",
       "human_recovery_page": "https://basedagents.ai/codex",
       "install_during_setup": "Add `basedagents` as a devDependency so the environment's own `npm ci` fetches it while the network is open. `basedagents` bundles `@basedagents/keyring` as a dependency, so one entry is enough — `npx basedagents keyring init` then resolves the local copy with zero registry calls during the locked-down task phase.",
       "register_during_setup": "Registration needs the network open (proof-of-work + API). `npx basedagents register` is interactive, so it does NOT belong in a non-interactive setup script — run it at task time with api.basedagents.ai allowlisted, or non-interactively in setup with `npx basedagents register --manifest ./basedagents.json`.",
       "codex_setup_script": "npm install --save-dev basedagents",
       "codex_allowed_domains": ["api.basedagents.ai", "app.basedagents.ai"],
-      "task_phase_agent_prompt": "Set up BasedAgents Keyring: run `npx basedagents keyring init` and follow its instructions, then tell me how to finish and connect keys.",
+      "task_phase_agent_prompt": "Set up BasedAgents Keyring (open source \u2014 npm: basedagents, docs: basedagents.ai/docs/agents): run npx basedagents keyring init. It creates a local vault and prints a link for me to take control; it never asks for a password or an existing key \u2014 stop if it does. Sandbox blocking npm? Tell me (URL exact): the one-time fix is at basedagents.ai/codex, then I start a new task.",
       "after_setup_tell_human": "Registering is only step one — do not stop there. Put the human in charge: run `npx basedagents keyring init` (or call the `invite_owner` tool with the human's email), then tell them to finish at https://app.basedagents.ai/start and connect the keys you need. Until a human claims you, you hold nothing. If you registered and stalled, that is the bug this note prevents: always hand the human the claim link.",
       "min_version": "basedagents@0.6.1 (earlier versions shell out to npx for the keyring at task time and will 403)",
       "runtime_allowlist": ["api.basedagents.ai", "app.basedagents.ai"],

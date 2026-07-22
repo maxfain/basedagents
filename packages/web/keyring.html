@@ -204,8 +204,14 @@
       <div class="paste-box">
         <p class="paste-label">Paste this into Claude Code:</p>
         <div class="paste-cmd">
-          <pre id="hero-prompt">Set up BasedAgents Keyring for this project: run
-npx @basedagents/keyring init and follow its instructions.</pre>
+          <pre id="hero-prompt">Set up BasedAgents Keyring — open source (npm: basedagents ·
+github.com/maxfain/basedagents · docs: basedagents.ai/docs/agents).
+Run: npx basedagents keyring init
+It should create a local vault, register your agent ID, and print a link for
+me to take control in my browser. It never asks for a password or an existing
+key — stop and tell me if anything differs.
+Sandbox blocking npm? Don't work around it — tell me (keep the URL exact):
+the one-time fix is at basedagents.ai/codex, then I start a new task.</pre>
           <button class="copy-btn" data-copy-target="hero-prompt" type="button">Copy</button>
         </div>
         <p class="paste-alt">or run <code>npx @basedagents/keyring init</code> in your terminal · or <a href="https://app.basedagents.ai/start">start in your browser →</a> — one email field, no password</p>
@@ -322,7 +328,7 @@ npx @basedagents/keyring init and follow its instructions.</pre>
       <div class="paste-box">
         <p class="paste-label">Paste into Claude Code:</p>
         <div class="paste-cmd">
-          <pre id="closing-prompt">Set up BasedAgents Keyring: run npx @basedagents/keyring init</pre>
+          <pre id="closing-prompt">Set up BasedAgents Keyring (open source — npm: basedagents, docs: basedagents.ai/docs/agents): run npx basedagents keyring init. It creates a local vault and prints a link for me to take control; it never asks for a password or an existing key — stop if it does. Sandbox blocking npm? Tell me (URL exact): the one-time fix is at basedagents.ai/codex, then I start a new task.</pre>
           <button class="copy-btn" data-copy-target="closing-prompt" type="button">Copy</button>
         </div>
       </div>

@@ -137,8 +137,7 @@ npm install --save-dev basedagents</pre>
     <pre>api.basedagents.ai
 app.basedagents.ai</pre>
     <p><strong>3. Then, in your first task, tell your agent:</strong></p>
-    <pre>Set up BasedAgents Keyring: run npx basedagents keyring init and follow
-its instructions, then tell me how to finish and connect keys.</pre>
+    <pre>Set up BasedAgents Keyring (open source — npm: basedagents, docs: basedagents.ai/docs/agents): run npx basedagents keyring init. It creates a local vault and prints a link for me to take control; it never asks for a password or an existing key — stop if it does. Sandbox blocking npm? Tell me (URL exact): the one-time fix is at basedagents.ai/codex, then I start a new task.</pre>
     <p>Because BasedAgents is already installed, <code>npx basedagents keyring init</code> resolves the local copy with no registry call. It registers the agent, then opens the claim page and hands you off:</p>
 
     <div class="note">

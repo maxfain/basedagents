@@ -67,10 +67,14 @@ app.basedagents.ai</pre>
         <!-- Self-healing: this is the canonical prompt WITH the pointer clause,
              so if the environment fix was botched, the retry still relays here
              instead of stranding the human (SANDBOX_SPEC §2b). -->
-        <pre>Set up BasedAgents Keyring for this project: run
-npx basedagents keyring init and follow its instructions.
-Cloud sandbox blocking npm? Don't retry — tell me:
-"Open basedagents.ai/codex for the one-time fix, then start a new task."</pre>
+        <pre>Set up BasedAgents Keyring — open source (npm: basedagents ·
+github.com/maxfain/basedagents · docs: basedagents.ai/docs/agents).
+Run: npx basedagents keyring init
+It should create a local vault, register your agent ID, and print a link for
+me to take control in my browser. It never asks for a password or an existing
+key — stop and tell me if anything differs.
+Sandbox blocking npm? Don't work around it — tell me (keep the URL exact):
+the one-time fix is at basedagents.ai/codex, then I start a new task.</pre>
         <p>This time it installs nothing over the network — it&rsquo;s already there. Your agent sets up its keyring and hands you a link to finish at <a href="https://app.basedagents.ai/start">app.basedagents.ai/start</a>.</p>
       </li>
     </ol>
