@@ -15,6 +15,7 @@ import { parseFlags, CliError, shortAgentId } from './shared.js';
 import { confirm } from './prompt.js';
 import { ControlClient, DEFAULT_KEYRING_API } from './control-client.js';
 import { validateProviderToken, presetEnvVar } from './providers.js';
+import type { EngineHooks } from '../provisioner/types.js';
 
 function apiFrom(flags: { values: Record<string, string | undefined> }): string {
   return flags.values['api'] ?? DEFAULT_KEYRING_API;
@@ -76,6 +77,65 @@ export async function cmdLink(args: string[], dir: string | undefined): Promise<
 const pendingResolves = new Map<string, string>();
 
 /**
+ * Engine hooks for a provision run nobody is watching from a terminal: the
+ * human consented by clicking Connect in the console and is (presumably) near
+ * the machine, so login just waits for them at the visible browser window and
+ * anything that would need hands-on help stops cleanly instead of hanging.
+ */
+function daemonEngineHooks(): EngineHooks {
+  return {
+    async consent(plan) {
+      console.log('  You asked for this from the console. Here is what runs:');
+      for (const line of plan) console.log(`  • ${line}`);
+      return true;
+    },
+    async login(hint) {
+      console.log(`  ${hint} (waiting for you at the browser window…)`);
+      await new Promise<void>((r) => setTimeout(r, 10_000));
+      return 'continue'; // the engine re-probes; its bounded rounds cap the total wait
+    },
+    async checkpoint(_stepId, message) {
+      console.log(`  ⚠ ${message} — no one is at this terminal to help, stopping.`);
+      return 'abort';
+    },
+    info(message) {
+      console.log(`  ${message}`);
+    },
+  };
+}
+
+/** Runs the Provisioner for one agent; injected so tests never need a browser. */
+export type ProvisionRunner = (keyring: Keyring, agentId: string) => Promise<{ credentialId: string }>;
+
+const defaultProvisionRunner: ProvisionRunner = async (keyring, agentId) => {
+  const { connectVercel } = await import('../provisioner/connect.js');
+  const result = await connectVercel(
+    {
+      kr: keyring,
+      owner: keyring.ownerKeypair(),
+      hooks: daemonEngineHooks(),
+      launchDriver: async () => {
+        const { PlaywrightDriver } = await import('../provisioner/driver-playwright.js');
+        return PlaywrightDriver.launch();
+      },
+      // Assisted paste needs a human at THIS terminal — there isn't one.
+      pasteFallback: async () => null,
+    },
+    { agentRef: agentId, agentName: keyring.vault().identities[agentId]?.name },
+  );
+  return { credentialId: result.credential.credential_id };
+};
+
+/** Console-facing reasons for provision failures — plain words, no jargon. */
+function provisionFailureReason(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (/unknown identity|unknown agent/i.test(raw)) {
+    return 'That agent is not set up on this computer — run the setup command here first.';
+  }
+  return raw;
+}
+
+/**
  * Connect cards (onboarding Move 3): pull browser-sealed provider tokens,
  * open them with the vault owner key (LOCALLY — the plaintext exists only
  * here), validate against the provider where possible, store the credential
@@ -92,7 +152,11 @@ const pendingResolves = new Map<string, string>();
  *     falsely fails.
  * Returns the number of connections it touched.
  */
-export async function processConnections(keyring: Keyring, client: ControlClient): Promise<number> {
+export async function processConnections(
+  keyring: Keyring,
+  client: ControlClient,
+  provision: ProvisionRunner = defaultProvisionRunner,
+): Promise<number> {
   const owner = keyring.ownerKeypair();
 
   // First, drain any store-succeeded-but-resolve-failed connections.
@@ -117,6 +181,34 @@ export async function processConnections(keyring: Keyring, client: ControlClient
       continue;
     }
     if (!claimed) continue;
+
+    // Console-initiated automatic setup: mint the token HERE via the
+    // Provisioner (visible browser once per machine, API-only after) instead
+    // of opening a sealed paste. Same exactly-once dance as the sealed path.
+    if (conn.kind === 'provision') {
+      try {
+        if (conn.provider !== 'vercel') {
+          throw new Error(`automatic setup for "${conn.provider}" is not available yet — paste a token on the card instead`);
+        }
+        console.log(`▶ ${display}: automatic setup for ${shortAgentId(conn.agent_id)} — a browser window may open here (first time only)…`);
+        const { credentialId } = await provision(keyring, conn.agent_id);
+        pendingResolves.set(conn.id, credentialId);
+        await client.resolveConnection(conn.id, { daemonCredentialId: credentialId });
+        pendingResolves.delete(conn.id);
+        console.log(`✓ ${display} connected → ${shortAgentId(conn.agent_id)}`);
+      } catch (err) {
+        if (!pendingResolves.has(conn.id)) {
+          const reason = provisionFailureReason(err);
+          console.log(`✗ ${display}: ${reason}`);
+          try {
+            await client.resolveConnection(conn.id, { error: reason });
+          } catch { /* reported next round */ }
+        } else {
+          console.log(`· ${display}: minted locally; confirming with the server (will retry)`);
+        }
+      }
+      continue;
+    }
 
     try {
       const secret = new TextDecoder().decode(openSealedBox(owner.privateKey, conn.sealed_secret));

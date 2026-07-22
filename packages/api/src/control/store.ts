@@ -1174,13 +1174,15 @@ export class ControlStore {
     provider: string;
     label?: string;
     envVar?: string;
+    /** '' for kind 'provision' — no secret is ever in flight for those rows. */
     sealedSecret: string;
+    kind?: 'sealed' | 'provision';
   }): Promise<string> {
     const id = randomId('pcx_');
     await this.db.run(
       `INSERT INTO pending_connections
-         (id, owner_id, agent_id, provider, label, env_var, sealed_secret, status, created_at, resolved_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)`,
+         (id, owner_id, agent_id, provider, label, env_var, sealed_secret, kind, status, created_at, resolved_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)`,
       id,
       input.ownerId,
       input.agentId,
@@ -1188,6 +1190,7 @@ export class ControlStore {
       input.label ?? null,
       input.envVar ?? null,
       input.sealedSecret,
+      input.kind ?? 'sealed',
       nowIsoString()
     );
     return id;
@@ -1195,7 +1198,7 @@ export class ControlStore {
 
   async listPendingConnections(ownerId: string, status?: string): Promise<Array<{
     id: string; agent_id: string; provider: string; label: string | null;
-    env_var: string | null; sealed_secret: string; status: string;
+    env_var: string | null; sealed_secret: string; kind: 'sealed' | 'provision'; status: string;
     failure_reason: string | null; daemon_credential_id: string | null; created_at: string;
   }>> {
     const rows = status
@@ -1208,7 +1211,9 @@ export class ControlStore {
     return rows.map((r) => ({
       id: asStr(r.id), agent_id: asStr(r.agent_id), provider: asStr(r.provider),
       label: asNullableStr(r.label), env_var: asNullableStr(r.env_var),
-      sealed_secret: asStr(r.sealed_secret), status: asStr(r.status),
+      sealed_secret: asStr(r.sealed_secret),
+      kind: (asStr(r.kind) === 'provision' ? 'provision' : 'sealed') as 'sealed' | 'provision',
+      status: asStr(r.status),
       failure_reason: asNullableStr(r.failure_reason),
       daemon_credential_id: asNullableStr(r.daemon_credential_id),
       created_at: asStr(r.created_at),

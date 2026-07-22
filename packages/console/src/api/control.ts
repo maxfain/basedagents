@@ -149,7 +149,11 @@ export const control = {
     return request('POST', '/invites/claim', { token });
   },
   createConnection(input: {
-    agent_id: string; provider: string; label?: string; env_var?: string; sealed_secret: string;
+    agent_id: string; provider: string; label?: string; env_var?: string;
+    /** Required for kind 'sealed' (the default); absent for kind 'provision'. */
+    sealed_secret?: string;
+    /** 'provision' asks the machine where the agent lives to mint the token itself. */
+    kind?: 'sealed' | 'provision';
   }): Promise<{ id: string; status: string }> {
     return request('POST', '/connections', input);
   },

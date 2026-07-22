@@ -68,8 +68,12 @@ export class ControlClient {
     this.pubkeyB58 = base58Encode(owner.publicKey);
   }
 
-  /** Sign and send a request. `path` is the full pathname the server signs (incl. /v1/owner). */
-  private async signedFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
+  /**
+   * Sign and send a request. `path` is the full pathname the server signs
+   * (incl. /v1/owner). `query` is appended to the URL only — the server
+   * signs pathname alone, so the query must never enter the message.
+   */
+  private async signedFetch<T>(method: string, path: string, body?: unknown, query = ''): Promise<T> {
     const bodyStr = body === undefined ? '' : JSON.stringify(body);
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const nonce = crypto.randomUUID();
@@ -88,7 +92,7 @@ export class ControlClient {
     const timer = setTimeout(() => controller.abort(), 30_000);
     let res: Response;
     try {
-      res = await fetch(`${this.baseUrl}${path}`, {
+      res = await fetch(`${this.baseUrl}${path}${query}`, {
         method,
         headers,
         body: body === undefined ? undefined : bodyStr,
@@ -130,10 +134,17 @@ export class ControlClient {
     await this.signedFetch('POST', `/v1/owner/daemon/approvals/${encodeURIComponent(id)}/confirm`, body);
   }
 
-  /** Pending browser-sealed connections (connect cards) awaiting local storage. */
+  /**
+   * Pending connections awaiting local work: browser-sealed pastes (kind
+   * 'sealed') and console-initiated automatic setups (kind 'provision').
+   * The ?include flag is how the server knows this daemon understands
+   * provision rows — older daemons never receive them.
+   */
   async getConnections(): Promise<RemoteConnection[]> {
-    const r = await this.signedFetch<{ connections: RemoteConnection[] }>('GET', '/v1/owner/daemon/connections');
-    return r.connections;
+    const r = await this.signedFetch<{ connections: Array<RemoteConnection & { kind?: string }> }>(
+      'GET', '/v1/owner/daemon/connections', undefined, '?include=provision',
+    );
+    return r.connections.map((c) => ({ ...c, kind: c.kind === 'provision' ? 'provision' : 'sealed' }));
   }
 
   /**
@@ -173,7 +184,9 @@ export interface RemoteConnection {
   provider: string;
   label: string | null;
   env_var: string | null;
-  /** base64 sealed box → the vault owner key; opened locally, never logged. */
+  /** base64 sealed box → the vault owner key; opened locally, never logged. '' for kind 'provision'. */
   sealed_secret: string;
+  /** 'sealed' = open + store the ciphertext; 'provision' = mint the token here via the Provisioner. */
+  kind: 'sealed' | 'provision';
   created_at: string;
 }

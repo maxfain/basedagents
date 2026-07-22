@@ -1,0 +1,12 @@
+-- 0029: provision-kind pending connections — the console "Do it for me" button.
+--
+-- kind 'sealed'    (default) the existing browser-sealed paste: sealed_secret
+--                  holds ciphertext sealed to the owner's vault key.
+-- kind 'provision' the daemon mints the token itself via the Provisioner
+--                  (visible browser once per machine, API-only after).
+--                  sealed_secret is '' — no secret is ever in flight for
+--                  these rows, in either direction.
+--
+-- Old daemons never see provision rows: GET /daemon/connections only includes
+-- them when the daemon asks with ?include=provision (new daemons do).
+ALTER TABLE pending_connections ADD COLUMN kind TEXT NOT NULL DEFAULT 'sealed';

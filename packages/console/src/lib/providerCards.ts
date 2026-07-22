@@ -16,10 +16,11 @@ export interface ProviderCard {
   hint: string;
   /**
    * Provisioner path: a command the human runs on THEIR computer that mints a
-   * scoped token automatically (browser once, API afterwards). Shown above the
-   * assisted-paste steps when present.
+   * scoped token automatically (browser once, API afterwards). When `remote`
+   * is true the card also shows a "Do it for me" button that asks the machine
+   * where the agent lives (via its watch loop) to run that same path.
    */
-  automatic?: { command: string; blurb: string };
+  automatic?: { command: string; blurb: string; remote?: boolean };
 }
 
 export const PROVIDER_CARDS: ProviderCard[] = [
@@ -38,7 +39,11 @@ export const PROVIDER_CARDS: ProviderCard[] = [
     hint: 'Vercel tokens are long random strings (24+ characters).',
     automatic: {
       command: 'npx basedagents keyring connect vercel',
-      blurb: 'Automatic — run this on your computer; it opens a window once, then future tokens take seconds.',
+      blurb:
+        'Keyring can do this by itself on the computer where your agent lives: '
+        + 'the first time, a browser window opens there — you sign in if asked and watch it work. '
+        + 'After that, no window at all.',
+      remote: true,
     },
   },
   {
