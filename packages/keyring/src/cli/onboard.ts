@@ -30,7 +30,8 @@ import { runSweep } from '../sweep.js';
 import { parseFlags, loadKeypairChecked } from './shared.js';
 import { confirm } from './prompt.js';
 import { ControlClient, DEFAULT_KEYRING_API, proxyHint } from './control-client.js';
-import { processConnections } from './sync.js';
+import { processConnections, processPassportHandoffs, depositShelf } from './sync.js';
+import { PASSPORT_ENV, parsePassportBlob, materializeVault, writeAgentKeypairFile } from '../cloud/passport.js';
 
 const POLL_INTERVAL_MS = 3000;
 const POLL_TIMEOUT_MS = 30 * 60 * 1000; // matches the link code's 30m TTL
@@ -105,6 +106,14 @@ export async function cmdInit(args: string[], dir: string | undefined): Promise<
     switch: ['bare', 'no-link', 'no-browser', 'no-watch', 'yes'],
   });
   const api = flags.values['api'] ?? DEFAULT_KEYRING_API;
+  // Vault-less cloud mode (SANDBOX_SPEC §4b): a passport in the environment
+  // means this container is a CACHE, not a home — same agent every task,
+  // working set re-materialized from the control-plane shelf. No link, no
+  // claim, nothing durable created here.
+  if (process.env[PASSPORT_ENV]) {
+    await cloudInit(process.env[PASSPORT_ENV], api, dir, flags.switches.has('yes'));
+    return;
+  }
   // Telemetry only makes sense when init talks to the control plane anyway.
   const telemetryOk = !flags.switches.has('bare') && !flags.switches.has('no-link');
   const funnelId = randomBytes(8).toString('hex');
@@ -292,7 +301,9 @@ export async function cmdInit(args: string[], dir: string | undefined): Promise<
       const watchDeadline = Date.now() + CONNECT_WATCH_MS;
       while (!stopWatch && Date.now() < watchDeadline) {
         try {
-          await processConnections(kr, client);
+          const touched = await processConnections(kr, client);
+          await processPassportHandoffs(kr, client);
+          if (touched > 0) await depositShelf(kr, client);
         } catch {
           /* transient network — keep watching */
         }
@@ -315,4 +326,49 @@ export async function cmdInit(args: string[], dir: string | undefined): Promise<
     console.log('· The browser step was not finished. Run `based init` again for a fresh link —');
     console.log('  your vault and agent are saved and will be reused.');
   }
+}
+
+/**
+ * Vault-less cloud init: materialize the working set from the passport + the
+ * control-plane shelf. Everything written is a disposable per-task cache.
+ */
+async function cloudInit(blob: string, api: string, dir: string | undefined, yes: boolean): Promise<void> {
+  const passport = parsePassportBlob(blob);
+  const client = new ControlClient(passport.owner, api);
+  let shelf: { enabled: boolean; credentials: Array<{ credential_id: string; v: number; meta: string; sealed: string; grants: string }> } = { enabled: false, credentials: [] };
+  try {
+    shelf = await client.getShelf();
+  } catch (err) {
+    console.log(`· Could not reach ${api} (${(err as Error).message}) — starting with an empty cache; re-run when the network is back.`);
+  }
+  const kr = materializeVault(dir, passport, shelf.credentials);
+  const keypairPath = writeAgentKeypairFile(kr.store.dir, passport);
+
+  console.log(`✓ Same agent as always: ${passport.name} (${passport.agentId.slice(0, 14)}…)`);
+  console.log(`✓ ${shelf.credentials.length} item(s) ready to use.`);
+  console.log('  This container holds only a disposable copy — the durable keys live in your');
+  console.log(`  environment's ${PASSPORT_ENV} secret and as locked boxes at the control plane.`);
+
+  const mcpArgs = [
+    'mcp', 'add', 'basedagents-keyring',
+    '--env', `BASEDAGENTS_KEYPAIR_PATH=${keypairPath}`,
+    ...(dir ? ['--env', `BASEDAGENTS_KEYRING_DIR=${kr.store.dir}`] : []),
+    '--', 'npx', '-y', '@basedagents/keyring', 'mcp',
+  ];
+  const mcpCommand = `claude ${mcpArgs.map((a) => (a.includes(' ') ? JSON.stringify(a) : a)).join(' ')}`;
+  const wantMcp = yes || (await confirm('Add the keyring to this agent runtime (writes MCP config)?'));
+  if (wantMcp) {
+    try {
+      execFileSync('claude', mcpArgs, { stdio: 'ignore' });
+      console.log('✓ MCP configured');
+    } catch {
+      console.log('· Could not run `claude` here — add it yourself with:');
+      console.log(`    ${mcpCommand}`);
+    }
+  } else {
+    console.log('· Skipped. Add it later with:');
+    console.log(`    ${mcpCommand}`);
+  }
+  console.log('');
+  console.log('Already claimed by your human — nothing else to do. Ask for things with keyring_request.');
 }

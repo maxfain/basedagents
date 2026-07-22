@@ -162,6 +162,15 @@ export const control = {
     return request('GET', '/connections');
   },
 
+  // Cloud passport (SANDBOX_SPEC §4b): file a request carrying only a
+  // browser-held public key; poll for the sealed blob (one-shot read).
+  createPassport(browser_public_key: string): Promise<{ id: string; status: string }> {
+    return request('POST', '/passport', { browser_public_key });
+  },
+  getPassport(id: string): Promise<{ status: string; sealed_passport: string | null }> {
+    return request('GET', `/passport/${encodeURIComponent(id)}`);
+  },
+
   // ── Billing ("local is free, hosted is paid") ──
   getBilling(): Promise<BillingInfo> {
     return request('GET', '/billing');

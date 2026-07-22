@@ -8,6 +8,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — vault-less cloud agents: the passport (`@basedagents/keyring` 0.6.0 + control plane + console)
+
+The axiom, decided in the field: a vault inside an ephemeral container makes
+no sense. Sandboxed agents are now vault-less clients (SANDBOX_SPEC §4b):
+
+- **The passport**: identity + vault authority in one blob, held in the
+  environment's Secrets as BASEDAGENTS_PASSPORT. With it, `keyring init`
+  skips registration/claim entirely — same agent every task, working set
+  re-materialized from ciphertext; the container holds only a disposable
+  cache. Format versioned (v2 = passkey-PRF wrapping, later).
+- **The handoff**: the first task's init births the keys as today; after the
+  human claims, the /welcome page's "Make it permanent" seals the passport to
+  an EPHEMERAL BROWSER KEY over the daemon channel — never printed into the
+  transcript, never openable by the control plane, blanked server-side the
+  moment the browser consumes it (one-shot).
+- **The shelf** (migration 0030): the control plane retains sealed credential
+  ciphertext — deposited by daemons only once a passport exists (laptop-only
+  owners keep no-retention behavior), served only over proof-of-possession of
+  the owner key, snapshot semantics so revocation/removal propagates as
+  absence.
+- Zero identity-model changes: the owner id IS the vault key, so laptop and
+  cloud authenticate concurrently by possession of the same keypair.
+
+Tests: passport roundtrip, ciphertext-only shelf fidelity (machine A → shelf
+→ machine B, same secret to the same agent, no plaintext in any row),
+owner-mismatch refusal, re-materialize refresh; API handoff one-shot +
+shelf gating.
+
 ### Changed — the keyring version has exactly one source (`@basedagents/keyring`)
 
 The 0.5.15 release nearly shipped an MCP server that reported itself as

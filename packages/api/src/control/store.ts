@@ -1723,4 +1723,91 @@ export class ControlStore {
     if (res.changes !== 1) return null;
     return this.getGrantApproval(input.id);
   }
+
+  // ─── Cloud passport (SANDBOX_SPEC §4b): handoffs + the sealed-credential shelf ───
+
+  async createPassportHandoff(ownerId: string, browserPublicKey: string): Promise<string> {
+    const id = randomId('pph_');
+    await this.db.run(
+      `INSERT INTO passport_handoffs (id, owner_id, browser_public_key, status, created_at)
+       VALUES (?, ?, ?, 'pending', ?)`,
+      id, ownerId, browserPublicKey, nowIsoString(),
+    );
+    return id;
+  }
+
+  async listPendingPassportHandoffs(ownerId: string): Promise<Array<{ id: string; browser_public_key: string; created_at: string }>> {
+    const rows = await this.db.all<RawRow>(
+      `SELECT id, browser_public_key, created_at FROM passport_handoffs
+       WHERE owner_id = ? AND status = 'pending' ORDER BY created_at ASC`, ownerId);
+    return rows.map((r) => ({ id: asStr(r.id), browser_public_key: asStr(r.browser_public_key), created_at: asStr(r.created_at) }));
+  }
+
+  /** Daemon fulfilled the handoff with ciphertext sealed to the browser key. */
+  async fulfillPassportHandoff(id: string, ownerId: string, sealedPassport: string): Promise<boolean> {
+    const res = await this.db.run(
+      `UPDATE passport_handoffs SET sealed_passport = ?, status = 'fulfilled', fulfilled_at = ?
+       WHERE id = ? AND owner_id = ? AND status = 'pending'`,
+      sealedPassport, nowIsoString(), id, ownerId,
+    );
+    return res.changes === 1;
+  }
+
+  /**
+   * One-shot read: return the ciphertext exactly once, then BLANK it. The
+   * control plane never keeps a fulfilled passport around, even sealed.
+   */
+  async consumePassportHandoff(id: string, ownerId: string): Promise<{ status: string; sealed_passport: string | null }> {
+    const row = await this.db.get<RawRow>(
+      `SELECT status, sealed_passport FROM passport_handoffs WHERE id = ? AND owner_id = ?`, id, ownerId);
+    if (!row) return { status: 'not_found', sealed_passport: null };
+    const status = asStr(row.status);
+    if (status !== 'fulfilled') return { status, sealed_passport: null };
+    const sealed = asNullableStr(row.sealed_passport);
+    await this.db.run(
+      `UPDATE passport_handoffs SET sealed_passport = '', status = 'consumed' WHERE id = ? AND owner_id = ? AND status = 'fulfilled'`,
+      id, ownerId,
+    );
+    return { status: 'fulfilled', sealed_passport: sealed };
+  }
+
+  /** True once any handoff was ever fulfilled — the owner is cloud-enabled and daemons may deposit. */
+  async hasFulfilledPassport(ownerId: string): Promise<boolean> {
+    const row = await this.db.get<RawRow>(
+      `SELECT COUNT(*) AS n FROM passport_handoffs WHERE owner_id = ? AND status IN ('fulfilled','consumed')`, ownerId);
+    return Number(row?.n ?? 0) > 0;
+  }
+
+  /**
+   * Whole-snapshot shelf deposit: upsert everything given, delete everything
+   * absent — so local revocation/removal propagates to the shelf as absence.
+   */
+  async putShelfSnapshot(ownerId: string, rows: Array<{ credential_id: string; v: number; meta: string; sealed: string; grants: string }>): Promise<void> {
+    const keep = new Set(rows.map((r) => r.credential_id));
+    const existing = await this.db.all<RawRow>(
+      `SELECT credential_id FROM sealed_credentials WHERE owner_id = ?`, ownerId);
+    for (const r of existing) {
+      const id = asStr(r.credential_id);
+      if (!keep.has(id)) {
+        await this.db.run(`DELETE FROM sealed_credentials WHERE owner_id = ? AND credential_id = ?`, ownerId, id);
+      }
+    }
+    for (const r of rows) {
+      await this.db.run(
+        `INSERT INTO sealed_credentials (owner_id, credential_id, v, meta, sealed, grants, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(owner_id, credential_id) DO UPDATE SET v=excluded.v, meta=excluded.meta, sealed=excluded.sealed, grants=excluded.grants, updated_at=excluded.updated_at`,
+        ownerId, r.credential_id, r.v, r.meta, r.sealed, r.grants, nowIsoString(),
+      );
+    }
+  }
+
+  async listShelf(ownerId: string): Promise<Array<{ credential_id: string; v: number; meta: string; sealed: string; grants: string; updated_at: string }>> {
+    const rows = await this.db.all<RawRow>(
+      `SELECT credential_id, v, meta, sealed, grants, updated_at FROM sealed_credentials WHERE owner_id = ? ORDER BY credential_id ASC`, ownerId);
+    return rows.map((r) => ({
+      credential_id: asStr(r.credential_id), v: Number(r.v), meta: asStr(r.meta),
+      sealed: asStr(r.sealed), grants: asStr(r.grants), updated_at: asStr(r.updated_at),
+    }));
+  }
 }

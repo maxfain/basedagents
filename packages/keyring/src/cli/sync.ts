@@ -9,8 +9,12 @@
  *                result back so the console shows `active` only on confirmation.
  */
 
+import * as fs from 'node:fs';
 import { Keyring, KeyringError } from '../keyring.js';
-import { openSealedBox } from '../crypto.js';
+import { openSealedBox, sealToPublicKey } from '../crypto.js';
+import { base58Decode } from '../util.js';
+import { loadKeypairFile } from '../store.js';
+import { buildPassportBlob, buildShelfSnapshot } from '../cloud/passport.js';
 import { parseFlags, CliError, shortAgentId } from './shared.js';
 import { confirm } from './prompt.js';
 import { ControlClient, DEFAULT_KEYRING_API } from './control-client.js';
@@ -248,6 +252,54 @@ export async function processConnections(
   return connections.length;
 }
 
+/**
+ * Serve pending passport requests (SANDBOX_SPEC §4b): seal {owner keypair,
+ * agent keypair, name} to the browser's ephemeral key and post the ciphertext.
+ * Values are never printed — the human finishes in the browser.
+ */
+export async function processPassportHandoffs(keyring: Keyring, client: ControlClient): Promise<number> {
+  let handoffs: Array<{ id: string; browser_public_key: string }>;
+  try {
+    handoffs = await client.getPassportHandoffs();
+  } catch {
+    return 0; // transient — next round retries
+  }
+  if (handoffs.length === 0) return 0;
+  const vault = keyring.vault();
+  const withKeys = Object.values(vault.identities).filter(
+    (i) => i.keypair_path && fs.existsSync(i.keypair_path),
+  );
+  if (withKeys.length !== 1) {
+    console.log(`· ${handoffs.length} passport request(s) waiting, but ${withKeys.length} local agent key(s) here — run this where exactly one agent lives.`);
+    return 0;
+  }
+  const identity = withKeys[0];
+  const agentKp = loadKeypairFile(identity.keypair_path as string);
+  const blob = buildPassportBlob(keyring.ownerKeypair(), agentKp, identity.name ?? identity.agent_id);
+  let sent = 0;
+  for (const h of handoffs) {
+    try {
+      const sealed = sealToPublicKey(base58Decode(h.browser_public_key), new TextEncoder().encode(blob));
+      await client.fulfillPassportHandoff(h.id, sealed);
+      sent++;
+      console.log('✓ Sent a sealed passport to your browser — finish there. (Nothing was shown here.)');
+    } catch (err) {
+      console.log(`· passport request: ${(err as Error).message} (will retry)`);
+    }
+  }
+  return sent;
+}
+
+/** Refresh the control-plane shelf (ciphertext only; server refuses until a passport exists). */
+export async function depositShelf(keyring: Keyring, client: ControlClient): Promise<void> {
+  try {
+    const res = await client.putShelfSnapshot(buildShelfSnapshot(keyring.vault()));
+    if (res.enabled) console.log('· Cloud copy refreshed (locked boxes only — nothing readable).');
+  } catch {
+    /* transient — refreshed on the next round that changes something */
+  }
+}
+
 export async function cmdSync(args: string[], dir: string | undefined): Promise<void> {
   const flags = parseFlags(args, { value: ['api', 'watch'] });
   const keyring = Keyring.open(dir);
@@ -260,9 +312,12 @@ export async function cmdSync(args: string[], dir: string | undefined): Promise<
   }
 
   const runOnce = async (quiet: boolean): Promise<void> => {
-    if ((await processConnections(keyring, client)) > 0 && !quiet) console.log('');
+    const touched = await processConnections(keyring, client);
+    if (touched > 0 && !quiet) console.log('');
+    await processPassportHandoffs(keyring, client);
     const approvals = await client.getApprovals();
     if (approvals.length === 0) {
+      if (touched > 0) await depositShelf(keyring, client);
       if (!quiet) console.log('No pending approvals.');
       return;
     }
@@ -291,6 +346,7 @@ export async function cmdSync(args: string[], dir: string | undefined): Promise<
         }
       }
     }
+    if (touched > 0 || applied > 0) await depositShelf(keyring, client);
     console.log(`Applied ${applied}, rejected ${rejected}.`);
   };
 

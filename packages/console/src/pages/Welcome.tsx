@@ -23,7 +23,9 @@ import { useOwner } from '../state/session.js';
 import { sealForOwner } from '../lib/seal.js';
 import { funnelPing } from '../lib/funnel.js';
 import { askPhrase } from '../lib/outcomes.js';
-import { AgentSetupPrompt } from '../components/AgentSetup.js';
+import { AgentSetupPrompt, CopyBlock } from '../components/AgentSetup.js';
+import { generateKeypair, openSealedBox } from '@basedagents/keyring/crypto';
+import { base58Encode } from '@basedagents/keyring/util';
 import { PROVIDER_CARDS } from '../lib/providerCards.js';
 import type { ProviderCard } from '../lib/providerCards.js';
 import type { ConnectionInfo, KeyringRequest } from '../api/types.js';
@@ -329,6 +331,46 @@ export default function Welcome() {
     }
   }
 
+  // Cloud passport: sealed to THIS browser's ephemeral key; the value shown
+  // for pasting into the workspace's Secrets never touches the server open.
+  type PassportPhase =
+    | { k: 'idle' }
+    | { k: 'working'; id: string; priv: Uint8Array; slow?: boolean }
+    | { k: 'ready'; blob: string }
+    | { k: 'failed'; reason: string };
+  const [pp, setPp] = useState<PassportPhase>({ k: 'idle' });
+
+  async function startPassport(): Promise<void> {
+    try {
+      const kp = await generateKeypair();
+      const { id } = await control.createPassport(base58Encode(kp.publicKey));
+      setPp({ k: 'working', id, priv: kp.privateKey });
+      setTimeout(() => {
+        setPp((prev) => (prev.k === 'working' && prev.id === id ? { ...prev, slow: true } : prev));
+      }, 30_000);
+    } catch (err) {
+      setPp({ k: 'failed', reason: errText(err) });
+    }
+  }
+
+  useEffect(() => {
+    if (pp.k !== 'working') return;
+    const t = setInterval(() => {
+      void control
+        .getPassport(pp.id)
+        .then((r) => {
+          if (r.status === 'fulfilled' && r.sealed_passport) {
+            const blob = new TextDecoder().decode(openSealedBox(pp.priv, r.sealed_passport));
+            setPp({ k: 'ready', blob });
+          } else if (r.status === 'consumed') {
+            setPp({ k: 'failed', reason: 'That one was already used somewhere — start again.' });
+          }
+        })
+        .catch(() => undefined);
+    }, POLL_MS);
+    return () => clearInterval(t);
+  }, [pp]);
+
   const connectedCount = Object.values(phases).filter((p) => p.kind === 'connected').length;
 
   if (!owner) return null; // Protected route guarantees a session.
@@ -458,6 +500,53 @@ export default function Welcome() {
           </li>
         </ol>
       )}
+
+      <div className="panel welcome-cloud">
+        <h2>Working in a cloud workspace (Codex)?</h2>
+        {pp.k === 'ready' ? (
+          <>
+            <p className="panel-note">One paste makes {agentName} permanent:</p>
+            <ol className="connect-steps">
+              <li>Open your workspace settings and find <strong>Secrets</strong>.</li>
+              <li>Add one named <code>BASEDAGENTS_PASSPORT</code> with this value.</li>
+              <li>Done — every new task wakes up as the same agent, ready to go.</li>
+            </ol>
+            <CopyBlock text={pp.blob} />
+            <p className="field-hint">
+              Treat this like the key it is: whoever holds it can act as {agentName}. It was
+              sealed to this browser — basedagents.ai only ever relayed a locked box it cannot
+              open.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="panel-note">
+              Cloud workspaces forget everything between tasks. One paste fixes that: Keyring
+              seals {agentName}&rsquo;s keys to this browser — never to basedagents.ai — and you
+              put the result in your workspace&rsquo;s settings.
+            </p>
+            {pp.k === 'working' && (
+              <p className="field-hint">
+                Waiting for the workspace task that set {agentName} up — keep that task running;
+                this fills in by itself.
+                {pp.slow && (
+                  <>
+                    <br />
+                    Still waiting? If that task already ended, start a new one, paste the setup
+                    prompt, and come back here.
+                  </>
+                )}
+              </p>
+            )}
+            {pp.k === 'failed' && <div className="banner banner-error">{pp.reason}</div>}
+            {(pp.k === 'idle' || pp.k === 'failed') && (
+              <button className="btn btn-primary" onClick={() => void startPassport()}>
+                Make {agentName} permanent
+              </button>
+            )}
+          </>
+        )}
+      </div>
 
       <div className="panel welcome-done">
         <h2>{allDone ? 'You’re set' : 'Good to know'}</h2>

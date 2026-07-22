@@ -193,6 +193,24 @@ const ResolveConnectionSchema = z
   })
   .refine((v) => !!v.daemon_credential_id || !!v.error, { message: 'daemon_credential_id or error required' });
 
+const PassportRequestSchema = z.object({
+  /** base58 Ed25519 pubkey generated in the human's browser, held only there. */
+  browser_public_key: z.string().min(32).max(64),
+});
+const PassportFulfillSchema = z.object({
+  /** base64 sealed box → the browser key. The plane can never open it. */
+  sealed_passport: z.string().min(1).max(50_000),
+});
+const ShelfSnapshotSchema = z.object({
+  snapshot: z.array(z.object({
+    credential_id: z.string().min(1).max(80),
+    v: z.number().int().min(1).max(10),
+    meta: z.string().max(20_000),
+    sealed: z.string().max(200_000),
+    grants: z.string().max(100_000),
+  })).max(500),
+});
+
 // ─── the sub-app ───
 
 const app = new Hono<AppEnv>();
@@ -747,6 +765,69 @@ app.post('/daemon/connections/:id/resolve', daemonAuth, async (c) => {
   });
   if (!ok) return err(c, 404, 'not_found', 'connection not found or already resolved');
   return c.json({ ok: true });
+});
+
+// ─── Cloud passport (SANDBOX_SPEC §4b) ───
+
+// Console: ask the machine that holds the vault authority to seal a passport
+// to a browser-held ephemeral key. Carries only a public key.
+app.post('/passport', ownerSession, async (c) => {
+  let body: unknown;
+  try { body = await parseJson(c); } catch { return err(c, 400, 'bad_request', 'invalid JSON body'); }
+  const parsed = PassportRequestSchema.safeParse(body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
+  const id = await getStore(c).createPassportHandoff(getOwnerId(c), parsed.data.browser_public_key);
+  return c.json({ id, status: 'pending' });
+});
+
+// Console poll: one-shot — the ciphertext is returned exactly once, then blanked.
+app.get('/passport/:id', ownerSession, async (c) => {
+  const out = await getStore(c).consumePassportHandoff(c.req.param('id'), getOwnerId(c));
+  if (out.status === 'not_found') return err(c, 404, 'not_found', 'no such request');
+  return c.json({ status: out.status, sealed_passport: out.sealed_passport });
+});
+
+// Daemon: pending passport requests (public keys only).
+app.get('/daemon/passport', daemonAuth, async (c) => {
+  const handoffs = await getStore(c).listPendingPassportHandoffs(getOwnerId(c));
+  return c.json({ handoffs });
+});
+
+app.post('/daemon/passport/:id/fulfill', daemonAuth, async (c) => {
+  let body: unknown;
+  try { body = await parseJson(c); } catch { return err(c, 400, 'bad_request', 'invalid JSON body'); }
+  const parsed = PassportFulfillSchema.safeParse(body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
+  const ok = await getStore(c).fulfillPassportHandoff(c.req.param('id'), getOwnerId(c), parsed.data.sealed_passport);
+  if (!ok) return err(c, 404, 'not_found', 'request not found or already fulfilled');
+  return c.json({ ok: true });
+});
+
+// ─── The shelf: control-plane copy of vault ciphertext for cloud re-materialization ───
+
+// Deposits are gated on a fulfilled passport — laptop-only owners keep
+// today's no-retention behavior. Snapshot semantics: absence deletes, so
+// local revocation/removal propagates.
+app.put('/daemon/shelf', daemonAuth, async (c) => {
+  const store = getStore(c);
+  const ownerId = getOwnerId(c);
+  if (!(await store.hasFulfilledPassport(ownerId))) {
+    return c.json({ ok: false, enabled: false });
+  }
+  let body: unknown;
+  try { body = await parseJson(c); } catch { return err(c, 400, 'bad_request', 'invalid JSON body'); }
+  const parsed = ShelfSnapshotSchema.safeParse(body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
+  await store.putShelfSnapshot(ownerId, parsed.data.snapshot);
+  return c.json({ ok: true, enabled: true });
+});
+
+app.get('/daemon/shelf', daemonAuth, async (c) => {
+  const store = getStore(c);
+  const ownerId = getOwnerId(c);
+  const enabled = await store.hasFulfilledPassport(ownerId);
+  const credentials = enabled ? await store.listShelf(ownerId) : [];
+  return c.json({ enabled, credentials });
 });
 
 export default app;

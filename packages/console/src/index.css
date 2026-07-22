@@ -188,6 +188,8 @@ a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 .connect-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
 .connect-warn { color: var(--warn); }
 
+.welcome-cloud { margin-top: 1.5rem; }
+.welcome-cloud .btn { margin-top: 0.5rem; }
 .welcome-done { margin-top: 2.5rem; }
 .welcome-done .btn { margin-top: 0.75rem; }
 
