@@ -111,6 +111,17 @@ function daemonEngineHooks(): EngineHooks {
 /** Runs the Provisioner for one agent; injected so tests never need a browser. */
 export type ProvisionRunner = (keyring: Keyring, agentId: string, provider: string) => Promise<{ credentialId: string }>;
 
+/** Rotates one minted credential in place; injected so tests never need a provider. */
+export type RotateRunner = (keyring: Keyring, credentialId: string) => Promise<void>;
+
+const defaultRotateRunner: RotateRunner = async (keyring, credentialId) => {
+  const { rotateProviderCredential } = await import('../provisioner/rotate.js');
+  await rotateProviderCredential(
+    { kr: keyring, owner: keyring.ownerKeypair(), info: (m) => console.log(`  ${m}`) },
+    credentialId,
+  );
+};
+
 /** Providers the daemon can provision on this machine (the console's "Do it for me"). */
 export const PROVISIONABLE = ['vercel', 'supabase'];
 
@@ -169,6 +180,7 @@ export async function processConnections(
   keyring: Keyring,
   client: ControlClient,
   provision: ProvisionRunner = defaultProvisionRunner,
+  rotate: RotateRunner = defaultRotateRunner,
 ): Promise<number> {
   const owner = keyring.ownerKeypair();
 
@@ -198,6 +210,26 @@ export async function processConnections(
     // Console-initiated automatic setup: mint the token HERE via the
     // Provisioner (visible browser once per machine, API-only after) instead
     // of opening a sealed paste. Same exactly-once dance as the sealed path.
+    // Console-initiated rotation: replace one minted key in place. Exactly-once
+    // rides the same claim; a failed rotate resolves with the plain-words
+    // reason (which for pasted/legacy keys names the manual path).
+    if (conn.kind === 'rotate') {
+      try {
+        if (!conn.daemon_credential_id) throw new Error('rotate row carries no credential id');
+        console.log(`▶ ${display}: rotating the key for ${shortAgentId(conn.agent_id)}…`);
+        await rotate(keyring, conn.daemon_credential_id);
+        await client.resolveConnection(conn.id, { daemonCredentialId: conn.daemon_credential_id });
+        console.log(`✓ ${display}: key rotated — the old one is gone at the provider.`);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        console.log(`✗ ${display}: ${reason}`);
+        try {
+          await client.resolveConnection(conn.id, { error: reason });
+        } catch { /* reported next round */ }
+      }
+      continue;
+    }
+
     if (conn.kind === 'provision') {
       try {
         if (!PROVISIONABLE.includes(conn.provider)) {

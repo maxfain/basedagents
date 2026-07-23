@@ -83,6 +83,30 @@ describe('based sync — provision-kind connections (console Connect button)', (
     expect((calls.resolves[0].result as { error: string }).error).toContain('not available yet');
   });
 
+  it('rotate rows run the rotate runner against the row credential and resolve with it', async () => {
+    const kr = await vault();
+    const { client, calls } = fakeClient([
+      provisionRow('pcx_rot', { kind: 'rotate', provider: 'vercel', label: 'Vercel', daemon_credential_id: 'cred_v1' }),
+    ]);
+    const rotated: string[] = [];
+    await processConnections(kr, client, async () => ({ credentialId: 'never' }), async (_kr, credentialId) => {
+      rotated.push(credentialId);
+    });
+    expect(rotated).toEqual(['cred_v1']);
+    expect(calls.resolves[0].result).toEqual({ daemonCredentialId: 'cred_v1' });
+  });
+
+  it('a failed rotation resolves with the plain-words reason', async () => {
+    const kr = await vault();
+    const { client, calls } = fakeClient([
+      provisionRow('pcx_rotfail', { kind: 'rotate', provider: 'supabase', label: 'Supabase', daemon_credential_id: 'cred_s1' }),
+    ]);
+    await processConnections(kr, client, async () => ({ credentialId: 'never' }), async () => {
+      throw new Error('rotate it in the Supabase dashboard');
+    });
+    expect((calls.resolves[0].result as { error: string }).error).toContain('Supabase dashboard');
+  });
+
   it('dispatches the provision run with the row provider (supabase included)', async () => {
     const kr = await vault();
     const { client, calls } = fakeClient([provisionRow('pcx_sb', { provider: 'supabase', label: 'Supabase' })]);

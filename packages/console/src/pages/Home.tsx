@@ -64,6 +64,17 @@ export default function Home() {
     void load();
   }, [load]);
 
+  // While a rotation is in flight on the user's machine, watch for the flip
+  // to done/failed — the whole operation is usually a few seconds of API calls.
+  useEffect(() => {
+    const inFlight = connections.some(
+      (c) => c.kind === 'rotate' && (c.status === 'pending' || c.status === 'processing'),
+    );
+    if (!inFlight) return;
+    const timer = setInterval(() => void load(), 4000);
+    return () => clearInterval(timer);
+  }, [connections, load]);
+
   if (!owner) return null; // Protected route guarantees a session.
   const agents = owner.delegations.filter((d) => d.status === 'active');
 
@@ -89,6 +100,33 @@ export default function Home() {
     setError(null);
     try {
       await control.deny(req.id);
+      await load();
+    } catch (err) {
+      setError(errText(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onRotate(
+    d: Delegation,
+    h: { label: string; provider: string; localId: string | null },
+  ): Promise<void> {
+    if (!h.localId) return;
+    const name = agentDisplayName(d);
+    if (!window.confirm(
+      `Rotate the ${h.label} key? Your machine mints a fresh key and destroys the old one at ${h.provider}. ${name} switches to the new key automatically.`,
+    )) return;
+    setBusy(`rotate-${h.localId}`);
+    setError(null);
+    try {
+      await control.createConnection({
+        agent_id: d.agent_id,
+        provider: h.provider,
+        label: h.label,
+        kind: 'rotate',
+        rotate_credential_id: h.localId,
+      });
       await load();
     } catch (err) {
       setError(errText(err));
@@ -154,14 +192,35 @@ export default function Home() {
         <ul className="cards">
           {agents.map((d) => {
             const asking = requests.filter((r) => r.agent_id === d.agent_id && r.status === 'pending');
-            const canUse = [
+            // Everything this agent can use, with enough metadata to offer
+            // per-key rotation: stored rows carry the machine-local id they
+            // created; approved asks carry theirs. Rotate rows are operations
+            // on an existing key, never holdings themselves.
+            const holdings = [
               ...connections
-                .filter((c) => c.agent_id === d.agent_id && c.status === 'stored')
-                .map((c) => c.label ?? c.provider),
+                .filter((c) => c.agent_id === d.agent_id && c.status === 'stored' && c.kind !== 'rotate')
+                .map((c) => ({
+                  key: `conn-${c.id}`,
+                  label: c.label ?? c.provider,
+                  provider: c.provider,
+                  localId: c.daemon_credential_id ?? null,
+                })),
               ...requests
                 .filter((r) => r.agent_id === d.agent_id && r.status === 'approved')
-                .map((r) => r.credential_label ?? r.credential_id),
+                .map((r) => ({
+                  key: `req-${r.id}`,
+                  label: r.credential_label ?? r.credential_id,
+                  provider: r.provider ?? '',
+                  localId: r.credential_id ?? null,
+                })),
             ];
+            const rotations = connections.filter((c) => c.agent_id === d.agent_id && c.kind === 'rotate');
+            const rotationFor = (localId: string | null) =>
+              localId === null
+                ? undefined
+                : rotations
+                    .filter((c) => c.daemon_credential_id === localId)
+                    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
             const activity = requests
               .filter((r) => r.agent_id === d.agent_id && r.status !== 'pending')
               .slice(0, 5);
@@ -205,12 +264,31 @@ export default function Home() {
                   })}
 
                   <div className="chips">
-                    {canUse.length === 0 ? (
+                    {holdings.length === 0 ? (
                       <span className="chip chip-empty">Can&rsquo;t use anything yet</span>
                     ) : (
-                      canUse.map((label, i) => (
-                        <span key={`${label}-${i}`} className="chip">Can use: {label}</span>
-                      ))
+                      holdings.map((h) => {
+                        const rot = rotationFor(h.localId);
+                        const rotating = rot !== undefined && (rot.status === 'pending' || rot.status === 'processing');
+                        const rotatable = h.localId !== null && (h.provider === 'vercel' || h.provider === 'supabase');
+                        return (
+                          <span key={h.key} className="chip">
+                            Can use: {h.label}
+                            {rotatable && (
+                              <button
+                                className="chip-action"
+                                disabled={busy !== null || rotating}
+                                title={rot?.status === 'failed'
+                                  ? (rot.failure_reason ?? 'The last rotation failed.')
+                                  : 'Mint a fresh key and destroy the old one'}
+                                onClick={() => void onRotate(d, h)}
+                              >
+                                {rotating ? 'Rotating…' : rot?.status === 'failed' ? 'Rotate ⚠' : 'Rotate'}
+                              </button>
+                            )}
+                          </span>
+                        );
+                      })
                     )}
                   </div>
 

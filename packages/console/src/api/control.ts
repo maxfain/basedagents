@@ -151,10 +151,12 @@ export const control = {
   },
   createConnection(input: {
     agent_id: string; provider: string; label?: string; env_var?: string;
-    /** Required for kind 'sealed' (the default); absent for kind 'provision'. */
+    /** Required for kind 'sealed' (the default); absent for kinds 'provision'/'rotate'. */
     sealed_secret?: string;
-    /** 'provision' asks the machine where the agent lives to mint the token itself. */
-    kind?: 'sealed' | 'provision';
+    /** 'provision' asks the machine where the agent lives to mint the token itself;
+     *  'rotate' asks it to replace one minted key in place (rotate_credential_id). */
+    kind?: 'sealed' | 'provision' | 'rotate';
+    rotate_credential_id?: string;
   }): Promise<{ id: string; status: string }> {
     return request('POST', '/connections', input);
   },

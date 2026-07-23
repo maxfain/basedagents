@@ -114,6 +114,7 @@ The agent keypair comes from `BASEDAGENTS_KEYPAIR_PATH` (JSON: `{ "public_key_b5
 |---|---|
 | `based init` | The one-command onboarding: vault + agent identity + MCP config + browser link (see Quick start); `--bare` for vault-only |
 | `based connect <provider>` | Mint a scoped provider key for an agent — browser once to set up provisioning, API-only after (vercel, supabase; `--project <ref>` picks the Supabase project) |
+| `based rotate <cred>` | Mint a fresh provider key, swap it into the vault (re-sealed to every active grantee), burn the old one by id — API-only, minted keys only |
 | `based add <label>` | Add a credential — hidden prompt, stdin, or `--value` |
 | `based update-secret <cred>` | Replace a secret (e.g. after manual rotation); re-seals to owner + active grantees |
 | `based rm <cred>` | Remove a credential and all its grants |

@@ -8,6 +8,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — rotate any minted key from the console, one button per key (`@basedagents/keyring` 0.6.3 + control plane + console)
+
+Rotation completes the provisioner verb set (mint / verify / rotate / burn)
+and gets a button next to each key on the Home agent cards, same pattern as
+the kill switch:
+
+- **Core (`provisioner/rotate.ts`).** Mint a fresh provider key → swap it
+  into the vault (`updateCredentialSecret` re-seals to the owner AND every
+  active grantee, so agents pick up the new value on their next lease — no
+  redistribution) → burn the old key by id. The order is deliberate: a
+  failure after mint leaves TWO working keys (visible, self-healing on
+  retry); burning first could leave zero. API-only, no browser ever — a
+  missing/rejected provisioning token points at `based connect <provider>`.
+  Vercel replacements are verified before the swap; pasted tokens and legacy
+  Supabase service_role keys get a plain-words refusal naming the manual
+  path (`update-secret` + the provider dashboard). New CLI: `based rotate
+  <cred>`.
+- **Console → daemon (like "Do it for me").** `pending_connections` gains
+  kind `'rotate'`, born WITH its target (`daemon_credential_id` set at
+  insert, not resolve). Old daemons never see rotate rows — the daemon pull
+  is now gated per-kind by name (`?include=provision,rotate`); a failed
+  resolve keeps the target on the row (COALESCE) so the console pins the
+  failure to the right key. The store also stops collapsing unknown kinds to
+  'sealed' (a secretless row must never reach a daemon's sealed path).
+- **UI (Home cards).** Each "Can use" chip with a machine-local id and a
+  rotatable provider (vercel, supabase) gets a Rotate button: confirm →
+  the machine mints/swaps/burns → the chip shows "Rotating…" (4s poll while
+  in flight) and "Rotate ⚠" with the reason on failure. `GET /connections`
+  now exposes `daemon_credential_id` (opaque metadata, never a secret).
+- **Gate bug caught by the new tests**: the control-plane provision gate
+  still said `['vercel']`, so the Supabase "Do it for me" shipped in 0.6.2
+  would have been 400'd server-side — the gate now tracks the daemon's list
+  and the test asserts supabase provisions.
+
+Covered by 4 rotation tests (vercel + supabase happy paths with re-seal
+verified via lease, pasted/legacy refusals naming the manual path, missing
+provisioner), 2 sync dispatch tests, and a full-ladder rotate-row test
+(born-with-target, per-kind daemon gating, target surviving failed resolve).
+
 ### Added — the Supabase provisioner: per-project keys, burnable by id (`@basedagents/keyring` 0.6.2 + console)
 
 Supabase joins Vercel as a first-class `connect` provider — same

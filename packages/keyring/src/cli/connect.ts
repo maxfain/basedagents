@@ -41,6 +41,30 @@ function cliHooks(): EngineHooks {
   };
 }
 
+/**
+ * based rotate <cred> — mint a fresh provider key, swap it into the vault
+ * (re-sealed to every active grantee), burn the old one by id. API-only; the
+ * refusals for pasted/legacy keys name the manual path.
+ */
+export async function cmdRotate(args: string[], dir: string | undefined): Promise<void> {
+  const flags = parseFlags(args, {});
+  const ref = flags.positional[0];
+  if (!ref) throw new CliError('Usage: based rotate <credential>');
+
+  const kr = Keyring.open(dir);
+  const { rotateProviderCredential } = await import('../provisioner/rotate.js');
+  const result = await rotateProviderCredential(
+    { kr, owner: kr.ownerKeypair(), info: (m) => console.log(`  ${m}`) },
+    ref,
+  );
+  console.log('');
+  console.log('✓ Rotated.');
+  console.log(`  Credential  ${result.credentialId}`);
+  console.log(`  Provider    ${result.provider} (old key ${result.oldProviderKeyId} → ${result.newProviderKeyId})`);
+  if (result.expiresAt) console.log(`  New expiry  ${result.expiresAt}`);
+  console.log('  Agents pick up the new value on their next lease — nothing to redistribute.');
+}
+
 export async function cmdConnect(args: string[], dir: string | undefined): Promise<void> {
   const flags = parseFlags(args, { value: ['agent', 'days', 'project'] });
   const provider = flags.positional[0];

@@ -144,9 +144,12 @@ export class ControlClient {
    */
   async getConnections(): Promise<RemoteConnection[]> {
     const r = await this.signedFetch<{ connections: Array<RemoteConnection & { kind?: string }> }>(
-      'GET', '/v1/owner/daemon/connections', undefined, '?include=provision',
+      'GET', '/v1/owner/daemon/connections', undefined, '?include=provision,rotate',
     );
-    return r.connections.map((c) => ({ ...c, kind: c.kind === 'provision' ? 'provision' : 'sealed' }));
+    return r.connections.map((c) => ({
+      ...c,
+      kind: c.kind === 'provision' || c.kind === 'rotate' ? c.kind : 'sealed',
+    }));
   }
 
   /**
@@ -210,9 +213,11 @@ export interface RemoteConnection {
   provider: string;
   label: string | null;
   env_var: string | null;
-  /** base64 sealed box → the vault owner key; opened locally, never logged. '' for kind 'provision'. */
+  /** base64 sealed box → the vault owner key; opened locally, never logged. '' for kinds 'provision'/'rotate'. */
   sealed_secret: string;
-  /** 'sealed' = open + store the ciphertext; 'provision' = mint the token here via the Provisioner. */
-  kind: 'sealed' | 'provision';
+  /** 'sealed' = open + store the ciphertext; 'provision' = mint the token here; 'rotate' = replace a minted key in place. */
+  kind: 'sealed' | 'provision' | 'rotate';
+  /** kind 'rotate': the local credential id to rotate (set when the row was created). */
+  daemon_credential_id?: string | null;
   created_at: string;
 }
