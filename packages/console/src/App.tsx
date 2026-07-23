@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { OwnerProvider, useOwner } from './state/session.js';
+import { useStaleTabGuard } from './lib/version.js';
 import Layout from './components/Layout.js';
 import Login from './pages/Login.js';
 import Start from './pages/Start.js';
@@ -22,9 +23,24 @@ function Protected() {
   return <Layout />;
 }
 
+/** Fixed banner shown when this tab's bundle is older than the deploy. */
+function StaleTabBanner() {
+  const stale = useStaleTabGuard();
+  if (!stale) return null;
+  return (
+    <div className="stale-banner" role="status">
+      <span>This page has been updated since this tab loaded.</span>
+      <button className="btn btn-primary btn-sm" onClick={() => window.location.reload()}>
+        Refresh
+      </button>
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <OwnerProvider>
+      <StaleTabBanner />
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />

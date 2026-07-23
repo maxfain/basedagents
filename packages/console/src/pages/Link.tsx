@@ -50,8 +50,10 @@ export default function LinkPage() {
   const agentName = link !== 'missing' ? (link.agent_name ?? 'your agent') : 'your agent';
   const dead = link === 'missing' || link.status === 'expired';
   const alreadyClaimed = link !== 'missing' && link.status === 'claimed';
-  // Masked address carried over from the /start page (never the full email).
+  // Masked address (never the full email): from the /start page, or — for a
+  // re-claim — the account this agent already belongs to.
   const emailHint = link !== 'missing' ? (link.email_hint ?? null) : null;
+  const reClaim = link !== 'missing' && link.re_claim === true;
   const prefilled = emailHint !== null && !otherEmail;
 
   async function onSubmit(e: React.FormEvent): Promise<void> {
@@ -100,11 +102,23 @@ export default function LinkPage() {
           </>
         ) : prefilled ? (
           <>
-            <h1 className="auth-title">Take control of this agent</h1>
+            <h1 className="auth-title">
+              {reClaim ? 'Welcome back — reconnect this agent' : 'Take control of this agent'}
+            </h1>
             <p className="auth-lede">
-              <strong>{agentName}</strong> is set up on your machine and waiting for you. We
-              already have your email from the page where you started — we&rsquo;ll send the link
-              that puts you in charge to <strong>{emailHint}</strong>.
+              {reClaim ? (
+                <>
+                  <strong>{agentName}</strong> already belongs to your account, so the
+                  confirmation goes to the email it was first set up with —{' '}
+                  <strong>{emailHint}</strong>. Only that address can finish this step.
+                </>
+              ) : (
+                <>
+                  <strong>{agentName}</strong> is set up on your machine and waiting for you. We
+                  already have your email from the page where you started — we&rsquo;ll send the
+                  link that puts you in charge to <strong>{emailHint}</strong>.
+                </>
+              )}
             </p>
             <form onSubmit={onSubmit} className="form">
               <button className="btn btn-primary" type="submit" disabled={busy} autoFocus>
@@ -112,12 +126,14 @@ export default function LinkPage() {
               </button>
             </form>
             {error && <div className="banner banner-error">{error}</div>}
-            <p className="field-hint" style={{ marginTop: '1rem' }}>
-              Not you?{' '}
-              <button type="button" className="link" onClick={() => setOtherEmail(true)}>
-                Use a different email
-              </button>
-            </p>
+            {!reClaim && (
+              <p className="field-hint" style={{ marginTop: '1rem' }}>
+                Not you?{' '}
+                <button type="button" className="link" onClick={() => setOtherEmail(true)}>
+                  Use a different email
+                </button>
+              </p>
+            )}
             <p className="field-hint">
               Nothing happens without the link — and everything sensitive stays on your machine.
             </p>
