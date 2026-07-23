@@ -359,15 +359,34 @@ describe('the claim: one email field ratifies owner + delegation + binding', () 
     })).status).toBe(401);
   });
 
-  it('an existing account can only be re-claimed by its own verified email', async () => {
+  it('an existing account can only be re-claimed by its own verified email — at BOTH layers', async () => {
     const first = await claimFlow('owner-a@example.com');
     // Same vault, a fresh agent, but the claim email is a DIFFERENT person.
     const other = await newInitIdentity();
-    const { code } = (await (await post('/v1/owner/link', await linkBody(
+    const link = (await (await post('/v1/owner/link', await linkBody(
       { vaultPriv: first.vaultPriv, vaultB58: first.vaultB58, agentId: other.agentId, agentB58: other.agentB58 },
     ))).json()) as { code: string };
-    await post(`/v1/owner/link/${code}/claim`, { email: 'attacker@evil.com' });
-    const res = await post('/v1/owner/claim/finish', { token: lastMagicToken() });
+
+    // Layer 1 (fail-fast): the mismatch is rejected at claim SUBMISSION,
+    // before any email goes out.
+    sentEmails = [];
+    const submit = await post(`/v1/owner/link/${link.code}/claim`, { email: 'attacker@evil.com' });
+    expect(submit.status).toBe(409);
+    expect(sentEmails).toHaveLength(0);
+
+    // Layer 2 (belt-and-suspenders): even a magic-link token that somehow
+    // exists for the wrong email is refused at finish — forge one directly
+    // in the store, bypassing the submission guard.
+    const linkRow = await store.getLinkCode(link.code);
+    const forged = base64urlEncode((() => { const b = new Uint8Array(32); globalThis.crypto.getRandomValues(b); return b; })());
+    await store.createMagicLinkToken({
+      tokenHash: bytesToHex(sha256(te.encode(forged))),
+      purpose: 'claim',
+      email: 'attacker@evil.com',
+      linkCodeId: linkRow!.id,
+      ttlSeconds: 900,
+    });
+    const res = await post('/v1/owner/claim/finish', { token: forged });
     expect(res.status).toBe(409);
     // No session was minted for the victim's account.
     expect(res.headers.get('set-cookie')).toBeNull();
@@ -559,6 +578,56 @@ describe('the start code: browser-door email rides the prompt into the claim', (
     sentEmails = [];
     expect((await post(`/v1/owner/link/${code}/claim`, { email: 'second@example.com' })).status).toBe(200);
     expect(sentEmails[0].to).toBe('second@example.com');
+  });
+});
+
+describe('re-claims: the account email wins and mismatches fail fast', () => {
+  /** /start email → magic-link click → the start code the console would render. */
+  async function mintStartCode(email: string): Promise<string> {
+    sentEmails = [];
+    expect((await post('/v1/owner/start/email', { email })).status).toBe(200);
+    const finish = await post('/v1/owner/start/finish', { token: lastMagicToken() });
+    const body = (await finish.json()) as { start_code?: string };
+    expect(body.start_code).toBeDefined();
+    return body.start_code!;
+  }
+
+  it('pre-addresses a claimed vault to its own email — a start code for another address is ignored, not burned', async () => {
+    const owned = await claimFlow('alice@example.com');
+    const startCode = await mintStartCode('zed@example.com');
+
+    // Re-link the SAME vault (new link code): pre-addressed to the account.
+    const relink = await post('/v1/owner/link', { ...(await linkBody(owned)), start_code: startCode });
+    expect(relink.status).toBe(200);
+    const relinkJson = (await relink.json()) as { code: string; email_hint?: string; re_claim?: boolean };
+    expect(relinkJson.re_claim).toBe(true);
+    expect(relinkJson.email_hint).toBe('a•••@example.com'); // the account's, NOT the start code's
+
+    // Status carries re_claim for the console copy.
+    const status = (await (await get(`/v1/owner/link/${relinkJson.code}`)).json()) as Record<string, unknown>;
+    expect(status.re_claim).toBe(true);
+
+    // One-click claim goes to the account email; the click re-ratifies.
+    sentEmails = [];
+    expect((await post(`/v1/owner/link/${relinkJson.code}/claim`, {})).status).toBe(200);
+    expect(sentEmails[0].to).toBe('alice@example.com');
+    expect((await post('/v1/owner/claim/finish', { token: lastMagicToken() })).status).toBe(200);
+
+    // The ignored start code is still alive for a genuine first claim.
+    const freshLink = await post('/v1/owner/link', { ...(await linkBody(await newInitIdentity())), start_code: startCode });
+    expect(((await freshLink.json()) as { email_hint?: string }).email_hint).toBe('z•••@example.com');
+  });
+
+  it('rejects a mismatched typed email at submission — before any email is sent', async () => {
+    const owned = await claimFlow('original2@example.com');
+    const relink = await post('/v1/owner/link', await linkBody(owned));
+    const { code } = (await relink.json()) as { code: string };
+
+    sentEmails = [];
+    const res = await post(`/v1/owner/link/${code}/claim`, { email: 'stranger@example.com' });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { message: string }).message).toContain('use the email you first claimed it with');
+    expect(sentEmails).toHaveLength(0); // no inbox round trip wasted
   });
 });
 

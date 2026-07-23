@@ -99,8 +99,25 @@ export function promptHidden(question: string): Promise<string> {
   });
 }
 
-/** y/N confirmation. Anything but y/yes (case-insensitive) is a no. */
-export async function confirm(question: string): Promise<boolean> {
+/**
+ * y/N confirmation. Anything but y/yes (case-insensitive) is a no.
+ *
+ * Non-TTY (agent shells, CI): there is nobody to ask, so the answer is the
+ * caller's declared default — false unless the call site opts in. Only
+ * benign-by-design steps may pass nonTtyDefault:true (field-hit: init's MCP
+ * registration silently defaulted to No in every agent-run setup, stranding
+ * the flagship path); destructive confirms (rm, passkey anchoring) must keep
+ * the safe default. The answer is printed so transcripts show the decision.
+ */
+export async function confirm(
+  question: string,
+  opts?: { nonTtyDefault?: boolean },
+): Promise<boolean> {
+  if (!process.stdin.isTTY) {
+    const answer = opts?.nonTtyDefault ?? false;
+    process.stderr.write(`${question} [y/N] ${answer ? 'y' : 'n'} (non-interactive default)\n`);
+    return answer;
+  }
   const answer = (await readLine(`${question} [y/N] `)).trim().toLowerCase();
   return answer === 'y' || answer === 'yes';
 }

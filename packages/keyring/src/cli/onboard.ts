@@ -191,7 +191,7 @@ export async function cmdInit(args: string[], dir: string | undefined): Promise<
   ];
   const mcpCommand = `claude ${mcpArgs.map((a) => (a.includes(' ') ? JSON.stringify(a) : a)).join(' ')}`;
   let mcpConfigured = false;
-  const wantMcp = flags.switches.has('yes') || (await confirm('Add the keyring to Claude Code (writes MCP config)?'));
+  const wantMcp = flags.switches.has('yes') || (await confirm('Add the keyring to Claude Code (writes MCP config)?', { nonTtyDefault: true }));
   if (wantMcp) {
     try {
       execFileSync('claude', mcpArgs, { stdio: 'ignore' });
@@ -356,7 +356,7 @@ async function cloudInit(blob: string, api: string, dir: string | undefined, yes
     '--', 'npx', '-y', '@basedagents/keyring', 'mcp',
   ];
   const mcpCommand = `claude ${mcpArgs.map((a) => (a.includes(' ') ? JSON.stringify(a) : a)).join(' ')}`;
-  const wantMcp = yes || (await confirm('Add the keyring to this agent runtime (writes MCP config)?'));
+  const wantMcp = yes || (await confirm('Add the keyring to this agent runtime (writes MCP config)?', { nonTtyDefault: true }));
   if (wantMcp) {
     try {
       execFileSync('claude', mcpArgs, { stdio: 'ignore' });

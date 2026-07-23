@@ -268,13 +268,23 @@ app.post('/link', async (c) => {
     ttlSeconds: LINK_CODE_TTL_SECONDS,
   });
 
-  // Browser-door hand-off: consume the start code (single-use, atomic) AFTER
-  // the link code exists, so a failed create never burns it. On success the
-  // verified email rides the link code and /link skips the re-typing; on a
-  // stale/reused code we degrade silently to the email field — a hint is
-  // never worth failing `init` over.
+  // RE-CLAIM detection first (field-hit): if this vault already has a claimed
+  // owner, the owner's email is the ONLY address that can ratify — so
+  // pre-address the claim to it, and IGNORE any start code (a start code for
+  // a different address would aim the confirmation at an email that is
+  // guaranteed to 409 at finish; left unconsumed, it stays valid). Otherwise:
+  // browser-door hand-off — consume the start code (single-use, atomic) AFTER
+  // the link code exists, so a failed create never burns it; on a stale or
+  // reused code we degrade silently to the email field — a hint is never
+  // worth failing `init` over.
   let emailHint: string | undefined;
-  if (parsed.data.start_code) {
+  let reClaim = false;
+  const existingOwner = await store.getOwner(ownerIdFromVaultPubkey(vaultPub));
+  if (existingOwner?.email) {
+    reClaim = true;
+    await store.attachLinkEmail(linkId, existingOwner.email);
+    emailHint = maskEmail(existingOwner.email);
+  } else if (parsed.data.start_code) {
     const start = await store.consumeMagicLinkToken(sha256hex(parsed.data.start_code), 'start_code', nowIso());
     if (start) {
       await store.attachLinkEmail(linkId, start.email);
@@ -287,6 +297,7 @@ app.post('/link', async (c) => {
     url: `${consoleOrigin(c.env)}/link?code=${code}`,
     expires_in_seconds: LINK_CODE_TTL_SECONDS,
     ...(emailHint ? { email_hint: emailHint } : {}),
+    ...(reClaim ? { re_claim: true } : {}),
   });
 });
 
@@ -297,15 +308,21 @@ app.get('/link/:code', async (c) => {
   const link = await store.getLinkCode(c.req.param('code'));
   if (!link) return err(c, 404, 'not_found', 'unknown link code');
   const expired = link.status !== 'claimed' && link.expires_at <= nowIso();
+  // Re-claim: the vault behind this link already has a claimed account — the
+  // console words the page around "welcome back" and the attached address is
+  // the account's own (the only one that can ratify).
+  const linkOwner = await store.getOwner(ownerIdFromVaultPubkey(base58Decode(link.vault_public_key)));
   return c.json({
     status: expired ? 'expired' : link.status, // pending | email_sent | claimed | expired
     agent_id: link.agent_id,
     agent_name: link.agent_name,
-    // Start-code-attached address, MASKED — this endpoint is unauthenticated
-    // (the code is in a URL), so the full email never leaves the server.
+    // Attached address (start-code or account email), MASKED — this endpoint
+    // is unauthenticated (the code is in a URL), so the full email never
+    // leaves the server.
     ...(link.email && !expired && link.status !== 'claimed'
       ? { email_hint: maskEmail(link.email) }
       : {}),
+    ...(linkOwner?.email ? { re_claim: true } : {}),
   });
 });
 
@@ -328,10 +345,21 @@ app.post('/link/:code/claim', async (c) => {
   }
 
   // A typed email always wins ("use a different email"); with none, fall back
-  // to the start-code-attached address. The confirmation email + click are
-  // NEVER skipped — the start code pre-addresses, it does not ratify.
+  // to the attached address (start-code or, for a re-claim, the account's
+  // own). The confirmation email + click are NEVER skipped — pre-addressing
+  // routes, it does not ratify.
   const email = parsed.data.email?.trim().toLowerCase() ?? link.email;
   if (!email) return err(c, 400, 'bad_request', 'a valid email is required');
+
+  // Early mismatch rejection (field-hit): claim/finish would 409 a wrong
+  // email anyway, but only AFTER the inbox round trip — reject it here, at
+  // submission, with the fix in the message. No enumeration: this only
+  // triggers for the holder of a vault-key-signed link code, about the
+  // account that vault already belongs to.
+  const claimOwner = await store.getOwner(ownerIdFromVaultPubkey(base58Decode(link.vault_public_key)));
+  if (claimOwner?.email && claimOwner.email !== email) {
+    return err(c, 409, 'conflict', 'this agent already belongs to an account — use the email you first claimed it with');
+  }
   await store.markLinkEmailSent(link.id, email);
 
   const token = base64urlEncode(randomBytes(32));

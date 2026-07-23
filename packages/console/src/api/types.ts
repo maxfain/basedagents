@@ -66,8 +66,10 @@ export interface LinkInfo {
   status: 'pending' | 'email_sent' | 'claimed' | 'expired';
   agent_id: string;
   agent_name: string | null;
-  /** Masked start-code-attached address (`m•••@…`) — never the full email. */
+  /** Masked attached address (`m•••@…`) — never the full email. */
   email_hint?: string | null;
+  /** The vault behind this link already has a claimed account. */
+  re_claim?: boolean;
 }
 
 export interface ClaimResult {

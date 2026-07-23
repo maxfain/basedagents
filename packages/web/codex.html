@@ -53,8 +53,19 @@
       <li>
         <h2>Get BasedAgents installed while the internet is still on</h2>
         <p>Two ways — either one works. <strong>Pick whichever is easier for you:</strong></p>
-        <p><strong>A. Commit it to the project (no Codex settings needed).</strong> On your own computer — or as its own agent task — run this in the project folder and push the change:</p>
+        <p><strong>A. Commit it to the project (no Codex settings needed).</strong> On your own computer, run this in the project folder and push the change:</p>
         <pre>npm install --save-dev basedagents</pre>
+        <p>Or give it to your agent as its own task — paste this, whole, so the task ends with your next step instead of a silent &ldquo;done&rdquo;:</p>
+        <!-- Field-hit: an install-only task given just the npm command completed
+             correctly and ended with "Summary… Testing…" — no next step. The
+             pairing rule (install ⇄ successor) must ride the TASK PROMPT; the
+             agent given only a command never reads agent.json. -->
+        <pre>Add basedagents as a devDependency: run
+npm install --save-dev basedagents
+then commit package.json and package-lock.json and push.
+This is step zero — installing changes nothing visible yet.
+End your reply by reminding me to start a NEW task and paste
+the step-3 prompt from basedagents.ai/codex.</pre>
         <p>Codex installs your project&rsquo;s dependencies during environment setup, while the internet is still on — so it&rsquo;s on disk for every future task automatically. <strong>Installing is step zero, not setup</strong> — nothing visible happens until your agent runs the step&nbsp;3 prompt in a new task.</p>
         <p><strong>B. Or use the environment&rsquo;s Setup script.</strong> In Codex, open your <strong>environment settings</strong> (Environments &rarr; this project &rarr; Edit), find the <strong>Setup script</strong> field, add the same line, and save:</p>
         <pre>npm install --save-dev basedagents</pre>

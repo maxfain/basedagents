@@ -8,6 +8,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — re-claims pre-address to the account, mismatches fail fast, tabs know when they're stale (control plane + console + `@basedagents/keyring` 0.6.1)
+
+Field report: a user whose vault was claimed under email A came back through
+/start with email B. The start code aimed the confirmation at B — guaranteed
+to 409 at claim/finish, discovered only after the inbox round trip — and
+signing in with B circled into onboarding (B has no account). Separately, the
+ancient pre-skeptical prompt resurfaced from a days-old browser tab, and a
+Codex install-only task ended with "Summary…" and no next step. Four fixes:
+
+- **Re-claims override the start code.** `POST /link` now checks the vault's
+  account first: if it exists, the claim is pre-addressed to the account's
+  own email (the only address that can ratify), any start code is left
+  unconsumed for a genuine first claim, and `re_claim` rides the response —
+  the /link page becomes "Welcome back — reconnect this agent", sends to the
+  address the agent was first set up with, and drops the
+  use-a-different-email fallback. A mismatched typed email is rejected at
+  claim submission (409, "use the email you first claimed it with") instead
+  of after the round trip. Two new ladder tests; CONTROL_PLANE §8 records
+  the rule and the no-enumeration argument (the hint is masked and only
+  reachable through a vault-key-signed link code).
+- **Stale-tab guard (console).** Each build bakes an id into the bundle and
+  emits /version.json; the app polls it (5-minute interval + on tab
+  visibility) and shows a fixed "This page has been updated since this tab
+  loaded — Refresh" banner on divergence. An SPA tab left open for days was
+  serving three-generations-old prompts; navigations never refetch
+  index.html, so the fix has to live in the app. All failure modes are
+  silent (dev server has no version.json).
+- **Install-only tasks get a paste-able prompt.** /codex Path A now hands
+  the human a complete agent-task prompt that ends with "remind me to start
+  a NEW task and paste the step-3 prompt" — the install⇄successor pairing
+  must ride the task prompt itself; an agent given only the npm command
+  never reads agent.json (field-hit: the task ended at "Summary…" with no
+  next step).
+- **Keyring 0.6.1: init's MCP prompt defaults to YES in non-TTY shells.**
+  Every agent-run init is non-interactive, so "Add the keyring to Claude
+  Code?" silently defaulted to No — the flagship "agent sets itself up"
+  path never registered MCP without --yes. `confirm()` now takes a per-call
+  `nonTtyDefault`; only init's MCP registration opts in — destructive
+  confirms (`rm`, passkey anchoring) keep the safe No, covered by a new
+  test, and the chosen default is printed so transcripts show the decision.
+
 ### Fixed — the fourth wall: the npx cache (`basedagents` 0.6.4 + keyring + all prompt surfaces)
 
 Field report, same desktop machine, next attempt: the permission gate

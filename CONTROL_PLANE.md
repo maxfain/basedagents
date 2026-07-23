@@ -223,6 +223,20 @@ Two adjacent flows share the machinery:
   **masked** form; the full address never leaves the server. Expired or
   reused codes degrade silently to the email field — never an error that
   strands `init`.
+  **Re-claims override the start code (field-hit 2026-07).** A user whose
+  vault was claimed under email A came back through `/start` with email B:
+  the start code aimed the confirmation at B, which is *guaranteed* to 409
+  at `claim/finish` — a dead end discovered only after the inbox round trip,
+  with `/login` under B circling into onboarding. Now `POST /link` checks
+  the vault's owner first: if the account exists, the claim is pre-addressed
+  to the **account's own email** (the only address that can ratify), any
+  start code is left unconsumed, and the response carries `re_claim` so the
+  `/link` page words itself as "welcome back" and drops the
+  use-a-different-email fallback. A mismatched typed email is rejected at
+  claim **submission** (409 with the fix in the message), not after the
+  round trip. No enumeration: the pre-addressed hint is masked and only
+  reachable through a vault-key-signed link code — the holder of the vault
+  key already is the account's machine.
 
 ---
 
