@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Manual re-kick (field-hit): a runner wedged 25 minutes in "Install
+  # Chromium", the run had to be cancelled, and re-deploying main required a
+  # new commit. Dispatch reruns the whole pipeline — including the deploys,
+  # which run on main regardless of what triggered the workflow.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -178,7 +183,7 @@ jobs:
   # ── main: gates green → migrations → Worker → console. Zero manual steps. ──
   deploy-production:
     name: Deploy production (API + console)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     needs: [node, python, e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 15
