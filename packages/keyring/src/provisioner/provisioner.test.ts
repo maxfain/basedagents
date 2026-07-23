@@ -17,6 +17,7 @@ import { VercelApi, VercelApiError } from './vercel-api.js';
 import { connectVercel, burnVercelTokensForAgent, PROV_LABEL } from './connect.js';
 import { SupabaseApi, SupabaseApiError } from './supabase-api.js';
 import { connectSupabase, burnSupabaseKeysForAgent, SUPABASE_PROV_LABEL } from './connect-supabase.js';
+import { rotateProviderCredential } from './rotate.js';
 import type { Driver, EngineHooks, Recipe, RecipeLocator } from './types.js';
 
 const SECRET = 'CANARY_vercel_token_9f3e2a71bc84d605_DO_NOT_LEAK';
@@ -693,5 +694,79 @@ describe('connectSupabase (bootstrap-then-API, per-project)', () => {
     const result = await connectSupabase(f.deps, { agentRef: 'claude-code' });
     expect(result.browserRan).toBe(true);
     expect(f.kr.findProvisioner('supabase')).not.toBeNull();
+  });
+});
+
+// ── Rotation (mint → swap → burn, API-only) ──────────────────────────────────
+
+describe('rotateProviderCredential', () => {
+  it('vercel: mints a replacement, re-seals to the grantee, burns the old key', async () => {
+    const f = await connectFixture();
+    const first = await connectVercel(f.deps, { agentRef: 'claude-code' });
+    const oldKeyId = first.credential.provider_key_id as string;
+
+    const infoLines: string[] = [];
+    const result = await rotateProviderCredential(
+      { kr: f.kr, owner: f.owner, fetchImpl: f.deps.fetchImpl, info: (m) => infoLines.push(m) },
+      first.credential.credential_id,
+    );
+
+    expect(result.oldProviderKeyId).toBe(oldKeyId);
+    expect(result.newProviderKeyId).not.toBe(oldKeyId);
+    expect(f.state.burned).toContain(oldKeyId);
+
+    // The agent's next lease is the NEW secret — re-sealed, nothing redistributed.
+    const lease = await f.kr.lease(f.agent, first.credential.credential_id);
+    expect(lease.value).toBe(`minted_${result.newProviderKeyId}_secret`);
+
+    // Meta follows the swap; no secret in events or info lines.
+    const cred = f.kr.credentialsView().find((c) => c.credential_id === first.credential.credential_id);
+    expect(cred?.provider_key_id).toBe(result.newProviderKeyId);
+    const events = JSON.stringify(f.kr.timeline({}));
+    expect(events).not.toContain('minted_');
+    expect(JSON.stringify(infoLines)).not.toContain('minted_');
+  });
+
+  it('supabase: mints a replacement key in the same project and burns the old one', async () => {
+    const f = await supabaseFixture();
+    const first = await connectSupabase(f.deps, { agentRef: 'claude-code' });
+    const oldKeyId = first.credential.provider_key_id as string;
+
+    const result = await rotateProviderCredential(
+      { kr: f.kr, owner: f.owner, fetchImpl: f.deps.fetchImpl },
+      first.credential.credential_id,
+    );
+
+    expect(f.state.burned).toContain(oldKeyId);
+    const lease = await f.kr.lease(f.agent, first.credential.credential_id);
+    expect(lease.value).toBe(`sb_secret_${result.newProviderKeyId}_value`);
+  });
+
+  it('refuses pasted and legacy keys with the manual path named', async () => {
+    const f = await supabaseFixture();
+    // Pasted credential: no provider recipe.
+    const pasted = await f.kr.addCredential(f.owner, { label: 'Stripe key', provider: 'stripe' }, 'sk_live_x'.padEnd(30, 'x'));
+    await expect(
+      rotateProviderCredential({ kr: f.kr, owner: f.owner, fetchImpl: f.deps.fetchImpl }, pasted.credential_id),
+    ).rejects.toThrow(/rotate it at the provider/);
+
+    // Legacy service_role fallback: supabase provider but no provider_key_id.
+    f.state.mintForbidden = true;
+    const legacy = await connectSupabase(f.deps, { agentRef: 'claude-code' });
+    await expect(
+      rotateProviderCredential({ kr: f.kr, owner: f.owner, fetchImpl: f.deps.fetchImpl }, legacy.credential.credential_id),
+    ).rejects.toThrow(/Supabase dashboard/);
+  });
+
+  it('refuses when no provisioning token exists — pointing at connect', async () => {
+    const dir = tmpDir();
+    const kr = await Keyring.init({ dir });
+    const owner = kr.ownerKeypair();
+    const cred = await kr.addCredential(owner, {
+      label: 'Vercel token (orphan)', provider: 'vercel', provider_key_id: 'tok_x',
+    }, 'some_minted_value_1234567890');
+    await expect(
+      rotateProviderCredential({ kr, owner }, cred.credential_id),
+    ).rejects.toThrow(/based connect vercel/);
   });
 });

@@ -84,10 +84,12 @@ export interface ConnectionInfo {
   agent_id: string;
   provider: string;
   label: string | null;
-  /** 'sealed' = browser-sealed paste; 'provision' = minted by the user's machine. */
-  kind?: 'sealed' | 'provision';
+  /** 'sealed' = browser-sealed paste; 'provision' = minted by the user's machine; 'rotate' = replace a minted key in place. */
+  kind?: 'sealed' | 'provision' | 'rotate';
   /** 'processing' = a daemon has claimed the row and is working on it. */
   status: 'pending' | 'processing' | 'stored' | 'failed';
+  /** The machine-local credential this row stored (or, for 'rotate', targets). Opaque metadata, never a secret. */
+  daemon_credential_id?: string | null;
   failure_reason: string | null;
   created_at: string;
 }

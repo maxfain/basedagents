@@ -242,3 +242,8 @@ a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 /* Stale-tab guard (App.tsx): fixed, top, above everything — a tab running an
    old bundle is invisibly wrong everywhere, so the fix must be visible anywhere. */
 .stale-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; gap: 14px; padding: 10px 16px; background: var(--bg-secondary, #111113); border-bottom: 1px solid var(--accent, #6366F1); font-size: 0.9rem; }
+
+/* Per-key Rotate button inside a "Can use" chip (Home cards). */
+.chip-action { margin-left: 8px; padding: 1px 8px; font-size: 0.78rem; border-radius: 6px; border: 1px solid var(--border, rgba(255,255,255,0.12)); background: transparent; color: var(--accent, #6366F1); cursor: pointer; }
+.chip-action:hover:not(:disabled) { border-color: var(--accent, #6366F1); }
+.chip-action:disabled { opacity: 0.6; cursor: default; }

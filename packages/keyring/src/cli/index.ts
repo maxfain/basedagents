@@ -16,7 +16,7 @@ import { cmdGrant, cmdRevoke, cmdKill, cmdRequests, cmdApprove, cmdDeny } from '
 import { cmdTimeline } from './timeline.js';
 import { cmdRun } from './run.js';
 import { cmdDoctor } from './doctor.js';
-import { cmdConnect } from './connect.js';
+import { cmdConnect, cmdRotate } from './connect.js';
 import { cmdAdmin, cmdMcp } from './serve.js';
 import { cmdLink, cmdSync } from './sync.js';
 
@@ -48,6 +48,8 @@ Credentials:
   add <label> [--provider <p>] [--env <VAR>] [--scope <s>] [--rotation <note>]
               [--provider-key-id <id>] [--value <secret>]
                                         Add a secret (--value, piped stdin, or hidden prompt)
+  rotate <cred>                         Mint a fresh provider key, swap it in (re-sealed to
+                                        grantees), burn the old one by id — API-only
   update-secret <cred> [--value <v>]    Replace a secret; re-seals to owner + active grantees
   rm <cred> [--yes]                     Remove a credential and all its grants
   credentials                           Every credential and who holds it
@@ -101,6 +103,7 @@ const COMMANDS: Record<string, CommandHandler> = {
   init: cmdInit,
   add: cmdAdd,
   connect: cmdConnect,
+  rotate: cmdRotate,
   'update-secret': cmdUpdateSecret,
   rm: cmdRemove,
   identity: cmdIdentity,

@@ -159,7 +159,11 @@ const EmailLoginSchema = z.object({ email: z.string().email() });
 const InviteSchema = z.object({ email: z.string().email() });
 
 /** Providers the daemon can provision end-to-end (Provisioner recipes). */
-const PROVISION_PROVIDERS = new Set(['vercel']);
+// Providers the daemon can mint (kind 'provision') and rotate (kind 'rotate')
+// on the user's machine. Must track the daemon's PROVISIONABLE list
+// (packages/keyring/src/cli/sync.ts) — this gate 400s the console button
+// before a row is ever created for a provider no daemon could serve.
+const PROVISION_PROVIDERS = new Set(['vercel', 'supabase']);
 
 const CreateConnectionSchema = z
   .object({
@@ -171,10 +175,14 @@ const CreateConnectionSchema = z
      * 'sealed' (default): the browser sealed a pasted token; sealed_secret is
      * required ciphertext. 'provision': the daemon mints the token itself —
      * no secret travels in either direction, so sealed_secret must be absent.
+     * 'rotate': the daemon mints a REPLACEMENT for an existing minted key and
+     * burns the old one; rotate_credential_id names the daemon-side target.
      */
-    kind: z.enum(['sealed', 'provision']).optional(),
+    kind: z.enum(['sealed', 'provision', 'rotate']).optional(),
     /** base64 sealed box → the owner's vault key. NEVER a raw secret. */
     sealed_secret: z.string().min(1).max(20_000).optional(),
+    /** kind 'rotate' only: the daemon credential id to rotate in place. */
+    rotate_credential_id: z.string().min(1).max(200).optional(),
   })
   .superRefine((v, ctx) => {
     if ((v.kind ?? 'sealed') === 'sealed') {
@@ -182,7 +190,10 @@ const CreateConnectionSchema = z
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'sealed_secret required for sealed connections' });
       }
     } else if (v.sealed_secret) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'provision connections never carry a secret' });
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'provision/rotate connections never carry a secret' });
+    }
+    if (v.kind === 'rotate' && !v.rotate_credential_id) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'rotate_credential_id required for rotate connections' });
     }
   });
 
@@ -722,8 +733,10 @@ app.post('/connections', ownerSession, async (c) => {
   }
 
   const kind = parsed.data.kind ?? 'sealed';
-  if (kind === 'provision' && !PROVISION_PROVIDERS.has(parsed.data.provider)) {
-    return err(c, 400, 'bad_request', 'that provider cannot be set up automatically yet');
+  if ((kind === 'provision' || kind === 'rotate') && !PROVISION_PROVIDERS.has(parsed.data.provider)) {
+    return err(c, 400, 'bad_request', kind === 'rotate'
+      ? 'that provider cannot be rotated automatically yet'
+      : 'that provider cannot be set up automatically yet');
   }
 
   const id = await store.createPendingConnection({
@@ -734,6 +747,9 @@ app.post('/connections', ownerSession, async (c) => {
     envVar: parsed.data.env_var,
     sealedSecret: parsed.data.sealed_secret ?? '',
     kind,
+    // Rotate rows are BORN with their target — the daemon credential to
+    // rotate in place. (Sealed/provision rows get this set at resolve time.)
+    daemonCredentialId: kind === 'rotate' ? parsed.data.rotate_credential_id : undefined,
   });
   return c.json({ id, status: 'pending' });
 });
@@ -741,11 +757,14 @@ app.post('/connections', ownerSession, async (c) => {
 app.get('/connections', ownerSession, async (c) => {
   const store = getStore(c);
   const rows = await store.listPendingConnections(getOwnerId(c));
-  // Never echo ciphertext back to the browser — status only.
+  // Never echo ciphertext back to the browser — status only. The daemon
+  // credential id is metadata (an opaque local id), and the console needs it
+  // to offer per-key rotation on stored rows.
   return c.json({
     connections: rows.map((r) => ({
       id: r.id, agent_id: r.agent_id, provider: r.provider, label: r.label, kind: r.kind,
       status: r.status, failure_reason: r.failure_reason, created_at: r.created_at,
+      daemon_credential_id: r.daemon_credential_id ?? null,
     })),
   });
 });
@@ -755,15 +774,17 @@ app.get('/connections', ownerSession, async (c) => {
 app.get('/daemon/connections', daemonAuth, async (c) => {
   const store = getStore(c);
   const rows = await store.listPendingConnections(getOwnerId(c), 'pending');
-  // Provision rows only go to daemons that ask for them (?include=provision) —
-  // an older daemon must never receive a row it would misread as sealed.
-  const includeProvision = (c.req.query('include') ?? '').split(',').includes('provision');
+  // Non-sealed rows only go to daemons that ask for that kind by name
+  // (?include=provision,rotate) — an older daemon must never receive a row
+  // it would misread as sealed.
+  const include = new Set((c.req.query('include') ?? '').split(','));
   return c.json({
     connections: rows
-      .filter((r) => r.kind !== 'provision' || includeProvision)
+      .filter((r) => r.kind === 'sealed' || include.has(r.kind))
       .map((r) => ({
         id: r.id, agent_id: r.agent_id, provider: r.provider, label: r.label,
         env_var: r.env_var, sealed_secret: r.sealed_secret, kind: r.kind, created_at: r.created_at,
+        daemon_credential_id: r.daemon_credential_id ?? null,
       })),
   });
 });

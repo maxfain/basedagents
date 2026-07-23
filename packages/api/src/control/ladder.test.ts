@@ -802,7 +802,7 @@ describe('connect cards: sealed in the browser, resolved by the daemon', () => {
       agent_id: idn.agentId, provider: 'vercel',
     }, cookie)).status).toBe(400);
     expect((await post('/v1/owner/connections', {
-      agent_id: idn.agentId, provider: 'supabase', kind: 'provision',
+      agent_id: idn.agentId, provider: 'railway', kind: 'provision',
     }, cookie)).status).toBe(400);
 
     const create = await post('/v1/owner/connections', {
@@ -842,6 +842,70 @@ describe('connect cards: sealed in the browser, resolved by the daemon', () => {
     const after = (await (await get('/v1/owner/connections', cookie)).json()) as { connections: Array<Record<string, unknown>> };
     expect(after.connections[0].status).toBe('stored');
     expect(after.connections[0].kind).toBe('provision');
+
+    // Supabase provisions since 0.6.2 — the gate must track the daemon's list.
+    expect((await post('/v1/owner/connections', {
+      agent_id: idn.agentId, provider: 'supabase', kind: 'provision', label: 'Supabase',
+    }, cookie)).status).toBe(200);
+  });
+
+  it('rotate kind: born with its target, gated per-kind for daemons, target survives a failed resolve', async () => {
+    const idn = await newInitIdentity();
+    const { code } = (await (await post('/v1/owner/link', await linkBody(idn, 'CC'))).json()) as { code: string };
+    await post(`/v1/owner/link/${code}/claim`, { email: 'rotate@example.com' });
+    const cookie = sessionCookie(await post('/v1/owner/claim/finish', { token: lastMagicToken() }));
+
+    // Schema: rotate requires its target and never a secret; the provider gate applies.
+    expect((await post('/v1/owner/connections', {
+      agent_id: idn.agentId, provider: 'vercel', kind: 'rotate',
+    }, cookie)).status).toBe(400);
+    expect((await post('/v1/owner/connections', {
+      agent_id: idn.agentId, provider: 'railway', kind: 'rotate', rotate_credential_id: 'cred_x',
+    }, cookie)).status).toBe(400);
+
+    const create = await post('/v1/owner/connections', {
+      agent_id: idn.agentId, provider: 'supabase', kind: 'rotate', label: 'Supabase', rotate_credential_id: 'cred_sb_9',
+    }, cookie);
+    expect(create.status).toBe(200);
+    const { id } = (await create.json()) as { id: string };
+
+    // The console sees the target id (metadata) and the kind.
+    const mine = (await (await get('/v1/owner/connections', cookie)).json()) as { connections: Array<Record<string, unknown>> };
+    expect(mine.connections[0].kind).toBe('rotate');
+    expect(mine.connections[0].daemon_credential_id).toBe('cred_sb_9');
+
+    // An old daemon (?include=provision) never receives a rotate row…
+    const path = '/v1/owner/daemon/connections';
+    const daemonPull = async (query: string) => {
+      const ts = Math.floor(Date.now() / 1000);
+      const bodyHash = bytesToHex(sha256(te.encode('')));
+      const sig = await ed.signAsync(te.encode(`GET:${path}:${ts}:${bodyHash}`), idn.vaultPriv);
+      let bin = '';
+      for (const b of sig) bin += String.fromCharCode(b);
+      const res = await app.request(`${path}${query}`, {
+        method: 'GET',
+        headers: { Authorization: `AgentSig ${base58Encode(idn.vaultPub)}:${btoa(bin)}`, 'X-Timestamp': String(ts) },
+      });
+      return (await res.json()) as { connections: Array<Record<string, unknown>> };
+    };
+    expect((await daemonPull('?include=provision')).connections).toHaveLength(0);
+
+    // …a current daemon asks for it by name and gets the target with it.
+    const pulled = await daemonPull('?include=provision,rotate');
+    expect(pulled.connections).toHaveLength(1);
+    expect(pulled.connections[0].kind).toBe('rotate');
+    expect(pulled.connections[0].daemon_credential_id).toBe('cred_sb_9');
+
+    // A FAILED resolve keeps the target on the row, so the console can pin
+    // the failure to the right key.
+    const claim = (await (await daemonRequest(idn, 'POST', `/v1/owner/daemon/connections/${id}/claim`)).json()) as { claimed: boolean };
+    expect(claim.claimed).toBe(true);
+    expect((await daemonRequest(idn, 'POST', `/v1/owner/daemon/connections/${id}/resolve`, {
+      error: 'rotate it in the Supabase dashboard',
+    })).status).toBe(200);
+    const after = (await (await get('/v1/owner/connections', cookie)).json()) as { connections: Array<Record<string, unknown>> };
+    expect(after.connections[0].status).toBe('failed');
+    expect(after.connections[0].daemon_credential_id).toBe('cred_sb_9');
   });
 
   it('cloud passport: handoff is ciphertext-only and one-shot; shelf gates on a fulfilled passport', async () => {
