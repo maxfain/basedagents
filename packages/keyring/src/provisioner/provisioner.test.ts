@@ -15,9 +15,12 @@ import { hostAllowed, runRecipe } from './engine.js';
 import { vercelBootstrapRecipe } from './recipes/vercel.js';
 import { VercelApi, VercelApiError } from './vercel-api.js';
 import { connectVercel, burnVercelTokensForAgent, PROV_LABEL } from './connect.js';
+import { SupabaseApi, SupabaseApiError } from './supabase-api.js';
+import { connectSupabase, burnSupabaseKeysForAgent, SUPABASE_PROV_LABEL } from './connect-supabase.js';
 import type { Driver, EngineHooks, Recipe, RecipeLocator } from './types.js';
 
 const SECRET = 'CANARY_vercel_token_9f3e2a71bc84d605_DO_NOT_LEAK';
+const SBP = 'sbp_CANARY_9f3e2a71bc84d605_DO_NOT_LEAK';
 
 const tempDirs: string[] = [];
 function tmpDir(): string {
@@ -54,6 +57,7 @@ class FakeDriver implements Driver {
   private resolves(l: RecipeLocator): boolean {
     if ((this.opts.missing ?? []).includes(l.description)) return false;
     if (l.description.includes('Create button on the Tokens page')) return this.opts.loggedIn !== false;
+    if (l.description.includes('Generate new token button on the Access Tokens page')) return this.opts.loggedIn !== false;
     return true;
   }
   async goto(url: string): Promise<void> { this.url = url; this.log.push(`goto ${url}`); }
@@ -498,5 +502,196 @@ describe('connectVercel (bootstrap-then-API)', () => {
     expect(f.state.burned).toContain(result.credential.provider_key_id);
     // The provisioning token itself is NEVER auto-burned (§6).
     expect(f.kr.findProvisioner('vercel')).not.toBeNull();
+  });
+});
+
+// ── Supabase: API client + connect orchestration ─────────────────────────────
+
+interface SupabaseState {
+  projects: Array<{ id: string; name: string }>;
+  minted: Array<{ id: string; name: string; project: string }>;
+  burned: string[];
+  badTokens?: string[];
+  /** POST api-keys 4xxs (legacy-only project) → service_role fallback path. */
+  mintForbidden?: boolean;
+}
+
+function supabaseFetch(state: SupabaseState) {
+  let seq = 0;
+  return async (url: string, init?: RequestInit): Promise<Response> => {
+    const auth = ((init?.headers as Record<string, string>)?.Authorization ?? '').replace('Bearer ', '');
+    const json = (status: number, body: unknown): Response =>
+      ({ ok: status < 400, status, json: async () => body } as unknown as Response);
+    if (state.badTokens?.includes(auth)) return json(401, { message: 'unauthorized' });
+    const p = new URL(url).pathname;
+    const method = (init?.method ?? 'GET').toUpperCase();
+    if (p === '/v1/projects') {
+      return json(200, state.projects.map((x) => ({ ...x, status: 'ACTIVE_HEALTHY' })));
+    }
+    const keys = /^\/v1\/projects\/([^/]+)\/api-keys$/.exec(p);
+    if (keys && method === 'POST') {
+      if (state.mintForbidden) return json(400, { message: 'new API keys are not enabled for this project' });
+      const body = JSON.parse(String(init?.body)) as { type: string; name: string };
+      const key = { id: `key_${++seq}`, name: body.name, project: keys[1] };
+      state.minted.push(key);
+      return json(200, { id: key.id, name: key.name, type: 'secret', api_key: `sb_secret_${key.id}_value` });
+    }
+    if (keys && method === 'GET') {
+      const legacy = [
+        { name: 'anon', api_key: 'eyJ_anon_1234567890abcdefghijklmnopqrstuvwxyz' },
+        { name: 'service_role', api_key: 'eyJ_service_role_1234567890abcdefghijklmnop' },
+      ];
+      const mintedHere = state.minted
+        .filter((k) => k.project === keys[1])
+        .map((k) => ({ id: k.id, name: k.name, type: 'secret' }));
+      return json(200, [...legacy, ...mintedHere]);
+    }
+    const del = /^\/v1\/projects\/([^/]+)\/api-keys\/([^/]+)$/.exec(p);
+    if (del && method === 'DELETE') {
+      if (!state.minted.some((k) => k.id === del[2])) return json(404, { message: 'not found' });
+      state.minted = state.minted.filter((k) => k.id !== del[2]);
+      state.burned.push(del[2]);
+      return json(200, {});
+    }
+    return json(404, { message: p });
+  };
+}
+
+async function supabaseFixture(opts: { projects?: Array<{ id: string; name: string }>; captureValue?: string } = {}) {
+  const dir = tmpDir();
+  const kr = await Keyring.init({ dir });
+  const owner = kr.ownerKeypair();
+  const agent = await generateKeypair();
+  const agentId = publicKeyToAgentId(agent.publicKey);
+  await kr.addIdentity(owner, agentId, { name: 'claude-code' });
+  const state: SupabaseState = {
+    projects: opts.projects ?? [{ id: 'abcdefghij1234567890', name: 'beanstalk' }],
+    minted: [],
+    burned: [],
+  };
+  const infoLines: string[] = [];
+  let launches = 0;
+  const deps = {
+    kr, owner,
+    hooks: autoHooks(infoLines),
+    launchDriver: async () => { launches += 1; return new FakeDriver({ captureValue: opts.captureValue ?? SBP }); },
+    fetchImpl: supabaseFetch(state),
+    pasteFallback: (async () => null) as (message: string) => Promise<string | null>,
+  };
+  return { kr, owner, agent, agentId, state, deps, infoLines, launches: () => launches };
+}
+
+describe('SupabaseApi', () => {
+  it('mints a secret key and burns by id', async () => {
+    const state: SupabaseState = { projects: [{ id: 'ref1', name: 'p' }], minted: [], burned: [] };
+    const client = new SupabaseApi(SBP, supabaseFetch(state));
+    const minted = await client.createSecretKey('ref1', 'ba_claude_code_abc123');
+    expect(minted.apiKey).toContain(minted.id);
+    expect(await client.deleteApiKey('ref1', minted.id)).toBe('burned');
+    expect(await client.deleteApiKey('ref1', minted.id)).toBe('already_gone');
+  });
+
+  it('surfaces the {message} error shape', async () => {
+    const state: SupabaseState = { projects: [], minted: [], burned: [], badTokens: ['bad'] };
+    const err = await new SupabaseApi('bad', supabaseFetch(state)).listProjects().catch((e) => e as SupabaseApiError);
+    expect(err).toBeInstanceOf(SupabaseApiError);
+    expect((err as SupabaseApiError).status).toBe(401);
+  });
+});
+
+describe('connectSupabase (bootstrap-then-API, per-project)', () => {
+  it('first connect: browser once → PAT provisioner + per-agent secret key, grant with our expiry leash', async () => {
+    const f = await supabaseFixture();
+    const result = await connectSupabase(f.deps, { agentRef: 'claude-code' });
+
+    expect(result.browserRan).toBe(true);
+    expect(f.launches()).toBe(1);
+    expect(result.tokenName).toMatch(/^ba_claude_code_[0-9a-f]{8}$/);
+    expect(result.projectRef).toBe('abcdefghij1234567890');
+    expect(result.projectUrl).toBe('https://abcdefghij1234567890.supabase.co');
+    expect(result.credential.env_var).toBe('SUPABASE_SECRET_KEY');
+    // provider_team doubles as the project ref — the burn address.
+    expect(result.credential.provider_team).toBe('abcdefghij1234567890');
+
+    const prov = f.kr.findProvisioner('supabase');
+    expect(prov?.label).toBe(SUPABASE_PROV_LABEL);
+    // The agent can lease its key; the provisioning PAT stays locked.
+    const lease = await f.kr.lease(f.agent, result.credential.credential_id);
+    expect(lease.value).toBe(`sb_secret_${result.credential.provider_key_id}_value`);
+
+    // Canary: no secret value in any signed event or info line.
+    const events = JSON.stringify(f.kr.timeline({}));
+    expect(events).not.toContain(SBP);
+    expect(events).not.toContain('sb_secret_');
+    expect(JSON.stringify(f.infoLines)).not.toContain(SBP);
+  });
+
+  it('second connect for a new agent: zero browser, API-only', async () => {
+    const f = await supabaseFixture();
+    await connectSupabase(f.deps, { agentRef: 'claude-code' });
+    const other = await generateKeypair();
+    const otherId = publicKeyToAgentId(other.publicKey);
+    await f.kr.addIdentity(f.owner, otherId, { name: 'cursor' });
+
+    const second = await connectSupabase(f.deps, { agentRef: 'cursor' });
+    expect(second.browserRan).toBe(false);
+    expect(f.launches()).toBe(1);
+  });
+
+  it('multi-project accounts require --project and get the roster; --project picks by ref or name', async () => {
+    const projects = [{ id: 'refaaa', name: 'alpha' }, { id: 'refbbb', name: 'beta' }];
+    const f = await supabaseFixture({ projects });
+    await expect(connectSupabase(f.deps, { agentRef: 'claude-code' }))
+      .rejects.toThrow(/pick one with --project .*refaaa \(alpha\), refbbb \(beta\)/);
+
+    const byName = await connectSupabase(f.deps, { agentRef: 'claude-code', projectRef: 'beta' });
+    expect(byName.projectRef).toBe('refbbb');
+  });
+
+  it('legacy-only project degrades to service_role with the honesty on the card', async () => {
+    const f = await supabaseFixture();
+    f.state.mintForbidden = true;
+    const result = await connectSupabase(f.deps, { agentRef: 'claude-code' });
+
+    expect(result.credential.env_var).toBe('SUPABASE_SERVICE_ROLE_KEY');
+    expect(result.credential.provider_key_id).toBeUndefined();
+    expect(result.scope).toContain('LEGACY service_role');
+
+    // No id → the kill switch can only revoke locally, and says so.
+    const burns = await burnSupabaseKeysForAgent(
+      { kr: f.kr, owner: f.owner, fetchImpl: f.deps.fetchImpl },
+      [result.credential.credential_id],
+    );
+    expect(burns[0].result).toContain('revoke only');
+  });
+
+  it('kill switch burns the minted key at the provider, by id; the PAT is never auto-burned', async () => {
+    const f = await supabaseFixture();
+    const result = await connectSupabase(f.deps, { agentRef: 'claude-code' });
+    await f.kr.killSwitch(f.owner, 'claude-code');
+    const burns = await burnSupabaseKeysForAgent(
+      { kr: f.kr, owner: f.owner, fetchImpl: f.deps.fetchImpl },
+      [result.credential.credential_id],
+    );
+    expect(burns).toHaveLength(1);
+    expect(burns[0].result).toBe('burned');
+    expect(f.state.burned).toContain(result.credential.provider_key_id);
+    expect(f.kr.findProvisioner('supabase')).not.toBeNull();
+  });
+
+  it('rejected capture + cancelled paste saves nothing', async () => {
+    const f = await supabaseFixture();
+    f.state.badTokens = [SBP];
+    await expect(connectSupabase(f.deps, { agentRef: 'claude-code' })).rejects.toThrow(/cancelled during assisted paste/);
+    expect(f.kr.findProvisioner('supabase')).toBeNull();
+  });
+
+  it('non-sbp_ capture skips straight to paste without a doomed verify', async () => {
+    const f = await supabaseFixture({ captureValue: 'Copy' });
+    const GOOD = 'sbp_PASTED_real_token_1234567890abcdef';
+    f.deps.pasteFallback = async () => GOOD;
+    const result = await connectSupabase(f.deps, { agentRef: 'claude-code' });
+    expect(result.browserRan).toBe(true);
+    expect(f.kr.findProvisioner('supabase')).not.toBeNull();
   });
 });

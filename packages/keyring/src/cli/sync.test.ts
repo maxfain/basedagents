@@ -73,7 +73,7 @@ describe('based sync — provision-kind connections (console Connect button)', (
 
   it('refuses providers without a recipe, without ever invoking the provisioner', async () => {
     const kr = await vault();
-    const { client, calls } = fakeClient([provisionRow('pcx_nope', { provider: 'supabase', label: 'Supabase' })]);
+    const { client, calls } = fakeClient([provisionRow('pcx_nope', { provider: 'railway', label: 'Railway' })]);
     let ran = false;
     await processConnections(kr, client, async () => {
       ran = true;
@@ -81,6 +81,18 @@ describe('based sync — provision-kind connections (console Connect button)', (
     });
     expect(ran).toBe(false);
     expect((calls.resolves[0].result as { error: string }).error).toContain('not available yet');
+  });
+
+  it('dispatches the provision run with the row provider (supabase included)', async () => {
+    const kr = await vault();
+    const { client, calls } = fakeClient([provisionRow('pcx_sb', { provider: 'supabase', label: 'Supabase' })]);
+    const providers: string[] = [];
+    await processConnections(kr, client, async (_kr, _agent, provider) => {
+      providers.push(provider);
+      return { credentialId: 'cred_sb' };
+    });
+    expect(providers).toEqual(['supabase']);
+    expect(calls.resolves[0].result).toEqual({ daemonCredentialId: 'cred_sb' });
   });
 
   it('never routes a sealed row through the provisioner', async () => {

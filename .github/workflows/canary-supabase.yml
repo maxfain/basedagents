@@ -1,0 +1,67 @@
+# Provisioner drift canary (spec §4): run the Supabase API contract weekly
+# against a dedicated test account, so drift is caught here — never by users.
+# Failures file an issue with the failing step id.
+#
+# Requires repository secrets (skipped cleanly when absent):
+#   SUPABASE_CANARY_TOKEN — a personal access token (sbp_…) for the TEST
+#     account (exactly one project), used to verify the management-API mint →
+#     list → burn contract and clean up minted canary keys. The browser half
+#     of the recipe needs a live session cookie, which cannot ship as a CI
+#     secret safely — so the canary exercises the bootstrap-then-API path
+#     (the every-connect path) end-to-end, and the recipe's page contract via
+#     logged-out probes.
+name: Canary — Supabase provisioner
+
+on:
+  schedule:
+    - cron: '30 6 * * 1' # Mondays 06:30 UTC (offset from the Vercel canary)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Build keyring
+        run: npm run build:dist --workspace=packages/keyring
+
+      - name: Check canary secret
+        id: gate
+        run: |
+          if [ -n "${{ secrets.SUPABASE_CANARY_TOKEN }}" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "SUPABASE_CANARY_TOKEN not set — skipping live canary."
+          fi
+
+      - name: Live canary (API mint→list→burn + page contract)
+        if: steps.gate.outputs.run == 'true'
+        env:
+          SUPABASE_CANARY_TOKEN: ${{ secrets.SUPABASE_CANARY_TOKEN }}
+        run: node scripts/canary-supabase.mjs
+
+      - name: File issue on failure
+        if: failure() && steps.gate.outputs.run == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Supabase provisioner canary failed (${new Date().toISOString().slice(0,10)})`,
+              body: 'The weekly Supabase canary failed — likely dashboard/API drift. See the run: ' +
+                    `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['provisioner', 'canary'],
+            });

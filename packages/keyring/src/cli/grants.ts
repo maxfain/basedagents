@@ -88,10 +88,15 @@ export async function cmdKill(args: string[], dir: string | undefined): Promise<
     .filter((c): c is string => Boolean(c));
   if (revokedCredIds.length > 0) {
     const { burnVercelTokensForAgent } = await import('../provisioner/connect.js');
-    const burns = await burnVercelTokensForAgent({ kr, owner: kr.ownerKeypair() }, [...new Set(revokedCredIds)]);
+    const { burnSupabaseKeysForAgent } = await import('../provisioner/connect-supabase.js');
+    const ids = [...new Set(revokedCredIds)];
+    const burns = [
+      ...(await burnVercelTokensForAgent({ kr, owner: kr.ownerKeypair() }, ids)),
+      ...(await burnSupabaseKeysForAgent({ kr, owner: kr.ownerKeypair() }, ids)),
+    ];
     if (burns.length > 0) {
       console.log('');
-      console.log('Provider-side burn (Vercel):');
+      console.log('Provider-side burn:');
       for (const b of burns) {
         const mark = b.result === 'burned' || b.result === 'already_gone' ? '✓' : '⚠';
         console.log(`    ${mark} ${b.label}: ${b.result}`);
