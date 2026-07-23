@@ -22,6 +22,7 @@ import type {
   LinkInfo,
   ClaimResult,
   ConnectionInfo,
+  CredentialFact,
 } from './types.js';
 import type { RegistrationResult } from '../lib/webauthn.js';
 
@@ -162,6 +163,9 @@ export const control = {
   },
   listConnections(): Promise<{ connections: ConnectionInfo[] }> {
     return request('GET', '/connections');
+  },
+  listCredentialFacts(): Promise<{ facts: CredentialFact[] }> {
+    return request('GET', '/credential-facts');
   },
 
   // Cloud passport (SANDBOX_SPEC §4b): file a request carrying only a

@@ -20,7 +20,7 @@ import { runAction } from '../lib/ceremony.js';
 import { ensurePasskey } from '../lib/firstApproval.js';
 import { askPhrase } from '../lib/outcomes.js';
 import { AgentSetupPrompt } from '../components/AgentSetup.js';
-import type { ConnectionInfo, Delegation, KeyringRequest } from '../api/types.js';
+import type { ConnectionInfo, CredentialFact, Delegation, KeyringRequest } from '../api/types.js';
 
 function errText(err: unknown): string {
   if (err instanceof ControlApiError) return err.message;
@@ -46,15 +46,21 @@ export default function Home() {
   const { owner, refresh } = useOwner();
   const [requests, setRequests] = useState<KeyringRequest[]>([]);
   const [connections, setConnections] = useState<ConnectionInfo[]>([]);
+  const [facts, setFacts] = useState<CredentialFact[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [atLimit, setAtLimit] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [reqs, conns] = await Promise.all([control.listRequests(), control.listConnections()]);
+      const [reqs, conns, cf] = await Promise.all([
+        control.listRequests(),
+        control.listConnections(),
+        control.listCredentialFacts(),
+      ]);
       setRequests(reqs.requests);
       setConnections(conns.connections);
+      setFacts(cf.facts);
     } catch (err) {
       setError(errText(err));
     }
@@ -270,7 +276,14 @@ export default function Home() {
                       holdings.map((h) => {
                         const rot = rotationFor(h.localId);
                         const rotating = rot !== undefined && (rot.status === 'pending' || rot.status === 'processing');
-                        const rotatable = h.localId !== null && (h.provider === 'vercel' || h.provider === 'supabase');
+                        // The machine's own report decides: an affirmative
+                        // rotatable:false hides the button (pasted/imported
+                        // keys would only ever fail after the click). No fact
+                        // at all — an old daemon — keeps the optimistic button.
+                        const fact = h.localId === null ? undefined : facts.find((f) => f.credential_id === h.localId);
+                        const rotatable = h.localId !== null
+                          && (h.provider === 'vercel' || h.provider === 'supabase')
+                          && fact?.rotatable !== false;
                         return (
                           <span key={h.key} className="chip">
                             Can use: {h.label}

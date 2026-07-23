@@ -1282,6 +1282,46 @@ export class ControlStore {
     return res.changes;
   }
 
+  /**
+   * Daemon-reported credential facts (0031): metadata about machine-local
+   * keys — currently just rotatability — so the console only offers actions
+   * the machine can actually perform. Ids and booleans only, never values.
+   */
+  async upsertCredentialFacts(
+    ownerId: string,
+    facts: Array<{ credentialId: string; provider: string; rotatable: boolean }>,
+  ): Promise<void> {
+    const now = nowIsoString();
+    for (const f of facts) {
+      await this.db.run(
+        `INSERT INTO credential_facts (owner_id, credential_id, provider, rotatable, reported_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(owner_id, credential_id) DO UPDATE SET
+           provider = excluded.provider, rotatable = excluded.rotatable, reported_at = excluded.reported_at`,
+        ownerId,
+        f.credentialId,
+        f.provider,
+        f.rotatable ? 1 : 0,
+        now
+      );
+    }
+  }
+
+  async listCredentialFacts(ownerId: string): Promise<Array<{
+    credential_id: string; provider: string; rotatable: boolean; reported_at: string;
+  }>> {
+    const rows = await this.db.all<RawRow>(
+      `SELECT * FROM credential_facts WHERE owner_id = ? ORDER BY credential_id ASC`,
+      ownerId
+    );
+    return rows.map((r) => ({
+      credential_id: asStr(r.credential_id),
+      provider: asStr(r.provider),
+      rotatable: Number(r.rotatable) === 1,
+      reported_at: asStr(r.reported_at),
+    }));
+  }
+
   /** Daemon resolution — ATOMIC single transition out of pending/processing. */
   async resolvePendingConnection(input: {
     id: string;

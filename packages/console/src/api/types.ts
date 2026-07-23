@@ -79,6 +79,18 @@ export interface ClaimResult {
   delegation_blocked: { active: number; max: number } | null;
 }
 
+/**
+ * A machine-reported fact about one of its keys (metadata only, never values).
+ * Absence of a fact means "unknown" — an old daemon that never reports — and
+ * the UI must stay optimistic for unknowns, not punish them.
+ */
+export interface CredentialFact {
+  credential_id: string;
+  provider: string;
+  rotatable: boolean;
+  reported_at: string;
+}
+
 export interface ConnectionInfo {
   id: string;
   agent_id: string;
