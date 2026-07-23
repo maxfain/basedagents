@@ -143,7 +143,13 @@ app.use('*', async (c, next) => {
     // over enforcement; every real deployment has the binding.
     if (db) {
       const ip = c.req.header('CF-Connecting-IP') ?? c.req.header('X-Forwarded-For') ?? 'unknown';
-      const result = await checkRateLimit(db, `${limitKey}:${ip}`, limit.max, limit.windowMs);
+      // E2E runs the whole ladder from ONE ip, with Playwright retries: the
+      // production budgets (3 email sends/min) turn a single retried scenario
+      // into a 429 cascade across every later scenario (CI field-hit). 10×
+      // headroom keeps the middleware exercised without letting one flake
+      // compound. Workers never set E2E, so production budgets are untouched.
+      const max = (c.env as { E2E?: string } | undefined)?.E2E === '1' ? limit.max * 10 : limit.max;
+      const result = await checkRateLimit(db, `${limitKey}:${ip}`, max, limit.windowMs);
       if (!result.allowed) {
         c.header('Retry-After', String(Math.ceil((result.retryAfterMs ?? limit.windowMs) / 1000)));
         return c.json({ error: 'rate_limited', message: 'Too many requests. Please slow down.' }, 429);

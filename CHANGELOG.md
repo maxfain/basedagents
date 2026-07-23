@@ -8,6 +8,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the deploy pipeline: E2E outbox race + rate-limit cascade blocked two releases (CI only)
+
+The kill-switch fixes below sat undeployed: the Passkey E2E job failed
+scenarios 6+7 on two consecutive main pushes, and the deploy jobs never
+ran. Root cause was a latent race, not the changes themselves: two /start
+sends read the E2E outbox immediately after clicking "Email me a link",
+without awaiting the "Check your email" success state — the outbox write
+happens inside the POST, so a fast runner reads before it lands. Then
+Playwright's CI retry re-sent emails into the production-tuned
+3/min-per-IP limiter, cascading the failure into every later scenario
+that sends email.
+
+- The two sends now await the success heading (the deterministic sync
+  point) before touching the outbox.
+- The rate-limit middleware grants 10× headroom when E2E=1 — still
+  exercised, but one retried scenario can no longer starve the rest.
+  Workers never set E2E; production budgets are untouched.
+
 ### Fixed — the kill switch kills server-side too: no ghost chips, no post-kill re-grants (control plane + console)
 
 Field-hit, minutes after reviving a killed agent: its claim page said

@@ -483,6 +483,9 @@ test('6. /start browser door: returning account signs in with one email field; a
   const fresh = `e2e-fresh-${Date.now()}@example.com`;
   await page.getByLabel('Email').fill(fresh);
   await page.getByRole('button', { name: 'Email me a link' }).click();
+  // The success state is the sync point — the outbox write happens inside the
+  // POST, so reading before this heading races the request (CI field-hit).
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
   const freshToken = await magicToken(fresh, '/start');
   await page.goto('/login');
   await page.goto(`/start#t=${freshToken}`);
@@ -499,6 +502,8 @@ test('7. the start code: the browser-door email rides the prompt into /link — 
   await page.getByRole('tab', { name: 'Start in your browser' }).click();
   await page.getByLabel('Email').fill(email);
   await page.getByRole('button', { name: 'Email me a link' }).click();
+  // Sync point before touching the outbox — see scenario 6.
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
   const token = await magicToken(email, '/start');
   await page.goto('/login');
   await page.goto(`/start#t=${token}`);
