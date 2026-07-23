@@ -598,6 +598,32 @@ describe('SupabaseApi', () => {
     expect(err).toBeInstanceOf(SupabaseApiError);
     expect((err as SupabaseApiError).status).toBe(401);
   });
+
+  it('retries 429 bursts with backoff and gives up after the schedule', async () => {
+    // First canary run field-hit: burn 429'd ~50ms after list. The client
+    // absorbs bursts; persistent throttling still surfaces as the error.
+    const state: SupabaseState = { projects: [{ id: 'ref1', name: 'p' }], minted: [], burned: [] };
+    const inner = supabaseFetch(state);
+    let throttlesLeft = 2;
+    const throttling = async (url: string, init?: RequestInit): Promise<Response> => {
+      if (throttlesLeft > 0) {
+        throttlesLeft -= 1;
+        return ({
+          ok: false, status: 429,
+          headers: { get: (h: string) => (h === 'retry-after' ? '0.001' : null) },
+          json: async () => ({ message: 'Please wait a few seconds before retrying' }),
+        } as unknown as Response);
+      }
+      return inner(url, init);
+    };
+    const client = new SupabaseApi(SBP, throttling, [1, 1]);
+    expect((await client.listProjects()).length).toBe(1); // absorbed 2 429s
+
+    throttlesLeft = 99; // never recovers → the schedule runs out → surfaced
+    const err = await client.listProjects().catch((e) => e as SupabaseApiError);
+    expect(err).toBeInstanceOf(SupabaseApiError);
+    expect((err as SupabaseApiError).status).toBe(429);
+  });
 });
 
 describe('connectSupabase (bootstrap-then-API, per-project)', () => {

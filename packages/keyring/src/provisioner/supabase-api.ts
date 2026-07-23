@@ -53,30 +53,49 @@ export function supabaseProjectUrl(ref: string): string {
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
 export class SupabaseApi {
   constructor(
     private readonly token: string,
     private readonly fetchImpl: FetchLike = fetch,
+    /** 429 backoff schedule — injectable so tests don't sleep for real. */
+    private readonly retryDelaysMs: number[] = [2000, 4000],
   ) {}
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await this.fetchImpl(`${API}${path}`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      },
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    });
-    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!res.ok) {
-      const message =
-        (typeof json.message === 'string' && json.message) ||
-        (typeof json.error === 'string' && json.error) ||
-        res.statusText;
-      throw new SupabaseApiError(res.status, message);
+    // Field-hit (first canary run): the management API rate-limits bursts —
+    // four calls in ~3s got the LAST one a 429 "Please wait a few seconds
+    // before retrying". Mint→burn sequences (rotate, canary) are exactly that
+    // shape, so 429s retry here with backoff, honoring Retry-After when sent.
+    // Every other status is the caller's problem, immediately.
+    for (let attempt = 0; ; attempt++) {
+      const res = await this.fetchImpl(`${API}${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        },
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      });
+      if (res.status === 429 && attempt < this.retryDelaysMs.length) {
+        const retryAfterSec = Number(res.headers?.get?.('retry-after'));
+        const waitMs = Number.isFinite(retryAfterSec) && retryAfterSec > 0
+          ? Math.min(retryAfterSec * 1000, 10_000)
+          : this.retryDelaysMs[attempt];
+        await sleep(waitMs);
+        continue;
+      }
+      const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!res.ok) {
+        const message =
+          (typeof json.message === 'string' && json.message) ||
+          (typeof json.error === 'string' && json.error) ||
+          res.statusText;
+        throw new SupabaseApiError(res.status, message);
+      }
+      return json as T;
     }
-    return json as T;
   }
 
   /** Cheap validity probe AND the project roster — one call does both. */

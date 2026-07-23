@@ -8,6 +8,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Supabase 429 bursts retry with backoff; the canary sweeps its strays (`@basedagents/keyring` 0.6.3)
+
+First live Supabase canary run: three greens — the documented-flow API
+assumptions all held (mint contract, `sb_secret_` prefix, key naming) — then
+the burn, fired ~50ms after the list, got `429 Please wait a few seconds
+before retrying`. Mint→burn sequences (rotate, the canary) are exactly that
+burst shape:
+
+- `SupabaseApi` now retries 429s with backoff (2s/4s, honoring `Retry-After`
+  up to 10s; the schedule is injectable so tests don't sleep). Persistent
+  throttling still surfaces as the error. Every caller — connect, rotate,
+  kill-switch burn, canary — inherits it.
+- The canary sweeps stray `ba_canary_*` keys at the start of each run
+  (name-prefixed only), so a run that dies between mint and burn stays
+  self-cleaning instead of accumulating orphans in the test project.
+
 ### Added — rotate any minted key from the console, one button per key (`@basedagents/keyring` 0.6.3 + control plane + console)
 
 Rotation completes the provisioner verb set (mint / verify / rotate / burn)

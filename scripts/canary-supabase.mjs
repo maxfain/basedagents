@@ -36,6 +36,15 @@ try {
   const ref = projects[0].id;
   console.log(`canary: ✓ projects (${projects.length})`);
 
+  step = 'sweep-strays';
+  // A run that dies between mint and burn (field-hit: a 429 on the burn)
+  // orphans its ba_canary_* key. Sweep them first — name-prefixed only, never
+  // anything user-made — so failed runs stay self-cleaning.
+  const existing = await api.listApiKeys(ref, false);
+  const strays = existing.filter((k) => k.id && (k.name ?? '').startsWith('ba_canary_'));
+  for (const stray of strays) await api.deleteApiKey(ref, stray.id);
+  if (strays.length > 0) console.log(`canary: ✓ swept ${strays.length} stray canary key(s) from earlier runs`);
+
   step = 'mint-secret-key';
   const name = `ba_canary_${Date.now().toString(36)}`;
   const minted = await api.createSecretKey(ref, name, 'BasedAgents canary — safe to delete');
