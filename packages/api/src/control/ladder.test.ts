@@ -987,6 +987,54 @@ describe('connect cards: sealed in the browser, resolved by the daemon', () => {
     expect(fresh.status).toBe('pending');
   });
 
+  it('"Do it for me" dedups: a second click in flight returns the same row, never a backlog', async () => {
+    const idn = await newInitIdentity();
+    const { code } = (await (await post('/v1/owner/link', await linkBody(idn, 'CC'))).json()) as { code: string };
+    await post(`/v1/owner/link/${code}/claim`, { email: 'dedup@example.com' });
+    const cookie = sessionCookie(await post('/v1/owner/claim/finish', { token: lastMagicToken() }));
+
+    const doIt = async (provider: string) => ((await (await post('/v1/owner/connections', {
+      agent_id: idn.agentId, provider, kind: 'provision', label: provider,
+    }, cookie)).json()) as { id: string }).id;
+
+    const first = await doIt('vercel');
+    const second = await doIt('vercel'); // same agent + provider, still in flight
+    expect(second).toBe(first); // deduped — not a second row
+    const sb = await doIt('supabase'); // a different provider is its own row
+    expect(sb).not.toBe(first);
+
+    // Exactly two live rows, never a backlog of Vercel duplicates.
+    const mine = (await (await get('/v1/owner/connections', cookie)).json()) as { connections: Array<Record<string, unknown>> };
+    expect(mine.connections.filter((r) => r.provider === 'vercel')).toHaveLength(1);
+    expect(mine.connections).toHaveLength(2);
+  });
+
+  it('a provision that stores retires duplicate siblings — no redundant per-key mint', async () => {
+    const idn = await newInitIdentity();
+    const ownerId = ownerIdFromVaultPubkey(idn.vaultPub);
+    const { code } = (await (await post('/v1/owner/link', await linkBody(idn, 'CC'))).json()) as { code: string };
+    await post(`/v1/owner/link/${code}/claim`, { email: 'siblings@example.com' });
+    const cookie = sessionCookie(await post('/v1/owner/claim/finish', { token: lastMagicToken() }));
+
+    const keptId = ((await (await post('/v1/owner/connections', {
+      agent_id: idn.agentId, provider: 'supabase', kind: 'provision', label: 'Supabase',
+    }, cookie)).json()) as { id: string }).id;
+    // A duplicate that predates dedup (or slipped through a POST race).
+    rawDb.prepare(
+      `INSERT INTO pending_connections (id, owner_id, agent_id, provider, label, sealed_secret, kind, status, created_at)
+       VALUES ('pcx_dupe', ?, ?, 'supabase', 'Supabase', '', 'provision', 'pending', ?)`,
+    ).run(ownerId, idn.agentId, new Date().toISOString());
+
+    // The daemon stores the kept row…
+    expect((await daemonRequest(idn, 'POST', `/v1/owner/daemon/connections/${keptId}/resolve`, {
+      daemon_credential_id: 'cred_sb_1',
+    })).status).toBe(200);
+
+    // …and the duplicate is retired, so no daemon ever mints a second key for it.
+    const dupe = rawDb.prepare(`SELECT status FROM pending_connections WHERE id = 'pcx_dupe'`).get() as { status: string };
+    expect(dupe.status).toBe('revoked');
+  });
+
   it('credential facts: daemon-reported, upserted, owner-readable — ids and booleans only', async () => {
     const idn = await newInitIdentity();
     const { code } = (await (await post('/v1/owner/link', await linkBody(idn, 'CC'))).json()) as { code: string };

@@ -1219,6 +1219,48 @@ export class ControlStore {
     return id;
   }
 
+  /**
+   * The id of a live (pending/processing) row that already represents this
+   * exact work, if any — the dedup key. Field-hit: clicking "Do it for me"
+   * more than once queued a separate provision row each time, and a daemon
+   * drained them one per round, re-opening the browser and (after the first
+   * success) minting a redundant key per duplicate. Provision dedups on
+   * (agent, provider); rotate on (agent, provider, target credential).
+   */
+  async findLivePendingConnection(input: {
+    ownerId: string; agentId: string; provider: string; kind: string; target?: string | null;
+  }): Promise<string | null> {
+    const row = await this.db.get<RawRow>(
+      `SELECT id FROM pending_connections
+       WHERE owner_id = ? AND agent_id = ? AND provider = ? AND kind = ?
+         AND status IN ('pending', 'processing')
+         AND (? IS NULL OR daemon_credential_id = ?)
+       ORDER BY created_at ASC LIMIT 1`,
+      input.ownerId, input.agentId, input.provider, input.kind,
+      input.target ?? null, input.target ?? null
+    );
+    return row ? asStr(row.id) : null;
+  }
+
+  /**
+   * Once a PROVISION row stores, retire the OTHER live provision rows for the
+   * same (agent, provider) — each surviving duplicate would mint a redundant
+   * provider-side key. No-op unless the kept row is itself a stored provision.
+   * Terminal 'revoked' status every reader's positive filter skips.
+   */
+  async cancelSiblingProvisions(ownerId: string, keptId: string): Promise<number> {
+    const res = await this.db.run(
+      `UPDATE pending_connections
+       SET status = 'revoked', resolved_at = ?, sealed_secret = ''
+       WHERE owner_id = ? AND kind = 'provision' AND status IN ('pending', 'processing') AND id != ?
+         AND (SELECT kind FROM pending_connections WHERE id = ?) = 'provision'
+         AND agent_id = (SELECT agent_id FROM pending_connections WHERE id = ?)
+         AND provider = (SELECT provider FROM pending_connections WHERE id = ?)`,
+      nowIsoString(), ownerId, keptId, keptId, keptId, keptId
+    );
+    return res.changes;
+  }
+
   async listPendingConnections(ownerId: string, status?: string): Promise<Array<{
     id: string; agent_id: string; provider: string; label: string | null;
     env_var: string | null; sealed_secret: string; kind: 'sealed' | 'provision' | 'rotate'; status: string;

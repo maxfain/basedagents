@@ -743,6 +743,22 @@ app.post('/connections', ownerSession, async (c) => {
       : 'that provider cannot be set up automatically yet');
   }
 
+  // Dedup the machine-serviced kinds: a second "Do it for me" (or Rotate)
+  // while one is already in flight returns the SAME row, so a daemon can't
+  // drain a backlog of duplicates — re-opening the browser and minting a
+  // redundant key each round (field-hit). Sealed pastes are never deduped:
+  // each carries its own freshly-sealed ciphertext.
+  if (kind === 'provision' || kind === 'rotate') {
+    const existing = await store.findLivePendingConnection({
+      ownerId,
+      agentId: parsed.data.agent_id,
+      provider: parsed.data.provider,
+      kind,
+      target: kind === 'rotate' ? parsed.data.rotate_credential_id ?? null : null,
+    });
+    if (existing) return c.json({ id: existing, status: 'pending' });
+  }
+
   const id = await store.createPendingConnection({
     ownerId,
     agentId: parsed.data.agent_id,
@@ -818,14 +834,19 @@ app.post('/daemon/connections/:id/resolve', daemonAuth, async (c) => {
   const parsed = ResolveConnectionSchema.safeParse(body);
   if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
 
-  const ok = await getStore(c).resolvePendingConnection({
+  const store = getStore(c);
+  const stored = Boolean(parsed.data.daemon_credential_id);
+  const ok = await store.resolvePendingConnection({
     id: c.req.param('id'),
     ownerId,
-    outcome: parsed.data.daemon_credential_id ? 'stored' : 'failed',
+    outcome: stored ? 'stored' : 'failed',
     daemonCredentialId: parsed.data.daemon_credential_id,
     failureReason: parsed.data.error,
   });
   if (!ok) return err(c, 404, 'not_found', 'connection not found or already resolved');
+  // A provision that stored makes its duplicate siblings redundant — each
+  // would mint another key. Retire them (no-op for sealed/rotate resolves).
+  if (stored) await store.cancelSiblingProvisions(ownerId, c.req.param('id'));
   return c.json({ ok: true });
 });
 
