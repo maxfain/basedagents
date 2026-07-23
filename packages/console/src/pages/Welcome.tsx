@@ -394,7 +394,13 @@ export default function Welcome() {
 
   return (
     <div className="page">
-      <h1>{agentName} is yours</h1>
+      {/* The kill switch lives on /home — the way there must never require
+          scrolling past onboarding (field-hit: "i don't know how to reach
+          the kill page"). Safety controls are findable from everywhere. */}
+      <div className="page-head">
+        <h1>{agentName} is yours</h1>
+        <Link className="btn btn-ghost" to="/home">Your agents →</Link>
+      </div>
       {state.planBlocked ? (
         <div className="banner banner-warn">
           Your plan already has {state.planBlocked.max} agents, so this one isn&rsquo;t active yet.{' '}
