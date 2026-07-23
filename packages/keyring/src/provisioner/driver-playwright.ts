@@ -20,6 +20,20 @@ import type { Driver, RecipeLocator } from './types.js';
 
 export const KEYRING_PROFILE_DIR = path.join(os.homedir(), '.basedagents', 'browser');
 
+export const PROFILE_BUSY_MESSAGE =
+  'Keyring\'s browser window from an earlier run is still open — its profile allows one window at a ' +
+  'time. Close the leftover "Chrome for Testing" (or Chrome/Edge) window Keyring opened, or run ' +
+  '`pkill -f "Chrome for Testing"`, then retry.';
+
+/** True when a launch failure means the persistent profile is held by another
+ *  live browser — retrying other channels is pointless, and "install Chrome"
+ *  would be actively wrong advice (field-hit: a leaked window from a failed
+ *  run produced exactly that message). */
+export function isProfileBusy(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /existing browser session|profile is already in use|SingletonLock|ProcessSingleton/i.test(msg);
+}
+
 export const NO_DISPLAY_MESSAGE =
   'The Keyring browser needs a visible window and there is no display here — this is normal inside ' +
   'cloud agent sandboxes. Connect flows run on the OWNER\'s computer: ask your human to run ' +
@@ -105,6 +119,9 @@ export class PlaywrightDriver implements Driver {
         });
         break;
       } catch (err) {
+        // Profile held by a live browser: every channel will fail the same
+        // way — stop immediately with the truthful remedy.
+        if (isProfileBusy(err)) throw new Error(PROFILE_BUSY_MESSAGE);
         lastErr = err;
       }
     }

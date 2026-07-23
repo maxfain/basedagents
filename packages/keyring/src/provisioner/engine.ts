@@ -92,49 +92,89 @@ export async function runRecipe(
   const transcript: Array<{ step: string; result: 'ok' | 'manual' }> = [];
   const captured = new Map<string, string>();
 
-  const abort = async (atStep: string | null, reason: string): Promise<RunOutcome> => {
-    try { await driver.close(); } catch { /* window already gone */ }
-    return { status: 'aborted', atStep, reason };
-  };
+  // Lifecycle invariant (field-hit): the window closes on EVERY exit — clean
+  // abort, completion, or a thrown step error — except fallback_paste, where
+  // the value is on the user's screen and closing would destroy it. The old
+  // shape closed per-path and a thrown Playwright timeout escaped with the
+  // window open, wedging the single-instance profile for every later run.
+  let leaveOpen = false;
+  let currentStepId: string | null = null;
+  try {
+    const domainGuard = async (context: string): Promise<string | null> => {
+      const url = await driver.currentUrl();
+      if (!hostAllowed(url, recipe.allowedDomains)) {
+        return `left the allowed domains (${context}) — aborting for safety`;
+      }
+      return null;
+    };
 
-  const domainGuard = async (context: string): Promise<string | null> => {
-    const url = await driver.currentUrl();
-    if (!hostAllowed(url, recipe.allowedDomains)) {
-      return `left the allowed domains (${context}) — aborting for safety`;
+    // ── Login checkpoint (§4): no steps run until a session exists. ──
+    hooks.info('Checking for an existing session…');
+    await driver.goto(recipe.login.url);
+    let loggedIn = await driver.exists(recipe.login.loggedInProbe, LOGIN_PROBE_TIMEOUT_MS);
+    let loginRounds = 0;
+    while (!loggedIn) {
+      if (++loginRounds > LOGIN_MAX_ROUNDS) return { status: 'aborted', atStep: null, reason: 'login was not completed' };
+      const choice = await hooks.login(recipe.login.loggedOutHint);
+      if (choice === 'abort') return { status: 'aborted', atStep: null, reason: 'cancelled at login' };
+      const guard = await domainGuard('after login');
+      if (guard) return { status: 'aborted', atStep: null, reason: guard };
+      loggedIn = await driver.exists(recipe.login.loggedInProbe, LOGIN_PROBE_TIMEOUT_MS);
     }
-    return null;
-  };
+    hooks.info('Session found — running the recipe.');
 
-  // ── Login checkpoint (§4): no steps run until a session exists. ──
-  hooks.info('Checking for an existing session…');
-  await driver.goto(recipe.login.url);
-  let loggedIn = await driver.exists(recipe.login.loggedInProbe, LOGIN_PROBE_TIMEOUT_MS);
-  let loginRounds = 0;
-  while (!loggedIn) {
-    if (++loginRounds > LOGIN_MAX_ROUNDS) return abort(null, 'login was not completed');
-    const choice = await hooks.login(recipe.login.loggedOutHint);
-    if (choice === 'abort') return abort(null, 'cancelled at login');
-    const guard = await domainGuard('after login');
-    if (guard) return abort(null, guard);
-    loggedIn = await driver.exists(recipe.login.loggedInProbe, LOGIN_PROBE_TIMEOUT_MS);
-  }
-  hooks.info('Session found — running the recipe.');
-
-  // ── Steps ──
-  for (const step of recipe.steps) {
-    const outcome = await runStep(step, driver, hooks, params, captured);
-    if (outcome === 'aborted') return abort(step.id, 'cancelled at checkpoint');
-    if (outcome === 'fallback_paste') {
-      // Window intentionally left OPEN — the value is on the user's screen.
-      return { status: 'fallback_paste', atStep: step.id, transcript };
+    // ── Steps ──
+    for (const step of recipe.steps) {
+      currentStepId = step.id;
+      const outcome = await runStep(step, driver, hooks, params, captured);
+      if (outcome === 'aborted') return { status: 'aborted', atStep: step.id, reason: 'cancelled at checkpoint' };
+      if (outcome === 'fallback_paste') {
+        // Window intentionally left OPEN — the value is on the user's screen.
+        leaveOpen = true;
+        return { status: 'fallback_paste', atStep: step.id, transcript };
+      }
+      transcript.push({ step: step.id, result: outcome });
+      const guard = await domainGuard(`after step ${step.id}`);
+      if (guard) return { status: 'aborted', atStep: step.id, reason: guard };
     }
-    transcript.push({ step: step.id, result: outcome });
-    const guard = await domainGuard(`after step ${step.id}`);
-    if (guard) return abort(step.id, guard);
-  }
 
-  await driver.close();
-  return { status: 'completed', captured, transcript };
+    return { status: 'completed', captured, transcript };
+  } catch (err) {
+    // A thrown driver error (typically a Playwright timeout waiting for an
+    // element or a navigation) becomes a plain-words abort — raw automation
+    // internals must never reach a console card or a terminal user.
+    return { status: 'aborted', atStep: currentStepId, reason: plainStepFailure(err, currentStepId) };
+  } finally {
+    if (!leaveOpen) {
+      try { await driver.close(); } catch { /* window already gone */ }
+    }
+  }
+}
+
+/** Strip ANSI escape sequences (Playwright colors its call logs). */
+export function stripAnsi(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\u001b?\[[0-9;]*m/g, '');
+}
+
+/**
+ * Plain words for a thrown step error. The overwhelmingly common case is a
+ * timeout because the page never reached the state the recipe expects — which
+ * for bootstrap recipes almost always means the sign-in in the window was
+ * never finished (field-hit: a GitHub OAuth page sat waiting for a human
+ * while the engine waited for the token form).
+ */
+export function plainStepFailure(err: unknown, stepId: string | null): string {
+  const raw = stripAnsi(err instanceof Error ? err.message : String(err));
+  if (/timeout.*exceeded|waiting for/i.test(raw)) {
+    return (
+      'the page never showed what Keyring was waiting for' +
+      (stepId ? ` (step: ${stepId})` : '') +
+      ' — usually the sign-in in the browser window was not finished. Try again and complete the sign-in there.'
+    );
+  }
+  // Unknown failure: keep it short and colour-free; the first line carries the gist.
+  return raw.split('\n')[0].slice(0, 300);
 }
 
 async function runStep(

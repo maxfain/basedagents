@@ -8,6 +8,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the provisioner browser never leaks, and its failures speak plainly (`@basedagents/keyring` 0.6.7 + `basedagents` 0.6.8)
+
+Field-hit chain, one failed "Do it for me" long: the Vercel bootstrap
+timed out waiting for the token form (the sign-in in the window — a
+GitHub OAuth page — was never finished), the thrown Playwright timeout
+escaped the engine WITH THE WINDOW STILL OPEN, the single-instance
+profile stayed locked, and the next interactive `connect vercel` failed
+with the actively-wrong advice "No usable browser found. Install Google
+Chrome…". Meanwhile the console card displayed raw
+`locator.fill: Timeout 10000ms exceeded [2m…` internals.
+
+- **The window closes on every exit.** `runRecipe` owns the browser in a
+  try/finally: clean abort, completion, or a thrown step error all close
+  it. The one deliberate exception stays: `fallback_paste` leaves the
+  window open because the minted value is on the user's screen.
+- **Thrown step errors map to plain words** — a timeout becomes "the page
+  never showed what Keyring was waiting for (step: …) — usually the
+  sign-in in the browser window was not finished. Try again and complete
+  the sign-in there."
+- **A held profile is named truthfully.** Launch failures matching
+  "Opening in existing browser session"/"profile is already in use" stop
+  the channel fallback immediately and say: close Keyring's leftover
+  browser window (or `pkill -f "Chrome for Testing"`), then retry —
+  never "install Chrome".
+- **Nothing raw reaches a console card.** Every failure reason the daemon
+  reports (provision, rotate, sealed) passes through one scrubber: ANSI
+  codes stripped (they survive JSON as bare `[2m` markers), first line
+  only, bounded length.
+
 ### Fixed — the deploy pipeline: E2E outbox race + rate-limit cascade blocked two releases (CI only)
 
 The kill-switch fixes below sat undeployed: the Passkey E2E job failed
