@@ -11,7 +11,8 @@ import * as path from 'node:path';
 import { Keyring, KeyringError } from '../keyring.js';
 import { generateKeypair } from '../crypto.js';
 import { publicKeyToAgentId } from '../util.js';
-import { hostAllowed, runRecipe } from './engine.js';
+import { hostAllowed, runRecipe, stripAnsi, plainStepFailure } from './engine.js';
+import { isProfileBusy, PROFILE_BUSY_MESSAGE } from './driver-playwright.js';
 import { vercelBootstrapRecipe } from './recipes/vercel.js';
 import { VercelApi, VercelApiError } from './vercel-api.js';
 import { connectVercel, burnVercelTokensForAgent, PROV_LABEL } from './connect.js';
@@ -177,6 +178,53 @@ describe('recipe engine', () => {
     if (out.status !== 'aborted') return;
     expect(out.reason).toContain('left the allowed domains');
     expect(driver.closed).toBe(true);
+  });
+
+  it('a THROWN step error closes the window and maps to plain words (field-hit: fill timeout during pending OAuth)', async () => {
+    // The exact field shape: the sign-in never finished, the page sat on
+    // GitHub's OAuth screen, and fill() threw a Playwright timeout with an
+    // ANSI-coloured call log. The old engine let it escape — window leaked,
+    // profile wedged, raw internals on the console card.
+    class ThrowingDriver extends FakeDriver {
+      async fill(): Promise<void> {
+        throw new Error(
+          'locator.fill: Timeout 10000ms exceeded.\nCall log:\n[2m  - waiting for getByRole(\'textbox\', { name: \'Token name\' }).first()[22m',
+        );
+      }
+    }
+    const driver = new ThrowingDriver({ captureValue: SECRET });
+    const out = await runRecipe(vercelBootstrapRecipe, async () => driver, autoHooks(), { token_name: 'x', expiration_label: '90 Days' }, []);
+    expect(out.status).toBe('aborted');
+    if (out.status !== 'aborted') return;
+    expect(driver.closed).toBe(true); // the leak
+    expect(out.reason).toContain('sign-in in the browser window');
+    expect(out.reason).not.toContain('locator.fill'); // no automation internals
+    expect(out.reason).not.toContain('[2m'); // no colour codes
+  });
+
+  it('fallback_paste is the ONE exit that leaves the window open — the value is on screen', async () => {
+    const driver = new FakeDriver({ missing: ['the created token value'], captureValue: '' });
+    const out = await runRecipe(vercelBootstrapRecipe, async () => driver, autoHooks(), { token_name: 'x', expiration_label: '90 Days' }, []);
+    expect(out.status).toBe('fallback_paste');
+    expect(driver.closed).toBe(false);
+  });
+
+  it('stripAnsi + plainStepFailure: colour codes die with or without the ESC byte', () => {
+    expect(stripAnsi('a [2mdim[22m b')).toBe('a dim b');
+    expect(stripAnsi('bare [2mmarkers[22m survive the JSON trip')).toBe('bare markers survive the JSON trip');
+    const mapped = plainStepFailure(new Error('page.goto: Timeout 30000ms exceeded.'), 'open-tokens');
+    expect(mapped).toContain('step: open-tokens');
+    expect(mapped).toContain('sign-in');
+    // Non-timeout errors: first line only, colour-free, bounded.
+    const other = plainStepFailure(new Error('[31mboom[0m\nsecond line'), null);
+    expect(other).toBe('boom');
+  });
+
+  it('isProfileBusy: a held profile is named truthfully, never "install Chrome"', () => {
+    expect(isProfileBusy(new Error('browserType.launchPersistentContext: Opening in existing browser session.'))).toBe(true);
+    expect(isProfileBusy(new Error('The profile is already in use by another instance of Chromium'))).toBe(true);
+    expect(isProfileBusy(new Error("browserType.launch: Executable doesn't exist"))).toBe(false);
+    expect(PROFILE_BUSY_MESSAGE).toContain('earlier run is still open');
   });
 
   it('refuses a tampered recipe whose steps navigate off-allowlist — before consent', async () => {

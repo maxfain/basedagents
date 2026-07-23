@@ -11,6 +11,7 @@
 
 import * as fs from 'node:fs';
 import { Keyring, KeyringError } from '../keyring.js';
+import { stripAnsi } from '../provisioner/engine.js';
 import type { KillOutcome } from './grants.js';
 import { openSealedBox, sealToPublicKey } from '../crypto.js';
 import { base58Decode } from '../util.js';
@@ -151,9 +152,20 @@ const defaultProvisionRunner: ProvisionRunner = async (keyring, agentId, provide
   return { credentialId: result.credential.credential_id };
 };
 
+/**
+ * Console-facing reasons — plain words, no jargon, and NEVER raw automation
+ * internals: ANSI codes stripped (Playwright colours its call logs and the
+ * escapes survive the JSON trip as bare `[2m` markers — field-hit on a card),
+ * first line only, bounded length.
+ */
+function consoleReason(err: unknown): string {
+  const raw = stripAnsi(err instanceof Error ? err.message : String(err));
+  return raw.split('\n')[0].slice(0, 300);
+}
+
 /** Console-facing reasons for provision failures — plain words, no jargon. */
 function provisionFailureReason(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
+  const raw = consoleReason(err);
   if (/unknown identity|unknown agent/i.test(raw)) {
     return 'That agent is not set up on this computer — run the setup command here first.';
   }
@@ -222,7 +234,7 @@ export async function processConnections(
         await client.resolveConnection(conn.id, { daemonCredentialId: conn.daemon_credential_id });
         console.log(`✓ ${display}: key rotated — the old one is gone at the provider.`);
       } catch (err) {
-        const reason = err instanceof Error ? err.message : String(err);
+        const reason = consoleReason(err);
         console.log(`✗ ${display}: ${reason}`);
         try {
           await client.resolveConnection(conn.id, { error: reason });
@@ -277,7 +289,7 @@ export async function processConnections(
       pendingResolves.delete(conn.id);
       console.log(`✓ ${display} connected → ${shortAgentId(conn.agent_id)} (${check.detail})`);
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
+      const reason = consoleReason(err);
       // Only report a failure if nothing was stored (validation/open error). If
       // the store already happened, pendingResolves holds it for a resolve-only
       // retry — do not overwrite a real credential with a 'failed' card.
