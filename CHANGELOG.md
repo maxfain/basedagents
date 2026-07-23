@@ -8,6 +8,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — "Do it for me" dedups; no daemon backlog, no redundant key mints (control plane; deploy-only)
+
+Field-hit: a `sync --watch` daemon drained a backlog of duplicate Supabase
+`provision` rows (one per "Do it for me" click across the session),
+re-opening the browser each round — and once a provisioning token existed,
+each surviving duplicate would have minted its own redundant per-project
+key.
+
+- **Dedup at creation.** `POST /connections` for a machine-serviced kind
+  (`provision`/`rotate`) returns the id of an already-in-flight row for the
+  same target instead of queuing another — provision keyed on
+  (agent, provider), rotate on (agent, provider, target credential). Sealed
+  pastes are never deduped (each carries its own ciphertext).
+- **Sibling retirement on success.** When a provision stores, other live
+  provision rows for the same (agent, provider) are retired to `revoked`
+  (ciphertext blanked) — so no daemon mints a second key for work already
+  done. No-op for sealed/rotate resolves.
+
 ### Fixed — a "Do it for me" card can't spin forever when no daemon is running (control plane + console; deploy-only)
 
 Field-hit: both Welcome connect cards sat on "Working on your machine…"
