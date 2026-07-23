@@ -193,11 +193,23 @@ a green `npm run lint` covered console changes.
 
 ## Releasing
 
-### The version lives in three places
+### The version lives in ONE place — package.json
 
-`packages/keyring/package.json`, `src/cli/index.ts` (`VERSION` — what
-`based --version` prints), and `src/mcp/index.ts` (`VERSION` — what the MCP
-server reports). Bump all three or ship a CLI that lies about itself.
+`src/version.ts` reads it at runtime (`createRequire('../package.json')`),
+and the CLI/MCP `VERSION` constants import from there. Bump
+`packages/keyring/package.json` and you're done. (It used to live in three
+places and shipped lying about itself once — don't reintroduce a copy.)
+
+### Publish the sdk with EVERY keyring publish — its version is the npx cache key
+
+`npx basedagents@latest` re-resolves only the **sdk's** version. If that
+version hasn't moved, npx reuses the cached tree wholesale — including
+whatever keyring version was installed inside it back then. Keyring 0.6.3
+shipped alone and every warm cache kept serving keyring 0.6.2 with no error
+anywhere (field-hit 2026-07; SANDBOX_SPEC §2b has the full story). So every
+keyring publish is a **pair**: bump the sdk a patch, raise its
+`@basedagents/keyring` range to pin the new version, publish keyring first
+(the sdk's `prepublishOnly` build needs it on the registry), then the sdk.
 
 ### Publish from anywhere, but with credentials
 

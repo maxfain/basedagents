@@ -908,6 +908,42 @@ describe('connect cards: sealed in the browser, resolved by the daemon', () => {
     expect(after.connections[0].daemon_credential_id).toBe('cred_sb_9');
   });
 
+  it('an abandoned claim expires to failed on the next read — never an eternal spinner', async () => {
+    const idn = await newInitIdentity();
+    const { code } = (await (await post('/v1/owner/link', await linkBody(idn, 'CC'))).json()) as { code: string };
+    await post(`/v1/owner/link/${code}/claim`, { email: 'reaper@example.com' });
+    const cookie = sessionCookie(await post('/v1/owner/claim/finish', { token: lastMagicToken() }));
+
+    // Two rotations: one whose daemon dies mid-work, one claimed just now.
+    const mk = async (target: string) => ((await (await post('/v1/owner/connections', {
+      agent_id: idn.agentId, provider: 'vercel', kind: 'rotate', label: 'Vercel', rotate_credential_id: target,
+    }, cookie)).json()) as { id: string }).id;
+    const staleId = await mk('cred_dead');
+    const freshId = await mk('cred_live');
+    for (const id of [staleId, freshId]) {
+      const claim = (await (await daemonRequest(idn, 'POST', `/v1/owner/daemon/connections/${id}/claim`)).json()) as { claimed: boolean };
+      expect(claim.claimed).toBe(true);
+    }
+    // The claim stamped resolved_at; backdate the dead daemon's past the window.
+    rawDb.prepare(`UPDATE pending_connections SET resolved_at = ? WHERE id = ?`)
+      .run(new Date(Date.now() - 20 * 60 * 1000).toISOString(), staleId);
+
+    // The console's next poll reaps the stale claim only — plain-words reason,
+    // target preserved so the failure pins to the right key.
+    const mine = (await (await get('/v1/owner/connections', cookie)).json()) as { connections: Array<Record<string, unknown>> };
+    const stale = mine.connections.find((r) => r.id === staleId)!;
+    const fresh = mine.connections.find((r) => r.id === freshId)!;
+    expect(stale.status).toBe('failed');
+    expect(stale.failure_reason).toContain('Try again');
+    expect(stale.daemon_credential_id).toBe('cred_dead');
+    expect(fresh.status).toBe('processing');
+
+    // A daemon that finally wakes up cannot resurrect the reaped row.
+    expect((await daemonRequest(idn, 'POST', `/v1/owner/daemon/connections/${staleId}/resolve`, {
+      daemon_credential_id: 'cred_dead',
+    })).status).toBe(404);
+  });
+
   it('cloud passport: handoff is ciphertext-only and one-shot; shelf gates on a fulfilled passport', async () => {
     const idn = await newInitIdentity();
     const { code } = (await (await post('/v1/owner/link', await linkBody(idn, 'CC'))).json()) as { code: string };

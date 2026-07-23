@@ -139,6 +139,19 @@ Design rules, field-tested (in both directions):
   next skew), and the wrapper's dependency range must be bumped WITH each
   keyring minor (`^0.5.0` silently excluded 0.6.0) — the sdk pins
   `^0.6.0` as of 0.6.4.
+- **Wall-4 variant: `@latest` only busts the cache when the OUTER version
+  moves (field-hit 2026-07).** Keyring 0.6.3 published alone; the sdk stayed
+  0.6.4. `npx basedagents@latest` re-resolved the sdk to… 0.6.4, found that
+  exact version already cached, and reused the whole tree — **including the
+  keyring 0.6.2 installed inside it when 0.6.4 was first fetched**. The
+  daemon then silently lacked a feature the console was already offering
+  (rotate rows), with no error anywhere: the server withholds row kinds a
+  daemon doesn't request, by design. The sdk's version string is the npx
+  cache key for the entire tree, so the rule tightens from "bump the range
+  with each minor" to: **publish an sdk patch with every keyring publish,
+  raising the pinned range** (GOTCHAS.md → Releasing). Escape hatch when a
+  cache is already poisoned: `npx @basedagents/keyring@latest <cmd>` — the
+  keyring's own spec always re-resolves to the newest keyring.
 - **"Start a new task" must survive the relay.** Fixing the environment does not
   revive the current dead task; without this step the human retries in place and
   loops on the 403.

@@ -81,7 +81,8 @@ Servers:
   admin [--port <n>]                    Local admin UI (Ctrl-C to stop)
   mcp                                   MCP server on stdio (for agents)
   link [--api <url>] [--yes]            Anchor your console passkey(s) as owner authority
-  sync [--api <url>] [--watch <secs>]   Apply owner-approved grants from the control plane
+  sync [--api <url>] [--watch [secs]]   Apply owner-approved grants from the control plane
+                                        (bare --watch polls every 5s)
 
 Global options:
   --dir <path>       Vault directory (default: $BASEDAGENTS_KEYRING_DIR or ~/.basedagents/keyring)

@@ -1256,6 +1256,32 @@ export class ControlStore {
     return res.changes === 1;
   }
 
+  /**
+   * Reap claims that went quiet. Claiming stamps resolved_at, so a
+   * 'processing' row whose stamp is older than the window belongs to a daemon
+   * that died mid-work (one-shot sync killed, crash, lost network) — without
+   * this, the console spins forever on a connection nothing will ever finish.
+   * Flip it to failed with a plain-words reason so the human can just retry.
+   * Lazy: runs on the read paths (console poll, daemon pull) — no cron.
+   * A daemon that is merely SLOW keeps working locally; its late resolve
+   * finds the row already failed and reports false, which is the honest
+   * outcome for work nobody could observe for this long.
+   */
+  async expireStaleProcessing(ownerId: string, olderThanMs = 15 * 60 * 1000): Promise<number> {
+    const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+    const res = await this.db.run(
+      `UPDATE pending_connections
+       SET status = 'failed',
+           failure_reason = 'This started on your computer but never finished — it may have been interrupted. Try again.',
+           resolved_at = ?
+       WHERE owner_id = ? AND status = 'processing' AND resolved_at < ?`,
+      nowIsoString(),
+      ownerId,
+      cutoff
+    );
+    return res.changes;
+  }
+
   /** Daemon resolution — ATOMIC single transition out of pending/processing. */
   async resolvePendingConnection(input: {
     id: string;

@@ -136,7 +136,7 @@ The agent keypair comes from `BASEDAGENTS_KEYPAIR_PATH` (JSON: `{ "public_key_b5
 | `based admin [--port]` | Start the local admin UI |
 | `based mcp` | Run the MCP server (same as `basedagents-keyring-mcp`) |
 | `based link [--api url] [--yes]` | Anchor your hosted-console passkey(s) as the local authority root — you confirm the fingerprints |
-| `based sync [--api url] [--watch s]` | Pull console-approved grants, re-verify each against the anchored passkey, seal, and confirm back |
+| `based sync [--api url] [--watch [s]]` | Pull console-approved grants, re-verify each against the anchored passkey, seal, and confirm back (bare `--watch` polls every 5s) |
 
 Every command accepts `--dir` to point at a non-default vault.
 
@@ -199,7 +199,7 @@ Daily loop:
 # In the console: delegate your agent (Agents tab), then approve its requests
 # (Approvals tab) with your passkey.
 based sync                       # pull approved grants, verify, seal, confirm
-based sync --watch 30            # or keep a loop running
+based sync --watch               # or keep a loop running (polls every 5s)
 ```
 
 What makes this safe (`CONTROL_PLANE.md` has the full authority model):

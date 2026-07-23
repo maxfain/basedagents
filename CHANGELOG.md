@@ -8,6 +8,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — bare `--watch` just works; abandoned daemon claims stop spinning forever (`@basedagents/keyring` 0.6.4 + `basedagents` 0.6.5 + control plane)
+
+Two field hits from the first console-initiated rotation, plus the publish
+rule that let them compound:
+
+- **`based sync --watch` (no value) now polls every 5s** instead of dying
+  with `Option --watch requires a value` — bare `--watch` is a reasonable
+  thing to type, and the error taught nobody what kind of value it wanted.
+  `parseFlags` grows an `optionalValue` flag class (a following `--flag`
+  is never swallowed as the value); an explicit `--watch 30` still works,
+  and a bad value now says what it takes and names the default.
+- **The control plane reaps abandoned claims.** A daemon that claimed a
+  connection (pending → processing) and then died — killed one-shot, crash,
+  lost network — stranded the row in `processing` forever: the daemon pull
+  only serves `pending`, so nothing would ever finish it and the console
+  span forever on "Rotating…". Claims already stamp `resolved_at`; both
+  read paths (console poll, daemon pull) now lazily flip `processing` rows
+  older than 15 minutes to `failed` with a plain-words reason ("This
+  started on your computer but never finished — it may have been
+  interrupted. Try again."), keeping the target id so the failure pins to
+  the right key. A daemon that wakes up later cannot resurrect a reaped
+  row (resolve 404s, same as any settled row).
+- **`basedagents` 0.6.5 pins `@basedagents/keyring@^0.6.4` — and the sdk
+  now ships with EVERY keyring publish.** Keyring 0.6.3 published alone;
+  `npx basedagents@latest` re-resolved the sdk to the unchanged 0.6.4,
+  found it cached, and reused the whole tree — including the keyring 0.6.2
+  inside it. The daemon then silently lacked rotate support while the
+  console offered the button (the server withholds row kinds a daemon
+  doesn't request — by design). The sdk's version string is the npx cache
+  key for the entire tree: publishing the pair is now the rule
+  (GOTCHAS.md → Releasing; SANDBOX_SPEC §2b records the wall-4 variant).
+
 ### Fixed — Supabase 429 bursts retry with backoff; the canary sweeps its strays (`@basedagents/keyring` 0.6.3)
 
 First live Supabase canary run: three greens — the documented-flow API

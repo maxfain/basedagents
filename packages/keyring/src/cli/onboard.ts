@@ -316,7 +316,7 @@ export async function cmdInit(args: string[], dir: string | undefined): Promise<
     }
 
     console.log('');
-    console.log(`  Pull new approvals anytime with:  based sync --watch 30`);
+    console.log(`  Pull new approvals anytime with:  based sync --watch`);
     console.log(`  Cut it all off anytime:           based kill "${agentName}"`);
     if (!mcpConfigured) {
       console.log('');
