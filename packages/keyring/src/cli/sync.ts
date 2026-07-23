@@ -109,24 +109,33 @@ function daemonEngineHooks(): EngineHooks {
 }
 
 /** Runs the Provisioner for one agent; injected so tests never need a browser. */
-export type ProvisionRunner = (keyring: Keyring, agentId: string) => Promise<{ credentialId: string }>;
+export type ProvisionRunner = (keyring: Keyring, agentId: string, provider: string) => Promise<{ credentialId: string }>;
 
-const defaultProvisionRunner: ProvisionRunner = async (keyring, agentId) => {
-  const { connectVercel } = await import('../provisioner/connect.js');
-  const result = await connectVercel(
-    {
-      kr: keyring,
-      owner: keyring.ownerKeypair(),
-      hooks: daemonEngineHooks(),
-      launchDriver: async () => {
-        const { PlaywrightDriver } = await import('../provisioner/driver-playwright.js');
-        return PlaywrightDriver.launch();
-      },
-      // Assisted paste needs a human at THIS terminal — there isn't one.
-      pasteFallback: async () => null,
+/** Providers the daemon can provision on this machine (the console's "Do it for me"). */
+export const PROVISIONABLE = ['vercel', 'supabase'];
+
+const defaultProvisionRunner: ProvisionRunner = async (keyring, agentId, provider) => {
+  const deps = {
+    kr: keyring,
+    owner: keyring.ownerKeypair(),
+    hooks: daemonEngineHooks(),
+    launchDriver: async () => {
+      const { PlaywrightDriver } = await import('../provisioner/driver-playwright.js');
+      return PlaywrightDriver.launch();
     },
-    { agentRef: agentId, agentName: keyring.vault().identities[agentId]?.name },
-  );
+    // Assisted paste needs a human at THIS terminal — there isn't one.
+    pasteFallback: async () => null,
+  };
+  const opts = { agentRef: agentId, agentName: keyring.vault().identities[agentId]?.name };
+  if (provider === 'supabase') {
+    // No --project in a daemon run: the sole project auto-picks; multi-project
+    // accounts fail with the roster, which the console shows as the reason.
+    const { connectSupabase } = await import('../provisioner/connect-supabase.js');
+    const result = await connectSupabase(deps, opts);
+    return { credentialId: result.credential.credential_id };
+  }
+  const { connectVercel } = await import('../provisioner/connect.js');
+  const result = await connectVercel(deps, opts);
   return { credentialId: result.credential.credential_id };
 };
 
@@ -191,11 +200,11 @@ export async function processConnections(
     // of opening a sealed paste. Same exactly-once dance as the sealed path.
     if (conn.kind === 'provision') {
       try {
-        if (conn.provider !== 'vercel') {
+        if (!PROVISIONABLE.includes(conn.provider)) {
           throw new Error(`automatic setup for "${conn.provider}" is not available yet — paste a token on the card instead`);
         }
         console.log(`▶ ${display}: automatic setup for ${shortAgentId(conn.agent_id)} — a browser window may open here (first time only)…`);
-        const { credentialId } = await provision(keyring, conn.agent_id);
+        const { credentialId } = await provision(keyring, conn.agent_id, conn.provider);
         pendingResolves.set(conn.id, credentialId);
         await client.resolveConnection(conn.id, { daemonCredentialId: credentialId });
         pendingResolves.delete(conn.id);

@@ -1,18 +1,20 @@
 /**
  * based connect <provider> — the Provisioner front door (spec §3).
  *
- * v1 provider: vercel. Consent-first, window always visible, checkpoint
- * handoffs instead of crashes, assisted-paste as the floor. Where it cannot
- * run (no display — cloud sandboxes), it says exactly what to do instead.
+ * Providers: vercel, supabase. Consent-first, window always visible,
+ * checkpoint handoffs instead of crashes, assisted-paste as the floor. Where
+ * it cannot run (no display — cloud sandboxes), it says exactly what to do
+ * instead.
  */
 
 import { Keyring } from '../keyring.js';
 import { CliError, parseFlags } from './shared.js';
 import { confirm, promptHidden } from './prompt.js';
 import { connectVercel } from '../provisioner/connect.js';
+import { connectSupabase } from '../provisioner/connect-supabase.js';
 import type { EngineHooks } from '../provisioner/types.js';
 
-const PROVIDERS = ['vercel'];
+const PROVIDERS = ['vercel', 'supabase'];
 
 function cliHooks(): EngineHooks {
   return {
@@ -40,10 +42,13 @@ function cliHooks(): EngineHooks {
 }
 
 export async function cmdConnect(args: string[], dir: string | undefined): Promise<void> {
-  const flags = parseFlags(args, { value: ['agent', 'days'] });
+  const flags = parseFlags(args, { value: ['agent', 'days', 'project'] });
   const provider = flags.positional[0];
   if (!provider || !PROVIDERS.includes(provider)) {
-    throw new CliError(`Usage: based connect <${PROVIDERS.join('|')}> [--agent <ref>] [--days <n>]`);
+    throw new CliError(`Usage: based connect <${PROVIDERS.join('|')}> [--agent <ref>] [--days <n>] [--project <ref>]`);
+  }
+  if (flags.values['project'] && provider !== 'supabase') {
+    throw new CliError('--project applies to supabase only (which project to mint the key for).');
   }
 
   if (!process.stdin.isTTY) {
@@ -82,33 +87,38 @@ export async function cmdConnect(args: string[], dir: string | undefined): Promi
     throw new CliError('--days must be between 1 and 365');
   }
 
-  const result = await connectVercel(
-    {
-      kr,
-      owner,
-      hooks: cliHooks(),
-      launchDriver: async () => {
-        const { PlaywrightDriver } = await import('../provisioner/driver-playwright.js');
-        return PlaywrightDriver.launch();
-      },
-      pasteFallback: async (message) => {
-        console.log('');
-        console.log(`  ${message}`);
-        console.log('  (If NO token is visible — creation may have failed — just press Enter to cancel; nothing is saved, and re-running is safe.)');
-        const v = await promptHidden('  Paste token, or Enter to cancel (input hidden): ');
-        return v.trim() || null;
-      },
+  const deps = {
+    kr,
+    owner,
+    hooks: cliHooks(),
+    launchDriver: async () => {
+      const { PlaywrightDriver } = await import('../provisioner/driver-playwright.js');
+      return PlaywrightDriver.launch();
     },
-    { agentRef, agentName, expiryDays: days }
-  );
+    pasteFallback: async (message: string) => {
+      console.log('');
+      console.log(`  ${message}`);
+      console.log('  (If NO token is visible — creation may have failed — just press Enter to cancel; nothing is saved, and re-running is safe.)');
+      const v = await promptHidden('  Paste token, or Enter to cancel (input hidden): ');
+      return v.trim() || null;
+    },
+  };
+
+  const result = provider === 'supabase'
+    ? await connectSupabase(deps, { agentRef, agentName, expiryDays: days, projectRef: flags.values['project'] })
+    : await connectVercel(deps, { agentRef, agentName, expiryDays: days });
 
   console.log('');
   console.log('✓ Connected.');
-  console.log(`  Token     ${result.tokenName}`);
+  console.log(`  Key       ${result.tokenName}`);
   console.log(`  For       ${agentName} (${result.agentId})`);
   console.log(`  Reach     ${result.scope}`);
-  console.log(`  Expires   ${result.expiresAt}`);
+  console.log(`  Expires   ${result.expiresAt}${provider === 'supabase' ? ' (the grant — Supabase keys have no provider-side expiry; the kill switch burns by id)' : ''}`);
   console.log(`  Vaulted   ${result.credential.credential_id} · grant ${result.grantId}`);
+  if (provider === 'supabase') {
+    const s = result as Awaited<ReturnType<typeof connectSupabase>>;
+    console.log(`  Project   ${s.projectRef} — set SUPABASE_URL=${s.projectUrl} beside the key (the URL is not a secret).`);
+  }
   console.log(result.browserRan
     ? '  The browser ran once to set up provisioning — future connects are API-only, ~10 seconds.'
     : '  No browser needed — minted via the API with your provisioning token.');

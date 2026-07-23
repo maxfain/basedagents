@@ -8,6 +8,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the Supabase provisioner: per-project keys, burnable by id (`@basedagents/keyring` 0.6.2 + console)
+
+Supabase joins Vercel as a first-class `connect` provider — same
+bootstrap-then-API shape, adapted to Supabase's account→projects→keys
+topology:
+
+- **Bootstrap (browser, once per account).** A new recipe mints ONE personal
+  access token (`sbp_…`) at the dashboard's Access Tokens page — the
+  provisioning credential, held by the owner, never grantable. Recipe v1 is
+  written from the documented flow and checkpoint-armored rather than
+  field-verified; the new weekly canary (`scripts/canary-supabase.mjs` +
+  workflow, Mondays 06:30 UTC) watches for drift in both the API contract
+  and the page entry assumptions.
+- **Per-agent keys via the management API.** Each `connect supabase` mints a
+  NEW-style secret key (`sb_secret_…`) named `ba_<agent>_<hex>` for ONE
+  project — auto-picked when the account has exactly one, `--project <ref>`
+  otherwise (the error carries the roster). Secret keys are individually
+  deletable: the kill switch burns them by id (`provider_team` doubles as
+  the project ref — the burn address). Projects still on legacy JWT keys
+  degrade to the shared `service_role` key with the honesty on the card
+  ("shared, revoke = rotate in the dashboard") and burn reports
+  "revoke only".
+- **Two honesty notes, recorded not hidden**: Supabase PATs and secret keys
+  never expire — the grant carries our own expiry leash and the CLI says so;
+  and the PAT itself has no management-API burn, so its rotation policy
+  points at the dashboard.
+- **Console.** The Supabase card gains "Do it for me" (daemon-run
+  provisioning, same as Vercel), and its paste path now asks for the
+  project `service_role` key (eyJ…) — fixing a latent mismatch where the
+  card told users to paste the `sbp_` account token that the daemon-side
+  preset (Custody Fix 3) then refused. `based sync` dispatches provision
+  runs by provider.
+- **CLI.** `connect <vercel|supabase> [--project <ref>]`; the connect output
+  prints the project URL beside the key (`SUPABASE_URL` is not a secret).
+
+Covered by 10 new provisioner tests (API contract, first-connect bootstrap,
+API-only second connect, multi-project roster + `--project` by ref or name,
+legacy degradation, kill-switch burn by id, PAT never auto-burned, cancelled
+paste saves nothing, non-`sbp_` capture skips the doomed verify, no secret
+in any event or hook line).
+
 ### Fixed — re-claims pre-address to the account, mismatches fail fast, tabs know when they're stale (control plane + console + `@basedagents/keyring` 0.6.1)
 
 Field report: a user whose vault was claimed under email A came back through

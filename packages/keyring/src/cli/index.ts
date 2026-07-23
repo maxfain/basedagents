@@ -42,9 +42,9 @@ Vault:
   verify-log                            Verify the log's hash chain + signatures
 
 Credentials:
-  connect <provider> [--agent <ref>] [--days <n>]
+  connect <provider> [--agent <ref>] [--days <n>] [--project <ref>]
                                         Mint a scoped token for an agent — browser once to
-                                        set up provisioning, then API-only (v1: vercel)
+                                        set up provisioning, then API-only (vercel, supabase)
   add <label> [--provider <p>] [--env <VAR>] [--scope <s>] [--rotation <note>]
               [--provider-key-id <id>] [--value <secret>]
                                         Add a secret (--value, piped stdin, or hidden prompt)

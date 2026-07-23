@@ -49,15 +49,26 @@ export const PROVIDER_CARDS: ProviderCard[] = [
   {
     id: 'supabase',
     label: 'Supabase',
-    envVar: 'SUPABASE_ACCESS_TOKEN',
-    tokenUrl: 'https://supabase.com/dashboard/account/tokens',
+    // Paste path stores the PROJECT service_role key (a JWT) — the daemon-side
+    // preset refuses account-wide sbp_ tokens (Custody Fix 3). The automatic
+    // path mints a per-project secret key instead, burnable by id.
+    envVar: 'SUPABASE_SERVICE_ROLE_KEY',
+    tokenUrl: 'https://supabase.com/dashboard/project/_/settings/api',
     steps: [
-      'Click "Generate new token" on the page that just opened',
-      'Name it  ba-claude-code',
-      'Copy the token (starts with sbp_) and paste it below',
+      'On the page that just opened, find "Project API keys"',
+      'Reveal the  service_role  key for the project your agent works on',
+      'Copy it (a long eyJ… value) and paste it below',
     ],
-    placeholder: 'sbp_…',
-    looksValid: (t) => t.trim().startsWith('sbp_') && t.trim().length >= 20,
-    hint: 'Supabase access tokens start with sbp_.',
+    placeholder: 'eyJ…',
+    looksValid: (t) => t.trim().startsWith('eyJ') && t.trim().length >= 40,
+    hint: 'Use the project service_role key (starts with eyJ), not your account token (sbp_…).',
+    automatic: {
+      command: 'npx basedagents keyring connect supabase',
+      blurb:
+        'Keyring can do this by itself on the computer where your agent lives: '
+        + 'the first time, a browser window opens there — you sign in if asked and watch it work. '
+        + 'It then mints a key scoped to one project, revocable on its own. After that, no window at all.',
+      remote: true,
+    },
   },
 ];
