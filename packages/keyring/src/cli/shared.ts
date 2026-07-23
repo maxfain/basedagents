@@ -32,10 +32,20 @@ export interface ParsedFlags {
  * Tiny argv parser: `--flag value` for flags listed in `spec.value`, bare
  * `--flag` for flags in `spec.switch`, everything after `--` into `rest`.
  * Unknown `--flags` are an error so typos never pass silently.
+ *
+ * `spec.optionalValue` flags accept a value but don't demand one: with a
+ * following non-flag argument they land in `values`, bare (or right before
+ * another `--flag`) they land in `switches` and the command picks its default.
+ * Field-hit: bare `--watch` is a reasonable thing to type, and "requires a
+ * value" taught nobody what kind of value.
  */
-export function parseFlags(args: string[], spec: { value?: string[]; switch?: string[] } = {}): ParsedFlags {
+export function parseFlags(
+  args: string[],
+  spec: { value?: string[]; switch?: string[]; optionalValue?: string[] } = {},
+): ParsedFlags {
   const valueFlags = new Set(spec.value ?? []);
   const switchFlags = new Set(spec.switch ?? []);
+  const optionalValueFlags = new Set(spec.optionalValue ?? []);
   const parsed: ParsedFlags = { positional: [], values: {}, switches: new Set(), rest: [] };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -50,6 +60,14 @@ export function parseFlags(args: string[], spec: { value?: string[]; switch?: st
         if (value === undefined) throw new CliError(`Option --${name} requires a value`);
         parsed.values[name] = value;
         i++;
+      } else if (optionalValueFlags.has(name)) {
+        const value = args[i + 1];
+        if (value === undefined || value.startsWith('--')) {
+          parsed.switches.add(name);
+        } else {
+          parsed.values[name] = value;
+          i++;
+        }
       } else if (switchFlags.has(name)) {
         parsed.switches.add(name);
       } else {

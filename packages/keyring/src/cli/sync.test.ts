@@ -10,7 +10,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Keyring } from '../keyring.js';
-import { processConnections } from './sync.js';
+import { processConnections, watchSecondsFrom, DEFAULT_WATCH_SECONDS } from './sync.js';
+import { parseFlags, CliError } from './shared.js';
 import type { ControlClient, RemoteConnection } from './control-client.js';
 
 function fakeClient(rows: RemoteConnection[]) {
@@ -133,5 +134,38 @@ describe('based sync — provision-kind connections (console Connect button)', (
     // The sealed path fails on the bogus ciphertext and reports sealed-style.
     expect(calls.resolves).toHaveLength(1);
     expect((calls.resolves[0].result as { error?: string }).error).toBeTruthy();
+  });
+});
+
+describe('sync --watch flag (field-hit: bare --watch must not error)', () => {
+  const SPEC = { value: ['api'], optionalValue: ['watch'] };
+
+  it('bare --watch parses as a switch and defaults the interval', () => {
+    const flags = parseFlags(['--watch'], SPEC);
+    expect(flags.switches.has('watch')).toBe(true);
+    expect(watchSecondsFrom(flags)).toBe(DEFAULT_WATCH_SECONDS);
+  });
+
+  it('--watch before another --flag stays bare instead of swallowing the flag', () => {
+    const flags = parseFlags(['--watch', '--api', 'https://x.test'], SPEC);
+    expect(flags.switches.has('watch')).toBe(true);
+    expect(flags.values['api']).toBe('https://x.test');
+    expect(watchSecondsFrom(flags)).toBe(DEFAULT_WATCH_SECONDS);
+  });
+
+  it('--watch 30 still takes the explicit interval', () => {
+    expect(watchSecondsFrom(parseFlags(['--watch', '30'], SPEC))).toBe(30);
+  });
+
+  it('absent --watch stays one-shot (undefined)', () => {
+    expect(watchSecondsFrom(parseFlags([], SPEC))).toBeUndefined();
+  });
+
+  it('a non-numeric or sub-1 interval fails with the seconds hint', () => {
+    for (const bad of ['abc', '0']) {
+      expect(() => watchSecondsFrom(parseFlags(['--watch', bad], SPEC))).toThrowError(
+        expect.objectContaining({ name: 'CliError', message: expect.stringContaining('seconds') }) as unknown as CliError,
+      );
+    }
   });
 });

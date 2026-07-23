@@ -341,16 +341,28 @@ export async function depositShelf(keyring: Keyring, client: ControlClient): Pro
   }
 }
 
+/** Bare `--watch` polls at this interval — matches the console's own poll rate. */
+export const DEFAULT_WATCH_SECONDS = 5;
+
+/** `--watch 30` → 30; bare `--watch` → the default; absent → undefined (one-shot). */
+export function watchSecondsFrom(flags: { values: Record<string, string>; switches: Set<string> }): number | undefined {
+  if (flags.values['watch'] !== undefined) {
+    const n = Number(flags.values['watch']);
+    if (!Number.isFinite(n) || n < 1) {
+      throw new CliError(`--watch takes a poll interval in seconds ≥ 1 (bare --watch uses ${DEFAULT_WATCH_SECONDS})`);
+    }
+    return n;
+  }
+  return flags.switches.has('watch') ? DEFAULT_WATCH_SECONDS : undefined;
+}
+
 export async function cmdSync(args: string[], dir: string | undefined): Promise<void> {
-  const flags = parseFlags(args, { value: ['api', 'watch'] });
+  const flags = parseFlags(args, { value: ['api'], optionalValue: ['watch'] });
   const keyring = Keyring.open(dir);
   const owner = keyring.ownerKeypair();
   const client = new ControlClient(owner, apiFrom(flags));
 
-  const watchSeconds = flags.values['watch'] !== undefined ? Number(flags.values['watch']) : undefined;
-  if (watchSeconds !== undefined && (!Number.isFinite(watchSeconds) || watchSeconds < 1)) {
-    throw new CliError('--watch requires a number of seconds ≥ 1');
-  }
+  const watchSeconds = watchSecondsFrom(flags);
 
   const runOnce = async (quiet: boolean): Promise<void> => {
     const touched = await processConnections(keyring, client);

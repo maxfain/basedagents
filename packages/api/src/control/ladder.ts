@@ -756,6 +756,9 @@ app.post('/connections', ownerSession, async (c) => {
 
 app.get('/connections', ownerSession, async (c) => {
   const store = getStore(c);
+  // Reap abandoned claims first — the console must never spin forever on a
+  // row whose daemon died mid-work (store.expireStaleProcessing).
+  await store.expireStaleProcessing(getOwnerId(c));
   const rows = await store.listPendingConnections(getOwnerId(c));
   // Never echo ciphertext back to the browser — status only. The daemon
   // credential id is metadata (an opaque local id), and the console needs it
@@ -773,6 +776,7 @@ app.get('/connections', ownerSession, async (c) => {
 
 app.get('/daemon/connections', daemonAuth, async (c) => {
   const store = getStore(c);
+  await store.expireStaleProcessing(getOwnerId(c));
   const rows = await store.listPendingConnections(getOwnerId(c), 'pending');
   // Non-sealed rows only go to daemons that ask for that kind by name
   // (?include=provision,rotate) — an older daemon must never receive a row
