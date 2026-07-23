@@ -8,6 +8,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the kill switch kills server-side too: no ghost chips, no post-kill re-grants (control plane + console)
+
+Field-hit, minutes after reviving a killed agent: its claim page said
+"Vercel ✓ Connected / Supabase ✓ Connected" and Home would say "Can use:
+Vercel" — rows the kill never touched, describing access the kill had
+destroyed. Worse, hiding underneath: a pre-kill approval still
+`pending_daemon` would have been served to the daemon AFTER its local kill
+ran, quietly re-granting access the owner had just cut off.
+
+`store.revokeDelegation` now retires the agent's server-side work in the
+same call — no caller can forget it:
+
+- `keyring_requests` pending/approved → `'revoked'` (chips and asks die;
+  Home's activity line reads "Cut off" for them),
+- `grant_approvals` pending_daemon → `'cancelled'` (the daemon can never
+  be handed a post-kill grant),
+- `pending_connections` pending/processing/stored → `'revoked'`, sealed
+  ciphertext blanked at rest.
+
+Terminal statuses every reader's positive filter skips — a revived agent
+starts with an honest empty hand and asks again. No daemon change needed;
+deploy-only.
+
 ### Fixed — the console kill switch gets its local half: daemon-executed kill + honest confirmation (`@basedagents/keyring` 0.6.6 + `basedagents` 0.6.7 + control plane + console)
 
 Field-test: kill switch pressed in the console, then the desktop agent

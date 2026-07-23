@@ -1656,7 +1656,42 @@ export class ControlStore {
     );
     const row = await this.getDelegationByRowId(input.delegationId);
     if (!row) throw new Error(`revokeDelegation: delegation ${input.delegationId} not found`);
+    // The kill must actually kill, server-side too (field-hit: a revived agent
+    // showed "Can use: Vercel" chips fed by rows the kill never touched, and a
+    // pre-kill approval would have been served to the daemon AFTER its local
+    // kill ran — re-granting access to an agent the owner just cut off).
+    // Retiring rides the revoke itself so no caller can forget it.
+    await this.retireAgentWork(row.owner_id, row.agent_id);
     return row;
+  }
+
+  /**
+   * Retire every server-side row that could keep a killed agent looking — or
+   * becoming — connected: open/approved asks (fed the "Can use" chips),
+   * daemon-bound approvals (would apply a grant after the kill), and
+   * connect-card rows in any live state (fed the chips and the daemon queue).
+   * Terminal statuses ('revoked' / 'cancelled') that every reader's positive
+   * filter simply skips. A revived agent starts with an honest empty hand.
+   */
+  async retireAgentWork(ownerId: string, agentId: string): Promise<{ requests: number; approvals: number; connections: number }> {
+    const now = nowIsoString();
+    const requests = await this.db.run(
+      `UPDATE keyring_requests SET status = 'revoked', decided_at = COALESCE(decided_at, ?)
+       WHERE owner_id = ? AND agent_id = ? AND status IN ('pending', 'approved')`,
+      now, ownerId, agentId
+    );
+    const approvals = await this.db.run(
+      `UPDATE grant_approvals SET status = 'cancelled'
+       WHERE owner_id = ? AND agent_id = ? AND status = 'pending_daemon'`,
+      ownerId, agentId
+    );
+    const connections = await this.db.run(
+      `UPDATE pending_connections
+       SET status = 'revoked', resolved_at = ?, sealed_secret = ''
+       WHERE owner_id = ? AND agent_id = ? AND status IN ('pending', 'processing', 'stored')`,
+      now, ownerId, agentId
+    );
+    return { requests: requests.changes, approvals: approvals.changes, connections: connections.changes };
   }
 
   // ── Agents (open registry — read-only cross-reference) ──

@@ -345,7 +345,7 @@ export default function Home() {
                     <ul className="mini-activity">
                       {activity.map((r) => (
                         <li key={r.id} className="muted">
-                          {r.status === 'approved' ? 'Allowed' : 'Declined'}{' '}
+                          {r.status === 'approved' ? 'Allowed' : r.status === 'revoked' ? 'Cut off' : 'Declined'}{' '}
                           {r.credential_label ?? r.credential_id} ·{' '}
                           {new Date(r.decided_at ?? r.created_at).toLocaleString()}
                         </li>
