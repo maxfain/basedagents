@@ -49,6 +49,7 @@
  *                                   → owner reads via GET /credential-facts
  *     GET  /daemon/revocations      revoked delegations awaiting the local kill
  *     POST /daemon/revocations/:id/confirm   counts-only kill report
+ *     POST /daemon/connections/mirror  local grants → console-visible rows
  */
 import { Hono } from 'hono';
 import type { Context } from 'hono';
@@ -821,6 +822,37 @@ app.get('/daemon/connections', daemonAuth, async (c) => {
 app.post('/daemon/connections/:id/claim', daemonAuth, async (c) => {
   const claimed = await getStore(c).claimPendingConnection(c.req.param('id'), getOwnerId(c));
   return c.json({ claimed });
+});
+
+// The daemon mirrors its real local grants so the console reflects terminal
+// connects (`keyring connect`/`grant`), not only console-initiated ones.
+// Metadata only — agent, provider, label, opaque local id; never a value.
+const MirrorSchema = z.object({
+  connections: z.array(z.object({
+    agent_id: z.string().min(1).max(200),
+    provider: z.string().min(1).max(50),
+    label: z.string().min(1).max(200),
+    daemon_credential_id: z.string().min(1).max(200),
+  })).max(200),
+});
+
+app.post('/daemon/connections/mirror', daemonAuth, async (c) => {
+  let body: unknown;
+  try { body = await parseJson(c); } catch { return err(c, 400, 'bad_request', 'invalid JSON body'); }
+  const parsed = MirrorSchema.safeParse(body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
+  // Only mirror grants for agents the owner has actually delegated to — a
+  // stray agent_id must never conjure a console card.
+  const store = getStore(c);
+  const delegated = new Set((await store.listDelegationsByOwner(getOwnerId(c)))
+    .filter((d) => d.status === 'active').map((d) => d.agent_id));
+  const created = await store.mirrorStoredConnections(
+    getOwnerId(c),
+    parsed.data.connections
+      .filter((e) => delegated.has(e.agent_id))
+      .map((e) => ({ agentId: e.agent_id, provider: e.provider, label: e.label, daemonCredentialId: e.daemon_credential_id })),
+  );
+  return c.json({ ok: true, created });
 });
 
 app.post('/daemon/connections/:id/resolve', daemonAuth, async (c) => {

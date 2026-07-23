@@ -437,6 +437,49 @@ export function credentialFactsFrom(keyring: Keyring): Array<{ id: string; provi
   }));
 }
 
+/**
+ * The agent↔credential grants this machine actually holds, shaped for the
+ * console mirror: one entry per (active grant → non-provisioner credential).
+ * This is what makes a terminal `keyring connect` (or `grant`) show up in the
+ * console — the console only ever saw console-initiated connections before
+ * (field-hit: a `connect supabase --project` worked but /welcome kept
+ * offering "Do it for me"). Metadata only; no secret leaves.
+ */
+export function mirrorEntriesFrom(keyring: Keyring): Array<{
+  agent_id: string; provider: string; label: string; daemon_credential_id: string;
+}> {
+  const out: Array<{ agent_id: string; provider: string; label: string; daemon_credential_id: string }> = [];
+  for (const c of keyring.credentialsView()) {
+    if (c.provisioner) continue; // internal minting token — never an agent holding
+    for (const h of c.holders) {
+      if (h.status !== 'active') continue;
+      out.push({
+        agent_id: h.agent_id,
+        provider: c.provider ?? '',
+        label: c.label ?? c.provider ?? 'credential',
+        daemon_credential_id: c.credential_id,
+      });
+    }
+  }
+  return out.slice(0, 200); // server caps the batch; real vaults hold a handful
+}
+
+/** Last successfully mirrored grant set (per process) — report only on change. */
+let lastMirrored = '';
+
+/** Mirror local grants to the console when they changed since the last success. */
+export async function mirrorLocalGrants(keyring: Keyring, client: ControlClient): Promise<void> {
+  const entries = mirrorEntriesFrom(keyring);
+  const fingerprint = JSON.stringify(entries);
+  if (fingerprint === lastMirrored) return;
+  try {
+    await client.mirrorConnections(entries);
+    lastMirrored = fingerprint; // only a delivered mirror counts
+  } catch {
+    /* transient — the stale fingerprint forces a retry next round */
+  }
+}
+
 /** Last successfully reported facts (per process) — report only on change. */
 let lastReportedFacts = '';
 
@@ -492,8 +535,10 @@ export async function cmdSync(args: string[], dir: string | undefined): Promise<
     const touched = await processConnections(keyring, client);
     if (touched > 0 && !quiet) console.log('');
     // After connections (stores/rotations change the facts), before the wait:
-    // the console learns which keys its per-key actions really work on.
+    // the console learns which keys its per-key actions really work on, and
+    // which grants this machine holds (so terminal connects show up too).
     await reportCredentialFacts(keyring, client);
+    await mirrorLocalGrants(keyring, client);
     await processPassportHandoffs(keyring, client);
     const approvals = await client.getApprovals();
     if (approvals.length === 0) {
