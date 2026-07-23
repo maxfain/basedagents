@@ -17,6 +17,7 @@ import {
 import { parseFlags, CliError } from './shared.js';
 import { generateKeypair } from '../crypto.js';
 import { publicKeyToAgentId } from '../util.js';
+import { removeCredentialForAgent } from './grants.js';
 import type { ControlClient, RemoteConnection } from './control-client.js';
 import type { KillOutcome } from './grants.js';
 
@@ -124,6 +125,36 @@ describe('based sync — provision-kind connections (console Connect button)', (
     });
     expect(providers).toEqual(['supabase']);
     expect(calls.resolves[0].result).toEqual({ daemonCredentialId: 'cred_sb' });
+  });
+
+  it('remove rows run the remove runner against the row (credential, agent) and resolve with the credential', async () => {
+    const kr = await vault();
+    const { client, calls } = fakeClient([
+      provisionRow('pcx_rm', { kind: 'remove', provider: 'vercel', label: 'Vercel', daemon_credential_id: 'cred_v1', agent_id: 'ag_TestAgent' }),
+    ]);
+    const removed: Array<{ cred: string; agent: string }> = [];
+    await processConnections(
+      kr, client,
+      async () => ({ credentialId: 'never' }),
+      async () => {}, // rotate
+      async (_kr, credentialId, agentId) => { removed.push({ cred: credentialId, agent: agentId }); return { keptForOthers: false, removedFromVault: true, burned: null }; },
+    );
+    expect(removed).toEqual([{ cred: 'cred_v1', agent: 'ag_TestAgent' }]);
+    expect(calls.resolves[0].result).toEqual({ daemonCredentialId: 'cred_v1' });
+  });
+
+  it('a failed removal resolves with the plain-words reason', async () => {
+    const kr = await vault();
+    const { client, calls } = fakeClient([
+      provisionRow('pcx_rmfail', { kind: 'remove', provider: 'vercel', label: 'Vercel', daemon_credential_id: 'cred_v9' }),
+    ]);
+    await processConnections(
+      kr, client,
+      async () => ({ credentialId: 'never' }),
+      async () => {},
+      async () => { throw new Error('vault locked by another process'); },
+    );
+    expect((calls.resolves[0].result as { error: string }).error).toContain('vault locked');
   });
 
   it('never routes a sealed row through the provisioner', async () => {
@@ -341,5 +372,48 @@ describe('mirror local grants — a terminal connect must show up in the console
     await kr.createGrant(owner, c2.credential_id, agentId, {});
     await mirrorLocalGrants(kr, client); // changed — mirrored again
     expect(sent).toHaveLength(2);
+  });
+});
+
+describe('removeCredentialForAgent — the per-key counterpart to the kill switch', () => {
+  it('last holder: revokes the grant and drops the credential from the vault', async () => {
+    const kr = await vault();
+    const owner = kr.ownerKeypair();
+    const agent = await generateKeypair();
+    const agentId = publicKeyToAgentId(agent.publicKey);
+    await kr.addIdentity(owner, agentId, { name: 'a' });
+    // A pasted (non-vercel/supabase) key so the burn helpers are a no-op — no network.
+    const cred = await kr.addCredential(owner, { label: 'Stripe', provider: 'stripe' }, 'sk_live_x');
+    await kr.createGrant(owner, cred.credential_id, agentId, {});
+
+    const out = await removeCredentialForAgent(kr, cred.credential_id, agentId);
+    expect(out).toMatchObject({ revoked: true, removedFromVault: true, keptForOthers: false, burned: null });
+    // Gone from the vault entirely.
+    expect(kr.credentialsView().some((c) => c.credential_id === cred.credential_id)).toBe(false);
+  });
+
+  it('shared key: revokes only this agent, leaves the key for the other holder', async () => {
+    const kr = await vault();
+    const owner = kr.ownerKeypair();
+    const a1 = publicKeyToAgentId((await generateKeypair()).publicKey);
+    const a2 = publicKeyToAgentId((await generateKeypair()).publicKey);
+    await kr.addIdentity(owner, a1, { name: 'a1' });
+    await kr.addIdentity(owner, a2, { name: 'a2' });
+    const cred = await kr.addCredential(owner, { label: 'Shared', provider: 'stripe' }, 'sk_live_y');
+    await kr.createGrant(owner, cred.credential_id, a1, {});
+    await kr.createGrant(owner, cred.credential_id, a2, {});
+
+    const out = await removeCredentialForAgent(kr, cred.credential_id, a1);
+    expect(out).toMatchObject({ revoked: true, keptForOthers: true, removedFromVault: false });
+    // Still in the vault; a2 still holds it actively.
+    const view = kr.credentialsView().find((c) => c.credential_id === cred.credential_id)!;
+    expect(view.holders.filter((h) => h.status === 'active').map((h) => h.agent_id)).toEqual([a2]);
+  });
+
+  it('refuses to remove the provisioning token', async () => {
+    const kr = await vault();
+    const owner = kr.ownerKeypair();
+    const prov = await kr.addCredential(owner, { label: 'Vercel PAT', provider: 'vercel', provisioner: true }, 'pat');
+    await expect(removeCredentialForAgent(kr, prov.credential_id, 'ag_whatever')).rejects.toThrow(/provisioning token/);
   });
 });

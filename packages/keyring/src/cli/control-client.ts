@@ -144,11 +144,11 @@ export class ControlClient {
    */
   async getConnections(): Promise<RemoteConnection[]> {
     const r = await this.signedFetch<{ connections: Array<RemoteConnection & { kind?: string }> }>(
-      'GET', '/v1/owner/daemon/connections', undefined, '?include=provision,rotate',
+      'GET', '/v1/owner/daemon/connections', undefined, '?include=provision,rotate,remove',
     );
     return r.connections.map((c) => ({
       ...c,
-      kind: c.kind === 'provision' || c.kind === 'rotate' ? c.kind : 'sealed',
+      kind: c.kind === 'provision' || c.kind === 'rotate' || c.kind === 'remove' ? c.kind : 'sealed',
     }));
   }
 
@@ -253,11 +253,11 @@ export interface RemoteConnection {
   provider: string;
   label: string | null;
   env_var: string | null;
-  /** base64 sealed box → the vault owner key; opened locally, never logged. '' for kinds 'provision'/'rotate'. */
+  /** base64 sealed box → the vault owner key; opened locally, never logged. '' for kinds 'provision'/'rotate'/'remove'. */
   sealed_secret: string;
-  /** 'sealed' = open + store the ciphertext; 'provision' = mint the token here; 'rotate' = replace a minted key in place. */
-  kind: 'sealed' | 'provision' | 'rotate';
-  /** kind 'rotate': the local credential id to rotate (set when the row was created). */
+  /** 'sealed' = open + store the ciphertext; 'provision' = mint here; 'rotate' = replace a minted key in place; 'remove' = revoke + burn + drop. */
+  kind: 'sealed' | 'provision' | 'rotate' | 'remove';
+  /** kinds 'rotate'/'remove': the local credential id to act on (set when the row was created). */
   daemon_credential_id?: string | null;
   created_at: string;
 }

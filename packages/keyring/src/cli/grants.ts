@@ -103,6 +103,76 @@ export async function executeKill(kr: Keyring, agentRef: string, reason?: string
   };
 }
 
+/** What removing ONE key from ONE agent did — the CLI prints it, the daemon reports it. */
+export interface RemoveOutcome {
+  credentialId: string;
+  label: string;
+  /** The (agent, credential) grant was revoked. */
+  revoked: boolean;
+  /** Provider-side burn result when this was the LAST holder of a minted key; null otherwise. */
+  burned: string | null;
+  /** The credential was dropped from the vault (last holder). */
+  removedFromVault: boolean;
+  /** Other agents still hold this credential, so the key was left alive for them. */
+  keptForOthers: boolean;
+}
+
+/**
+ * Remove ONE credential from ONE agent — the per-key counterpart to the kill
+ * switch (which cuts an agent off from everything). Revoke that agent's grant;
+ * if no active holder remains, burn the minted provider key by id (Provisioner
+ * §6 — a revoked grant blocks leases but the token lives at the provider until
+ * burned) and drop the credential from the vault. If OTHER agents still hold
+ * it, only this grant is revoked — a shared key is never burned out from under
+ * them. Shared by `based remove` and the console's Remove button, so the two
+ * can never drift.
+ */
+export async function removeCredentialForAgent(
+  kr: Keyring,
+  credentialRef: string,
+  agentId: string,
+): Promise<RemoveOutcome> {
+  const owner = kr.ownerKeypair();
+  const view = kr.credentialsView().find((c) => c.credential_id === credentialRef);
+  if (!view) {
+    return { credentialId: credentialRef, label: credentialRef, revoked: false, burned: null, removedFromVault: false, keptForOthers: false };
+  }
+  if (view.provisioner) {
+    throw new Error('That is the provisioning token, not an agent key — reconnect the provider to replace it, don\'t remove it here.');
+  }
+
+  const grant = view.holders.find((h) => h.agent_id === agentId && h.status === 'active');
+  let revoked = false;
+  if (grant) {
+    await kr.revokeGrant(owner, grant.grant_id, 'removed from console');
+    revoked = true;
+  }
+
+  // Re-read: are there still active holders after this revoke?
+  const after = kr.credentialsView().find((c) => c.credential_id === credentialRef);
+  const keptForOthers = (after?.holders ?? []).some((h) => h.status === 'active');
+  if (keptForOthers) {
+    return { credentialId: credentialRef, label: view.label, revoked, burned: null, removedFromVault: false, keptForOthers: true };
+  }
+
+  // Last holder gone — burn the minted key (if any) and drop it from the vault.
+  const { burnVercelTokensForAgent } = await import('../provisioner/connect.js');
+  const { burnSupabaseKeysForAgent } = await import('../provisioner/connect-supabase.js');
+  const burns = [
+    ...(await burnVercelTokensForAgent({ kr, owner }, [credentialRef])),
+    ...(await burnSupabaseKeysForAgent({ kr, owner }, [credentialRef])),
+  ];
+  await kr.removeCredential(owner, credentialRef);
+  return {
+    credentialId: credentialRef,
+    label: view.label,
+    revoked,
+    burned: burns[0]?.result ?? null,
+    removedFromVault: true,
+    keptForOthers: false,
+  };
+}
+
 export async function cmdKill(args: string[], dir: string | undefined): Promise<void> {
   const flags = parseFlags(args, { value: ['reason'] });
   const agentRef = flags.positional[0];

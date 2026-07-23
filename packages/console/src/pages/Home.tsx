@@ -96,7 +96,7 @@ export default function Home() {
   // to done/failed — the whole operation is usually a few seconds of API calls.
   useEffect(() => {
     const inFlight = connections.some(
-      (c) => c.kind === 'rotate' && (c.status === 'pending' || c.status === 'processing'),
+      (c) => (c.kind === 'rotate' || c.kind === 'remove') && (c.status === 'pending' || c.status === 'processing'),
     );
     if (!inFlight) return;
     const timer = setInterval(() => void load(), 4000);
@@ -177,6 +177,33 @@ export default function Home() {
     }
   }
 
+  async function onRemove(
+    d: Delegation,
+    h: { label: string; provider: string; localId: string | null },
+  ): Promise<void> {
+    if (!h.localId) return;
+    const name = agentDisplayName(d);
+    if (!window.confirm(
+      `Remove ${h.label} from ${name}? Your machine cuts off this one key — it stops working for ${name}, and if nothing else uses it, it's destroyed at ${h.provider || 'the provider'}. Everything else stays.`,
+    )) return;
+    setBusy(`remove-${h.localId}`);
+    setError(null);
+    try {
+      await control.createConnection({
+        agent_id: d.agent_id,
+        provider: h.provider,
+        label: h.label,
+        kind: 'remove',
+        rotate_credential_id: h.localId,
+      });
+      await load();
+    } catch (err) {
+      setError(errText(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function onKill(d: Delegation): Promise<void> {
     if (!owner) return;
     const name = agentDisplayName(d);
@@ -235,12 +262,12 @@ export default function Home() {
           {agents.map((d) => {
             const asking = requests.filter((r) => r.agent_id === d.agent_id && r.status === 'pending');
             // Everything this agent can use, with enough metadata to offer
-            // per-key rotation: stored rows carry the machine-local id they
-            // created; approved asks carry theirs. Rotate rows are operations
-            // on an existing key, never holdings themselves.
+            // per-key rotation/removal: stored rows carry the machine-local id
+            // they created; approved asks carry theirs. Rotate/remove rows are
+            // operations on an existing key, never holdings themselves.
             const holdings = [
               ...connections
-                .filter((c) => c.agent_id === d.agent_id && c.status === 'stored' && c.kind !== 'rotate')
+                .filter((c) => c.agent_id === d.agent_id && c.status === 'stored' && c.kind !== 'rotate' && c.kind !== 'remove')
                 .map((c) => ({
                   key: `conn-${c.id}`,
                   label: c.label ?? c.provider,
@@ -261,6 +288,13 @@ export default function Home() {
               localId === null
                 ? undefined
                 : rotations
+                    .filter((c) => c.daemon_credential_id === localId)
+                    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
+            const removals = connections.filter((c) => c.agent_id === d.agent_id && c.kind === 'remove');
+            const removalFor = (localId: string | null) =>
+              localId === null
+                ? undefined
+                : removals
                     .filter((c) => c.daemon_credential_id === localId)
                     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
             const activity = requests
@@ -320,19 +354,37 @@ export default function Home() {
                         const rotatable = h.localId !== null
                           && (h.provider === 'vercel' || h.provider === 'supabase')
                           && fact?.rotatable !== false;
+                        // Remove works for ANY key with a machine-local id —
+                        // minted or pasted (pasted just revokes + drops).
+                        const rem = removalFor(h.localId);
+                        const removing = rem !== undefined && (rem.status === 'pending' || rem.status === 'processing');
+                        const removable = h.localId !== null;
+                        const acting = rotating || removing;
                         return (
                           <span key={h.key} className="chip">
                             Can use: {h.label}
                             {rotatable && (
                               <button
                                 className="chip-action"
-                                disabled={busy !== null || rotating}
+                                disabled={busy !== null || acting}
                                 title={rot?.status === 'failed'
                                   ? (rot.failure_reason ?? 'The last rotation failed.')
                                   : 'Mint a fresh key and destroy the old one'}
                                 onClick={() => void onRotate(d, h)}
                               >
                                 {rotating ? 'Rotating…' : rot?.status === 'failed' ? 'Rotate ⚠' : 'Rotate'}
+                              </button>
+                            )}
+                            {removable && (
+                              <button
+                                className="chip-action chip-action-danger"
+                                disabled={busy !== null || acting}
+                                title={rem?.status === 'failed'
+                                  ? (rem.failure_reason ?? 'The last removal failed.')
+                                  : 'Revoke this one key, and destroy it at the provider if nothing else uses it'}
+                                onClick={() => void onRemove(d, h)}
+                              >
+                                {removing ? 'Removing…' : rem?.status === 'failed' ? 'Remove ⚠' : 'Remove'}
                               </button>
                             )}
                           </span>

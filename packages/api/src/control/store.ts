@@ -1194,10 +1194,10 @@ export class ControlStore {
     provider: string;
     label?: string;
     envVar?: string;
-    /** '' for kinds 'provision'/'rotate' — no secret is ever in flight for those rows. */
+    /** '' for kinds 'provision'/'rotate'/'remove' — no secret is ever in flight for those rows. */
     sealedSecret: string;
-    kind?: 'sealed' | 'provision' | 'rotate';
-    /** kind 'rotate': the daemon credential to rotate — set at BIRTH, not resolve. */
+    kind?: 'sealed' | 'provision' | 'rotate' | 'remove';
+    /** kinds 'rotate'/'remove': the daemon credential to act on — set at BIRTH, not resolve. */
     daemonCredentialId?: string;
   }): Promise<string> {
     const id = randomId('pcx_');
@@ -1262,6 +1262,26 @@ export class ControlStore {
   }
 
   /**
+   * When a 'remove' operation resolves, retire the CHIP it removed: the
+   * stored/live row for the same (agent, credential). This is what makes the
+   * console chip disappear after a per-key Remove. No-op unless the kept row
+   * is itself a 'remove' (so a normal resolve never retires a real holding).
+   */
+  async retireChipsForRemovedKey(ownerId: string, removeRowId: string): Promise<number> {
+    const res = await this.db.run(
+      `UPDATE pending_connections
+       SET status = 'revoked', resolved_at = ?, sealed_secret = ''
+       WHERE owner_id = ? AND id != ? AND kind != 'remove'
+         AND status IN ('stored', 'pending', 'processing')
+         AND (SELECT kind FROM pending_connections WHERE id = ?) = 'remove'
+         AND agent_id = (SELECT agent_id FROM pending_connections WHERE id = ?)
+         AND daemon_credential_id = (SELECT daemon_credential_id FROM pending_connections WHERE id = ?)`,
+      nowIsoString(), ownerId, removeRowId, removeRowId, removeRowId, removeRowId
+    );
+    return res.changes;
+  }
+
+  /**
    * Mirror the machine's real local grants into console-visible rows so the
    * console reflects terminal `keyring connect`/`grant`, not only
    * console-initiated connections (field-hit). Each entry becomes a 'stored'
@@ -1300,7 +1320,7 @@ export class ControlStore {
 
   async listPendingConnections(ownerId: string, status?: string): Promise<Array<{
     id: string; agent_id: string; provider: string; label: string | null;
-    env_var: string | null; sealed_secret: string; kind: 'sealed' | 'provision' | 'rotate'; status: string;
+    env_var: string | null; sealed_secret: string; kind: 'sealed' | 'provision' | 'rotate' | 'remove'; status: string;
     failure_reason: string | null; daemon_credential_id: string | null; created_at: string;
   }>> {
     const rows = status
@@ -1316,7 +1336,7 @@ export class ControlStore {
       sealed_secret: asStr(r.sealed_secret),
       // Preserve every kind faithfully — collapsing an unknown kind to
       // 'sealed' would hand a secretless row to a daemon's sealed path.
-      kind: (['provision', 'rotate'].includes(asStr(r.kind)) ? asStr(r.kind) : 'sealed') as 'sealed' | 'provision' | 'rotate',
+      kind: (['provision', 'rotate', 'remove'].includes(asStr(r.kind)) ? asStr(r.kind) : 'sealed') as 'sealed' | 'provision' | 'rotate' | 'remove',
       status: asStr(r.status),
       failure_reason: asNullableStr(r.failure_reason),
       daemon_credential_id: asNullableStr(r.daemon_credential_id),

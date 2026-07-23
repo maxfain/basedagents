@@ -152,11 +152,12 @@ export const control = {
   },
   createConnection(input: {
     agent_id: string; provider: string; label?: string; env_var?: string;
-    /** Required for kind 'sealed' (the default); absent for kinds 'provision'/'rotate'. */
+    /** Required for kind 'sealed' (the default); absent for kinds 'provision'/'rotate'/'remove'. */
     sealed_secret?: string;
-    /** 'provision' asks the machine where the agent lives to mint the token itself;
-     *  'rotate' asks it to replace one minted key in place (rotate_credential_id). */
-    kind?: 'sealed' | 'provision' | 'rotate';
+    /** 'provision' asks the machine to mint the token itself; 'rotate' asks it to
+     *  replace one minted key in place; 'remove' asks it to revoke + burn + drop
+     *  one key. rotate_credential_id names the target for rotate/remove. */
+    kind?: 'sealed' | 'provision' | 'rotate' | 'remove';
     rotate_credential_id?: string;
   }): Promise<{ id: string; status: string }> {
     return request('POST', '/connections', input);

@@ -124,6 +124,17 @@ const defaultRotateRunner: RotateRunner = async (keyring, credentialId) => {
   );
 };
 
+/** Removes one credential from one agent; injected so tests never burn. */
+export type RemoveRunner = (keyring: Keyring, credentialId: string, agentId: string) => Promise<{
+  keptForOthers: boolean; removedFromVault: boolean; burned: string | null;
+}>;
+
+const defaultRemoveRunner: RemoveRunner = async (keyring, credentialId, agentId) => {
+  const { removeCredentialForAgent } = await import('./grants.js');
+  const out = await removeCredentialForAgent(keyring, credentialId, agentId);
+  return { keptForOthers: out.keptForOthers, removedFromVault: out.removedFromVault, burned: out.burned };
+};
+
 /** Providers the daemon can provision on this machine (the console's "Do it for me"). */
 export const PROVISIONABLE = ['vercel', 'supabase'];
 
@@ -194,6 +205,7 @@ export async function processConnections(
   client: ControlClient,
   provision: ProvisionRunner = defaultProvisionRunner,
   rotate: RotateRunner = defaultRotateRunner,
+  remove: RemoveRunner = defaultRemoveRunner,
 ): Promise<number> {
   const owner = keyring.ownerKeypair();
 
@@ -233,6 +245,28 @@ export async function processConnections(
         await rotate(keyring, conn.daemon_credential_id);
         await client.resolveConnection(conn.id, { daemonCredentialId: conn.daemon_credential_id });
         console.log(`✓ ${display}: key rotated — the old one is gone at the provider.`);
+      } catch (err) {
+        const reason = consoleReason(err);
+        console.log(`✗ ${display}: ${reason}`);
+        try {
+          await client.resolveConnection(conn.id, { error: reason });
+        } catch { /* reported next round */ }
+      }
+      continue;
+    }
+
+    // Console-initiated removal: cut ONE key from ONE agent (per-key kill
+    // switch). Same exactly-once claim; a resolved 'remove' tells the server to
+    // retire the chip. burn/drop happen locally when this was the last holder.
+    if (conn.kind === 'remove') {
+      try {
+        if (!conn.daemon_credential_id) throw new Error('remove row carries no credential id');
+        console.log(`▶ ${display}: removing the key from ${shortAgentId(conn.agent_id)}…`);
+        const out = await remove(keyring, conn.daemon_credential_id, conn.agent_id);
+        await client.resolveConnection(conn.id, { daemonCredentialId: conn.daemon_credential_id });
+        console.log(out.keptForOthers
+          ? `✓ ${display}: access revoked for this agent (other agents still hold the key).`
+          : `✓ ${display}: removed — access revoked${out.removedFromVault ? ' and the key destroyed at the provider' : ''}.`);
       } catch (err) {
         const reason = consoleReason(err);
         console.log(`✗ ${display}: ${reason}`);
