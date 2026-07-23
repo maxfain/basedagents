@@ -45,6 +45,7 @@ const SQL = [
   '0027_authority_ladder.sql',
   '0029_provision_connections.sql',
   '0030_cloud_passport.sql',
+  '0031_credential_facts.sql',
 ].map((f) => readFileSync(join(MIGRATIONS, f), 'utf-8'));
 
 const te = new TextEncoder();
@@ -942,6 +943,42 @@ describe('connect cards: sealed in the browser, resolved by the daemon', () => {
     expect((await daemonRequest(idn, 'POST', `/v1/owner/daemon/connections/${staleId}/resolve`, {
       daemon_credential_id: 'cred_dead',
     })).status).toBe(404);
+  });
+
+  it('credential facts: daemon-reported, upserted, owner-readable — ids and booleans only', async () => {
+    const idn = await newInitIdentity();
+    const { code } = (await (await post('/v1/owner/link', await linkBody(idn, 'CC'))).json()) as { code: string };
+    await post(`/v1/owner/link/${code}/claim`, { email: 'facts@example.com' });
+    const cookie = sessionCookie(await post('/v1/owner/claim/finish', { token: lastMagicToken() }));
+
+    // The daemon reports what its vault knows: the pasted key can't rotate,
+    // the minted one can.
+    expect((await daemonRequest(idn, 'POST', '/v1/owner/daemon/credential-facts', {
+      credentials: [
+        { id: 'cred_pasted', provider: 'vercel', rotatable: false },
+        { id: 'cred_minted', provider: 'supabase', rotatable: true },
+      ],
+    })).status).toBe(200);
+
+    const read = async () => ((await (await get('/v1/owner/credential-facts', cookie)).json()) as
+      { facts: Array<{ credential_id: string; provider: string; rotatable: boolean }> }).facts;
+    let facts = await read();
+    expect(facts).toHaveLength(2);
+    expect(facts.find((f) => f.credential_id === 'cred_pasted')?.rotatable).toBe(false);
+    expect(facts.find((f) => f.credential_id === 'cred_minted')?.rotatable).toBe(true);
+
+    // Re-reporting upserts in place (the pasted key was upgraded to minted).
+    expect((await daemonRequest(idn, 'POST', '/v1/owner/daemon/credential-facts', {
+      credentials: [{ id: 'cred_pasted', provider: 'vercel', rotatable: true }],
+    })).status).toBe(200);
+    facts = await read();
+    expect(facts).toHaveLength(2);
+    expect(facts.find((f) => f.credential_id === 'cred_pasted')?.rotatable).toBe(true);
+
+    // Shape is enforced — a report is ids and booleans, nothing free-form.
+    expect((await daemonRequest(idn, 'POST', '/v1/owner/daemon/credential-facts', {
+      credentials: [{ id: 'cred_x', provider: 'vercel', rotatable: 'yes' }],
+    })).status).toBe(400);
   });
 
   it('cloud passport: handoff is ciphertext-only and one-shot; shelf gates on a fulfilled passport', async () => {

@@ -173,6 +173,15 @@ export class ControlClient {
     await this.signedFetch('POST', `/v1/owner/daemon/connections/${encodeURIComponent(id)}/resolve`, body);
   }
 
+  /**
+   * Report per-credential facts (currently: rotatability) so the console only
+   * offers per-key actions this machine can actually perform. Ids and
+   * booleans only — never secret values.
+   */
+  async reportCredentialFacts(facts: Array<{ id: string; provider: string; rotatable: boolean }>): Promise<void> {
+    await this.signedFetch('POST', '/v1/owner/daemon/credential-facts', { credentials: facts });
+  }
+
   /** Pending passport requests from the console (browser public keys only). */
   async getPassportHandoffs(): Promise<Array<{ id: string; browser_public_key: string }>> {
     const r = await this.signedFetch<{ handoffs: Array<{ id: string; browser_public_key: string }> }>(

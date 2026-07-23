@@ -331,6 +331,42 @@ export async function processPassportHandoffs(keyring: Keyring, client: ControlC
   return sent;
 }
 
+/**
+ * The facts the console needs to offer only actions this machine can perform.
+ * Rotatable mirrors rotate.ts's guard chain EXACTLY — never the provisioning
+ * token itself, a provider the rotate path speaks, a provider-side key id to
+ * burn, and (Supabase) the project ref the id lives under. If the guard and
+ * this predicate ever disagree, the console shows a button that lies.
+ */
+export function credentialFactsFrom(keyring: Keyring): Array<{ id: string; provider: string; rotatable: boolean }> {
+  // The server caps a report at 200 rows; real vaults hold a handful.
+  return keyring.credentialsView().slice(0, 200).map((c) => ({
+    id: c.credential_id,
+    provider: c.provider ?? '',
+    rotatable:
+      !c.provisioner &&
+      (c.provider === 'vercel' || c.provider === 'supabase') &&
+      !!c.provider_key_id &&
+      (c.provider === 'vercel' || !!c.provider_team),
+  }));
+}
+
+/** Last successfully reported facts (per process) — report only on change. */
+let lastReportedFacts = '';
+
+/** Report facts when they changed since the last successful report this process. */
+export async function reportCredentialFacts(keyring: Keyring, client: ControlClient): Promise<void> {
+  const facts = credentialFactsFrom(keyring);
+  const fingerprint = JSON.stringify(facts);
+  if (fingerprint === lastReportedFacts) return;
+  try {
+    await client.reportCredentialFacts(facts);
+    lastReportedFacts = fingerprint; // only a delivered report counts
+  } catch {
+    /* transient — the stale fingerprint forces a retry next round */
+  }
+}
+
 /** Refresh the control-plane shelf (ciphertext only; server refuses until a passport exists). */
 export async function depositShelf(keyring: Keyring, client: ControlClient): Promise<void> {
   try {
@@ -367,6 +403,9 @@ export async function cmdSync(args: string[], dir: string | undefined): Promise<
   const runOnce = async (quiet: boolean): Promise<void> => {
     const touched = await processConnections(keyring, client);
     if (touched > 0 && !quiet) console.log('');
+    // After connections (stores/rotations change the facts), before the wait:
+    // the console learns which keys its per-key actions really work on.
+    await reportCredentialFacts(keyring, client);
     await processPassportHandoffs(keyring, client);
     const approvals = await client.getApprovals();
     if (approvals.length === 0) {

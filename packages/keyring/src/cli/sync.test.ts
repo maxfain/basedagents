@@ -10,7 +10,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Keyring } from '../keyring.js';
-import { processConnections, watchSecondsFrom, DEFAULT_WATCH_SECONDS } from './sync.js';
+import {
+  processConnections, watchSecondsFrom, DEFAULT_WATCH_SECONDS,
+  credentialFactsFrom, reportCredentialFacts,
+} from './sync.js';
 import { parseFlags, CliError } from './shared.js';
 import type { ControlClient, RemoteConnection } from './control-client.js';
 
@@ -167,5 +170,55 @@ describe('sync --watch flag (field-hit: bare --watch must not error)', () => {
         expect.objectContaining({ name: 'CliError', message: expect.stringContaining('seconds') }) as unknown as CliError,
       );
     }
+  });
+});
+
+describe('credential facts — the console must only offer Rotate where rotate can work', () => {
+  it('mirrors the rotate guard chain exactly', async () => {
+    const kr = await vault();
+    const owner = kr.ownerKeypair();
+    const add = (meta: Parameters<typeof kr.addCredential>[1]) => kr.addCredential(owner, meta, 'secret-value');
+
+    const pasted = await add({ label: 'Vercel pasted', provider: 'vercel' });
+    const minted = await add({ label: 'Vercel minted', provider: 'vercel', provider_key_id: 'tok_1' });
+    const sbNoRef = await add({ label: 'SB no ref', provider: 'supabase', provider_key_id: 'key_1' });
+    const sbFull = await add({ label: 'SB full', provider: 'supabase', provider_key_id: 'key_2', provider_team: 'projref' });
+    const provisioning = await add({ label: 'Vercel PAT', provider: 'vercel', provider_key_id: 'tok_2', provisioner: true });
+    const other = await add({ label: 'Stripe', provider: 'stripe', provider_key_id: 'sk_1' });
+
+    const byId = new Map(credentialFactsFrom(kr).map((f) => [f.id, f]));
+    expect(byId.get(pasted.credential_id)?.rotatable).toBe(false);
+    expect(byId.get(minted.credential_id)?.rotatable).toBe(true);
+    expect(byId.get(sbNoRef.credential_id)?.rotatable).toBe(false);
+    expect(byId.get(sbFull.credential_id)?.rotatable).toBe(true);
+    expect(byId.get(provisioning.credential_id)?.rotatable).toBe(false);
+    expect(byId.get(other.credential_id)?.rotatable).toBe(false);
+    expect(byId.get(minted.credential_id)?.provider).toBe('vercel');
+  });
+
+  it('reports only when the facts changed, and a failed report retries', async () => {
+    const kr = await vault();
+    const owner = kr.ownerKeypair();
+    await kr.addCredential(owner, { label: 'Vercel minted', provider: 'vercel', provider_key_id: 'tok_9' }, 'v');
+
+    let fail = true;
+    const sent: unknown[] = [];
+    const client = {
+      reportCredentialFacts: async (facts: unknown) => {
+        if (fail) throw new Error('control plane unreachable');
+        sent.push(facts);
+      },
+    } as unknown as ControlClient;
+
+    await reportCredentialFacts(kr, client); // fails — must not count as delivered
+    expect(sent).toHaveLength(0);
+    fail = false;
+    await reportCredentialFacts(kr, client); // retried because nothing was delivered
+    expect(sent).toHaveLength(1);
+    await reportCredentialFacts(kr, client); // unchanged facts — no second call
+    expect(sent).toHaveLength(1);
+    await kr.addCredential(owner, { label: 'SB', provider: 'supabase', provider_key_id: 'k', provider_team: 'p' }, 's');
+    await reportCredentialFacts(kr, client); // changed facts — reported again
+    expect(sent).toHaveLength(2);
   });
 });

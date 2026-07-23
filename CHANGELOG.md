@@ -8,6 +8,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the console only offers Rotate on keys the machine can actually rotate (`@basedagents/keyring` 0.6.5 + `basedagents` 0.6.6 + control plane + console)
+
+Field-hit: the Rotate button appeared on a pasted Vercel key, and the click
+could only ever end in the (honest, correct) refusal "was not minted by
+Keyring (no provider-side id)". The console guessed rotatability by provider
+because only the machine knows the truth — provider-side ids live in the
+local vault and never leave it. Now the machine says so:
+
+- **Daemon → control plane.** `based sync` reports per-key facts —
+  `{id, provider, rotatable}`, ids and booleans only, never values — via
+  `POST /daemon/credential-facts` (upsert, migration 0031). The rotatable
+  predicate mirrors `rotate.ts`'s guard chain exactly (not the provisioning
+  token, a provider rotate speaks, has a provider-side id, and for Supabase
+  the project ref); if the two ever disagree, the console shows a button
+  that lies. Reports are change-only per process (a failed report retries,
+  a delivered one is remembered).
+- **Console.** `GET /credential-facts` joins the Home poll; a chip hides
+  Rotate only on an affirmative `rotatable: false`. No fact — an old daemon
+  that never reports — keeps the optimistic button, so nothing regresses
+  until the daemon upgrades and the button simply becomes truthful.
+
 ### Fixed — bare `--watch` just works; abandoned daemon claims stop spinning forever (`@basedagents/keyring` 0.6.4 + `basedagents` 0.6.5 + control plane)
 
 Two field hits from the first console-initiated rotation, plus the publish

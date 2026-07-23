@@ -45,6 +45,8 @@
  *   Daemon-facing (daemonAuth, in approvals.ts style):
  *     GET  /daemon/connections      pull pending sealed connections
  *     POST /daemon/connections/:id/resolve   stored | failed
+ *     POST /daemon/credential-facts per-key rotatability report (metadata only)
+ *                                   → owner reads via GET /credential-facts
  */
 import { Hono } from 'hono';
 import type { Context } from 'hono';
@@ -818,6 +820,38 @@ app.post('/daemon/connections/:id/resolve', daemonAuth, async (c) => {
   });
   if (!ok) return err(c, 404, 'not_found', 'connection not found or already resolved');
   return c.json({ ok: true });
+});
+
+// ─── Credential facts (migration 0031) ───
+//
+// The daemon reports which machine-local keys the console's per-key actions
+// can actually work on (currently: rotatable). Only the machine knows —
+// provider-side ids live in the vault and never leave it — so the console
+// hides Rotate only on an affirmative rotatable:false; unreported keys keep
+// the optimistic button (old daemons lose nothing). Metadata only.
+
+const CredentialFactsSchema = z.object({
+  credentials: z.array(z.object({
+    id: z.string().min(1).max(200),
+    provider: z.string().min(1).max(50),
+    rotatable: z.boolean(),
+  })).max(200),
+});
+
+app.post('/daemon/credential-facts', daemonAuth, async (c) => {
+  let body: unknown;
+  try { body = await parseJson(c); } catch { return err(c, 400, 'bad_request', 'invalid JSON body'); }
+  const parsed = CredentialFactsSchema.safeParse(body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
+  await getStore(c).upsertCredentialFacts(
+    getOwnerId(c),
+    parsed.data.credentials.map((f) => ({ credentialId: f.id, provider: f.provider, rotatable: f.rotatable })),
+  );
+  return c.json({ ok: true });
+});
+
+app.get('/credential-facts', ownerSession, async (c) => {
+  return c.json({ facts: await getStore(c).listCredentialFacts(getOwnerId(c)) });
 });
 
 // ─── Cloud passport (SANDBOX_SPEC §4b) ───
