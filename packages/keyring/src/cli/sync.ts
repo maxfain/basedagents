@@ -11,6 +11,7 @@
 
 import * as fs from 'node:fs';
 import { Keyring, KeyringError } from '../keyring.js';
+import type { KillOutcome } from './grants.js';
 import { openSealedBox, sealToPublicKey } from '../crypto.js';
 import { base58Decode } from '../util.js';
 import { loadKeypairFile } from '../store.js';
@@ -331,6 +332,79 @@ export async function processPassportHandoffs(keyring: Keyring, client: ControlC
   return sent;
 }
 
+/** Runs the local kill for one console revocation; injected so tests never burn or sweep. */
+export type KillRunner = (keyring: Keyring, agentRef: string, reason?: string) => Promise<KillOutcome>;
+
+const defaultKillRunner: KillRunner = async (keyring, agentRef, reason) => {
+  const { executeKill } = await import('./grants.js');
+  return executeKill(keyring, agentRef, reason);
+};
+
+/**
+ * The kill switch's local half (CONTROL_PLANE 0032): the console already
+ * revoked the delegation — the agent can't ASK for anything — but this
+ * machine still owes the part only it can do: revoke the vault grants, burn
+ * minted provider-side keys, sweep for ambient residuals. Then confirm with
+ * counts so the console stops saying "cut off at the account" and starts
+ * telling the truth about this machine. Runs FIRST each round — kills beat
+ * everything else. Field-hit: this half used to not exist while the confirm
+ * dialog promised "your machine drops its access on the next sync".
+ */
+export async function processRevocations(
+  keyring: Keyring,
+  client: ControlClient,
+  kill: KillRunner = defaultKillRunner,
+): Promise<number> {
+  let orders: Array<{ delegation_id: string; agent_id: string; label: string | null; revoked_at: string | null }>;
+  try {
+    orders = await client.getRevocations();
+  } catch {
+    return 0; // transient — next round retries
+  }
+  for (const order of orders) {
+    const display = order.label ?? shortAgentId(order.agent_id);
+    try {
+      const out = await kill(keyring, order.agent_id, 'console kill switch');
+      const burned = out.burns.filter((b) => b.result === 'burned' || b.result === 'already_gone').length;
+      const burnFailures = out.burns.length - burned;
+      console.log(
+        `✓ Kill switch (from the console): ${display} — ${out.revokedGrantIds.length} grant(s) revoked, ` +
+        `${burned} provider key(s) burned${burnFailures > 0 ? `, ${burnFailures} burn failure(s)` : ''}.`,
+      );
+      if (out.residuals.length > 0) {
+        console.log(`  ⚠ ${out.residuals.length} ambient path(s) outside Keyring can still act as you — run \`based doctor\`:`);
+        for (const r of out.residuals) console.log(`    • ${r.title} — ${r.remedy}`);
+      }
+      await client.confirmRevocation(order.delegation_id, {
+        revoked_grants: out.revokedGrantIds.length,
+        burned,
+        burn_failures: burnFailures,
+        residuals: out.residuals.length,
+      });
+    } catch (err) {
+      const isUnknown = err instanceof KeyringError
+        ? err.code === 'unknown_identity'
+        : /unknown (identity|agent)/i.test(err instanceof Error ? err.message : String(err));
+      if (isUnknown) {
+        // The agent never lived on THIS machine — nothing local to drop.
+        // Confirm honestly (zeros + note) so the order doesn't loop forever.
+        console.log(`· Kill switch: ${display} is not set up on this computer — nothing to drop here.`);
+        try {
+          await client.confirmRevocation(order.delegation_id, {
+            revoked_grants: 0, burned: 0, burn_failures: 0, residuals: 0,
+            note: 'agent not on this machine',
+          });
+        } catch { /* reported next round */ }
+      } else {
+        // Kill or confirm failed — the order stays unconfirmed server-side, so
+        // the next round re-runs the (idempotent) kill and re-confirms.
+        console.log(`✗ Kill switch for ${display}: ${err instanceof Error ? err.message : String(err)} (will retry)`);
+      }
+    }
+  }
+  return orders.length;
+}
+
 /**
  * The facts the console needs to offer only actions this machine can perform.
  * Rotatable mirrors rotate.ts's guard chain EXACTLY — never the provisioning
@@ -401,6 +475,8 @@ export async function cmdSync(args: string[], dir: string | undefined): Promise<
   const watchSeconds = watchSecondsFrom(flags);
 
   const runOnce = async (quiet: boolean): Promise<void> => {
+    // Kills first — cutting an agent off beats storing anything new for it.
+    await processRevocations(keyring, client);
     const touched = await processConnections(keyring, client);
     if (touched > 0 && !quiet) console.log('');
     // After connections (stores/rotations change the facts), before the wait:

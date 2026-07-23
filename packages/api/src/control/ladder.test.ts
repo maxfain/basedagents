@@ -46,6 +46,7 @@ const SQL = [
   '0029_provision_connections.sql',
   '0030_cloud_passport.sql',
   '0031_credential_facts.sql',
+  '0032_daemon_kill_confirm.sql',
 ].map((f) => readFileSync(join(MIGRATIONS, f), 'utf-8'));
 
 const te = new TextEncoder();
@@ -978,6 +979,51 @@ describe('connect cards: sealed in the browser, resolved by the daemon', () => {
     // Shape is enforced — a report is ids and booleans, nothing free-form.
     expect((await daemonRequest(idn, 'POST', '/v1/owner/daemon/credential-facts', {
       credentials: [{ id: 'cred_x', provider: 'vercel', rotatable: 'yes' }],
+    })).status).toBe(400);
+  });
+
+  it('revocation orders: the daemon pulls console kills, confirms once with counts, and /me tells the truth', async () => {
+    const idn = await newInitIdentity();
+    const { code } = (await (await post('/v1/owner/link', await linkBody(idn, 'CC'))).json()) as { code: string };
+    await post(`/v1/owner/link/${code}/claim`, { email: 'killswitch@example.com' });
+    const cookie = sessionCookie(await post('/v1/owner/claim/finish', { token: lastMagicToken() }));
+
+    // No revoked delegations yet → nothing owed.
+    const pull = async () => ((await (await daemonRequest(idn, 'GET', '/v1/owner/daemon/revocations')).json()) as
+      { revocations: Array<Record<string, unknown>> }).revocations;
+    expect(await pull()).toHaveLength(0);
+
+    // The console kill switch revoked the delegation (state transition mirrors
+    // routes.ts' /delegations/:id/revoke without re-running the passkey ceremony).
+    rawDb.prepare(`UPDATE delegations SET status='revoked', revoked_at=? WHERE owner_id=? AND agent_id=?`)
+      .run(new Date().toISOString(), ownerIdFromVaultPubkey(idn.vaultPub), idn.agentId);
+
+    // The daemon now owes the local half…
+    const owed = await pull();
+    expect(owed).toHaveLength(1);
+    expect(owed[0].agent_id).toBe(idn.agentId);
+    const delegationId = owed[0].delegation_id as string;
+
+    // …executes it and confirms with counts only.
+    expect((await daemonRequest(idn, 'POST', `/v1/owner/daemon/revocations/${delegationId}/confirm`, {
+      revoked_grants: 2, burned: 1, burn_failures: 0, residuals: 3,
+    })).status).toBe(200);
+    expect(await pull()).toHaveLength(0); // confirmed orders stop appearing
+
+    // The console reads the honest state off /me.
+    const me = (await (await get('/v1/owner/me', cookie)).json()) as
+      { delegations: Array<{ id: string; status: string; daemon_confirmed_at: string | null; daemon_kill_report: string | null }> };
+    const dead = me.delegations.find((d) => d.id === delegationId)!;
+    expect(dead.status).toBe('revoked');
+    expect(dead.daemon_confirmed_at).toBeTruthy();
+    expect(JSON.parse(dead.daemon_kill_report!)).toEqual({ revoked_grants: 2, burned: 1, burn_failures: 0, residuals: 3 });
+
+    // Confirm is one-shot; the report shape is enforced.
+    expect((await daemonRequest(idn, 'POST', `/v1/owner/daemon/revocations/${delegationId}/confirm`, {
+      revoked_grants: 0, burned: 0, burn_failures: 0, residuals: 0,
+    })).status).toBe(404);
+    expect((await daemonRequest(idn, 'POST', `/v1/owner/daemon/revocations/${delegationId}/confirm`, {
+      revoked_grants: 'two', burned: 0, burn_failures: 0, residuals: 0,
     })).status).toBe(400);
   });
 

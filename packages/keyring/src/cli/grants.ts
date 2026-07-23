@@ -60,60 +60,86 @@ export async function cmdRevoke(args: string[], dir: string | undefined): Promis
   printRevocationNotes();
 }
 
+/** Everything one local kill did — the CLI prints it, the daemon reports it. */
+export interface KillOutcome {
+  agentId: string;
+  revokedGrantIds: string[];
+  burns: Array<{ label: string; result: string }>;
+  residuals: Array<{ title: string; remedy: string }>;
+}
+
+/**
+ * The whole local kill — grant revocation, provider-side burns (Provisioner
+ * §6: a revoked grant blocks Keyring leases but the token still works at the
+ * PROVIDER until burned), and the ambient-residuals sweep (Custody Fix 2:
+ * honest only if it reports what revocation does NOT reach). ONE
+ * implementation shared by `based kill` and the daemon's console revocation
+ * orders, so the button and the command can never drift.
+ */
+export async function executeKill(kr: Keyring, agentRef: string, reason?: string): Promise<KillOutcome> {
+  const result = await kr.killSwitch(kr.ownerKeypair(), agentRef, reason);
+  const vault = kr.vault();
+
+  const revokedCredIds = result.revoked_grant_ids
+    .map((gid) => vault.grants[gid]?.credential_id)
+    .filter((c): c is string => Boolean(c));
+  let burns: Array<{ label: string; result: string }> = [];
+  if (revokedCredIds.length > 0) {
+    const { burnVercelTokensForAgent } = await import('../provisioner/connect.js');
+    const { burnSupabaseKeysForAgent } = await import('../provisioner/connect-supabase.js');
+    const ids = [...new Set(revokedCredIds)];
+    burns = [
+      ...(await burnVercelTokensForAgent({ kr, owner: kr.ownerKeypair() }, ids)),
+      ...(await burnSupabaseKeysForAgent({ kr, owner: kr.ownerKeypair() }, ids)),
+    ];
+  }
+
+  const { findings } = runSweep();
+  return {
+    agentId: result.agent_id,
+    revokedGrantIds: result.revoked_grant_ids,
+    burns,
+    residuals: findings.map((f) => ({ title: f.title, remedy: f.remedy })),
+  };
+}
+
 export async function cmdKill(args: string[], dir: string | undefined): Promise<void> {
   const flags = parseFlags(args, { value: ['reason'] });
   const agentRef = flags.positional[0];
   if (!agentRef) throw new CliError('Usage: based kill <agent> [--reason <r>]');
 
   const kr = Keyring.open(dir);
-  const result = await kr.killSwitch(kr.ownerKeypair(), agentRef, flags.values['reason']);
+  const out = await executeKill(kr, agentRef, flags.values['reason']);
 
   const vault = kr.vault();
-  const display = agentDisplay(vault, result.agent_id);
-  if (result.revoked_grant_ids.length === 0) {
+  const display = agentDisplay(vault, out.agentId);
+  if (out.revokedGrantIds.length === 0) {
     console.log(`Kill switch: ${display} held no active grants — nothing to revoke (event logged).`);
   } else {
-    console.log(`Kill switch: revoked ${result.revoked_grant_ids.length} grant(s) for ${display} (${result.agent_id}):`);
-    for (const grantId of result.revoked_grant_ids) {
+    console.log(`Kill switch: revoked ${out.revokedGrantIds.length} grant(s) for ${display} (${out.agentId}):`);
+    for (const grantId of out.revokedGrantIds) {
       console.log(`    ${grantId}`);
     }
     printRevocationNotes();
   }
 
-  // Provisioner §6: revoking a grant blocks Keyring leases, but the token still
-  // works at the PROVIDER until burned. Burn every provider-side token this
-  // agent held, by id, and report per-token — honesty over green checkmarks.
-  const revokedCredIds = result.revoked_grant_ids
-    .map((gid) => vault.grants[gid]?.credential_id)
-    .filter((c): c is string => Boolean(c));
-  if (revokedCredIds.length > 0) {
-    const { burnVercelTokensForAgent } = await import('../provisioner/connect.js');
-    const { burnSupabaseKeysForAgent } = await import('../provisioner/connect-supabase.js');
-    const ids = [...new Set(revokedCredIds)];
-    const burns = [
-      ...(await burnVercelTokensForAgent({ kr, owner: kr.ownerKeypair() }, ids)),
-      ...(await burnSupabaseKeysForAgent({ kr, owner: kr.ownerKeypair() }, ids)),
-    ];
-    if (burns.length > 0) {
-      console.log('');
-      console.log('Provider-side burn:');
-      for (const b of burns) {
-        const mark = b.result === 'burned' || b.result === 'already_gone' ? '✓' : '⚠';
-        console.log(`    ${mark} ${b.label}: ${b.result}`);
-      }
+  if (out.burns.length > 0) {
+    console.log('');
+    console.log('Provider-side burn:');
+    for (const b of out.burns) {
+      const mark = b.result === 'burned' || b.result === 'already_gone' ? '✓' : '⚠';
+      console.log(`    ${mark} ${b.label}: ${b.result}`);
     }
   }
 
-  // Custody Fix 2: the kill switch is only honest if it also reports what
-  // Keyring's revocation does NOT reach. Green only when residuals = 0.
+  // Green only when residuals = 0.
   console.log('');
-  const { findings } = runSweep();
-  if (findings.length === 0) {
+  if (out.residuals.length === 0) {
     console.log(`✓ Cut off. No ambient access found outside Keyring.`);
     return;
   }
   console.log(`⚠ NOT fully cut off — this agent's environment can still act as you via:`);
-  for (const f of findings) {
+  for (const f of out.residuals) {
     console.log(`    • ${f.title} — ${f.remedy}`);
   }
   console.log('');

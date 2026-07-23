@@ -74,6 +74,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
 /* ── page ── */
 .page-head { display: flex; align-items: center; justify-content: space-between; }
 .page h1 { font-size: 1.5rem; margin: 0; }
+.page-subhead { font-size: 1.05rem; margin: 2rem 0 0; color: var(--muted); font-weight: 600; }
 .page-lede { color: var(--muted); max-width: 60ch; line-height: 1.5; }
 
 /* ── cards (pending requests) ── */
