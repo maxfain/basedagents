@@ -1035,6 +1035,48 @@ describe('connect cards: sealed in the browser, resolved by the daemon', () => {
     expect(dupe.status).toBe('revoked');
   });
 
+  it('mirror: terminal connects become console-visible stored rows, idempotently, delegated-agents-only', async () => {
+    const idn = await newInitIdentity();
+    const { code } = (await (await post('/v1/owner/link', await linkBody(idn, 'CC'))).json()) as { code: string };
+    await post(`/v1/owner/link/${code}/claim`, { email: 'mirror@example.com' });
+    const cookie = sessionCookie(await post('/v1/owner/claim/finish', { token: lastMagicToken() }));
+
+    // The daemon mirrors two local grants for THIS agent plus one for an agent
+    // the owner never delegated to (must be ignored).
+    const mirror = async () => (await (await daemonRequest(idn, 'POST', '/v1/owner/daemon/connections/mirror', {
+      connections: [
+        { agent_id: idn.agentId, provider: 'supabase', label: 'Supabase', daemon_credential_id: 'cred_sb' },
+        { agent_id: idn.agentId, provider: 'vercel', label: 'Vercel', daemon_credential_id: 'cred_vc' },
+        { agent_id: 'ag_NeverDelegated', provider: 'vercel', label: 'Vercel', daemon_credential_id: 'cred_x' },
+      ],
+    })).json()) as { created: number };
+
+    expect((await mirror()).created).toBe(2); // stray agent filtered out
+    const rows = () => (async () => ((await (await get('/v1/owner/connections', cookie)).json()) as
+      { connections: Array<Record<string, unknown>> }).connections)();
+    let mine = await rows();
+    const sb = mine.find((r) => r.daemon_credential_id === 'cred_sb')!;
+    expect(sb.status).toBe('stored');
+    expect(sb.provider).toBe('supabase');
+    expect(mine.some((r) => r.daemon_credential_id === 'cred_x')).toBe(false);
+
+    // Idempotent — a second mirror creates nothing new.
+    expect((await mirror()).created).toBe(0);
+    mine = await rows();
+    expect(mine.filter((r) => r.daemon_credential_id === 'cred_sb')).toHaveLength(1);
+
+    // A console-initiated connection is never duplicated by the mirror: seed a
+    // stored row via resolve, then mirror the same credential id.
+    const provId = ((await (await post('/v1/owner/connections', {
+      agent_id: idn.agentId, provider: 'railway', kind: 'sealed', label: 'Railway', sealed_secret: 'ct',
+    }, cookie)).json()) as { id: string }).id;
+    await daemonRequest(idn, 'POST', `/v1/owner/daemon/connections/${provId}/resolve`, { daemon_credential_id: 'cred_rw' });
+    const created = (await (await daemonRequest(idn, 'POST', '/v1/owner/daemon/connections/mirror', {
+      connections: [{ agent_id: idn.agentId, provider: 'railway', label: 'Railway', daemon_credential_id: 'cred_rw' }],
+    })).json()) as { created: number };
+    expect(created.created).toBe(0); // the console-initiated row already covers it
+  });
+
   it('credential facts: daemon-reported, upserted, owner-readable — ids and booleans only', async () => {
     const idn = await newInitIdentity();
     const { code } = (await (await post('/v1/owner/link', await linkBody(idn, 'CC'))).json()) as { code: string };

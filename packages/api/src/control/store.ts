@@ -1261,6 +1261,43 @@ export class ControlStore {
     return res.changes;
   }
 
+  /**
+   * Mirror the machine's real local grants into console-visible rows so the
+   * console reflects terminal `keyring connect`/`grant`, not only
+   * console-initiated connections (field-hit). Each entry becomes a 'stored'
+   * row unless a LIVE row (stored/pending/processing) for that local
+   * credential already exists — so this is idempotent across sync rounds and
+   * never duplicates a console-initiated connection or a prior mirror. A
+   * credential whose only prior row was retired (kill) gets a fresh stored row
+   * if the grant is live again. Metadata only — sealed_secret is always ''.
+   * Returns the number of new rows created.
+   */
+  async mirrorStoredConnections(
+    ownerId: string,
+    entries: Array<{ agentId: string; provider: string; label: string; daemonCredentialId: string }>,
+  ): Promise<number> {
+    const now = nowIsoString();
+    let created = 0;
+    for (const e of entries) {
+      const existing = await this.db.get<RawRow>(
+        `SELECT id FROM pending_connections
+         WHERE owner_id = ? AND agent_id = ? AND daemon_credential_id = ?
+           AND status IN ('stored', 'pending', 'processing')
+         LIMIT 1`,
+        ownerId, e.agentId, e.daemonCredentialId
+      );
+      if (existing) continue;
+      await this.db.run(
+        `INSERT INTO pending_connections
+           (id, owner_id, agent_id, provider, label, env_var, sealed_secret, kind, daemon_credential_id, status, created_at, resolved_at)
+         VALUES (?, ?, ?, ?, ?, NULL, '', 'sealed', ?, 'stored', ?, ?)`,
+        randomId('pcx_'), ownerId, e.agentId, e.provider, e.label, e.daemonCredentialId, now, now
+      );
+      created++;
+    }
+    return created;
+  }
+
   async listPendingConnections(ownerId: string, status?: string): Promise<Array<{
     id: string; agent_id: string; provider: string; label: string | null;
     env_var: string | null; sealed_secret: string; kind: 'sealed' | 'provision' | 'rotate'; status: string;

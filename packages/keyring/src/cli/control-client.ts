@@ -201,6 +201,18 @@ export class ControlClient {
     await this.signedFetch('POST', `/v1/owner/daemon/revocations/${encodeURIComponent(delegationId)}/confirm`, report);
   }
 
+  /**
+   * Mirror this machine's real local grants to the console so it reflects
+   * connections made in the terminal (`keyring connect`/`grant`), not only
+   * console-initiated ones. Metadata only — agent, provider, label, and the
+   * opaque local credential id; never a secret value.
+   */
+  async mirrorConnections(
+    connections: Array<{ agent_id: string; provider: string; label: string; daemon_credential_id: string }>,
+  ): Promise<void> {
+    await this.signedFetch('POST', '/v1/owner/daemon/connections/mirror', { connections });
+  }
+
   /** Pending passport requests from the console (browser public keys only). */
   async getPassportHandoffs(): Promise<Array<{ id: string; browser_public_key: string }>> {
     const r = await this.signedFetch<{ handoffs: Array<{ id: string; browser_public_key: string }> }>(

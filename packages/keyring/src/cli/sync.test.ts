@@ -12,9 +12,11 @@ import path from 'node:path';
 import { Keyring, KeyringError } from '../keyring.js';
 import {
   processConnections, processRevocations, watchSecondsFrom, DEFAULT_WATCH_SECONDS,
-  credentialFactsFrom, reportCredentialFacts,
+  credentialFactsFrom, reportCredentialFacts, mirrorEntriesFrom, mirrorLocalGrants,
 } from './sync.js';
 import { parseFlags, CliError } from './shared.js';
+import { generateKeypair } from '../crypto.js';
+import { publicKeyToAgentId } from '../util.js';
 import type { ControlClient, RemoteConnection } from './control-client.js';
 import type { KillOutcome } from './grants.js';
 
@@ -282,6 +284,62 @@ describe('credential facts — the console must only offer Rotate where rotate c
     expect(sent).toHaveLength(1);
     await kr.addCredential(owner, { label: 'SB', provider: 'supabase', provider_key_id: 'k', provider_team: 'p' }, 's');
     await reportCredentialFacts(kr, client); // changed facts — reported again
+    expect(sent).toHaveLength(2);
+  });
+});
+
+describe('mirror local grants — a terminal connect must show up in the console', () => {
+  it('emits one entry per active grant, skipping provisioner creds and revoked holders', async () => {
+    const kr = await vault();
+    const owner = kr.ownerKeypair();
+    const agent = await generateKeypair();
+    const agentId = publicKeyToAgentId(agent.publicKey);
+    await kr.addIdentity(owner, agentId, { name: 'Claude Code @ mac' });
+
+    const sb = await kr.addCredential(owner, { label: 'Supabase', provider: 'supabase', provider_key_id: 'k', provider_team: 'p' }, 's');
+    const prov = await kr.addCredential(owner, { label: 'Vercel PAT', provider: 'vercel', provisioner: true }, 'pat');
+    await kr.createGrant(owner, sb.credential_id, agentId, {});
+
+    const entries = mirrorEntriesFrom(kr);
+    // The granted Supabase credential mirrors; the provisioning token never does.
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ agent_id: agentId, provider: 'supabase', label: 'Supabase', daemon_credential_id: sb.credential_id });
+    expect(entries.some((e) => e.daemon_credential_id === prov.credential_id)).toBe(false);
+
+    // Revoking the grant drops it from the mirror (no active holder).
+    const grant = kr.credentialsView().find((c) => c.credential_id === sb.credential_id)!.holders[0];
+    await kr.revokeGrant(owner, grant.grant_id);
+    expect(mirrorEntriesFrom(kr)).toHaveLength(0);
+  });
+
+  it('mirrors only on change, and a failed mirror retries', async () => {
+    const kr = await vault();
+    const owner = kr.ownerKeypair();
+    const agent = await generateKeypair();
+    const agentId = publicKeyToAgentId(agent.publicKey);
+    await kr.addIdentity(owner, agentId, { name: 'a' });
+    const c1 = await kr.addCredential(owner, { label: 'Supabase', provider: 'supabase' }, 's');
+    await kr.createGrant(owner, c1.credential_id, agentId, {});
+
+    let fail = true;
+    const sent: unknown[] = [];
+    const client = {
+      mirrorConnections: async (conns: unknown) => {
+        if (fail) throw new Error('unreachable');
+        sent.push(conns);
+      },
+    } as unknown as ControlClient;
+
+    await mirrorLocalGrants(kr, client); // fails — not counted as delivered
+    expect(sent).toHaveLength(0);
+    fail = false;
+    await mirrorLocalGrants(kr, client); // retried
+    expect(sent).toHaveLength(1);
+    await mirrorLocalGrants(kr, client); // unchanged — no second call
+    expect(sent).toHaveLength(1);
+    const c2 = await kr.addCredential(owner, { label: 'Vercel', provider: 'vercel' }, 'v');
+    await kr.createGrant(owner, c2.credential_id, agentId, {});
+    await mirrorLocalGrants(kr, client); // changed — mirrored again
     expect(sent).toHaveLength(2);
   });
 });

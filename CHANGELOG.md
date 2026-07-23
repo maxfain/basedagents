@@ -8,6 +8,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — terminal connects show up in the console: the daemon mirrors its real grants (`@basedagents/keyring` 0.6.8 + `basedagents` 0.6.9 + control plane)
+
+Field-hit: `keyring connect supabase --project …` worked in the terminal
+(minted, granted, agent can use it) — but `/welcome` kept showing Supabase
+with an active "Do it for me" button, and Home never listed it. The console
+only ever reflected connections made THROUGH the console (stored
+`pending_connections`); a connection created locally in the terminal was
+invisible to it, because nothing told the control plane.
+
+- **The daemon mirrors its local grants.** Each `sync` round, after
+  reporting credential-facts, the daemon posts one metadata row per active
+  grant — `{agent, provider, label, local credential id}`, never a value —
+  to `POST /daemon/connections/mirror`. The control plane turns each into a
+  console-visible `stored` row, so terminal `keyring connect`/`grant` show
+  up exactly like a console "Do it for me". Change-only per process; failed
+  posts retry.
+- **Idempotent and honest.** A mirror never duplicates a console-initiated
+  connection or a prior mirror (dedup on the local credential id across live
+  rows), and the server drops any grant whose agent the owner hasn't
+  actually delegated to — a stray id can't conjure a card. Provisioning
+  tokens are never mirrored (internal, never an agent holding).
+- To reflect an existing terminal connection, run `npx basedagents keyring
+  sync` once (or keep `--watch` running, the intended steady state).
+
 ### Fixed — "Do it for me" dedups; no daemon backlog, no redundant key mints (control plane; deploy-only)
 
 Field-hit: a `sync --watch` daemon drained a backlog of duplicate Supabase
