@@ -248,3 +248,5 @@ a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 .chip-action { margin-left: 8px; padding: 1px 8px; font-size: 0.78rem; border-radius: 6px; border: 1px solid var(--border, rgba(255,255,255,0.12)); background: transparent; color: var(--accent, #6366F1); cursor: pointer; }
 .chip-action:hover:not(:disabled) { border-color: var(--accent, #6366F1); }
 .chip-action:disabled { opacity: 0.6; cursor: default; }
+.chip-action-danger { color: var(--danger, #ef4444); }
+.chip-action-danger:hover:not(:disabled) { border-color: var(--danger, #ef4444); }

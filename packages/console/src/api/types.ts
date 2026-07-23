@@ -101,8 +101,8 @@ export interface ConnectionInfo {
   agent_id: string;
   provider: string;
   label: string | null;
-  /** 'sealed' = browser-sealed paste; 'provision' = minted by the user's machine; 'rotate' = replace a minted key in place. */
-  kind?: 'sealed' | 'provision' | 'rotate';
+  /** 'sealed' = browser-sealed paste; 'provision' = minted by the user's machine; 'rotate' = replace a minted key in place; 'remove' = revoke + burn + drop one key. */
+  kind?: 'sealed' | 'provision' | 'rotate' | 'remove';
   /** 'processing' = a daemon has claimed the row and is working on it.
    *  'revoked' = retired by the kill switch — every reader skips it. */
   status: 'pending' | 'processing' | 'stored' | 'failed' | 'revoked';

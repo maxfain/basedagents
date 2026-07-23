@@ -182,11 +182,14 @@ const CreateConnectionSchema = z
      * no secret travels in either direction, so sealed_secret must be absent.
      * 'rotate': the daemon mints a REPLACEMENT for an existing minted key and
      * burns the old one; rotate_credential_id names the daemon-side target.
+     * 'remove': the daemon revokes ONE key from ONE agent, burning the minted
+     * key and dropping it when this was the last holder; rotate_credential_id
+     * names the target (the field is the generic "which credential" pointer).
      */
-    kind: z.enum(['sealed', 'provision', 'rotate']).optional(),
+    kind: z.enum(['sealed', 'provision', 'rotate', 'remove']).optional(),
     /** base64 sealed box → the owner's vault key. NEVER a raw secret. */
     sealed_secret: z.string().min(1).max(20_000).optional(),
-    /** kind 'rotate' only: the daemon credential id to rotate in place. */
+    /** kinds 'rotate'/'remove': the daemon credential id to act on. */
     rotate_credential_id: z.string().min(1).max(200).optional(),
   })
   .superRefine((v, ctx) => {
@@ -195,10 +198,10 @@ const CreateConnectionSchema = z
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'sealed_secret required for sealed connections' });
       }
     } else if (v.sealed_secret) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'provision/rotate connections never carry a secret' });
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'provision/rotate/remove connections never carry a secret' });
     }
-    if (v.kind === 'rotate' && !v.rotate_credential_id) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'rotate_credential_id required for rotate connections' });
+    if ((v.kind === 'rotate' || v.kind === 'remove') && !v.rotate_credential_id) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'rotate_credential_id required for rotate/remove connections' });
     }
   });
 
@@ -749,13 +752,13 @@ app.post('/connections', ownerSession, async (c) => {
   // drain a backlog of duplicates — re-opening the browser and minting a
   // redundant key each round (field-hit). Sealed pastes are never deduped:
   // each carries its own freshly-sealed ciphertext.
-  if (kind === 'provision' || kind === 'rotate') {
+  if (kind === 'provision' || kind === 'rotate' || kind === 'remove') {
     const existing = await store.findLivePendingConnection({
       ownerId,
       agentId: parsed.data.agent_id,
       provider: parsed.data.provider,
       kind,
-      target: kind === 'rotate' ? parsed.data.rotate_credential_id ?? null : null,
+      target: kind === 'rotate' || kind === 'remove' ? parsed.data.rotate_credential_id ?? null : null,
     });
     if (existing) return c.json({ id: existing, status: 'pending' });
   }
@@ -768,9 +771,9 @@ app.post('/connections', ownerSession, async (c) => {
     envVar: parsed.data.env_var,
     sealedSecret: parsed.data.sealed_secret ?? '',
     kind,
-    // Rotate rows are BORN with their target — the daemon credential to
-    // rotate in place. (Sealed/provision rows get this set at resolve time.)
-    daemonCredentialId: kind === 'rotate' ? parsed.data.rotate_credential_id : undefined,
+    // Rotate/remove rows are BORN with their target — the daemon credential to
+    // act on. (Sealed/provision rows get this set at resolve time.)
+    daemonCredentialId: kind === 'rotate' || kind === 'remove' ? parsed.data.rotate_credential_id : undefined,
   });
   return c.json({ id, status: 'pending' });
 });
@@ -876,9 +879,14 @@ app.post('/daemon/connections/:id/resolve', daemonAuth, async (c) => {
     failureReason: parsed.data.error,
   });
   if (!ok) return err(c, 404, 'not_found', 'connection not found or already resolved');
-  // A provision that stored makes its duplicate siblings redundant — each
-  // would mint another key. Retire them (no-op for sealed/rotate resolves).
-  if (stored) await store.cancelSiblingProvisions(ownerId, c.req.param('id'));
+  if (stored) {
+    // A provision that stored makes its duplicate siblings redundant — each
+    // would mint another key. Retire them (no-op for sealed/rotate/remove).
+    await store.cancelSiblingProvisions(ownerId, c.req.param('id'));
+    // A remove that stored means the key is gone — retire its chip so it
+    // disappears from the console (no-op for every other kind).
+    await store.retireChipsForRemovedKey(ownerId, c.req.param('id'));
+  }
   return c.json({ ok: true });
 });
 

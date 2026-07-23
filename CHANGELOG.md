@@ -8,6 +8,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — remove one key from one agent, from the console (`@basedagents/keyring` 0.6.9 + `basedagents` 0.6.10 + control plane + console)
+
+Until now the console could Rotate one key or Kill the whole agent — but
+not cleanly remove a single key (field-ask, after debugging left an agent
+holding three redundant Vercel tokens). Rotate's exact architecture,
+adapted:
+
+- **Core (`removeCredentialForAgent`).** Revoke that agent's grant; if no
+  active holder remains, burn the minted provider key by id (reusing the
+  kill switch's burn helpers) and drop the credential from the vault. If
+  OTHER agents still hold it, only this grant is revoked — a shared key is
+  never burned out from under them. Shared by the daemon and (someday) the
+  CLI, so behaviour can't drift.
+- **Console → daemon.** A new `pending_connections` kind `'remove'`, born
+  with its target credential (like `'rotate'`), gated per-kind on the
+  daemon pull (`?include=…,remove`) so old daemons never see it. When the
+  daemon resolves a remove, the control plane retires the removed key's
+  chip so it disappears from the console.
+- **UI (Home cards).** Every "Can use" chip with a machine-local id gets a
+  **Remove** button beside Rotate (minted or pasted — pasted just revokes
+  and drops): confirm → the machine revokes/burns/drops → "Removing…" (4s
+  poll) → the chip is gone, or "Remove ⚠" with the reason on failure.
+
 ### Fixed — terminal connects show up in the console: the daemon mirrors its real grants (`@basedagents/keyring` 0.6.8 + `basedagents` 0.6.9 + control plane)
 
 Field-hit: `keyring connect supabase --project …` worked in the terminal

@@ -1077,6 +1077,49 @@ describe('connect cards: sealed in the browser, resolved by the daemon', () => {
     expect(created.created).toBe(0); // the console-initiated row already covers it
   });
 
+  it('remove kind: born with its target, gated per-kind, retires the chip when it resolves', async () => {
+    const idn = await newInitIdentity();
+    const { code } = (await (await post('/v1/owner/link', await linkBody(idn, 'CC'))).json()) as { code: string };
+    await post(`/v1/owner/link/${code}/claim`, { email: 'remove@example.com' });
+    const cookie = sessionCookie(await post('/v1/owner/claim/finish', { token: lastMagicToken() }));
+
+    // A holding exists as a mirrored/stored chip for cred_gone.
+    await daemonRequest(idn, 'POST', '/v1/owner/daemon/connections/mirror', {
+      connections: [{ agent_id: idn.agentId, provider: 'vercel', label: 'Vercel token', daemon_credential_id: 'cred_gone' }],
+    });
+    let mine = (await (await get('/v1/owner/connections', cookie)).json()) as { connections: Array<Record<string, unknown>> };
+    expect(mine.connections.find((r) => r.daemon_credential_id === 'cred_gone')?.status).toBe('stored');
+
+    // Remove requires its target; the console files a 'remove' row.
+    expect((await post('/v1/owner/connections', { agent_id: idn.agentId, provider: 'vercel', kind: 'remove' }, cookie)).status).toBe(400);
+    const rmId = ((await (await post('/v1/owner/connections', {
+      agent_id: idn.agentId, provider: 'vercel', kind: 'remove', label: 'Vercel token', rotate_credential_id: 'cred_gone',
+    }, cookie)).json()) as { id: string }).id;
+
+    // An old daemon (no include=remove) never receives it; a current one does.
+    const dpath = '/v1/owner/daemon/connections';
+    const dts = Math.floor(Date.now() / 1000);
+    const dsig = await ed.signAsync(te.encode(`GET:${dpath}:${dts}:${bytesToHex(sha256(te.encode('')))}`), idn.vaultPriv);
+    let dbin = ''; for (const b of dsig) dbin += String.fromCharCode(b);
+    const pull = async (q: string) => ((await (await app.request(`${dpath}${q}`, {
+      method: 'GET', headers: { Authorization: `AgentSig ${base58Encode(idn.vaultPub)}:${btoa(dbin)}`, 'X-Timestamp': String(dts) },
+    })).json()) as { connections: Array<{ id: string; daemon_credential_id?: string }> }).connections;
+    expect((await pull('?include=provision,rotate')).some((r) => r.id === rmId)).toBe(false);
+    const forCurrent = await pull('?include=provision,rotate,remove');
+    expect(forCurrent.find((r) => r.id === rmId)?.daemon_credential_id).toBe('cred_gone');
+
+    // The daemon does the removal and resolves the row 'stored'.
+    await daemonRequest(idn, 'POST', `/v1/owner/daemon/connections/${rmId}/claim`);
+    expect((await daemonRequest(idn, 'POST', `/v1/owner/daemon/connections/${rmId}/resolve`, {
+      daemon_credential_id: 'cred_gone',
+    })).status).toBe(200);
+
+    // The chip is gone (retired), and the 'remove' row itself is not a holding.
+    mine = (await (await get('/v1/owner/connections', cookie)).json()) as { connections: Array<Record<string, unknown>> };
+    const chip = mine.connections.find((r) => r.daemon_credential_id === 'cred_gone' && r.kind === 'sealed');
+    expect(chip?.status).toBe('revoked');
+  });
+
   it('credential facts: daemon-reported, upserted, owner-readable — ids and booleans only', async () => {
     const idn = await newInitIdentity();
     const { code } = (await (await post('/v1/owner/link', await linkBody(idn, 'CC'))).json()) as { code: string };
