@@ -9,13 +9,14 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Keyring } from '../keyring.js';
+import { Keyring, KeyringError } from '../keyring.js';
 import {
-  processConnections, watchSecondsFrom, DEFAULT_WATCH_SECONDS,
+  processConnections, processRevocations, watchSecondsFrom, DEFAULT_WATCH_SECONDS,
   credentialFactsFrom, reportCredentialFacts,
 } from './sync.js';
 import { parseFlags, CliError } from './shared.js';
 import type { ControlClient, RemoteConnection } from './control-client.js';
+import type { KillOutcome } from './grants.js';
 
 function fakeClient(rows: RemoteConnection[]) {
   const calls = { claims: [] as string[], resolves: [] as Array<{ id: string; result: unknown }> };
@@ -170,6 +171,68 @@ describe('sync --watch flag (field-hit: bare --watch must not error)', () => {
         expect.objectContaining({ name: 'CliError', message: expect.stringContaining('seconds') }) as unknown as CliError,
       );
     }
+  });
+});
+
+describe('console revocation orders — the kill switch\'s local half', () => {
+  const order = (id: string, agentId = 'ag_KilledAgent') =>
+    ({ delegation_id: id, agent_id: agentId, label: 'Claude Code', revoked_at: '2026-07-23T00:00:00Z' });
+
+  function revClient(orders: ReturnType<typeof order>[]) {
+    const confirms: Array<{ id: string; report: Record<string, unknown> }> = [];
+    const client = {
+      getRevocations: async () => orders,
+      confirmRevocation: async (id: string, report: Record<string, unknown>) => {
+        confirms.push({ id, report });
+      },
+    } as unknown as ControlClient;
+    return { client, confirms };
+  }
+
+  it('runs the local kill and confirms with the counts the console will show', async () => {
+    const kr = await vault();
+    const { client, confirms } = revClient([order('del_1')]);
+    const killedRefs: string[] = [];
+    const outcome: KillOutcome = {
+      agentId: 'ag_KilledAgent',
+      revokedGrantIds: ['g1', 'g2'],
+      burns: [
+        { label: 'Vercel', result: 'burned' },
+        { label: 'Supabase', result: 'burn failed: 500' },
+      ],
+      residuals: [{ title: 'Vercel CLI login', remedy: 'vercel logout' }],
+    };
+    await processRevocations(kr, client, async (_kr, agentRef) => {
+      killedRefs.push(agentRef);
+      return outcome;
+    });
+    expect(killedRefs).toEqual(['ag_KilledAgent']);
+    expect(confirms).toEqual([{
+      id: 'del_1',
+      report: { revoked_grants: 2, burned: 1, burn_failures: 1, residuals: 1 },
+    }]);
+  });
+
+  it('an agent that never lived here confirms honestly with zeros and a note', async () => {
+    const kr = await vault();
+    const { client, confirms } = revClient([order('del_gone', 'ag_Elsewhere')]);
+    await processRevocations(kr, client, async () => {
+      throw new KeyringError('Unknown identity: ag_Elsewhere', 'unknown_identity');
+    });
+    expect(confirms).toHaveLength(1);
+    expect(confirms[0].report).toEqual({
+      revoked_grants: 0, burned: 0, burn_failures: 0, residuals: 0,
+      note: 'agent not on this machine',
+    });
+  });
+
+  it('any other kill failure leaves the order unconfirmed for the next round', async () => {
+    const kr = await vault();
+    const { client, confirms } = revClient([order('del_err')]);
+    await processRevocations(kr, client, async () => {
+      throw new Error('vault locked by another process');
+    });
+    expect(confirms).toHaveLength(0); // server still lists it → retried next round
   });
 });
 

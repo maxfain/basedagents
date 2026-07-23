@@ -37,6 +37,11 @@ export interface Delegation {
   label: string | null;
   status: string;
   created_at: string;
+  revoked_at?: string | null;
+  /** When the machine confirmed it executed the local kill (null = still owed). */
+  daemon_confirmed_at?: string | null;
+  /** Counts-only JSON from that kill: {revoked_grants, burned, burn_failures, residuals, note?}. */
+  daemon_kill_report?: string | null;
 }
 
 export interface VaultKeyBinding {

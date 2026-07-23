@@ -125,6 +125,10 @@ export interface DelegationRow {
   revoke_assertion_id: string | null;
   created_at: string;
   revoked_at: string | null;
+  /** When the owner's machine confirmed it executed the local kill (0032). */
+  daemon_confirmed_at: string | null;
+  /** Counts-only JSON report from that kill — never values. */
+  daemon_kill_report: string | null;
 }
 
 // ── Keyring approvals (migration 0024) ──
@@ -327,6 +331,8 @@ function mapDelegationRow(r: RawRow): DelegationRow {
     revoke_assertion_id: asNullableStr(r.revoke_assertion_id),
     created_at: asStr(r.created_at),
     revoked_at: asNullableStr(r.revoked_at),
+    daemon_confirmed_at: asNullableStr(r.daemon_confirmed_at),
+    daemon_kill_report: asNullableStr(r.daemon_kill_report),
   };
 }
 
@@ -1600,6 +1606,35 @@ export class ControlStore {
       ownerId
     );
     return rows.map(mapDelegationRow);
+  }
+
+  /**
+   * Revocation orders awaiting the machine's local kill (0032): revoked
+   * delegations no daemon has confirmed yet. The daemon runs the same local
+   * kill as `based kill` and confirms back; until then the console shows
+   * "cut off at the account" — never "your machine dropped it" on faith.
+   */
+  async listUnconfirmedRevocations(ownerId: string): Promise<DelegationRow[]> {
+    const rows = await this.db.all<RawRow>(
+      `SELECT * FROM delegations
+       WHERE owner_id = ? AND status = 'revoked' AND daemon_confirmed_at IS NULL
+       ORDER BY revoked_at ASC, id ASC`,
+      ownerId
+    );
+    return rows.map(mapDelegationRow);
+  }
+
+  /** One-shot confirm (idempotence guard: only an unconfirmed revocation flips). */
+  async confirmDelegationKill(ownerId: string, delegationId: string, reportJson: string): Promise<boolean> {
+    const res = await this.db.run(
+      `UPDATE delegations SET daemon_confirmed_at = ?, daemon_kill_report = ?
+       WHERE id = ? AND owner_id = ? AND status = 'revoked' AND daemon_confirmed_at IS NULL`,
+      nowIsoString(),
+      reportJson,
+      delegationId,
+      ownerId
+    );
+    return res.changes === 1;
   }
 
   async listDelegationsByAgent(agentId: string): Promise<DelegationRow[]> {

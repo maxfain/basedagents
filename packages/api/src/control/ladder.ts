@@ -47,6 +47,8 @@
  *     POST /daemon/connections/:id/resolve   stored | failed
  *     POST /daemon/credential-facts per-key rotatability report (metadata only)
  *                                   → owner reads via GET /credential-facts
+ *     GET  /daemon/revocations      revoked delegations awaiting the local kill
+ *     POST /daemon/revocations/:id/confirm   counts-only kill report
  */
 import { Hono } from 'hono';
 import type { Context } from 'hono';
@@ -852,6 +854,45 @@ app.post('/daemon/credential-facts', daemonAuth, async (c) => {
 
 app.get('/credential-facts', ownerSession, async (c) => {
   return c.json({ facts: await getStore(c).listCredentialFacts(getOwnerId(c)) });
+});
+
+// ─── Revocation orders (migration 0032) — the kill switch's local half ───
+//
+// The console kill revokes the delegation HERE; the machine holding the vault
+// must still revoke local grants, burn minted provider-side keys, and sweep
+// for ambient residuals. The daemon pulls revoked-but-unconfirmed delegations,
+// runs the same local kill as `based kill`, and confirms with a counts-only
+// report (numbers and a short note, never values). Until a confirm arrives the
+// console shows "cut off at the account" — never "your machine dropped it" on
+// faith. Field-hit: this half used to not exist while the UI copy promised it.
+
+const KillReportSchema = z.object({
+  revoked_grants: z.number().int().min(0).max(10_000),
+  burned: z.number().int().min(0).max(10_000),
+  burn_failures: z.number().int().min(0).max(10_000),
+  residuals: z.number().int().min(0).max(10_000),
+  note: z.string().max(500).optional(),
+});
+
+app.get('/daemon/revocations', daemonAuth, async (c) => {
+  const rows = await getStore(c).listUnconfirmedRevocations(getOwnerId(c));
+  return c.json({
+    revocations: rows.map((r) => ({
+      delegation_id: r.id, agent_id: r.agent_id, label: r.label, revoked_at: r.revoked_at,
+    })),
+  });
+});
+
+app.post('/daemon/revocations/:id/confirm', daemonAuth, async (c) => {
+  let body: unknown;
+  try { body = await parseJson(c); } catch { return err(c, 400, 'bad_request', 'invalid JSON body'); }
+  const parsed = KillReportSchema.safeParse(body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
+  const ok = await getStore(c).confirmDelegationKill(
+    getOwnerId(c), c.req.param('id'), JSON.stringify(parsed.data),
+  );
+  if (!ok) return err(c, 404, 'not_found', 'revocation not found or already confirmed');
+  return c.json({ ok: true });
 });
 
 // ─── Cloud passport (SANDBOX_SPEC §4b) ───

@@ -194,5 +194,5 @@ export function parseExpires(value: string): string {
 export function printRevocationNotes(): void {
   console.log('  • New leases: blocked immediately (sealed copy deleted from the vault).');
   console.log('  • Outstanding leases: expire within their TTL (≤15 minutes by default).');
-  console.log('  • Provider-side key: still exists until rotated or burned — Provisioner lands in v0.2.');
+  console.log('  • Provider-side keys: minted ones are burned by id next; pasted ones still work until revoked at the provider.');
 }

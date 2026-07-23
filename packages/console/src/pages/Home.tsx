@@ -42,6 +42,28 @@ function agentDisplayName(d: Delegation): string {
   return d.label ?? shortId(d.agent_id);
 }
 
+/** Counts-only report the machine sent after executing a kill locally. */
+function killReport(d: Delegation): { residuals: number; note?: string } | null {
+  if (!d.daemon_kill_report) return null;
+  try {
+    const j = JSON.parse(d.daemon_kill_report) as { residuals?: number; note?: string };
+    return { residuals: j.residuals ?? 0, note: j.note };
+  } catch {
+    return null;
+  }
+}
+
+const SHOW_CONFIRMED_KILL_DAYS = 7;
+
+/** Kill-switch cards worth showing: every unconfirmed cutoff, plus confirmed ones for a week. */
+function recentlyKilled(delegations: Delegation[]): Delegation[] {
+  return delegations.filter((d) => {
+    if (d.status !== 'revoked') return false;
+    if (!d.daemon_confirmed_at) return true; // the machine still owes the local half
+    return Date.now() - Date.parse(d.daemon_confirmed_at) < SHOW_CONFIRMED_KILL_DAYS * 86_400_000;
+  });
+}
+
 export default function Home() {
   const { owner, refresh } = useOwner();
   const [requests, setRequests] = useState<KeyringRequest[]>([]);
@@ -81,8 +103,22 @@ export default function Home() {
     return () => clearInterval(timer);
   }, [connections, load]);
 
+  // Right after a kill, watch for the machine's confirmation (it lands on the
+  // daemon's next sync round). Bounded to 10 minutes — after that the card's
+  // "run the sync there" instruction is the path, not more polling.
+  useEffect(() => {
+    const waiting = (owner?.delegations ?? []).some(
+      (d) => d.status === 'revoked' && !d.daemon_confirmed_at &&
+        d.revoked_at != null && Date.now() - Date.parse(d.revoked_at) < 10 * 60 * 1000,
+    );
+    if (!waiting) return;
+    const timer = setInterval(() => void refresh(), 4000);
+    return () => clearInterval(timer);
+  }, [owner, refresh]);
+
   if (!owner) return null; // Protected route guarantees a session.
   const agents = owner.delegations.filter((d) => d.status === 'active');
+  const killed = recentlyKilled(owner.delegations);
 
   async function onAllow(req: KeyringRequest): Promise<void> {
     if (!owner) return;
@@ -330,6 +366,55 @@ export default function Home() {
             );
           })}
         </ul>
+      )}
+
+      {killed.length > 0 && (
+        <>
+          <h2 className="page-subhead">Cut off</h2>
+          <ul className="cards">
+            {killed.map((d) => {
+              const name = agentDisplayName(d);
+              const report = killReport(d);
+              return (
+                <li key={d.id} className="card">
+                  <div className="card-main">
+                    <div className="card-title">{name}</div>
+                    {!d.daemon_confirmed_at ? (
+                      <p className="muted">
+                        Cut off at the account — {name} can&rsquo;t ask for anything anymore.
+                        Your machine finishes the cutoff the next time it syncs. If nothing is
+                        running there, start it with:{' '}
+                        <code>npx basedagents@latest keyring sync</code>
+                      </p>
+                    ) : report && report.note ? (
+                      <p className="muted">
+                        The machine that answered on{' '}
+                        {new Date(d.daemon_confirmed_at).toLocaleString()} doesn&rsquo;t have{' '}
+                        {name} set up. If it lives on another computer, finish the cutoff there:{' '}
+                        <code>npx basedagents@latest keyring kill &quot;{name}&quot;</code>
+                      </p>
+                    ) : report && report.residuals > 0 ? (
+                      <p className="muted">
+                        Your machine confirmed the cutoff on{' '}
+                        {new Date(d.daemon_confirmed_at).toLocaleString()}, but found{' '}
+                        <strong>{report.residuals} other way{report.residuals === 1 ? '' : 's'}</strong>{' '}
+                        that computer can still act as you — sign-ins that live outside this
+                        system. See and fix them there with:{' '}
+                        <code>npx basedagents@latest keyring doctor</code>
+                      </p>
+                    ) : (
+                      <p className="muted">
+                        ✓ Cut off everywhere. Your machine confirmed on{' '}
+                        {new Date(d.daemon_confirmed_at).toLocaleString()} and found nothing
+                        left behind.
+                      </p>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
     </div>
   );

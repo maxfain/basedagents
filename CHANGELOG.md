@@ -8,6 +8,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the console kill switch gets its local half: daemon-executed kill + honest confirmation (`@basedagents/keyring` 0.6.6 + `basedagents` 0.6.7 + control plane + console)
+
+Field-test: kill switch pressed in the console, then the desktop agent
+listed Vercel projects anyway — via the Vercel CLI's own login, an ambient
+credential Keyring never held. Investigating exposed the deeper gap: the
+console button only revoked the delegation server-side, and its dialog
+promised "your machine drops its access on the next sync" while **no
+endpoint existed to make that true**. Local grants stayed live, no
+provider-side keys burned, no residual sweep. The real kill existed only
+in the local `based kill` command.
+
+- **One kill, two callers.** `based kill`'s whole pipeline — revoke every
+  grant, burn minted provider-side keys by id, sweep for ambient residuals
+  — is extracted into `executeKill()`, shared verbatim by the CLI and the
+  daemon, so the button and the command can never drift.
+- **Revocation orders (migration 0032).** `GET /daemon/revocations` serves
+  revoked-but-unconfirmed delegations; the daemon runs `executeKill` FIRST
+  each sync round (kills beat everything else) and confirms via
+  `POST /daemon/revocations/:id/confirm` with a counts-only report —
+  grants revoked, keys burned, burn failures, residuals, optional note;
+  numbers, never values. Confirm is one-shot; an agent that never lived on
+  the machine confirms honestly with zeros + note instead of looping; any
+  other failure leaves the order for the next round (the kill is
+  idempotent).
+- **The console stops promising and starts reporting.** A "Cut off"
+  section under the agent cards shows each recent kill's true state:
+  waiting for the machine (with the sync command to run), confirmed clean,
+  confirmed **with N leftover ambient paths** (the Vercel-CLI class of
+  leak, surfaced right where the button was pressed, pointing at
+  `keyring doctor`), or answered-by-the-wrong-machine (pointing at
+  `keyring kill` on the right one). Polls briefly after a kill for the
+  confirmation to land.
+- Also: `printRevocationNotes` no longer claims "Provisioner lands in
+  v0.2" — the burn it promised happens two lines below it.
+
 ### Added — the console only offers Rotate on keys the machine can actually rotate (`@basedagents/keyring` 0.6.5 + `basedagents` 0.6.6 + control plane + console)
 
 Field-hit: the Rotate button appeared on a pasted Vercel key, and the click

@@ -182,6 +182,25 @@ export class ControlClient {
     await this.signedFetch('POST', '/v1/owner/daemon/credential-facts', { credentials: facts });
   }
 
+  /**
+   * Revocation orders — console kill switches whose LOCAL half (revoke vault
+   * grants, burn minted provider keys, sweep residuals) this machine still
+   * owes. Confirmed orders stop appearing.
+   */
+  async getRevocations(): Promise<Array<{ delegation_id: string; agent_id: string; label: string | null; revoked_at: string | null }>> {
+    const r = await this.signedFetch<{ revocations: Array<{ delegation_id: string; agent_id: string; label: string | null; revoked_at: string | null }> }>(
+      'GET', '/v1/owner/daemon/revocations',
+    );
+    return r.revocations;
+  }
+
+  /** Confirm one executed kill — counts and a short note only, never values. */
+  async confirmRevocation(delegationId: string, report: {
+    revoked_grants: number; burned: number; burn_failures: number; residuals: number; note?: string;
+  }): Promise<void> {
+    await this.signedFetch('POST', `/v1/owner/daemon/revocations/${encodeURIComponent(delegationId)}/confirm`, report);
+  }
+
   /** Pending passport requests from the console (browser public keys only). */
   async getPassportHandoffs(): Promise<Array<{ id: string; browser_public_key: string }>> {
     const r = await this.signedFetch<{ handoffs: Array<{ id: string; browser_public_key: string }> }>(
