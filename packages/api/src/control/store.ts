@@ -1263,27 +1263,47 @@ export class ControlStore {
   }
 
   /**
-   * Reap claims that went quiet. Claiming stamps resolved_at, so a
-   * 'processing' row whose stamp is older than the window belongs to a daemon
-   * that died mid-work (one-shot sync killed, crash, lost network) — without
-   * this, the console spins forever on a connection nothing will ever finish.
-   * Flip it to failed with a plain-words reason so the human can just retry.
-   * Lazy: runs on the read paths (console poll, daemon pull) — no cron.
-   * A daemon that is merely SLOW keeps working locally; its late resolve
-   * finds the row already failed and reports false, which is the honest
-   * outcome for work nobody could observe for this long.
+   * Reap connection rows that will never resolve on their own — lazily, on the
+   * read paths (console poll, daemon pull), no cron. Two stall shapes, each
+   * with its own honest reason:
+   *
+   *  - 'processing' older than the window: a daemon CLAIMED it (claim stamps
+   *    resolved_at) then went quiet — killed one-shot, crash, lost network.
+   *  - 'pending' older than the window: NO daemon ever claimed it — the
+   *    console's "Do it for me" / paste needs Keyring running on the machine
+   *    and nothing is (field-hit: both provision cards span forever with no
+   *    watcher). Reaped ONLY on the console path (`includePending`): a human is
+   *    watching and wants an end state. The daemon path leaves pending rows
+   *    alone so a freshly-started daemon can still service old work.
+   *
+   * A daemon that is merely SLOW keeps working locally; its late resolve finds
+   * the row already failed and reports false — the honest outcome for work
+   * nobody could observe for this long. Ciphertext is blanked on the way out.
    */
-  async expireStaleProcessing(ownerId: string, olderThanMs = 15 * 60 * 1000): Promise<number> {
+  async expireStaleConnections(
+    ownerId: string,
+    opts: { includePending?: boolean; olderThanMs?: number } = {}
+  ): Promise<number> {
+    const olderThanMs = opts.olderThanMs ?? 15 * 60 * 1000;
     const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+    const pendingClause = opts.includePending
+      ? ` OR (status = 'pending' AND created_at < ?)`
+      : '';
+    const params: unknown[] = [nowIsoString(), ownerId, cutoff];
+    if (opts.includePending) params.push(cutoff);
     const res = await this.db.run(
       `UPDATE pending_connections
        SET status = 'failed',
-           failure_reason = 'This started on your computer but never finished — it may have been interrupted. Try again.',
-           resolved_at = ?
-       WHERE owner_id = ? AND status = 'processing' AND resolved_at < ?`,
-      nowIsoString(),
-      ownerId,
-      cutoff
+           failure_reason = CASE
+             WHEN status = 'processing'
+               THEN 'This started on your computer but never finished — it may have been interrupted. Try again.'
+             ELSE 'This needs Keyring running on your computer. Run ` + '`npx basedagents keyring sync`' + ` there, then try again.'
+           END,
+           resolved_at = ?,
+           sealed_secret = ''
+       WHERE owner_id = ?
+         AND ((status = 'processing' AND resolved_at < ?)${pendingClause})`,
+      ...params
     );
     return res.changes;
   }

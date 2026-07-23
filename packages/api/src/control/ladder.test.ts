@@ -946,6 +946,47 @@ describe('connect cards: sealed in the browser, resolved by the daemon', () => {
     })).status).toBe(404);
   });
 
+  it('a pending "Do it for me" with no daemon fails on the CONSOLE path, but the daemon path leaves it claimable', async () => {
+    const idn = await newInitIdentity();
+    const { code } = (await (await post('/v1/owner/link', await linkBody(idn, 'CC'))).json()) as { code: string };
+    await post(`/v1/owner/link/${code}/claim`, { email: 'nodaemon@example.com' });
+    const cookie = sessionCookie(await post('/v1/owner/claim/finish', { token: lastMagicToken() }));
+
+    // "Do it for me" with no watcher running: a pending provision row that
+    // nothing ever claims. Backdate it past the window.
+    const provId = ((await (await post('/v1/owner/connections', {
+      agent_id: idn.agentId, provider: 'vercel', kind: 'provision', label: 'Vercel',
+    }, cookie)).json()) as { id: string }).id;
+    const freshId = ((await (await post('/v1/owner/connections', {
+      agent_id: idn.agentId, provider: 'supabase', kind: 'provision', label: 'Supabase',
+    }, cookie)).json()) as { id: string }).id;
+    rawDb.prepare(`UPDATE pending_connections SET created_at = ? WHERE id = ?`)
+      .run(new Date(Date.now() - 20 * 60 * 1000).toISOString(), provId);
+
+    // The DAEMON path never fails a pending row — a daemon that starts late
+    // must still be able to claim it. The stale row is still pulled and still
+    // claimable. (Query rides outside the signed message — pathname only.)
+    const dpath = '/v1/owner/daemon/connections';
+    const dts = Math.floor(Date.now() / 1000);
+    const dsig = await ed.signAsync(te.encode(`GET:${dpath}:${dts}:${bytesToHex(sha256(te.encode('')))}`), idn.vaultPriv);
+    let dbin = '';
+    for (const b of dsig) dbin += String.fromCharCode(b);
+    const pulled = (await (await app.request(`${dpath}?include=provision,rotate`, {
+      method: 'GET',
+      headers: { Authorization: `AgentSig ${base58Encode(idn.vaultPub)}:${btoa(dbin)}`, 'X-Timestamp': String(dts) },
+    })).json()) as { connections: Array<{ id: string }> };
+    expect(pulled.connections.some((r) => r.id === provId)).toBe(true);
+
+    // The CONSOLE path reaps the stale pending row — plain-words reason naming
+    // the fix — while the fresh one keeps spinning.
+    const mine = (await (await get('/v1/owner/connections', cookie)).json()) as { connections: Array<Record<string, unknown>> };
+    const stale = mine.connections.find((r) => r.id === provId)!;
+    const fresh = mine.connections.find((r) => r.id === freshId)!;
+    expect(stale.status).toBe('failed');
+    expect(stale.failure_reason).toContain('keyring sync');
+    expect(fresh.status).toBe('pending');
+  });
+
   it('credential facts: daemon-reported, upserted, owner-readable — ids and booleans only', async () => {
     const idn = await newInitIdentity();
     const { code } = (await (await post('/v1/owner/link', await linkBody(idn, 'CC'))).json()) as { code: string };

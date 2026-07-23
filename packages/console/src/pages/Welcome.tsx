@@ -159,8 +159,9 @@ function ConnectCard({
             {phase.slow && (
               <>
                 <br />
-                Still waiting — is that computer awake, with setup running? You can also paste
-                a token instead; nothing breaks.
+                Still waiting — this needs Keyring running on that computer. Run{' '}
+                <code>npx basedagents keyring sync</code> there, or paste a token instead;
+                nothing breaks.
               </>
             )}
           </p>
