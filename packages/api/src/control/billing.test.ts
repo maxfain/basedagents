@@ -304,7 +304,9 @@ describe('downgrade over-limit: existing works, new is paused, security is never
     expect((await delegate(auth, cookie, (await makeAgent()).agentId)).status).toBe(402);
 
     // No new grant approvals while over limit (the begin arm is gated too).
-    const reqRes = await post('/v1/owner/requests', { agent_id: agents[0].agentId, credential_id: 'cred_x' }, cookie);
+    // The request belongs to a SURVIVING agent — revoking an agent retires its
+    // own asks (store.retireAgentWork), so agents[0]'s would 400 after the kill.
+    const reqRes = await post('/v1/owner/requests', { agent_id: agents[1].agentId, credential_id: 'cred_x' }, cookie);
     expect(reqRes.status).toBe(200);
     const reqId = ((await reqRes.json()) as { id: string }).id;
     const beginGated = await post(`/v1/owner/requests/${reqId}/approve/begin`, {}, cookie);

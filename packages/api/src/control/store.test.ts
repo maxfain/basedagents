@@ -27,9 +27,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'migrations');
 const MIGRATION_SQL =
   readFileSync(join(MIGRATIONS_DIR, '0023_owner_accounts.sql'), 'utf-8') +
+  // 0024: keyring_requests + grant_approvals — revokeDelegation retires rows
+  // in both, so the delegation tests need the real tables.
+  readFileSync(join(MIGRATIONS_DIR, '0024_keyring_approvals.sql'), 'utf-8') +
   readFileSync(join(MIGRATIONS_DIR, '0025_owner_recovery.sql'), 'utf-8') +
   readFileSync(join(MIGRATIONS_DIR, '0026_owner_billing.sql'), 'utf-8') +
-  readFileSync(join(MIGRATIONS_DIR, '0027_authority_ladder.sql'), 'utf-8');
+  readFileSync(join(MIGRATIONS_DIR, '0027_authority_ladder.sql'), 'utf-8') +
+  // 0029: pending_connections.kind — createPendingConnection writes it.
+  readFileSync(join(MIGRATIONS_DIR, '0029_provision_connections.sql'), 'utf-8');
 
 let rawDb: Database.Database;
 let db: SQLiteAdapter;
@@ -473,6 +478,63 @@ describe('delegations', () => {
     expect(revoked.status).toBe('revoked');
     expect(revoked.revoke_assertion_id).toBe(revokeAssertion.id);
     expect(revoked.revoked_at).toBe('2031-05-05T05:05:05.000Z');
+  });
+
+  it('revoking a delegation retires the agent\'s server-side work — asks, approvals, connect cards', async () => {
+    const { ownerId } = await makeOwner();
+    const killed = makeAgent();
+    const bystander = makeAgent();
+    const del = await store.createDelegation({
+      ownerId, agentId: killed,
+      authorizingAssertionId: (await appendAssertion(ownerId, 'delegate', 'ka')).id,
+    });
+    await store.createDelegation({
+      ownerId, agentId: bystander,
+      authorizingAssertionId: (await appendAssertion(ownerId, 'delegate', 'kb')).id,
+    });
+
+    // The killed agent's live server-side state, one of each kind…
+    const pendingReq = await store.createKeyringRequest({ ownerId, agentId: killed, credentialId: 'cred_p', provider: 'vercel', constraints: {} });
+    const approvedReq = await store.createKeyringRequest({ ownerId, agentId: killed, credentialId: 'cred_a', provider: 'vercel', constraints: {} });
+    rawDb.prepare(`UPDATE keyring_requests SET status = 'approved' WHERE id = ?`).run(approvedReq.id);
+    const approval = await store.createGrantApproval({
+      ownerId, requestId: approvedReq.id, agentId: killed, agentPubkey: 'pk', credentialId: 'cred_a',
+      constraints: {}, nonce: 'n1', actionHash: 'ah', assertionCredentialId: 'ac',
+      authenticatorData: 'ad', clientDataJson: 'cd', signature: 'sig',
+      assertionId: (await appendAssertion(ownerId, 'approve_grant', 'ag')).id,
+    });
+    const storedConn = await store.createPendingConnection({
+      ownerId, agentId: killed, provider: 'vercel', label: 'Vercel', sealedSecret: 'ciphertext',
+    });
+    rawDb.prepare(`UPDATE pending_connections SET status = 'stored' WHERE id = ?`).run(storedConn);
+    const queuedConn = await store.createPendingConnection({
+      ownerId, agentId: killed, provider: 'supabase', label: 'Supabase', sealedSecret: 'ciphertext2',
+    });
+    // …and the bystander's, which must survive untouched.
+    const bystanderReq = await store.createKeyringRequest({ ownerId, agentId: bystander, credentialId: 'cred_x', provider: 'vercel', constraints: {} });
+
+    await store.revokeDelegation({
+      delegationId: del.id,
+      revokeAssertionId: (await appendAssertion(ownerId, 'revoke', 'kr')).id,
+      nowIso: '2031-06-06T06:06:06.000Z',
+    });
+
+    const reqStatus = (id: string) =>
+      (rawDb.prepare(`SELECT status FROM keyring_requests WHERE id = ?`).get(id) as { status: string }).status;
+    const connRow = (id: string) =>
+      rawDb.prepare(`SELECT status, sealed_secret FROM pending_connections WHERE id = ?`).get(id) as { status: string; sealed_secret: string };
+
+    // Chips die: open and approved asks are terminally 'revoked'…
+    expect(reqStatus(pendingReq.id)).toBe('revoked');
+    expect(reqStatus(approvedReq.id)).toBe('revoked');
+    // …the daemon-bound approval can never re-grant after the kill…
+    expect((await store.getGrantApproval(approval.id))!.status).toBe('cancelled');
+    expect(await store.listPendingApprovals(ownerId)).toHaveLength(0);
+    // …and connect cards in any live state retire, ciphertext blanked at rest.
+    expect(connRow(storedConn)).toEqual({ status: 'revoked', sealed_secret: '' });
+    expect(connRow(queuedConn)).toEqual({ status: 'revoked', sealed_secret: '' });
+    // The bystander agent keeps everything.
+    expect(reqStatus(bystanderReq.id)).toBe('pending');
   });
 
   it('lists delegations by owner and by agent', async () => {
