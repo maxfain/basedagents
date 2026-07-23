@@ -8,6 +8,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a "Do it for me" card can't spin forever when no daemon is running (control plane + console; deploy-only)
+
+Field-hit: both Welcome connect cards sat on "Working on your machine…"
+indefinitely. Root cause: "Do it for me" files a `provision` row that
+only a running `keyring sync` daemon can service — and there wasn't one
+(the user had been connecting via `keyring connect` directly, a different
+channel). The stale-row reaper only failed **processing** rows (claimed
+then abandoned); a **pending** row nothing ever claims had no end state.
+
+- The reaper now also fails stale **pending** rows — but only on the
+  console read path (`GET /connections`), where a human is watching and
+  wants an answer. The daemon pull path still leaves pending rows
+  untouched, so a daemon that starts late can always claim and service old
+  work. The failure names the fix: "This needs Keyring running on your
+  computer. Run `npx basedagents keyring sync` there, then try again."
+  Ciphertext is blanked on the way out.
+- The card's own 30-second "slow" hint now names the exact command instead
+  of asking "is that computer awake?".
+
 ### Fixed — the provisioner browser never leaks, and its failures speak plainly (`@basedagents/keyring` 0.6.7 + `basedagents` 0.6.8)
 
 Field-hit chain, one failed "Do it for me" long: the Vercel bootstrap

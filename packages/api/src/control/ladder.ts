@@ -760,9 +760,11 @@ app.post('/connections', ownerSession, async (c) => {
 
 app.get('/connections', ownerSession, async (c) => {
   const store = getStore(c);
-  // Reap abandoned claims first — the console must never spin forever on a
-  // row whose daemon died mid-work (store.expireStaleProcessing).
-  await store.expireStaleProcessing(getOwnerId(c));
+  // Reap stale rows first — the console must never spin forever: an abandoned
+  // claim (daemon died mid-work) OR a pending "Do it for me" with no daemon
+  // running at all. includePending fires only here, where a human is watching
+  // and wants an end state (store.expireStaleConnections).
+  await store.expireStaleConnections(getOwnerId(c), { includePending: true });
   const rows = await store.listPendingConnections(getOwnerId(c));
   // Never echo ciphertext back to the browser — status only. The daemon
   // credential id is metadata (an opaque local id), and the console needs it
@@ -780,7 +782,10 @@ app.get('/connections', ownerSession, async (c) => {
 
 app.get('/daemon/connections', daemonAuth, async (c) => {
   const store = getStore(c);
-  await store.expireStaleProcessing(getOwnerId(c));
+  // Processing-only reap here: a freshly-started daemon must still be able to
+  // claim an old PENDING row and service it, so we never fail pending work on
+  // the daemon path (only the console path does, above).
+  await store.expireStaleConnections(getOwnerId(c));
   const rows = await store.listPendingConnections(getOwnerId(c), 'pending');
   // Non-sealed rows only go to daemons that ask for that kind by name
   // (?include=provision,rotate) — an older daemon must never receive a row
