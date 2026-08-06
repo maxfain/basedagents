@@ -8,6 +8,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the production canary no longer cries wolf when Cloudflare throttles it (CI)
+
+Runs 164–167 (2026-07-24, one ~4h window; every other run of 289 green) went
+red with the /v1/status body reading `error code: 1027` — Cloudflare's zone
+rate limiting throttling the CANARY's own requests from shared GitHub-runner
+IPs, misread as an API outage. Every check now goes through a throttle-aware
+helper: HTTP 429 or a bare `error code: 10xx` body backs off 60s and retries
+once; a persistent throttle fails with words that name the edge, not the app.
+Also fixed en route (caught by local stub tests): `curl --retry` retries 429s
+itself and concatenates the throttle body with the retried response, so the
+attempt loop now owns all retrying. Optional stronger fix, pre-wired: set
+repo secret CANARY_BYPASS_SECRET and add a Cloudflare WAF skip rule matching
+the X-Canary header the canary then sends.
+
 ### Added — remove one key from one agent, from the console (`@basedagents/keyring` 0.6.9 + `basedagents` 0.6.10 + control plane + console)
 
 Until now the console could Rotate one key or Kill the whole agent — but
