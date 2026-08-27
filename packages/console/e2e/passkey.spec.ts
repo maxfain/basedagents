@@ -239,10 +239,18 @@ test('1. claim: link code + email + magic link → account + agent, look-only se
   expect(session.delegations).toHaveLength(1);
   expect(session.delegations[0]).toMatchObject({ agent_id: init.agentId, status: 'active' });
 
-  // The novice home shows the agent and explains the coming first-approval mint.
+  // The novice home shows the agent — on its card AND in the sidebar's agent
+  // list — and explains the coming first-approval mint.
   await page.goto('/home');
-  await expect(page.getByText(init.agentName)).toBeVisible();
+  await expect(page.locator('.card-title-link', { hasText: init.agentName })).toBeVisible();
+  await expect(page.locator('.sidebar .side-label', { hasText: init.agentName })).toBeVisible();
   await expect(page.getByText(/first time you allow something/)).toBeVisible();
+
+  // The sidebar link opens the agent's own page (cut-off button in the header).
+  await page.locator('.sidebar .side-label', { hasText: init.agentName }).click();
+  await expect(page).toHaveURL(/\/agents\/ag_/);
+  await expect(page.getByRole('heading', { name: `What ${init.agentName} can use` })).toBeVisible();
+  await expect(page.getByRole('button', { name: `Cut off ${init.agentName}` })).toBeVisible();
 
   // "Sessions to look, signatures to act": with no passkey there is nothing
   // that can sign — the armed approval offers NO usable credential.
@@ -407,7 +415,7 @@ test('4. recovery: magic link + code → new passkey; old passkey dead, agent co
   await page.getByLabel('Email').fill(init.email);
   await page.getByRole('button', { name: 'Sign in with a passkey' }).click();
   await expect(page).toHaveURL(/\/home/, { timeout: 20_000 });
-  await expect(page.getByText(init.agentName)).toBeVisible();
+  await expect(page.locator('.card-title-link', { hasText: init.agentName })).toBeVisible();
   expect((await me(page)).delegations[0]).toMatchObject({ agent_id: init.agentId, status: 'active' });
 });
 
@@ -473,7 +481,7 @@ test('6. /start browser door: returning account signs in with one email field; a
   await page.goto('/login');                 // leave /start so #t= is a real load
   await page.goto(`/start#t=${token}`);
   await expect(page).toHaveURL(/\/home/, { timeout: 20_000 });
-  await expect(page.getByText(init.agentName)).toBeVisible();
+  await expect(page.locator('.card-title-link', { hasText: init.agentName })).toBeVisible();
   expect((await me(page)).session_method).toBe('email');
 
   // A brand-new email gets NO session — just the paste-to-your-agent command.

@@ -25,7 +25,7 @@ function shortId(id: string): string {
  * passkey ceremonies; there is no daemon re-check for these edges, so the
  * ceremony helper's client-side WYSIWYS check is load-bearing here.
  */
-export default function Agents() {
+export default function Delegations() {
   const { owner, refresh } = useOwner();
   const [agentId, setAgentId] = useState('');
   const [label, setLabel] = useState('');
@@ -87,7 +87,7 @@ export default function Agents() {
   return (
     <div className="page">
       <div className="page-head">
-        <h1>Agents</h1>
+        <h1>Delegations</h1>
       </div>
       <p className="page-lede">
         Delegating an agent lets it request credentials from your vault. Every delegation and

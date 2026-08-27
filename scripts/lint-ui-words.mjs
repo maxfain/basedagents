@@ -24,12 +24,17 @@ const SURFACES = [
   'packages/console/src/pages/Welcome.tsx',
   'packages/console/src/pages/Invited.tsx',
   'packages/console/src/pages/Home.tsx',
+  'packages/console/src/pages/Agent.tsx',
+  'packages/console/src/pages/AddAgent.tsx',
   'packages/console/src/pages/Login.tsx',
   'packages/console/src/pages/Start.tsx',
   'packages/console/src/components/AgentSetup.tsx',
+  'packages/console/src/components/AddAgentGuide.tsx',
   'packages/console/src/components/Layout.tsx',
   'packages/console/src/lib/providerCards.ts',
   'packages/console/src/lib/outcomes.ts',
+  // The shared hook's window.confirm strings render to the same human.
+  'packages/console/src/lib/agentActions.ts',
   // The marketing homepage speaks to the same base-case human — same rule.
   // (The "Are you an agent?" section is agent-facing but must still pass:
   // machine copy that needs the technical words belongs on /docs/agents.)
