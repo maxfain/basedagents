@@ -11,9 +11,18 @@ import Invited from './pages/Invited.js';
 import Home from './pages/Home.js';
 import Welcome from './pages/Welcome.js';
 import Approvals from './pages/Approvals.js';
-import Agents from './pages/Agents.js';
+import AgentPage from './pages/Agent.js';
+import AddAgent from './pages/AddAgent.js';
+import Delegations from './pages/Delegations.js';
 import Vault from './pages/Vault.js';
 import Billing from './pages/Billing.js';
+
+/** /agents with nothing after it: first agent when one exists, else the add page. */
+function AgentsIndex() {
+  const { owner } = useOwner();
+  const first = owner?.delegations.find((d) => d.status === 'active');
+  return <Navigate to={first ? `/agents/${encodeURIComponent(first.agent_id)}` : '/agents/new'} replace />;
+}
 
 /** Gate the console behind a live look-session; render the shell once in. */
 function Protected() {
@@ -57,7 +66,10 @@ export default function App() {
             <Route path="/home" element={<Home />} />
             <Route path="/welcome" element={<Welcome />} />
             <Route path="/approvals" element={<Approvals />} />
-            <Route path="/agents" element={<Agents />} />
+            <Route path="/agents" element={<AgentsIndex />} />
+            <Route path="/agents/new" element={<AddAgent />} />
+            <Route path="/agents/:agentId" element={<AgentPage />} />
+            <Route path="/delegations" element={<Delegations />} />
             <Route path="/vault" element={<Vault />} />
             <Route path="/settings/billing" element={<Billing />} />
           </Route>

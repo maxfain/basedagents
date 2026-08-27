@@ -2,9 +2,10 @@
  * /home — the novice home (onboarding redesign Move 5).
  *
  * One card per agent: what it's asking for (Allow / Don't allow), what it can
- * use, recent activity, and the kill switch. The full console still exists
- * behind "Advanced" (the Layout link) — this page is the whole product for
- * the base case, in base-case words.
+ * use, recent activity, and the kill switch. Card titles link to the agent's
+ * own page (/agents/:agentId — the sidebar lists the same pages), where each
+ * key gets a "…" menu for rotate/remove. Data and actions live in
+ * lib/agentActions.ts, shared with that page.
  *
  * The FIRST Allow mints the passkey (lib/approve.ts): the browser's creation
  * prompt fires at the exact moment the user first exercises authority, which
@@ -12,220 +13,30 @@
  *
  * Base-case surface — the banned-words rule applies (scripts/lint-ui-words.mjs).
  */
-import { useCallback, useEffect, useState } from 'react';
-import { control, ControlApiError } from '../api/control.js';
+import { Link } from 'react-router-dom';
 import { useOwner } from '../state/session.js';
-import { approveRequest } from '../lib/approve.js';
-import { runAction } from '../lib/ceremony.js';
-import { ensurePasskey } from '../lib/firstApproval.js';
 import { askPhrase } from '../lib/outcomes.js';
-import { AgentSetupPrompt } from '../components/AgentSetup.js';
-import type { ConnectionInfo, CredentialFact, Delegation, KeyringRequest } from '../api/types.js';
-
-function errText(err: unknown): string {
-  if (err instanceof ControlApiError) return err.message;
-  if (err instanceof Error) return err.message;
-  return String(err);
-}
-
-/** Over the plan's agent limit — a distinct, base-case-worded state (never the
- *  raw 402 message, which contains power-user vocabulary). */
-function isPlanLimit(err: unknown): boolean {
-  return err instanceof ControlApiError && err.status === 402;
-}
-
-function shortId(id: string): string {
-  return id.length > 18 ? `${id.slice(0, 12)}…${id.slice(-4)}` : id;
-}
-
-function agentDisplayName(d: Delegation): string {
-  return d.label ?? shortId(d.agent_id);
-}
-
-/** Counts-only report the machine sent after executing a kill locally. */
-function killReport(d: Delegation): { residuals: number; note?: string } | null {
-  if (!d.daemon_kill_report) return null;
-  try {
-    const j = JSON.parse(d.daemon_kill_report) as { residuals?: number; note?: string };
-    return { residuals: j.residuals ?? 0, note: j.note };
-  } catch {
-    return null;
-  }
-}
-
-const SHOW_CONFIRMED_KILL_DAYS = 7;
-
-/** Kill-switch cards worth showing: every unconfirmed cutoff, plus confirmed ones for a week. */
-function recentlyKilled(delegations: Delegation[]): Delegation[] {
-  return delegations.filter((d) => {
-    if (d.status !== 'revoked') return false;
-    if (!d.daemon_confirmed_at) return true; // the machine still owes the local half
-    return Date.now() - Date.parse(d.daemon_confirmed_at) < SHOW_CONFIRMED_KILL_DAYS * 86_400_000;
-  });
-}
+import AddAgentGuide from '../components/AddAgentGuide.js';
+import {
+  agentDisplayName,
+  holdingsFor,
+  killReport,
+  latestOpFor,
+  recentlyKilled,
+  rotatableFor,
+  useAgentData,
+} from '../lib/agentActions.js';
 
 export default function Home() {
-  const { owner, refresh } = useOwner();
-  const [requests, setRequests] = useState<KeyringRequest[]>([]);
-  const [connections, setConnections] = useState<ConnectionInfo[]>([]);
-  const [facts, setFacts] = useState<CredentialFact[]>([]);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [atLimit, setAtLimit] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const [reqs, conns, cf] = await Promise.all([
-        control.listRequests(),
-        control.listConnections(),
-        control.listCredentialFacts(),
-      ]);
-      setRequests(reqs.requests);
-      setConnections(conns.connections);
-      setFacts(cf.facts);
-    } catch (err) {
-      setError(errText(err));
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  // While a rotation is in flight on the user's machine, watch for the flip
-  // to done/failed — the whole operation is usually a few seconds of API calls.
-  useEffect(() => {
-    const inFlight = connections.some(
-      (c) => (c.kind === 'rotate' || c.kind === 'remove') && (c.status === 'pending' || c.status === 'processing'),
-    );
-    if (!inFlight) return;
-    const timer = setInterval(() => void load(), 4000);
-    return () => clearInterval(timer);
-  }, [connections, load]);
-
-  // Right after a kill, watch for the machine's confirmation (it lands on the
-  // daemon's next sync round). Bounded to 10 minutes — after that the card's
-  // "run the sync there" instruction is the path, not more polling.
-  useEffect(() => {
-    const waiting = (owner?.delegations ?? []).some(
-      (d) => d.status === 'revoked' && !d.daemon_confirmed_at &&
-        d.revoked_at != null && Date.now() - Date.parse(d.revoked_at) < 10 * 60 * 1000,
-    );
-    if (!waiting) return;
-    const timer = setInterval(() => void refresh(), 4000);
-    return () => clearInterval(timer);
-  }, [owner, refresh]);
+  const { owner } = useOwner();
+  const {
+    requests, connections, facts, busy, error, atLimit,
+    load, allow, dontAllow, rotate, remove, kill,
+  } = useAgentData();
 
   if (!owner) return null; // Protected route guarantees a session.
   const agents = owner.delegations.filter((d) => d.status === 'active');
   const killed = recentlyKilled(owner.delegations);
-
-  async function onAllow(req: KeyringRequest): Promise<void> {
-    if (!owner) return;
-    setBusy(req.id);
-    setError(null);
-    setAtLimit(false);
-    try {
-      // refresh runs the instant a passkey is minted (see lib/approve.ts).
-      await approveRequest(owner, req.id, refresh);
-      await load();
-    } catch (err) {
-      if (isPlanLimit(err)) setAtLimit(true); // never render the raw 402 copy
-      else setError(errText(err));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function onDontAllow(req: KeyringRequest): Promise<void> {
-    setBusy(req.id);
-    setError(null);
-    try {
-      await control.deny(req.id);
-      await load();
-    } catch (err) {
-      setError(errText(err));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function onRotate(
-    d: Delegation,
-    h: { label: string; provider: string; localId: string | null },
-  ): Promise<void> {
-    if (!h.localId) return;
-    const name = agentDisplayName(d);
-    if (!window.confirm(
-      `Rotate the ${h.label} key? Your machine mints a fresh key and destroys the old one at ${h.provider}. ${name} switches to the new key automatically.`,
-    )) return;
-    setBusy(`rotate-${h.localId}`);
-    setError(null);
-    try {
-      await control.createConnection({
-        agent_id: d.agent_id,
-        provider: h.provider,
-        label: h.label,
-        kind: 'rotate',
-        rotate_credential_id: h.localId,
-      });
-      await load();
-    } catch (err) {
-      setError(errText(err));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function onRemove(
-    d: Delegation,
-    h: { label: string; provider: string; localId: string | null },
-  ): Promise<void> {
-    if (!h.localId) return;
-    const name = agentDisplayName(d);
-    if (!window.confirm(
-      `Remove ${h.label} from ${name}? Your machine cuts off this one key — it stops working for ${name}, and if nothing else uses it, it's destroyed at ${h.provider || 'the provider'}. Everything else stays.`,
-    )) return;
-    setBusy(`remove-${h.localId}`);
-    setError(null);
-    try {
-      await control.createConnection({
-        agent_id: d.agent_id,
-        provider: h.provider,
-        label: h.label,
-        kind: 'remove',
-        rotate_credential_id: h.localId,
-      });
-      await load();
-    } catch (err) {
-      setError(errText(err));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function onKill(d: Delegation): Promise<void> {
-    if (!owner) return;
-    const name = agentDisplayName(d);
-    if (!window.confirm(`Cut off ${name}? It immediately loses the ability to ask for anything, and your machine drops its access on the next sync.`)) {
-      return;
-    }
-    setBusy(d.id);
-    setError(null);
-    try {
-      await ensurePasskey(owner);
-      const { nonce, assertion } = await runAction(owner.owner_id, 'revoke_delegation', {
-        delegation_id: d.id,
-      });
-      await control.revokeDelegation(d.id, nonce, assertion);
-      await refresh();
-      await load();
-    } catch (err) {
-      setError(errText(err));
-    } finally {
-      setBusy(null);
-    }
-  }
 
   return (
     <div className="page">
@@ -252,58 +63,26 @@ export default function Home() {
       )}
 
       {agents.length === 0 ? (
-        <div className="empty">
+        <div className="empty empty-guide">
           <p>No agent is connected to this account yet.</p>
-          <p className="muted">Set it up — hand this to your agent, or run it yourself:</p>
-          <AgentSetupPrompt />
+          <AddAgentGuide />
         </div>
       ) : (
         <ul className="cards">
           {agents.map((d) => {
             const asking = requests.filter((r) => r.agent_id === d.agent_id && r.status === 'pending');
-            // Everything this agent can use, with enough metadata to offer
-            // per-key rotation/removal: stored rows carry the machine-local id
-            // they created; approved asks carry theirs. Rotate/remove rows are
-            // operations on an existing key, never holdings themselves.
-            const holdings = [
-              ...connections
-                .filter((c) => c.agent_id === d.agent_id && c.status === 'stored' && c.kind !== 'rotate' && c.kind !== 'remove')
-                .map((c) => ({
-                  key: `conn-${c.id}`,
-                  label: c.label ?? c.provider,
-                  provider: c.provider,
-                  localId: c.daemon_credential_id ?? null,
-                })),
-              ...requests
-                .filter((r) => r.agent_id === d.agent_id && r.status === 'approved')
-                .map((r) => ({
-                  key: `req-${r.id}`,
-                  label: r.credential_label ?? r.credential_id,
-                  provider: r.provider ?? '',
-                  localId: r.credential_id ?? null,
-                })),
-            ];
-            const rotations = connections.filter((c) => c.agent_id === d.agent_id && c.kind === 'rotate');
-            const rotationFor = (localId: string | null) =>
-              localId === null
-                ? undefined
-                : rotations
-                    .filter((c) => c.daemon_credential_id === localId)
-                    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
-            const removals = connections.filter((c) => c.agent_id === d.agent_id && c.kind === 'remove');
-            const removalFor = (localId: string | null) =>
-              localId === null
-                ? undefined
-                : removals
-                    .filter((c) => c.daemon_credential_id === localId)
-                    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
+            const holdings = holdingsFor(d.agent_id, connections, requests);
             const activity = requests
               .filter((r) => r.agent_id === d.agent_id && r.status !== 'pending')
               .slice(0, 5);
             return (
               <li key={d.id} className="card agent-card">
                 <div className="card-main">
-                  <div className="card-title">{agentDisplayName(d)}</div>
+                  <div className="card-title">
+                    <Link className="card-title-link" to={`/agents/${encodeURIComponent(d.agent_id)}`}>
+                      {agentDisplayName(d)}
+                    </Link>
+                  </div>
                   <div className="card-meta">
                     <span>since {new Date(d.created_at).toLocaleDateString()}</span>
                   </div>
@@ -323,14 +102,14 @@ export default function Home() {
                         <button
                           className="btn btn-primary btn-sm"
                           disabled={busy !== null}
-                          onClick={() => void onAllow(req)}
+                          onClick={() => void allow(req)}
                         >
                           {busy === req.id ? 'Waiting…' : 'Allow'}
                         </button>
                         <button
                           className="btn btn-ghost btn-sm"
                           disabled={busy !== null}
-                          onClick={() => void onDontAllow(req)}
+                          onClick={() => void dontAllow(req)}
                         >
                           Don&rsquo;t allow
                         </button>
@@ -344,19 +123,12 @@ export default function Home() {
                       <span className="chip chip-empty">Can&rsquo;t use anything yet</span>
                     ) : (
                       holdings.map((h) => {
-                        const rot = rotationFor(h.localId);
+                        const rot = latestOpFor('rotate', d.agent_id, h.localId, connections);
                         const rotating = rot !== undefined && (rot.status === 'pending' || rot.status === 'processing');
-                        // The machine's own report decides: an affirmative
-                        // rotatable:false hides the button (pasted/imported
-                        // keys would only ever fail after the click). No fact
-                        // at all — an old daemon — keeps the optimistic button.
-                        const fact = h.localId === null ? undefined : facts.find((f) => f.credential_id === h.localId);
-                        const rotatable = h.localId !== null
-                          && (h.provider === 'vercel' || h.provider === 'supabase')
-                          && fact?.rotatable !== false;
+                        const rotatable = rotatableFor(h, facts);
                         // Remove works for ANY key with a machine-local id —
                         // minted or pasted (pasted just revokes + drops).
-                        const rem = removalFor(h.localId);
+                        const rem = latestOpFor('remove', d.agent_id, h.localId, connections);
                         const removing = rem !== undefined && (rem.status === 'pending' || rem.status === 'processing');
                         const removable = h.localId !== null;
                         const acting = rotating || removing;
@@ -370,7 +142,7 @@ export default function Home() {
                                 title={rot?.status === 'failed'
                                   ? (rot.failure_reason ?? 'The last rotation failed.')
                                   : 'Mint a fresh key and destroy the old one'}
-                                onClick={() => void onRotate(d, h)}
+                                onClick={() => void rotate(d, h)}
                               >
                                 {rotating ? 'Rotating…' : rot?.status === 'failed' ? 'Rotate ⚠' : 'Rotate'}
                               </button>
@@ -382,7 +154,7 @@ export default function Home() {
                                 title={rem?.status === 'failed'
                                   ? (rem.failure_reason ?? 'The last removal failed.')
                                   : 'Revoke this one key, and destroy it at the provider if nothing else uses it'}
-                                onClick={() => void onRemove(d, h)}
+                                onClick={() => void remove(d, h)}
                               >
                                 {removing ? 'Removing…' : rem?.status === 'failed' ? 'Remove ⚠' : 'Remove'}
                               </button>
@@ -409,7 +181,7 @@ export default function Home() {
                   <button
                     className="btn btn-danger"
                     disabled={busy !== null}
-                    onClick={() => void onKill(d)}
+                    onClick={() => void kill(d)}
                   >
                     {busy === d.id ? 'Waiting…' : 'Kill switch'}
                   </button>
