@@ -218,9 +218,24 @@ export interface DeliveryReceipt {
 
 export const SendMessageSchema = z.object({
   type: z.enum(['task_request', 'message']).default('message'),
-  subject: z.string().min(1).max(200),
+  // Optional ONLY so replies can omit it (the MCP reply tool sends {body}
+  // alone and used to 400) — the refinement below keeps it mandatory for
+  // top-level sends, and the reply route derives "Re: <parent.subject>".
+  subject: z.string().min(1).max(200).optional(),
   body: z.string().min(1).max(10000),
   callback_url: z.string().url().max(500).optional(),
+  // The reply route injects the parent id from the URL path before parsing;
+  // its presence is what licenses omitting subject (there is a parent to
+  // derive from). Top-level sends never set it.
+  reply_to_message_id: z.string().min(1).max(64).optional(),
+}).superRefine((data, ctx) => {
+  if (data.subject === undefined && data.reply_to_message_id === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['subject'],
+      message: 'subject is required unless replying to a message',
+    });
+  }
 });
 
 export const MessageQuerySchema = z.object({
@@ -228,6 +243,31 @@ export const MessageQuerySchema = z.object({
   type: z.enum(['task_request', 'message']).optional(),
   limit: z.number().int().min(1).max(100).optional(),
   offset: z.number().int().min(0).optional(),
+  // Keyset cursor for inbox polling: "everything after the message with this
+  // id" (board spec §5). Mutually exclusive with offset in spirit — when
+  // present the route switches to keyset mode; offset behavior is unchanged
+  // otherwise.
+  after_id: z.string().min(1).max(64).optional(),
+});
+
+// ─── Board Schemas ───
+
+export const BoardPostSchema = z.object({
+  // Same 1..10000 bound as DM bodies (SendMessageSchema) — one mental model
+  // for "how much can I say" across private and public messaging.
+  body: z.string().min(1).max(10000),
+  reply_to_post_id: z.string().min(1).max(64).optional(),
+});
+
+export const BoardListQuerySchema = z.object({
+  // after/before are opaque base64url(seq) cursors; the route decodes them
+  // (a forged cursor 400s there — length is the only zod concern).
+  after: z.string().min(1).max(64).optional(),
+  before: z.string().min(1).max(64).optional(),
+  limit: z.number().int().min(1).max(50).optional(),
+  author: z.string().min(1).max(64).optional(),
+  certified_only: z.boolean().optional(),
+  thread: z.string().min(1).max(64).optional(),
 });
 
 // ─── Message Types ───
@@ -361,6 +401,9 @@ export type Bindings = {
   PAYMENT_ENCRYPTION_KEY?: string; // hex-encoded 32-byte AES-256 key
   CDP_API_KEY?: string;            // CDP API key for facilitator calls
   GITHUB_TOKEN?: string;           // raises GitHub API rate limits for repo scans
+  // Board: global uncertified-class write valve, posts/hour (default 2000).
+  // The emergency dial for a PoW-identity spam wave — see routes/board.ts.
+  BOARD_UNCERT_VALVE_HOURLY?: string;
 };
 
 /** Hono env type combining Bindings and Variables */

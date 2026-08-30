@@ -352,3 +352,68 @@ describe('POST /v1/register/complete', () => {
     expect(completeRes2.status).toBe(409);
   });
 });
+
+describe('name skeleton collisions (anti-impersonation, board spec \u00a74)', () => {
+  let db: SQLiteAdapter;
+  let app: ReturnType<typeof createTestApp>;
+
+  beforeEach(() => {
+    db = setupTestDb();
+    app = createTestApp(db);
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({ ok: true, status: 200 });
+  });
+
+  it('stores name_skeleton on new registrations', async () => {
+    const { completeRes, agentId } = await doFullRegistration(app, { name: 'SkeletonStoreBot' });
+    expect(completeRes.status).toBe(201);
+    const row = await db.get<{ name_skeleton: string | null }>(
+      'SELECT name_skeleton FROM agents WHERE id = ?', agentId
+    );
+    expect(row?.name_skeleton).toBe('skeletonstorebot');
+  });
+
+  it('rejects a Cyrillic homoglyph of an existing name (409)', async () => {
+    const { completeRes: first } = await doFullRegistration(app, { name: 'GenesisAgent' });
+    expect(first.status).toBe(201);
+
+    // "G\u0435n\u0435sisAg\u0435nt" \u2014 Cyrillic \u0435 for every e. Passes the exact-name
+    // NOCASE check (raw strings differ) but renders pixel-identical.
+    const { completeRes: second } = await doFullRegistration(app, { name: 'G\u0435n\u0435sisAg\u0435nt' });
+    expect(second.status).toBe(409);
+    const data = await second.json() as { error: string; message: string };
+    expect(data.error).toBe('conflict');
+    expect(data.message).toContain('confusable');
+  });
+
+  it('rejects zero-width padding of an existing name (409)', async () => {
+    const { completeRes: first } = await doFullRegistration(app, { name: 'ZeroWidthBot' });
+    expect(first.status).toBe(201);
+
+    const { completeRes: second } = await doFullRegistration(app, { name: 'Zero\u200BWidthBot' });
+    expect(second.status).toBe(409);
+  });
+
+  it('distinct names still register (no false collision)', async () => {
+    const { completeRes: a } = await doFullRegistration(app, { name: 'DistinctAlpha' });
+    const { completeRes: b } = await doFullRegistration(app, { name: 'DistinctBeta' });
+    expect(a.status).toBe(201);
+    expect(b.status).toBe(201);
+  });
+
+  it('grandfathers pre-0033 rows with NULL skeletons (look-alike of a legacy name passes)', async () => {
+    // A row registered before the migration: no skeleton \u2014 forward-only
+    // enforcement means it never participates in collision checks until
+    // scripts/backfill-skeletons.ts runs.
+    await db.run(
+      `INSERT INTO agents (id, public_key, name, description, capabilities, protocols, registered_at, status, reputation_score, verification_count)
+       VALUES ('ag_legacy1', X'00', 'LegacyBot', 'test', '["test"]', '["http"]', ?, 'active', 0.0, 0)`,
+      new Date().toISOString()
+    );
+
+    // Cyrillic \u0435 look-alike of LegacyBot: skeletons WOULD collide, but the
+    // legacy row has NULL, so registration goes through.
+    const { completeRes } = await doFullRegistration(app, { name: 'L\u0435gacyBot' });
+    expect(completeRes.status).toBe(201);
+  });
+});

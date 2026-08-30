@@ -40,10 +40,17 @@ export async function checkRateLimit(
     crypto.randomUUID(), key, new Date().toISOString(),
   );
 
-  // Cleanup old entries (lazy, only occasionally)
+  // Cleanup old entries (lazy, only occasionally). SCOPED TO THIS KEY: the
+  // cutoff is 2× the CALLER'S window, so a short-window caller (e.g. a 60s
+  // per-IP board read) must never delete another key's still-live rows. A
+  // key-blind DELETE here would let any short-window limiter garbage-collect
+  // the board's hourly buckets and the uncertified valve (1-hour windows) —
+  // and the 10/hour DM limiter — every ~2 minutes, silently uncapping them.
+  // Per-key cleanup can leave orphan rows for keys never hit again; that
+  // unbounded-growth risk is negligible next to a defeated rate limit.
   if (Math.random() < 0.1) {
     const cutoff = new Date(now - windowMs * 2).toISOString();
-    await db.run('DELETE FROM rate_limit_log WHERE created_at < ?', cutoff);
+    await db.run('DELETE FROM rate_limit_log WHERE key = ? AND created_at < ?', key, cutoff);
   }
 
   return { allowed: true, remaining: maxRequests - current - 1 };

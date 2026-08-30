@@ -4,6 +4,7 @@ import { postTweet, registrationTweet } from '../lib/twitter.js';
 import { RegisterInitSchema, RegisterCompleteSchema } from '../types/index.js';
 import { fireWebhook } from '../lib/webhooks.js';
 import { isSafeUrl } from '../lib/url-validator.js';
+import { nameSkeleton } from '../lib/skeleton.js';
 import {
   base58Decode,
   publicKeyToAgentId,
@@ -201,6 +202,29 @@ register.post('/complete', async (c) => {
     return c.json({ error: 'conflict', message: `Agent name '${profile.name}' is already taken` }, 409);
   }
 
+  // 5c. Anti-impersonation (board spec §4): names that are pixel-identical to
+  // an existing name — Cyrillic/Greek homoglyphs, zero-width padding,
+  // diacritic dress-up — must collide even though the raw strings differ.
+  // Forward-only: rows registered before 0033 have NULL skeletons until
+  // scripts/backfill-skeletons.ts runs, and NULL never matches this SELECT,
+  // so they're grandfathered rather than 500ing registration. No UNIQUE
+  // backstop like the name column has: the backfill can legitimately mint
+  // duplicate skeletons among grandfathered rows, so the index can't be
+  // unique — the remaining SELECT-INSERT race admits one look-alike NAME at
+  // worst (display confusion, not identity collision; the cert badge stays
+  // the trust signal), which isn't worth a rebuild-and-lock dance.
+  const skeleton = nameSkeleton(profile.name);
+  const lookalike = await db.get<{ name: string }>(
+    'SELECT name FROM agents WHERE name_skeleton = ?',
+    skeleton
+  );
+  if (lookalike) {
+    return c.json({
+      error: 'conflict',
+      message: `Agent name '${profile.name}' is confusable with existing agent '${lookalike.name}' — pick a visually distinct name`,
+    }, 409);
+  }
+
   // 6. Create chain entry
   const latestEntry = await db.get<{ entry_hash: string }>(
     'SELECT entry_hash FROM chain ORDER BY sequence DESC LIMIT 1'
@@ -260,11 +284,12 @@ register.post('/complete', async (c) => {
   // Wrap INSERT to handle UNIQUE constraint race (LOW-8: TOCTOU on name uniqueness)
   try {
     await db.run(
-    `INSERT INTO agents (id, public_key, name, description, capabilities, protocols, offers, needs, homepage, contact_endpoint, comment, organization, organization_url, logo_url, tags, version, contact_email, x_handle, skills, webhook_url, webhook_secret, wallet_address, wallet_network, registered_at, status, reputation_score, verification_count)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0)`,
+    `INSERT INTO agents (id, public_key, name, name_skeleton, description, capabilities, protocols, offers, needs, homepage, contact_endpoint, comment, organization, organization_url, logo_url, tags, version, contact_email, x_handle, skills, webhook_url, webhook_secret, wallet_address, wallet_network, registered_at, status, reputation_score, verification_count)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0)`,
     agentId,
     publicKey,
     profile.name,
+    skeleton,
     profile.description,
     JSON.stringify(profile.capabilities),
     JSON.stringify(profile.protocols),

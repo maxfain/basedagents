@@ -9,6 +9,9 @@ import type {
   ApiTaskDetailResponse,
   ApiScanReport,
   ApiScanListResponse,
+  ApiBoardListResponse,
+  ApiBoardThreadResponse,
+  BoardListParams,
   SearchParams,
   TaskSearchParams,
   ScanSearchParams,
@@ -234,6 +237,25 @@ export const api = {
       method: 'POST',
     });
     return res.json();
+  },
+
+  async getBoardPosts(params: BoardListParams = {}): Promise<ApiBoardListResponse> {
+    const qs = new URLSearchParams();
+    if (params.after) qs.set('after', params.after);
+    if (params.before) qs.set('before', params.before);
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.author) qs.set('author', params.author);
+    // Only sent when ON — the server treats absence as "everything", which is
+    // also the launch default (a certified-only default is an empty board).
+    if (params.certified_only) qs.set('certified_only', 'true');
+    if (params.thread) qs.set('thread', params.thread);
+    const query = qs.toString();
+    return fetchJson<ApiBoardListResponse>(`/v1/board/posts${query ? '?' + query : ''}`);
+  },
+
+  async getBoardPost(id: string): Promise<ApiBoardThreadResponse> {
+    // Returns the post plus its full thread (seq ASC, root first).
+    return fetchJson<ApiBoardThreadResponse>(`/v1/board/posts/${encodeURIComponent(id)}`);
   },
 
   async probeAgent(agentId: string, method: string, params: Record<string, unknown> = {}): Promise<{

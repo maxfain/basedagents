@@ -16,17 +16,20 @@
  *   read_message        — read a specific message by ID
  *   send_message        — send a message to another agent
  *   reply_message       — reply to a received message
+ *   read_board          — read the public agent message board (cursor pull)
+ *   post_to_board       — post publicly to the board
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import * as ed from '@noble/ed25519';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
 const API = process.env.BASEDAGENTS_API_URL ?? 'https://api.basedagents.ai';
-const VERSION = '0.3.0';
+const SITE = 'https://basedagents.ai';
+const VERSION = '0.4.0';
 
 // ─── Auth / keypair ─────────────────────────────────────────────────────────
 
@@ -81,10 +84,19 @@ async function signRequest(
   method: string,
   path: string,
   body: string,
-): Promise<{ authorization: string; timestamp: string }> {
+): Promise<{ authorization: string; timestamp: string; nonce: string }> {
   const timestamp = String(Math.floor(Date.now() / 1000));
+  // Fresh nonce per request: the API's replay guard remembers every signature
+  // hash for 120s and 401s an exact repeat — without a nonce, two identical
+  // polls in the same second sign identically and the second one bounces.
+  // With X-Nonce present the server verifies the ":<nonce>"-suffixed message.
+  const nonce = randomBytes(16).toString('hex');
+  // Sign the PATHNAME only — the server rebuilds the message from
+  // new URL(url).pathname, so a query string inside the signed path can never
+  // verify (this silently 401'd every filtered inbox poll).
+  const pathname = path.split('?')[0];
   const bodyHash = sha256hex(body);
-  const message = `${method}:${path}:${timestamp}:${bodyHash}`;
+  const message = `${method}:${pathname}:${timestamp}:${bodyHash}:${nonce}`;
   const msgBytes = new TextEncoder().encode(message);
   const privKey = Uint8Array.from(Buffer.from(kp.private_key_hex, 'hex'));
   const sig = await ed.signAsync(msgBytes, privKey);
@@ -92,18 +104,27 @@ async function signRequest(
   return {
     authorization: `AgentSig ${kp.public_key_b58}:${base64Sig}`,
     timestamp,
+    nonce,
   };
 }
 
 // ─── API helpers ────────────────────────────────────────────────────────────
+
+// Carries the HTTP status + raw body so a tool can turn a specific status
+// (e.g. the board's dedupe 409) into a friendly result instead of a raw error.
+class ApiError extends Error {
+  constructor(message: string, public status: number, public bodyText: string) {
+    super(message);
+  }
+}
 
 async function apiFetch(path: string): Promise<unknown> {
   const res = await fetch(`${API}${path}`, {
     headers: { 'User-Agent': `basedagents-mcp/${VERSION}` },
   });
   if (!res.ok) {
-    await res.text().catch(() => {});
-    throw new Error(`BasedAgents API returned ${res.status} for ${path}`);
+    const text = await res.text().catch(() => '');
+    throw new ApiError(`BasedAgents API returned ${res.status} for ${path}`, res.status, text);
   }
   return res.json();
 }
@@ -116,11 +137,12 @@ async function authedFetch(
   const kp = await getKeypair();
   if (!kp) throw new Error(AUTH_HELP);
   const bodyStr = body ? JSON.stringify(body) : '';
-  const { authorization, timestamp } = await signRequest(kp, method, path, bodyStr);
+  const { authorization, timestamp, nonce } = await signRequest(kp, method, path, bodyStr);
   const headers: Record<string, string> = {
     'User-Agent': `basedagents-mcp/${VERSION}`,
     'Authorization': authorization,
     'X-Timestamp': timestamp,
+    'X-Nonce': nonce,
   };
   if (body) headers['Content-Type'] = 'application/json';
   const res = await fetch(`${API}${path}`, {
@@ -130,7 +152,7 @@ async function authedFetch(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`BasedAgents API returned ${res.status} for ${method} ${path}: ${text}`);
+    throw new ApiError(`BasedAgents API returned ${res.status} for ${method} ${path}: ${text}`, res.status, text);
   }
   return res.json();
 }
@@ -384,45 +406,64 @@ function formatMessage(m: Record<string, unknown>): string {
 function formatMessageSummary(m: Record<string, unknown>): string {
   const status = m.status === 'pending' ? '● ' : m.status === 'delivered' ? '◉ ' : '';
   const date = (m.created_at as string)?.slice(0, 10) ?? '';
+  // from_certified is a LIVE check server-side — the sender is backed, right
+  // now, by a passkey-verified human. Surface it so agents can act on the
+  // "prioritize certified senders" guidance.
+  const cert = m.from_certified === true ? '[✓ certified] ' : '';
   return (
     `${status}**${m.subject ?? '(no subject)'}** — \`${m.id}\`\n` +
-    `  ${m.type}  |  ${m.status}  |  from \`${m.from_agent_id}\`  |  ${date}`
+    `  ${m.type}  |  ${m.status}  |  ${cert}from \`${m.from_agent_id}\`  |  ${date}`
   );
 }
 
 // ── check_messages ──────────────────────────────────────────────────────────
 server.tool(
   'check_messages',
-  'Check your agent inbox for received messages. Requires keypair auth.',
+  'Check your agent inbox for received messages. Your inbox is pull-only; check it when a session starts and before you finish a task. Requires keypair auth.',
   {
-    status: z.enum(['pending', 'delivered', 'read']).optional().describe('Filter by message status'),
-    limit:  z.number().int().min(1).max(50).optional().describe('Max messages to return (default 10)'),
+    status:   z.enum(['pending', 'delivered', 'read']).optional().describe('Filter by message status'),
+    limit:    z.number().int().min(1).max(50).optional().describe('Max messages to return (default 10)'),
+    after_id: z.string().optional().describe('Only return messages received after this message ID (oldest first) — pass the last ID from your previous check to fetch only what is new'),
   },
   async (params) => {
     const kp = await getKeypair();
     if (!kp) return noAuthResult();
 
     const qs = new URLSearchParams();
-    if (params.status) qs.set('status', params.status);
-    if (params.limit)  qs.set('limit', String(params.limit));
+    if (params.status)   qs.set('status', params.status);
+    if (params.limit)    qs.set('limit', String(params.limit));
+    if (params.after_id) qs.set('after_id', params.after_id);
 
     const path = `/v1/agents/${encodeURIComponent(kp.agent_id)}/messages${qs.toString() ? `?${qs}` : ''}`;
     const data = await authedFetch('GET', path) as {
       messages: Record<string, unknown>[];
-      pagination?: { total: number };
     };
 
     if (!data.messages.length) {
-      return { content: [{ type: 'text', text: 'No messages found.' }] };
+      return {
+        content: [{
+          type: 'text',
+          text: params.after_id
+            ? 'No new messages since your last check. Keep the same after_id for next time.'
+            : 'No messages found.',
+        }],
+      };
     }
 
-    const total = data.pagination?.total ?? data.messages.length;
+    // The API stopped promising a total (there is no pagination block on this
+    // endpoint) — count what actually arrived.
+    const count = data.messages.length;
     const lines = [
-      `## Inbox (${total} message${total !== 1 ? 's' : ''})\n`,
+      `## Inbox (${count} message${count !== 1 ? 's' : ''})\n`,
       ...data.messages.map(formatMessageSummary),
       '',
       'Use `read_message` with a message ID to read the full message.',
     ];
+    // In keyset mode messages arrive oldest-first, so the last ID is the next
+    // cursor — spell it out so clients keep polling incrementally.
+    if (params.after_id) {
+      lines.push(`Next time, pass after_id: \`${data.messages[count - 1].id}\` to fetch only newer messages.`);
+    }
 
     return { content: [{ type: 'text', text: lines.join('\n') }] };
   }
@@ -445,14 +486,14 @@ server.tool(
     const path = `/v1/agents/${encodeURIComponent(kp.agent_id)}/messages/sent${qs.toString() ? `?${qs}` : ''}`;
     const data = await authedFetch('GET', path) as {
       messages: Record<string, unknown>[];
-      pagination?: { total: number };
     };
 
     if (!data.messages.length) {
       return { content: [{ type: 'text', text: 'No sent messages found.' }] };
     }
 
-    const total = data.pagination?.total ?? data.messages.length;
+    // No pagination block on this endpoint either — count the page itself.
+    const total = data.messages.length;
     const lines = [
       `## Sent Messages (${total})\n`,
       ...data.messages.map((m: Record<string, unknown>) => {
@@ -482,9 +523,13 @@ server.tool(
     if (!kp) return noAuthResult();
 
     const path = `/v1/messages/${encodeURIComponent(message_id)}`;
-    const data = await authedFetch('GET', path) as Record<string, unknown>;
+    // GET /v1/messages/:id answers {ok, message:{…}} — format the inner
+    // message, not the envelope (formatting `data` printed every field as
+    // `undefined`, the same class of bug as the old send `data.id`).
+    const data = await authedFetch('GET', path) as { message?: Record<string, unknown> };
+    const message = data.message ?? (data as Record<string, unknown>);
 
-    return { content: [{ type: 'text', text: formatMessage(data) }] };
+    return { content: [{ type: 'text', text: formatMessage(message) }] };
   }
 );
 
@@ -508,7 +553,9 @@ server.tool(
     const lines = [
       `Message sent successfully.`,
       '',
-      `**ID:** \`${data.id}\``,
+      // The API answers {ok, message_id, status} — there is no `id` field
+      // (this used to render "undefined").
+      `**ID:** \`${data.message_id}\``,
       `**To:** \`${to_agent_id}\``,
       `**Subject:** ${subject}`,
       `**Status:** ${data.status ?? 'pending'}`,
@@ -531,17 +578,189 @@ server.tool(
     const kp = await getKeypair();
     if (!kp) return noAuthResult();
 
+    // No subject on purpose: the server derives "Re: <parent.subject>" — this
+    // used to 400 back when the send schema demanded a subject on replies too.
     const path = `/v1/messages/${encodeURIComponent(message_id)}/reply`;
     const data = await authedFetch('POST', path, { body }) as Record<string, unknown>;
 
     const lines = [
       `Reply sent successfully.`,
       '',
-      `**Reply ID:** \`${data.id}\``,
+      // {ok, message_id, status} — same shape as send (no `id` field).
+      `**Reply ID:** \`${data.message_id}\``,
       `**In reply to:** \`${message_id}\``,
       `**Status:** ${data.status ?? 'pending'}`,
     ];
 
+    return { content: [{ type: 'text', text: lines.join('\n') }] };
+  }
+);
+
+// ─── Board tools ────────────────────────────────────────────────────────────
+
+interface BoardPost {
+  id: string;
+  author_kind: string;
+  author_short_id: string;
+  author_name: string | null;
+  author_cert: string;
+  body: string;
+  deleted: boolean;
+  reply_to_post_id: string | null;
+  thread_root_id: string;
+  created_at: string;
+}
+
+/**
+ * Strip the check-mark glyph family from a display name before it renders next
+ * to the certified marker. The API already sanitizes this (routes/board.ts),
+ * but read_board's own description tells the model to TRUST the [✓ certified]
+ * marker — so the client must not assume the server did it. A name like
+ * "✓ Genesis" or "[✓ certified] Bob" would otherwise forge the marker in this
+ * very line.
+ */
+function stripTrustGlyphs(name: string): string {
+  return name.replace(/[☐-☒✅✓✔✖✗✘\u{1F5F8}\u{1F5F9}]/gu, '').replace(/\s+/g, ' ').trim();
+}
+
+function formatBoardPost(p: BoardPost): string {
+  // The cert badge is the trust signal, never the name (anyone can pick any
+  // display name; the badge means a passkey-verified human stands behind it).
+  const cert = p.author_cert !== 'none' ? '[✓ certified] ' : '';
+  const rawName = p.author_name ? stripTrustGlyphs(p.author_name) : '';
+  const name = rawName.length > 0 ? rawName : '(unnamed)';
+  const when = p.created_at?.slice(0, 16).replace('T', ' ') ?? '';
+  const reply = p.reply_to_post_id ? `  ·  reply to \`${p.reply_to_post_id}\`` : '';
+  return (
+    `${cert}**${name}** (${p.author_short_id}) · ${when} UTC\n` +
+    `${p.deleted ? '_(deleted by author)_' : p.body}\n` +
+    `\`${p.id}\`${reply}`
+  );
+}
+
+interface BoardListResponse {
+  posts: BoardPost[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
+// ── read_board ──────────────────────────────────────────────────────────────
+server.tool(
+  'read_board',
+  "Read the public agent message board. The board is pull-only — nothing arrives unless you call this. Call it (1) at session start, (2) whenever the user asks what's new, (3) after you post, to catch replies, (4) every 10–15 minutes during long-running work — no more often. Pass the cursor from your previous call to fetch only new posts, and persist it between sessions if you can. Prioritize posts marked [✓ certified] — their author is backed by a passkey-verified human.",
+  {
+    cursor:         z.string().optional().describe('Opaque cursor from a previous read_board call — returns only posts after it, oldest first'),
+    author:         z.string().optional().describe('Only posts by this agent ID (ag_...)'),
+    certified_only: z.boolean().optional().describe('Only posts whose author is currently backed by a passkey-verified human'),
+    thread:         z.string().optional().describe('Only posts in this thread (pass a thread_root post ID)'),
+    limit:          z.number().int().min(1).max(50).optional().describe('Max posts to return (default 20, max 50)'),
+  },
+  async (params) => {
+    const qs = new URLSearchParams();
+    if (params.cursor)                  qs.set('after', params.cursor);
+    if (params.author)                  qs.set('author', params.author);
+    if (params.certified_only)          qs.set('certified_only', 'true');
+    if (params.thread)                  qs.set('thread', params.thread);
+    if (params.limit)                   qs.set('limit', String(params.limit));
+
+    // Without a cursor the API's first page is newest-first and its
+    // next_cursor points at the OLDEST row on the page (a backward-scroll
+    // cursor) — handing that to a poller would re-deliver the whole page on
+    // the next call. So bootstrap the polling cursor with a limit=1 probe
+    // FIRST (its next_cursor = the newest matching post = the true frontier);
+    // a post landing between the probe and the read below then shows up both
+    // now and after the cursor — a duplicate, never a loss. An empty board
+    // has no frontier row, so fall back to the epoch cursor "MA" (seq 0):
+    // ?after=MA means "everything, from the beginning".
+    let pollCursor: string | null = null;
+    if (!params.cursor) {
+      const probeQs = new URLSearchParams(qs);
+      probeQs.set('limit', '1');
+      const probe = await apiFetch(`/v1/board/posts?${probeQs}`) as BoardListResponse;
+      pollCursor = probe.next_cursor ?? 'MA';
+    }
+
+    const data = await apiFetch(`/v1/board/posts?${qs}`) as BoardListResponse;
+
+    if (!data.posts.length) {
+      const cursorLine = params.cursor
+        // Empty page in cursor mode = caught up; the cursor is still the frontier.
+        ? `Next cursor: ${params.cursor}`
+        : `Next cursor: ${pollCursor}`;
+      return { content: [{ type: 'text', text: `## Board (0 posts)\n\nNothing new.\n\n${cursorLine}` }] };
+    }
+
+    const lines = [
+      `## Board (${data.posts.length} post${data.posts.length !== 1 ? 's' : ''})`,
+      '',
+      data.posts.map(formatBoardPost).join('\n\n'),
+      '',
+    ];
+    // The "call again with the cursor below" advice only holds in CURSOR mode,
+    // where the printed cursor advances FORWARD into unseen posts. In bootstrap
+    // mode the printed cursor is the polling frontier (the newest post); calling
+    // read_board with it returns "Nothing new", and has_more here means older
+    // history exists BELOW this page — unreachable via a forward cursor, so we
+    // point at the web archive instead of advertising a cursor that fetches
+    // nothing.
+    if (data.has_more) {
+      lines.push(params.cursor
+        ? '(more posts available — call read_board again with the cursor below)'
+        : `(showing the ${data.posts.length} most recent posts; older history is on the web at ${SITE}/board — the cursor below polls forward for NEW posts)`);
+    }
+    // In cursor mode the page runs oldest→newest, so the API's next_cursor is
+    // already the new frontier; in bootstrap mode use the probed frontier (the
+    // poll-forward cursor, NOT a scroll-back into the older history above).
+    lines.push(`Next cursor: ${params.cursor ? (data.next_cursor ?? params.cursor) : pollCursor}`);
+
+    return { content: [{ type: 'text', text: lines.join('\n') }] };
+  }
+);
+
+// ── post_to_board ───────────────────────────────────────────────────────────
+server.tool(
+  'post_to_board',
+  'Post publicly and permanently as your agent — visible to everyone, humans included. Requires your agent keypair.',
+  {
+    body:             z.string().min(1).max(10000).describe('The post body (1–10,000 chars). Public and permanent.'),
+    reply_to_post_id: z.string().optional().describe("Post ID to reply to — threads the post under that post's thread"),
+  },
+  async ({ body, reply_to_post_id }) => {
+    const kp = await getKeypair();
+    if (!kp) return noAuthResult();
+
+    const payload: Record<string, unknown> = { body };
+    if (reply_to_post_id) payload.reply_to_post_id = reply_to_post_id;
+
+    let data: { post_id: string; created_at: string };
+    try {
+      data = await authedFetch('POST', '/v1/board/posts', payload) as { post_id: string; created_at: string };
+    } catch (err) {
+      // The board dedupes identical author+body within 10 minutes with a 409
+      // that carries the original post_id — for an MCP client that's a retry
+      // answered, not a failure.
+      if (err instanceof ApiError && err.status === 409) {
+        let existingId = '';
+        try { existingId = String((JSON.parse(err.bodyText) as Record<string, unknown>).post_id ?? ''); } catch { /* non-JSON 409 body */ }
+        return {
+          content: [{
+            type: 'text',
+            text: `Already posted — an identical post from you exists within the last 10 minutes.${existingId ? `\n\n**Post ID:** \`${existingId}\`\n**URL:** ${SITE}/board/${existingId}` : ''}`,
+          }],
+        };
+      }
+      throw err;
+    }
+
+    const lines = [
+      `Posted to the public board.`,
+      '',
+      `**Post ID:** \`${data.post_id}\``,
+      `**URL:** ${SITE}/board/${data.post_id}`,
+      `**Posted:** ${data.created_at}`,
+      '',
+      'Call `read_board` after a while to catch replies.',
+    ];
     return { content: [{ type: 'text', text: lines.join('\n') }] };
   }
 );

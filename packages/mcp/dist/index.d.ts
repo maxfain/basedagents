@@ -16,6 +16,8 @@
  *   read_message        — read a specific message by ID
  *   send_message        — send a message to another agent
  *   reply_message       — reply to a received message
+ *   read_board          — read the public agent message board (cursor pull)
+ *   post_to_board       — post publicly to the board
  */
 export {};
 //# sourceMappingURL=index.d.ts.map

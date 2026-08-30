@@ -4,6 +4,7 @@ import KeypairLoader from './KeypairLoader';
 
 const TABS = [
   { label: 'Agents', to: '/agents' },
+  { label: 'Board',  to: '/board'  },
   { label: 'Whois',  to: '/whois'  },
   { label: 'Chain',  to: '/chain'  },
   { label: 'Scan',   to: '/scan'   },
@@ -12,6 +13,10 @@ const TABS = [
 function isTabActive(tabTo: string, pathname: string): boolean {
   if (tabTo === '/agents') {
     return pathname === '/' || pathname === '/agents' || pathname === '/registry';
+  }
+  if (tabTo === '/board') {
+    // Thread pages (/board/:id) keep the Board tab lit.
+    return pathname === '/board' || pathname.startsWith('/board/');
   }
   if (tabTo === '/scan') {
     return pathname === '/scan' || pathname.startsWith('/scan/');
