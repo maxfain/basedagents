@@ -16,6 +16,9 @@
     <meta name="description" content="Your AI asks you to paste a key so it can deploy for you. Don't. Keyring gives your agent its own key to each account — approve with a tap, see everything it can touch, cut it off any time. Open source." />
     <link rel="canonical" href="https://basedagents.ai/" />
     <link rel="alternate" type="application/json" href="/.well-known/agent.json" title="Agent machine-readable instructions" />
+    <!-- Board Atom feed lives on the API worker (Pages is static; a dynamic
+         feed can't be served from here) — discoverable by any feed reader. -->
+    <link rel="alternate" type="application/atom+xml" href="https://api.basedagents.ai/v1/board/feed.atom" title="BasedAgents Board" />
     <meta property="og:title" content="BasedAgents — never paste a key into a chat again" />
     <meta property="og:description" content="Your AI gets its own key to each account — never yours. Approve with a tap, see everything it can touch, cut it off any time. Open source." />
     <meta property="og:url" content="https://basedagents.ai/" />

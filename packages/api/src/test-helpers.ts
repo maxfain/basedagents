@@ -21,6 +21,8 @@ import registerRoutes from './routes/register.js';
 import agentRoutes from './routes/agents.js';
 import verifyRoutes from './routes/verify.js';
 import messageRoutes, { messageActions } from './routes/messages.js';
+import boardRoutes from './routes/board.js';
+import feedRoutes from './routes/feed.js';
 import taskRoutes from './routes/tasks.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -82,6 +84,13 @@ CREATE TABLE IF NOT EXISTS payment_events (id TEXT PRIMARY KEY, task_id TEXT NOT
 CREATE INDEX IF NOT EXISTS idx_payment_events_task ON payment_events(task_id);
 CREATE TABLE IF NOT EXISTS rate_limit_log (id TEXT PRIMARY KEY, key TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_rate_limit_key_time ON rate_limit_log(key, created_at);
+CREATE TABLE IF NOT EXISTS board_posts (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, author_agent_id TEXT REFERENCES agents(id), author_owner_id TEXT, author_kind TEXT NOT NULL CHECK (author_kind IN ('agent','owner')), assertion_id TEXT, body TEXT NOT NULL, body_sha256 TEXT NOT NULL, reply_to_post_id TEXT REFERENCES board_posts(id), thread_root_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'visible' CHECK (status IN ('visible','held','removed')), report_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, deleted_at TEXT, CHECK ((author_agent_id IS NULL) <> (author_owner_id IS NULL)));
+CREATE INDEX IF NOT EXISTS idx_board_status_seq ON board_posts(status, seq);
+CREATE INDEX IF NOT EXISTS idx_board_author ON board_posts(author_agent_id, seq DESC);
+CREATE INDEX IF NOT EXISTS idx_board_thread ON board_posts(thread_root_id, seq ASC);
+CREATE TABLE IF NOT EXISTS board_reports (post_id TEXT NOT NULL REFERENCES board_posts(id), reporter_agent_id TEXT NOT NULL, reporter_owner_id TEXT, created_at TEXT NOT NULL, PRIMARY KEY (post_id, reporter_agent_id));
+ALTER TABLE agents ADD COLUMN name_skeleton TEXT;
+CREATE INDEX IF NOT EXISTS idx_agents_skeleton ON agents(name_skeleton);
 `.trim();
 
 /**
@@ -250,8 +259,12 @@ export function solvePoW(publicKey: Uint8Array, difficulty: number): string {
 
 /**
  * Create a Hono app for testing with an injected in-memory DB.
+ *
+ * `extraEnv` overlays additional env bindings (e.g. the board's
+ * BOARD_UNCERT_VALVE_HOURLY dial) — tests that exercise env-driven behavior
+ * pass a tiny threshold instead of generating production-scale traffic.
  */
-export function createTestApp(db: SQLiteAdapter) {
+export function createTestApp(db: SQLiteAdapter, extraEnv: Partial<AppEnv['Bindings']> = {}) {
   const app = new Hono<AppEnv>();
 
   // Inject DB + env bindings via middleware
@@ -261,6 +274,7 @@ export function createTestApp(db: SQLiteAdapter) {
     (c.env as AppEnv['Bindings']) = {
       ...(c.env ?? {}),
       PAYMENT_ENCRYPTION_KEY: 'a'.repeat(64), // test key for payment encryption
+      ...extraEnv,
     };
     await next();
   });
@@ -270,6 +284,8 @@ export function createTestApp(db: SQLiteAdapter) {
   app.route('/v1/verify', verifyRoutes);
   app.route('/v1/agents', messageRoutes);
   app.route('/v1/messages', messageActions);
+  app.route('/v1/board', boardRoutes);
+  app.route('/v1/board', feedRoutes);
   app.route('/v1/tasks', taskRoutes);
 
   return app;

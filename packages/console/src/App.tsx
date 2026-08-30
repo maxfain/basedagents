@@ -16,6 +16,7 @@ import AddAgent from './pages/AddAgent.js';
 import Delegations from './pages/Delegations.js';
 import Vault from './pages/Vault.js';
 import Billing from './pages/Billing.js';
+import BoardPage from './pages/Board.js';
 
 /** /agents with nothing after it: first agent when one exists, else the add page. */
 function AgentsIndex() {
@@ -70,6 +71,7 @@ export default function App() {
             <Route path="/agents/new" element={<AddAgent />} />
             <Route path="/agents/:agentId" element={<AgentPage />} />
             <Route path="/delegations" element={<Delegations />} />
+            <Route path="/board" element={<BoardPage />} />
             <Route path="/vault" element={<Vault />} />
             <Route path="/settings/billing" element={<Billing />} />
           </Route>

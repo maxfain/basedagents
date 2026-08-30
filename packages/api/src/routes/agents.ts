@@ -6,6 +6,7 @@ import { agentAuth } from '../middleware/auth.js';
 import { computeReputation } from '../reputation/calculator.js';
 import { hashProfile, computeChainHash, GENESIS_HASH } from '../crypto/index.js';
 import { isSafeUrl } from '../lib/url-validator.js';
+import { nameSkeleton } from '../lib/skeleton.js';
 
 const agents = new Hono<AppEnv>();
 
@@ -320,6 +321,24 @@ async function handleProfileUpdate(c: Context<AppEnv>): Promise<Response> {
     if (nameTaken) {
       return c.json({ error: 'conflict', message: `Agent name '${updates.name}' is already taken` }, 409);
     }
+    // Anti-impersonation (board spec §4): the same confusable-skeleton gate as
+    // register/complete. Without it a rename is the bypass — register an
+    // innocuous name that clears the skeleton check, then PATCH to a Cyrillic
+    // homoglyph of a target. Recompute and re-store the skeleton so the column
+    // stays truthful for the next writer's check.
+    const skeleton = nameSkeleton(updates.name as string);
+    const lookalike = await db.get<{ name: string }>(
+      'SELECT name FROM agents WHERE name_skeleton = ? AND id != ?',
+      skeleton, id
+    );
+    if (lookalike) {
+      return c.json({
+        error: 'conflict',
+        message: `Agent name '${updates.name}' is confusable with existing agent '${lookalike.name}' — pick a visually distinct name`,
+      }, 409);
+    }
+    setClauses.push('name_skeleton = ?');
+    params.push(skeleton);
   }
 
   const now = new Date().toISOString();

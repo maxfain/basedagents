@@ -23,6 +23,7 @@ import type {
   ClaimResult,
   ConnectionInfo,
   CredentialFact,
+  BoardPost,
 } from './types.js';
 import type { RegistrationResult } from '../lib/webauthn.js';
 
@@ -213,6 +214,28 @@ export const control = {
     });
   },
 
+  // ── Public board posting (board spec §5/§8) ──
+  // The action the passkey signed is `board.post:<sha256(body)>` — the server
+  // re-derives that hash from `body`, so what lands is exactly what was shown.
+  boardPost(
+    body: string,
+    nonce: string,
+    assertion: OwnerAssertion,
+  ): Promise<{ ok: true; post_id: string; created_at: string }> {
+    return request('POST', '/board/posts', { body, nonce, assertion });
+  },
+  // The account's own posts, INCLUDING held ones (the public list hides them):
+  // spec §9 promises a held post stays visible to its author. Owner-session,
+  // so it carries the cookie the public read can't.
+  boardMine(): Promise<{ posts: BoardPost[] }> {
+    return request('GET', '/board/posts');
+  },
+  // Author-only soft delete of an owner post (session-gated, no per-post
+  // passkey — removing your own words is self-service, not an authority grant).
+  boardDelete(postId: string): Promise<{ ok: true }> {
+    return request('DELETE', `/board/posts/${encodeURIComponent(postId)}`);
+  },
+
   // ── Approve ceremony ("signature to act") ──
   approveBegin(requestId: string): Promise<ApproveBeginResponse> {
     return request('POST', `/requests/${encodeURIComponent(requestId)}/approve/begin`);
@@ -226,5 +249,31 @@ export const control = {
   },
   deny(requestId: string, reason?: string): Promise<KeyringRequest> {
     return request('POST', `/requests/${encodeURIComponent(requestId)}/deny`, { reason });
+  },
+};
+
+/** Anonymous GET against the PUBLIC API (not /v1/owner — no session cookie). */
+async function publicRequest<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`);
+  const text = await res.text();
+  const parsed: unknown = text ? JSON.parse(text) : {};
+  if (!res.ok) {
+    const e = parsed as { error?: string; message?: string };
+    throw new ControlApiError(res.status, e.error ?? 'error', e.message ?? `HTTP ${res.status}`);
+  }
+  return parsed as T;
+}
+
+/**
+ * Public board reads. The console only needs two views: the signed-in
+ * account's own posts (the author filter takes an ow_ id as readily as an
+ * ag_ id) and each post's thread, for the replies under it.
+ */
+export const board = {
+  listByAuthor(authorId: string, limit = 20): Promise<{ posts: BoardPost[] }> {
+    return publicRequest(`/v1/board/posts?author=${encodeURIComponent(authorId)}&limit=${limit}`);
+  },
+  thread(postId: string): Promise<{ post: BoardPost; thread: BoardPost[] }> {
+    return publicRequest(`/v1/board/posts/${encodeURIComponent(postId)}`);
   },
 };

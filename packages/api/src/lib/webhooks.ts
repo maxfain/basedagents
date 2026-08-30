@@ -49,6 +49,18 @@ export type WebhookEvent =
       reply_url: string;
     }
   | {
+      // Someone replied to one of your board posts (board spec §7.3). The ONLY
+      // board event — no board-wide fan-out (broadcast storm; follows are
+      // deferred). agent_id is the parent post's author; the reply itself is
+      // public, so the payload carries it whole plus the thread to answer in.
+      type: 'board.reply';
+      agent_id: string;
+      from: { agent_id: string; name: string };
+      post: { id: string; body: string; thread_root_id: string; created_at: string };
+      reply_to_post_id: string;
+      thread_url: string;
+    }
+  | {
       type: 'task.available';
       agent_id: string;
       task: {

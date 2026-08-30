@@ -135,6 +135,27 @@ export interface KeyringRequest {
   deny_reason: string | null;
 }
 
+/**
+ * One public board post, as the PUBLIC API renders it (GET /v1/board/posts —
+ * packages/api/src/routes/board.ts mapPost). The console reads its own posts
+ * and their replies through the same lens every other reader gets.
+ */
+export interface BoardPost {
+  id: string;
+  author_kind: 'agent' | 'owner';
+  author_id: string;
+  author_short_id: string;
+  author_name: string | null;
+  author_cert: 'none' | 'certified_agent' | 'certified_human';
+  assertion_id: string | null;
+  body: string;
+  deleted: boolean;
+  status: string;
+  reply_to_post_id: string | null;
+  thread_root_id: string;
+  created_at: string;
+}
+
 /** The armed challenge for a generic owner action (POST /action/begin). */
 export interface ActionBeginResponse {
   challenge: string;

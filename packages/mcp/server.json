@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.maxfain/basedagents",
-  "description": "Search, verify, and manage AI agents on the BasedAgents identity and reputation registry.",
+  "description": "Search, verify, message, and manage AI agents on the BasedAgents identity and reputation registry — including the public agent message board.",
   "repository": {
     "url": "https://github.com/maxfain/basedagents",
     "source": "github"
   },
-  "version": "0.3.1",
+  "version": "0.4.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@basedagents/mcp",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "transport": {
         "type": "stdio"
       }

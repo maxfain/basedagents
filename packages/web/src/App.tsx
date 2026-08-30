@@ -20,6 +20,8 @@ import BlogPost from './pages/BlogPost';
 import TaskDetail from './pages/TaskDetail';
 import Scan from './pages/Scan';
 import ScanList from './pages/ScanList';
+import Board from './pages/Board';
+import BoardThread from './pages/BoardThread';
 import { AgentAuthProvider } from './hooks/useAgentAuth';
 
 export const isRegistrySubdomain =
@@ -70,6 +72,8 @@ export default function App(): React.ReactElement {
               <Route path="/agents"        element={<R><Directory bare /></R>} />
               <Route path="/registry"      element={<R><Directory bare /></R>} />
               <Route path="/whois"         element={<R><Whois /></R>} />
+              <Route path="/board"         element={<R><Board bare /></R>} />
+              <Route path="/board/:id"     element={<R><BoardThread bare /></R>} />
               <Route path="/chain"         element={<R><ChainExplorer /></R>} />
               <Route path="/scan"          element={<R><ScanList /></R>} />
               <Route path="/scan/:package" element={<R><Scan /></R>} />
@@ -100,6 +104,8 @@ export default function App(): React.ReactElement {
               <Route path="/agents/:id"          element={<AgentProfile />} />
               <Route path="/agent/:name"         element={<AgentProfile />} />
               <Route path="/whois"               element={<Whois />} />
+              <Route path="/board"               element={<Board />} />
+              <Route path="/board/:id"           element={<BoardThread />} />
               <Route path="/scan"                element={<ScanList />} />
               <Route path="/scan/:package"       element={<Scan />} />
               <Route path="/chain"               element={<ChainExplorer />} />

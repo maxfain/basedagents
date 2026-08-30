@@ -16,6 +16,8 @@ import skillRoutes from './routes/skills.js';
 import { attestation as attestationRoutes } from './routes/attestation.js';
 import badgeRoutes from './routes/badge.js';
 import messageRoutes, { messageActions } from './routes/messages.js';
+import boardRoutes from './routes/board.js';
+import feedRoutes from './routes/feed.js';
 import taskRoutes from './routes/tasks.js';
 import scanRoutes from './routes/scan.js';
 import probeRoutes from './routes/probe.js';
@@ -69,6 +71,14 @@ const RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
   '/v1/owner/invites':         { max: 10, windowMs: 60_000 },
   // Anonymous counters (funnel pings, vote tiles) — cheap, but cap the firehose.
   '/v1/funnel':                { max: 30, windowMs: 60_000 },
+  // Public board list read — uncached (unlike the 60s-edge-cached Atom feed),
+  // so cap scraping per IP. The middleware is method-blind, so this entry
+  // also fronts POSTs on the same path; 120/min sits far above the write
+  // tiers, so it only ever bounds read abuse.
+  '/v1/board/posts':           { max: 120, windowMs: 60_000 },
+  // Atom feed: already 60s-edge-cached, so this only bounds cache-busting
+  // clients that hit the Worker directly.
+  '/v1/board/feed.atom':       { max: 60,  windowMs: 60_000 },
 };
 // Vote tiles are parameterized paths — one exact entry per allowlisted slug.
 for (const p of VOTABLE_PROVIDERS) {
@@ -83,6 +93,10 @@ const RATE_LIMIT_PATTERNS: Array<{ pattern: RegExp; key: string; max: number; wi
   // The claim endpoint SENDS AN EMAIL to an arbitrary recipient; without this
   // a single unclaimed link code is an open relay. (10/min ≈ resend headroom.)
   { pattern: /^\/v1\/owner\/link\/[^/]+\/claim$/, key: 'owner:link-claim', max: 10, windowMs: 60_000 },
+  // Board item paths (/v1/board/posts/:id — public thread GET, author
+  // DELETE): one shared per-IP bucket, so rotating the post id segment never
+  // mints a fresh limit.
+  { pattern: /^\/v1\/board\/posts\/[^/]+$/, key: 'board:item', max: 120, windowMs: 60_000 },
 ];
 
 // ─── Global Middleware ───
@@ -382,6 +396,9 @@ app.route('/v1/agents', badgeRoutes);
 // A2A Messaging: /v1/agents/:id/messages, /v1/messages/:id
 app.route('/v1/agents', messageRoutes);
 app.route('/v1/messages', messageActions);
+// Public agent message board: /v1/board (+ its Atom feed at /v1/board/feed.atom)
+app.route('/v1/board', boardRoutes);
+app.route('/v1/board', feedRoutes);
 // Task Marketplace: /v1/tasks
 app.route('/v1/tasks', taskRoutes);
 // Package Scanner: /v1/scan

@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   setupTestDb,
   createTestApp,
@@ -7,6 +10,49 @@ import {
 } from '../test-helpers.js';
 import type { SQLiteAdapter } from '../db/sqlite-adapter.js';
 import type { TestKeypair } from '../test-helpers.js';
+import { resetCertificationProbeForTests } from '../control/certification.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const MIGRATIONS_DIR = join(__dirname, '..', '..', 'migrations');
+
+/**
+ * setupTestDb builds the OSS shape (no control-plane tables) — exactly what
+ * the certification probe must survive. Tests that need a certified sender
+ * graft the proprietary tables on (0023 + 0025, which adds the credential
+ * status column) and reset the probe, since an earlier request in the same
+ * test may already have memoized "absent".
+ */
+async function installControlTables(db: SQLiteAdapter): Promise<void> {
+  await db.exec(readFileSync(join(MIGRATIONS_DIR, '0023_owner_accounts.sql'), 'utf-8'));
+  await db.exec(readFileSync(join(MIGRATIONS_DIR, '0025_owner_recovery.sql'), 'utf-8'));
+  resetCertificationProbeForTests();
+}
+
+let certSeq = 0;
+
+/** Full certification chain: active owner + active passkey + active delegation. */
+async function certifyAgent(db: SQLiteAdapter, agentId: string): Promise<{ ownerId: string; delegationId: string }> {
+  const n = ++certSeq;
+  const ownerId = `ow_test${n}`;
+  await db.run(`INSERT INTO owners (id, status) VALUES (?, 'active')`, ownerId);
+  await db.run(
+    `INSERT INTO owner_webauthn_credentials (id, owner_id, credential_id, public_key, status)
+     VALUES (?, ?, ?, ?, 'active')`,
+    `cred_${n}`, ownerId, `credid_${n}`, Buffer.from([1, 2, 3])
+  );
+  await db.run(
+    `INSERT INTO action_assertions (id, owner_id, credential_id, action_type, action_hash, authenticator_data, client_data_json, signature, sequence, prev_hash, entry_hash)
+     VALUES (?, ?, ?, 'agent.delegate', 'hash', 'ad', 'cdj', 'sig', 1, 'prev', 'entry')`,
+    `assert_${n}`, ownerId, `credid_${n}`
+  );
+  const delegationId = `del_${n}`;
+  await db.run(
+    `INSERT INTO delegations (id, owner_id, agent_id, status, authorizing_assertion_id)
+     VALUES (?, ?, ?, 'active', ?)`,
+    delegationId, ownerId, agentId, `assert_${n}`
+  );
+  return { ownerId, delegationId };
+}
 
 // Mock twitter
 vi.mock('../lib/twitter.js', () => ({
@@ -32,6 +78,9 @@ describe('A2A Messaging', () => {
   beforeEach(async () => {
     db = setupTestDb();
     app = createTestApp(db);
+    // The probe memoizes per isolate but each test gets a fresh DB — a stale
+    // answer from the previous test's DB must not leak forward.
+    resetCertificationProbeForTests();
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal('fetch', mockFetch);
@@ -448,6 +497,189 @@ describe('A2A Messaging', () => {
       });
 
       expect(res.status).toBe(404);
+    });
+  });
+
+  // ─── Inbox: from_certified + after_id keyset (board spec §3/§5, tests §12.2) ───
+
+  describe('GET /v1/agents/:id/messages — from_certified + after_id keyset', () => {
+    /** Direct insert so tests control created_at (real sends share one clock tick). */
+    async function insertInboxMessage(id: string, fromId: string, toId: string, createdAt: string): Promise<void> {
+      const expiresAt = new Date(Date.now() + 3_600_000).toISOString();
+      await db.run(
+        `INSERT INTO messages (id, from_agent_id, to_agent_id, type, subject, body, status, created_at, updated_at, expires_at)
+         VALUES (?, ?, ?, 'message', 'S', 'body', 'pending', ?, ?, ?)`,
+        id, fromId, toId, createdAt, createdAt, expiresAt
+      );
+    }
+
+    /** Signed inbox GET as `recipient` (auth signs the pathname only, so query is free-form). */
+    async function getInbox(queryString = ''): Promise<{ status: number; data: { ok?: boolean; messages?: Array<Record<string, unknown>>; error?: string } }> {
+      const path = `/v1/agents/${recipient.agentId}/messages`;
+      const headers = await signRequest(recipient, 'GET', path);
+      const res = await app.request(`${path}${queryString}`, { method: 'GET', headers: { ...headers } });
+      return { status: res.status, data: await res.json() as Record<string, unknown> };
+    }
+
+    it('from_certified is false on an OSS-shaped DB (no control tables, no throw)', async () => {
+      await insertInboxMessage('msg_oss1', sender.agentId, recipient.agentId, new Date().toISOString());
+
+      const { status, data } = await getInbox();
+      expect(status).toBe(200);
+      expect(data.messages!.length).toBe(1);
+      expect(data.messages![0].from_certified).toBe(false);
+    });
+
+    it('from_certified flips live with the sender delegation', async () => {
+      await insertInboxMessage('msg_cert1', sender.agentId, recipient.agentId, new Date().toISOString());
+      await installControlTables(db);
+      const { delegationId } = await certifyAgent(db, sender.agentId);
+
+      let inbox = await getInbox();
+      expect(inbox.data.messages![0].from_certified).toBe(true);
+
+      // Live JOIN, never a snapshot: revoking the delegation de-badges the
+      // very next read — no probe reset, no cache to expire.
+      await db.run(`UPDATE delegations SET status = 'revoked' WHERE id = ?`, delegationId);
+      inbox = await getInbox();
+      expect(inbox.data.messages![0].from_certified).toBe(false);
+    });
+
+    it('after_id returns strictly-after messages, oldest first', async () => {
+      await insertInboxMessage('msg_k1', sender.agentId, recipient.agentId, '2026-01-01T00:00:01.000Z');
+      await insertInboxMessage('msg_k2', sender.agentId, recipient.agentId, '2026-01-01T00:00:02.000Z');
+      await insertInboxMessage('msg_k3', sender.agentId, recipient.agentId, '2026-01-01T00:00:03.000Z');
+
+      const { status, data } = await getInbox('?after_id=msg_k1');
+      expect(status).toBe(200);
+      expect(data.messages!.map((m) => m.id)).toEqual(['msg_k2', 'msg_k3']);
+
+      // Caught-up poller: strictly-after the newest anchor is empty.
+      const tail = await getInbox('?after_id=msg_k3');
+      expect(tail.data.messages).toEqual([]);
+    });
+
+    it('after_id tiebreaks on id when created_at collides', async () => {
+      const ts = '2026-01-01T00:00:05.000Z';
+      await insertInboxMessage('msg_ka', sender.agentId, recipient.agentId, ts);
+      await insertInboxMessage('msg_kb', sender.agentId, recipient.agentId, ts);
+
+      const { data } = await getInbox('?after_id=msg_ka');
+      expect(data.messages!.map((m) => m.id)).toEqual(['msg_kb']);
+    });
+
+    it('unknown after_id → 400 (explicit cursor-reset signal, not a silent full refetch)', async () => {
+      const { status } = await getInbox('?after_id=msg_never_existed');
+      expect(status).toBe(400);
+    });
+
+    it("after_id naming another agent's message → 400 (no existence oracle)", async () => {
+      // A message the RECIPIENT sent lives in sender's inbox, not recipient's.
+      await insertInboxMessage('msg_theirs', recipient.agentId, sender.agentId, new Date().toISOString());
+      const { status } = await getInbox('?after_id=msg_theirs');
+      expect(status).toBe(400);
+    });
+
+    it('without after_id, offset paging stays newest-first (behavior unchanged)', async () => {
+      await insertInboxMessage('msg_o1', sender.agentId, recipient.agentId, '2026-01-01T00:00:01.000Z');
+      await insertInboxMessage('msg_o2', sender.agentId, recipient.agentId, '2026-01-01T00:00:02.000Z');
+
+      const { data } = await getInbox();
+      expect(data.messages!.map((m) => m.id)).toEqual(['msg_o2', 'msg_o1']);
+    });
+  });
+
+  // ─── Reply subject derivation (board spec §5, tests §12.2) ───
+
+  describe('POST /v1/messages/:id/reply — server-derived subject', () => {
+    async function sendMessage(from: TestKeypair, toId: string, subject: string): Promise<string> {
+      const body = JSON.stringify({ subject, body: 'Test message' });
+      const headers = await signRequest(from, 'POST', `/v1/agents/${toId}/messages`, body);
+      const res = await app.request(`/v1/agents/${toId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body,
+      });
+      const data = await res.json() as { message_id: string };
+      return data.message_id;
+    }
+
+    async function reply(messageId: string, payload: Record<string, unknown>): Promise<{ status: number; replyId?: string }> {
+      const body = JSON.stringify(payload);
+      const headers = await signRequest(recipient, 'POST', `/v1/messages/${messageId}/reply`, body);
+      const res = await app.request(`/v1/messages/${messageId}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body,
+      });
+      const data = await res.json() as { message_id?: string };
+      return { status: res.status, replyId: data.message_id };
+    }
+
+    it('reply without subject no longer 400s — derives "Re: <parent.subject>"', async () => {
+      const messageId = await sendMessage(sender, recipient.agentId, 'Hello');
+
+      const { status, replyId } = await reply(messageId, { body: 'Got it!' });
+      expect(status).toBe(200);
+
+      const row = await db.get<{ subject: string }>('SELECT subject FROM messages WHERE id = ?', replyId);
+      expect(row!.subject).toBe('Re: Hello');
+    });
+
+    it('does not stack Re: prefixes on an already-Re: parent', async () => {
+      const messageId = await sendMessage(sender, recipient.agentId, 'Re: Hello');
+
+      const { replyId } = await reply(messageId, { body: 'Still on it' });
+      const row = await db.get<{ subject: string }>('SELECT subject FROM messages WHERE id = ?', replyId);
+      expect(row!.subject).toBe('Re: Hello');
+    });
+
+    it('an explicit reply subject wins over derivation', async () => {
+      const messageId = await sendMessage(sender, recipient.agentId, 'Hello');
+
+      const { replyId } = await reply(messageId, { subject: 'Different thread', body: 'x' });
+      const row = await db.get<{ subject: string }>('SELECT subject FROM messages WHERE id = ?', replyId);
+      expect(row!.subject).toBe('Different thread');
+    });
+
+    it('derived subject rides the reply webhook to the original sender', async () => {
+      const webhookSender = await createTestAgent(db, {
+        status: 'active',
+        webhookUrl: 'https://sender-webhook.example.com/events',
+      });
+      const messageId = await sendMessage(webhookSender, recipient.agentId, 'Hello');
+
+      await reply(messageId, { body: 'Reply!' });
+      await new Promise(r => setTimeout(r, 10));
+
+      const webhookCalls = mockFetch.mock.calls.filter(
+        ([url]: string[]) => url === 'https://sender-webhook.example.com/events'
+      );
+      expect(webhookCalls.length).toBeGreaterThan(0);
+      const webhookBody = JSON.parse(webhookCalls[webhookCalls.length - 1][1].body);
+      expect(webhookBody.message.subject).toBe('Re: Hello');
+    });
+
+    it('top-level send still requires subject', async () => {
+      const body = JSON.stringify({ body: 'No subject here' });
+      const headers = await signRequest(sender, 'POST', `/v1/agents/${recipient.agentId}/messages`, body);
+      const res = await app.request(`/v1/agents/${recipient.agentId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body,
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('smuggling reply_to_message_id into a top-level send does not waive subject', async () => {
+      const body = JSON.stringify({ body: 'sneaky', reply_to_message_id: 'msg_whatever' });
+      const headers = await signRequest(sender, 'POST', `/v1/agents/${recipient.agentId}/messages`, body);
+      const res = await app.request(`/v1/agents/${recipient.agentId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body,
+      });
+      expect(res.status).toBe(400);
     });
   });
 });

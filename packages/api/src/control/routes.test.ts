@@ -19,22 +19,31 @@ import { Hono } from 'hono';
 import { isoCBOR } from '@simplewebauthn/server/helpers';
 import { SQLiteAdapter } from '../db/sqlite-adapter.js';
 import type { AppEnv } from '../types/index.js';
-import { sha256, base58Encode } from '../crypto/index.js';
+import { sha256, base58Encode, bytesToHex } from '../crypto/index.js';
 import { base64urlEncode, base64urlDecode } from './webauthn.js';
 import { ownerIdFromVaultPubkey } from './identity.js';
 import { ControlStore } from './store.js';
+import { resetCertificationProbeForTests } from './certification.js';
 import ownerRoutes from './routes.js';
+import boardRoutes from '../routes/board.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'migrations');
 const MIGRATION_SQL =
+  // 0021: rate_limit_log — the owner board-post route's 60/hr bucket
+  // (checkRateLimit) reads it.
+  readFileSync(join(MIGRATIONS_DIR, '0021_rate_limit_table.sql'), 'utf-8') +
   readFileSync(join(MIGRATIONS_DIR, '0023_owner_accounts.sql'), 'utf-8') +
   // 0024: keyring_requests + grant_approvals — delegation revoke retires rows
   // in both (store.retireAgentWork), so the revoke test needs the real tables.
   readFileSync(join(MIGRATIONS_DIR, '0024_keyring_approvals.sql'), 'utf-8') +
   readFileSync(join(MIGRATIONS_DIR, '0025_owner_recovery.sql'), 'utf-8') +
   readFileSync(join(MIGRATIONS_DIR, '0026_owner_billing.sql'), 'utf-8') +
-  readFileSync(join(MIGRATIONS_DIR, '0027_authority_ladder.sql'), 'utf-8');
+  readFileSync(join(MIGRATIONS_DIR, '0027_authority_ladder.sql'), 'utf-8') +
+  // 0033: board_posts — owner board posting writes it, and the public read
+  // path (mounted below) joins it back against the control-plane tables
+  // (GOTCHAS.md: explicit per-harness migration lists).
+  readFileSync(join(MIGRATIONS_DIR, '0033_board.sql'), 'utf-8');
 
 const te = new TextEncoder();
 const RP_ID = 'basedagents.ai';
@@ -179,6 +188,9 @@ function buildApp(): Hono<AppEnv> {
     await next();
   });
   a.route('/v1/owner', ownerRoutes);
+  // The public board read path too: owner posts are asserted through the SAME
+  // lens agents and humans read them through (author filter + cert badge).
+  a.route('/v1/board', boardRoutes);
   return a;
 }
 
@@ -261,6 +273,10 @@ beforeEach(() => {
   db = new SQLiteAdapter(rawDb);
   store = new ControlStore(db);
   agentCounter = 0;
+  // The board read path's per-isolate table probe must re-run against each
+  // fresh DB (the control tables always exist here, but a memoized verdict
+  // from another test's DB is still a lie).
+  resetCertificationProbeForTests();
   app = buildApp();
 });
 
@@ -549,5 +565,227 @@ describe('session lifecycle', () => {
     expect(setC).toMatch(/HttpOnly/i);
     expect(setC).toMatch(/Secure/i);
     expect(setC).toMatch(/SameSite=Strict/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Owner board posting (board spec §5/§8, test plan §12.6) — the WYSIWYS action
+// string is `board.post:<sha256(body)>`, so the passkey signs the exact bytes
+// being published.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('owner board posting: WYSIWYS over the exact body', () => {
+  const bodyHash = (body: string): string => bytesToHex(sha256(te.encode(body)));
+  const armPost = async (cookie: string, body: string) =>
+    actionBegin(cookie, `board.post:${bodyHash(body)}`, {});
+
+  interface BoardPostJson {
+    id: string;
+    author_kind: string;
+    author_id: string;
+    author_cert: string;
+    assertion_id: string | null;
+    body: string;
+  }
+
+  it('posts via the ceremony; the row carries the chain assertion and reads back as certified_human', async () => {
+    const auth = await Authenticator.create();
+    await register(auth);
+    const cookie = await login(auth);
+
+    const body = 'hello board, from a human';
+    const { challenge, nonce } = await armPost(cookie, body);
+    const res = await post('/v1/owner/board/posts', { body, nonce, assertion: await auth.assert(challenge, 2) }, cookie);
+    expect(res.status).toBe(200);
+    const out = (await res.json()) as { ok: boolean; post_id: string; created_at: string };
+    expect(out.ok).toBe(true);
+    expect(out.post_id).toMatch(/^post_[0-9A-Za-z]{21}$/);
+    expect(out.created_at).toBeTruthy();
+
+    // Row invariants (§12.6): owner-authored, roots its own thread, body hash
+    // stored, and assertion_id references the chain row whose action_type IS
+    // the literal WYSIWYS action string.
+    const row = rawDb.prepare('SELECT * FROM board_posts WHERE id = ?').get(out.post_id) as {
+      author_kind: string; author_owner_id: string; author_agent_id: string | null;
+      assertion_id: string; body_sha256: string; thread_root_id: string; status: string;
+    };
+    expect(row.author_kind).toBe('owner');
+    expect(row.author_owner_id).toBe(auth.ownerId);
+    expect(row.author_agent_id).toBeNull();
+    expect(row.body_sha256).toBe(bodyHash(body));
+    expect(row.thread_root_id).toBe(out.post_id);
+    const chainRow = rawDb
+      .prepare('SELECT action_type, owner_id FROM action_assertions WHERE id = ?')
+      .get(row.assertion_id) as { action_type: string; owner_id: string };
+    expect(chainRow.owner_id).toBe(auth.ownerId);
+    expect(chainRow.action_type).toBe(`board.post:${bodyHash(body)}`);
+
+    // Public read (the mounted board app): ?author= accepts the ow_ id, and
+    // the live cert JOIN badges the post certified_human (active passkey).
+    const list = await get(`/v1/board/posts?author=${encodeURIComponent(auth.ownerId)}`);
+    expect(list.status).toBe(200);
+    const posts = ((await list.json()) as { posts: BoardPostJson[] }).posts;
+    expect(posts).toHaveLength(1);
+    expect(posts[0].id).toBe(out.post_id);
+    expect(posts[0].author_kind).toBe('owner');
+    expect(posts[0].author_id).toBe(auth.ownerId);
+    expect(posts[0].author_cert).toBe('certified_human');
+    expect(posts[0].assertion_id).toBe(row.assertion_id);
+    expect(posts[0].body).toBe(body);
+  });
+
+  it('rejects an assertion armed for a DIFFERENT body (wrong hash) without consuming it', async () => {
+    const auth = await Authenticator.create();
+    await register(auth);
+    const cookie = await login(auth);
+
+    // Arm + sign for body A, then submit body B under the same ceremony: the
+    // server re-derives `board.post:<sha256(B)>`, the hashes diverge, WYSIWYS
+    // 400s BEFORE the consume step — so the honest retry with body A (same
+    // nonce + assertion) still lands.
+    const { challenge, nonce } = await armPost(cookie, 'the words I approved');
+    const assertion = await auth.assert(challenge, 2);
+    const swapped = await post('/v1/owner/board/posts', { body: 'entirely different words', nonce, assertion }, cookie);
+    expect(swapped.status).toBe(400);
+    expect(((await swapped.json()) as { message: string }).message).toMatch(/does not authorize this action/);
+    expect(rawDb.prepare('SELECT COUNT(*) AS n FROM board_posts').get()).toEqual({ n: 0 });
+
+    const honest = await post('/v1/owner/board/posts', { body: 'the words I approved', nonce, assertion }, cookie);
+    expect(honest.status).toBe(200);
+  });
+
+  it('rejects the SAME assertion submitted twice (challenge consumed)', async () => {
+    const auth = await Authenticator.create();
+    await register(auth);
+    const cookie = await login(auth);
+
+    const body = 'once and only once';
+    const { challenge, nonce } = await armPost(cookie, body);
+    const payload = { body, nonce, assertion: await auth.assert(challenge, 2) };
+    expect((await post('/v1/owner/board/posts', payload, cookie)).status).toBe(200);
+
+    const replay = await post('/v1/owner/board/posts', payload, cookie);
+    expect(replay.status).toBe(401);
+    expect(((await replay.json()) as { message: string }).message).toMatch(/replayed action challenge/);
+    expect(rawDb.prepare('SELECT COUNT(*) AS n FROM board_posts').get()).toEqual({ n: 1 });
+  });
+
+  it('rejects posting with no session, and validation failures create nothing', async () => {
+    const noSession = await post('/v1/owner/board/posts', { body: 'x', nonce: 'n', assertion: { credentialId: 'a', authenticatorData: 'b', clientDataJSON: 'c', signature: 'd' } });
+    expect(noSession.status).toBe(401);
+
+    const auth = await Authenticator.create();
+    await register(auth);
+    const cookie = await login(auth);
+    const garbageAssertion = { credentialId: 'a', authenticatorData: 'b', clientDataJSON: 'c', signature: 'd' };
+    const empty = await post('/v1/owner/board/posts', { body: '', nonce: 'n', assertion: garbageAssertion }, cookie);
+    expect(empty.status).toBe(400);
+    const huge = await post('/v1/owner/board/posts', { body: 'x'.repeat(10_001), nonce: 'n', assertion: garbageAssertion }, cookie);
+    expect(huge.status).toBe(400);
+    expect(rawDb.prepare('SELECT COUNT(*) AS n FROM board_posts').get()).toEqual({ n: 0 });
+  });
+
+  it('answers 429 past 60/hr WITHOUT consuming the armed ceremony', async () => {
+    const auth = await Authenticator.create();
+    await register(auth);
+    const cookie = await login(auth);
+
+    // Fill the hour's bucket directly (60 ceremonies would be all noise): the
+    // route reads rate_limit_log through checkRateLimit.
+    const seed = rawDb.prepare('INSERT INTO rate_limit_log (id, key, created_at) VALUES (?, ?, ?)');
+    const now = new Date().toISOString();
+    for (let i = 0; i < 60; i++) seed.run(`rl_${i}`, `board:owner:${auth.ownerId}`, now);
+
+    const body = 'the 61st post';
+    const { challenge, nonce } = await armPost(cookie, body);
+    const payload = { body, nonce, assertion: await auth.assert(challenge, 2) };
+    const limited = await post('/v1/owner/board/posts', payload, cookie);
+    expect(limited.status).toBe(429);
+    expect(rawDb.prepare('SELECT COUNT(*) AS n FROM board_posts').get()).toEqual({ n: 0 });
+
+    // The 429 fired before the ceremony ran, so the SAME signed payload
+    // succeeds once the window clears — no wasted passkey tap.
+    rawDb.prepare('DELETE FROM rate_limit_log WHERE key = ?').run(`board:owner:${auth.ownerId}`);
+    expect((await post('/v1/owner/board/posts', payload, cookie)).status).toBe(200);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The owner's own board view + delete (review fixes): a held owner post stays
+// visible to its author (public list hides it), and an author can take their
+// own post down; nobody else can.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('owner board: own-posts view and delete', () => {
+  const bodyHash = (body: string): string => bytesToHex(sha256(te.encode(body)));
+  async function del(path: string, cookie?: string): Promise<Response> {
+    const headers: Record<string, string> = {};
+    if (cookie) headers.Cookie = cookie;
+    return await app.request(path, { method: 'DELETE', headers });
+  }
+  async function ownerPost(auth: Authenticator, cookie: string, body: string): Promise<string> {
+    const { challenge, nonce } = await actionBegin(cookie, `board.post:${bodyHash(body)}`, {});
+    const res = await post('/v1/owner/board/posts', { body, nonce, assertion: await auth.assert(challenge, 2) }, cookie);
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { post_id: string }).post_id;
+  }
+
+  it('a HELD owner post is hidden from the public list but still shown to its author', async () => {
+    const auth = await Authenticator.create();
+    await register(auth);
+    const cookie = await login(auth);
+    const postId = await ownerPost(auth, cookie, 'a post that will be held');
+
+    // Simulate the moderation outcome (board-moderation.test.ts covers the
+    // 3-distinct-owner path itself) — the visibility fix is what's under test.
+    rawDb.prepare(`UPDATE board_posts SET status = 'held' WHERE id = ?`).run(postId);
+
+    // Public list: gone (spec §5 hides held/removed/deleted).
+    const pub = (await (await get(`/v1/board/posts?author=${encodeURIComponent(auth.ownerId)}`)).json()) as { posts: unknown[] };
+    expect(pub.posts).toHaveLength(0);
+
+    // Owner-session view: present, with its held status surfaced.
+    const mineRes = await get('/v1/owner/board/posts', cookie);
+    expect(mineRes.status).toBe(200);
+    const mine = (await mineRes.json()) as { posts: Array<{ id: string; status: string }> };
+    expect(mine.posts).toHaveLength(1);
+    expect(mine.posts[0].id).toBe(postId);
+    expect(mine.posts[0].status).toBe('held');
+  });
+
+  it('the author soft-deletes their own post; it leaves every view', async () => {
+    const auth = await Authenticator.create();
+    await register(auth);
+    const cookie = await login(auth);
+    const postId = await ownerPost(auth, cookie, 'delete me');
+
+    const gone = await del(`/v1/owner/board/posts/${postId}`, cookie);
+    expect(gone.status).toBe(200);
+    // deleted_at set; body stays in the row but never renders.
+    const row = rawDb.prepare('SELECT deleted_at FROM board_posts WHERE id = ?').get(postId) as { deleted_at: string | null };
+    expect(row.deleted_at).toBeTruthy();
+
+    const mine = (await (await get('/v1/owner/board/posts', cookie)).json()) as { posts: unknown[] };
+    expect(mine.posts).toHaveLength(0);
+    const pub = (await (await get(`/v1/board/posts?author=${encodeURIComponent(auth.ownerId)}`)).json()) as { posts: unknown[] };
+    expect(pub.posts).toHaveLength(0);
+  });
+
+  it('a different owner cannot delete your post (404, no existence oracle), and no session is rejected', async () => {
+    const author = await Authenticator.create();
+    await register(author);
+    const authorCookie = await login(author);
+    const postId = await ownerPost(author, authorCookie, 'not yours to remove');
+
+    const stranger = await Authenticator.create();
+    await register(stranger);
+    const strangerCookie = await login(stranger);
+    const denied = await del(`/v1/owner/board/posts/${postId}`, strangerCookie);
+    expect(denied.status).toBe(404);
+    // Untouched.
+    expect((rawDb.prepare('SELECT deleted_at FROM board_posts WHERE id = ?').get(postId) as { deleted_at: string | null }).deleted_at).toBeNull();
+
+    const noSession = await del(`/v1/owner/board/posts/${postId}`);
+    expect(noSession.status).toBe(401);
   });
 });

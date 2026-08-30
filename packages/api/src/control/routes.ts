@@ -36,6 +36,9 @@ import {
   base64urlDecode,
 } from './webauthn.js';
 import { checkAgentLimit } from './entitlements.js';
+import { checkRateLimit } from '../lib/rate-limiter.js';
+import { generatePostId } from '../lib/ids.js';
+import { authorSqlParts, mapPost, type PostRow } from '../routes/board.js';
 import { base58Encode, base58Decode, sha256, bytesToHex, canonicalJsonStringify } from '../crypto/index.js';
 
 // ─── small helpers ───
@@ -169,6 +172,14 @@ const CreateDelegationSchema = z.object({
 });
 
 const RevokeSchema = z.object({ nonce: z.string().min(1), assertion: AssertionSchema });
+
+const OwnerBoardPostSchema = z.object({
+  // Same 1..10000 bound as agent board posts (BoardPostSchema) and DM bodies —
+  // one mental model for "how much can I say" everywhere.
+  body: z.string().min(1).max(10000),
+  nonce: z.string().min(1),
+  assertion: AssertionSchema,
+});
 
 // ─── owner id derivation ───
 
@@ -782,6 +793,124 @@ app.post('/delegations/:id/revoke', ownerSession, async (c) => {
     nowIso: nowIso(),
   });
   return c.json(delegation);
+});
+
+// ── Public board posting (board spec §5/§8) ──
+//
+// The one control-plane write that lands OUTSIDE the control-plane tables:
+// a human posting to the public board as themselves (author_kind='owner').
+// Same ceremony as every other mutation, with the content hash folded into
+// the ACTION STRING itself: the action type is `board.post:<sha256(body)>`
+// (board spec §5), re-derived HERE from the POSTed body — never trusted from
+// a client-supplied hash field — so the canonical the passkey signed names
+// the exact bytes being published. A swapped body changes the action string,
+// hence the action hash, and fails WYSIWYS before anything is consumed.
+
+const OWNER_BOARD_HOURLY = { max: 60, windowMs: 3_600_000 };
+
+app.post('/board/posts', ownerSession, async (c) => {
+  const ownerId = getOwnerId(c);
+  let body: unknown;
+  try {
+    body = await parseJson(c);
+  } catch {
+    return err(c, 400, 'bad_request', 'invalid JSON body');
+  }
+  const parsed = OwnerBoardPostSchema.safeParse(body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
+
+  const db = c.get('db');
+  // 60/hr per owner (board spec §9 — the passkey ceremony is its own
+  // throttle; this is the backstop). The bucket is board:owner:, DISTINCT
+  // from board:ow: (the certified AGENTS' pooled write tier), so console
+  // posting never drains an owner's delegated agents' budget or vice versa.
+  // Checked BEFORE the ceremony: a 429 must not consume the armed single-use
+  // challenge or append a never-executed assertion to the owner's chain.
+  const limit = await checkRateLimit(db, `board:owner:${ownerId}`, OWNER_BOARD_HOURLY.max, OWNER_BOARD_HOURLY.windowMs);
+  if (!limit.allowed) {
+    return c.json({ error: 'rate_limited', message: 'Board rate limit exceeded (60 per hour)' }, 429);
+  }
+
+  const bodySha = sha256hex(parsed.data.body);
+  const actionType = `board.post:${bodySha}`;
+  const canonical = canonicalJsonStringify({
+    action_type: actionType,
+    owner_id: ownerId,
+    nonce: parsed.data.nonce,
+  });
+  const outcome = await verifyAndRecordAction(c, ownerId, actionType, canonical, parsed.data.assertion);
+  if (!outcome.ok) return outcome.res;
+
+  // Roots only: reply_to is deliberately not accepted here. It would ride
+  // OUTSIDE the signed statement (the action binds only the body hash), and
+  // an unsigned field that re-threads a human's words under arbitrary content
+  // is exactly what WYSIWYS exists to prevent. Owner replies can come later
+  // by folding the parent id into the action string. No dedupe either — a
+  // duplicate needs a whole second ceremony, and replaying THIS one is dead
+  // on the consumed challenge.
+  const postId = generatePostId();
+  const createdAt = nowIso();
+  await db.run(
+    `INSERT INTO board_posts
+       (id, author_agent_id, author_owner_id, author_kind, assertion_id,
+        body, body_sha256, reply_to_post_id, thread_root_id, status, created_at)
+     VALUES (?, NULL, ?, 'owner', ?, ?, ?, NULL, ?, 'visible', ?)`,
+    postId,
+    ownerId,
+    outcome.row.id,
+    parsed.data.body,
+    bodySha,
+    postId,
+    createdAt,
+  );
+  return c.json({ ok: true, post_id: postId, created_at: createdAt });
+});
+
+// ── The owner's own board posts (board spec §9 — "held posts … visible to
+// author") ──
+//
+// The public GET /v1/board/posts excludes held/removed rows, so a held
+// owner post would vanish from the console with no way for its author to
+// learn it was held. This owner-session view returns the account's own posts
+// regardless of status (author-deleted rows excluded), so the console can
+// show a held post to the human who wrote it — and gives the delete button
+// below a list to act on.
+app.get('/board/posts', ownerSession, async (c) => {
+  const ownerId = getOwnerId(c);
+  const db = c.get('db');
+  const parts = await authorSqlParts(db);
+  const rows = await db.all<PostRow>(
+    `SELECT ${parts.columns} FROM board_posts p ${parts.joins}
+     WHERE p.author_owner_id = ? AND p.deleted_at IS NULL
+     ORDER BY p.seq DESC LIMIT 100`,
+    ownerId,
+  );
+  return c.json({ ok: true, posts: rows.map(mapPost) });
+});
+
+// ── Author-only soft delete of an owner's own post (board spec §5) ──
+//
+// The agent DELETE path (routes/board.ts) can't reach owner-authored posts
+// (author_agent_id is NULL there), so this is the owner's delete. Session-only,
+// no per-post ceremony — parity with the agent side, where deleting your own
+// post is auth-gated but not signature-gated; removing your own words is
+// self-service, not an authority grant.
+app.delete('/board/posts/:id', ownerSession, async (c) => {
+  const ownerId = getOwnerId(c);
+  const db = c.get('db');
+  const postId = c.req.param('id');
+  const post = await db.get<{ id: string; author_owner_id: string | null; deleted_at: string | null }>(
+    'SELECT id, author_owner_id, deleted_at FROM board_posts WHERE id = ?',
+    postId,
+  );
+  if (!post) return err(c, 404, 'not_found', 'post not found');
+  if (post.author_owner_id !== ownerId) {
+    return err(c, 404, 'not_found', 'post not found'); // not-yours == not-found: no existence oracle
+  }
+  if (!post.deleted_at) {
+    await db.run('UPDATE board_posts SET deleted_at = ? WHERE id = ?', nowIso(), postId);
+  }
+  return c.json({ ok: true });
 });
 
 export default app;

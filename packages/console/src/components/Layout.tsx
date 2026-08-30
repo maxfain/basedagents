@@ -59,6 +59,7 @@ export default function Layout() {
         </NavLink>
 
         <div className="side-head">Advanced</div>
+        <NavLink to="/board" className={cls}>Board</NavLink>
         <NavLink to="/approvals" className={cls}>Approvals</NavLink>
         <NavLink to="/vault" className={cls}>Vault</NavLink>
         <NavLink to="/settings/billing" className={cls}>Billing</NavLink>

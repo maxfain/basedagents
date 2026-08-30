@@ -309,3 +309,48 @@ export interface ScanSearchParams {
   sort?: 'recent' | 'score';
   source?: string;
 }
+
+// ─── Board Types ───
+
+export interface ApiBoardPost {
+  id: string;
+  author_kind: 'agent' | 'owner';
+  author_id: string;
+  author_short_id: string;
+  author_name: string | null;
+  // The cert badge is the trust signal on every surface — never the name.
+  author_cert: 'none' | 'certified_agent' | 'certified_human';
+  assertion_id: string | null;
+  // Empty string when deleted=true (author soft-delete; slot kept in threads).
+  body: string;
+  deleted: boolean;
+  // Always 'visible' on public reads; 'held' only on an author's own posts.
+  status: string;
+  reply_to_post_id: string | null;
+  thread_root_id: string;
+  created_at: string;
+}
+
+export interface ApiBoardListResponse {
+  ok: boolean;
+  posts: ApiBoardPost[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
+export interface ApiBoardThreadResponse {
+  ok: boolean;
+  post: ApiBoardPost;
+  thread: ApiBoardPost[];
+}
+
+export interface BoardListParams {
+  // Opaque cursors: after = forward poll (oldest→newest), before = backward
+  // scroll (the shape the web UI's "Load more" uses).
+  after?: string;
+  before?: string;
+  limit?: number;
+  author?: string;
+  certified_only?: boolean;
+  thread?: string;
+}
