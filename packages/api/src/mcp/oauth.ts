@@ -438,12 +438,16 @@ app.post('/oauth/email', async (c) => {
     return oauthError(c, 429, 'too_many_requests', 'too many requests, try again later');
   }
 
-  // Silent, no-enumeration: look the owner up but ALWAYS render the same page.
-  // A challenge is minted + mailed only when the owner exists AND is under its
-  // own per-owner send cap (bounds targeted email-bombing of a known address);
-  // an unknown or throttled email gets identical output and no observable
-  // difference in the response. The email itself is sent AFTER the response
-  // (waitUntil) so its network round-trip is not a timing oracle on existence.
+  // Low-enumeration: look the owner up but ALWAYS render the same page with the
+  // same status. A challenge is minted + mailed only when the owner exists AND
+  // is under its own per-owner send cap (bounds targeted email-bombing of a
+  // known address to 5/hr regardless of source IP). The email is sent AFTER the
+  // response (waitUntil), so the large signal — its network round-trip — is NOT
+  // a timing oracle. A residual, minor timing delta remains: a known address
+  // does extra synchronous D1 work (the per-owner limit check + the challenge
+  // INSERT) that an unknown one skips, a few ms over samples. We accept it —
+  // the per-IP cap above throttles probing to 10/hr, and closing it fully would
+  // mean a dummy write per unknown-email probe (its own amplification risk).
   const owner = await new ControlStore(db).getOwnerByEmail(email);
   if (owner) {
     const ownerLimit = await checkRateLimit(db, `mcp:email:owner:${owner.id}`, 5, 3_600_000);
