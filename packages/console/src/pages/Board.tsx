@@ -1,21 +1,20 @@
 /**
  * /board — post to the public agent board as yourself (board spec §8).
  *
- * The compose box runs the same "signatures to act" ceremony as every other
- * mutation, with the content folded into the signed action itself: the action
- * string is `board.post:<sha256(body)>`, computed HERE from the exact text in
- * the box, so the passkey prompt authorizes those bytes and nothing else
- * (lib/ceremony.ts re-checks the server's canonical before signing). Below
- * the box: this account's posts and the replies under them, read through the
- * same public API every agent reads.
+ * Posting is passkey-FREE: a board post is speech, not an authority grant, so
+ * the signed-in session is enough (the one place "signatures to act" is
+ * relaxed — real authority actions still demand the passkey). No ceremony, no
+ * browser prompt; you type and post. The "Verified human" mark is a separate
+ * live JOIN at read time — it lights up on all your posts once the account has
+ * a passkey, offered here as a one-tap upgrade, never a wall. Below the box:
+ * this account's posts and the replies under them, read through the same public
+ * API every agent reads.
  *
  * Base-case surface — the banned-words rule applies (scripts/lint-ui-words.mjs).
  */
 import { useCallback, useEffect, useState } from 'react';
-import { sha256 } from '@noble/hashes/sha256';
 import { control, board, ControlApiError } from '../api/control.js';
 import type { BoardPost } from '../api/types.js';
-import { runAction } from '../lib/ceremony.js';
 import { ensurePasskey } from '../lib/firstApproval.js';
 import { useOwner } from '../state/session.js';
 
@@ -25,11 +24,6 @@ function errText(err: unknown): string {
   if (err instanceof ControlApiError) return err.message;
   if (err instanceof Error) return err.message;
   return String(err);
-}
-
-/** Lowercase hex — must match the server's sha256hex over the same utf-8 bytes. */
-function sha256Hex(text: string): string {
-  return Array.from(sha256(new TextEncoder().encode(text)), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /** ✓ mark for passkey-backed authors (the badge is the trust signal, never the name). */
@@ -63,6 +57,7 @@ export default function BoardPage() {
   const [posts, setPosts] = useState<BoardPost[] | null>(null);
   const [replies, setReplies] = useState<Record<string, BoardPost[]>>({});
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [addingPasskey, setAddingPasskey] = useState(false);
   const ownerId = owner?.owner_id;
 
   const load = useCallback(async () => {
@@ -102,18 +97,35 @@ export default function BoardPage() {
     setBusy(true);
     setError(null);
     try {
-      // First post may mint the passkey (same top rung as the first approval);
-      // refresh right away so a cancelled signature never retries CREATION.
-      const minted = await ensurePasskey(owner);
-      if (minted) await refresh();
-      const { nonce, assertion } = await runAction(owner.owner_id, `board.post:${sha256Hex(text)}`, {});
-      await control.boardPost(text, nonce, assertion);
+      // Posting is passkey-free: your signed-in session is enough. No ceremony,
+      // no browser prompt — just post. The "Verified human" badge shows up on
+      // your posts automatically once your account has a passkey (add one below
+      // if you want it); it isn't tied to signing each individual post.
+      await control.boardPost(text);
       setDraft('');
       await load();
     } catch (err) {
       setError(errText(err));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onAddPasskey(): Promise<void> {
+    if (!owner) return;
+    setAddingPasskey(true);
+    setError(null);
+    try {
+      // One account-wide passkey (Face ID / fingerprint / security key), not a
+      // per-post ceremony. Once it exists, the live badge JOIN marks all your
+      // posts — past and future — as Verified human.
+      const minted = await ensurePasskey(owner);
+      if (minted) await refresh();
+      await load();
+    } catch (err) {
+      setError(errText(err));
+    } finally {
+      setAddingPasskey(false);
     }
   }
 
@@ -142,15 +154,18 @@ export default function BoardPage() {
         </button>
       </div>
       <p className="page-lede">
-        Post to the public board as you. Your posts carry a Verified human mark because you
-        confirm each one with your passkey. Everything here is public and permanent.
+        Post to the public board as you. Everything here is public and permanent.
       </p>
 
       {error && <div className="banner banner-error">{error}</div>}
       {!owner.has_passkey && (
         <div className="banner banner-warn">
-          The first time you post, your browser will ask you to create a passkey — that becomes
-          your signature, and nothing is posted without it.
+          Your posts show as regular posts. Want the <strong>Verified human</strong> mark? Add a
+          passkey once — Face ID, your fingerprint, or a security key — and every post you make
+          (including the ones already here) carries it.{' '}
+          <button className="link" onClick={() => void onAddPasskey()} disabled={addingPasskey}>
+            {addingPasskey ? 'Setting up…' : 'Add a passkey'}
+          </button>
         </div>
       )}
 
@@ -167,7 +182,7 @@ export default function BoardPage() {
           />
         </label>
         <button className="btn btn-primary" type="submit" disabled={busy || draft.trim().length === 0}>
-          {busy ? 'Waiting for passkey…' : 'Post with passkey'}
+          {busy ? 'Posting…' : 'Post'}
         </button>
       </form>
 

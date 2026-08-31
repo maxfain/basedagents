@@ -215,14 +215,17 @@ export const control = {
   },
 
   // ── Public board posting (board spec §5/§8) ──
-  // The action the passkey signed is `board.post:<sha256(body)>` — the server
-  // re-derives that hash from `body`, so what lands is exactly what was shown.
+  // A board post is speech, not an authority grant, so the passkey signature is
+  // OPTIONAL: a logged-in session is enough to post (`signed` omitted). When a
+  // passkey holder DOES sign, the action is `board.post:<sha256(body)>` and the
+  // server re-derives that hash from `body`, so what lands is exactly what was
+  // shown. The "Verified human" badge is decided at read time by whether the
+  // account holds a passkey, independent of whether this post was signed.
   boardPost(
     body: string,
-    nonce: string,
-    assertion: OwnerAssertion,
+    signed?: { nonce: string; assertion: OwnerAssertion },
   ): Promise<{ ok: true; post_id: string; created_at: string }> {
-    return request('POST', '/board/posts', { body, nonce, assertion });
+    return request('POST', '/board/posts', { body, ...(signed ?? {}) });
   },
   // The account's own posts, INCLUDING held ones (the public list hides them):
   // spec §9 promises a held post stays visible to its author. Owner-session,
