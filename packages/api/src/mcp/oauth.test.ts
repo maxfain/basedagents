@@ -417,6 +417,68 @@ describe('magic-link login + consent handoff', () => {
   });
 });
 
+// ───────────────────── security review fixes (regressions) ─────────────────────
+
+describe('login-fixation: the magic-link cookie binding is MANDATORY', () => {
+  it('rejects /oauth/continue when the click carries NO cookie (cross-account attack)', async () => {
+    // The attack: the attacker initiates the request (their browser, their
+    // client, their PKCE), seeds a login challenge for the VICTIM's email, and
+    // the victim clicks the link in the victim's OWN cookieless browser. That
+    // click must be refused — otherwise the victim's owner would bind to the
+    // attacker's request. Here we simulate the victim's cookieless click.
+    seedOwner('victim@example.com');
+    const cid = await clientId();
+    const params = new URLSearchParams({ response_type: 'code', client_id: cid, redirect_uri: REDIRECT, code_challenge: pkce('attacker-verifier'), code_challenge_method: 'S256', resource: RESOURCE, scope: 'board:post' });
+    const authRes = await app.request(`/oauth/authorize?${params.toString()}`, {}, ENV);
+    const attackerCookie = cookieOf(authRes);
+    const csrf1 = csrfOf(await authRes.text());
+    // Attacker (holding the cookie) seeds a challenge for the victim's email.
+    await app.request('/oauth/email', { method: 'POST', headers: { ...FORM, Cookie: attackerCookie }, body: new URLSearchParams({ email: 'victim@example.com', csrf: csrf1 }).toString() }, ENV);
+    const link = new URL(/https?:\/\/\S+/.exec(outbox[0].text)![0]);
+    const lt = link.searchParams.get('lt')!, req = link.searchParams.get('req')!;
+
+    // Victim clicks with NO cookie → refused (was the vuln: cookie was optional).
+    const victimClick = await app.request(`/oauth/continue?lt=${encodeURIComponent(lt)}&req=${encodeURIComponent(req)}`, {}, ENV);
+    expect(victimClick.status).toBe(400);
+    expect(await victimClick.text()).toMatch(/same browser/i);
+
+    // And the owner was never bound, so a decision cannot mint a code.
+    const dec = await app.request('/oauth/decision', { method: 'POST', headers: { ...FORM, Cookie: attackerCookie }, body: new URLSearchParams({ req, csrf: csrf1, decision: 'allow' }).toString() }, ENV);
+    expect(dec.status).toBe(400);
+  });
+
+  it('the approve page names the client and redirect host (informed consent)', async () => {
+    seedOwner('informed@example.com');
+    const cid = await clientId(); // registered with client_name 'claude.ai'
+    const params = new URLSearchParams({ response_type: 'code', client_id: cid, redirect_uri: REDIRECT, code_challenge: pkce('v'), code_challenge_method: 'S256', resource: RESOURCE, scope: 'board:post' });
+    const authRes = await app.request(`/oauth/authorize?${params.toString()}`, {}, ENV);
+    const cookie1 = cookieOf(authRes);
+    const csrf1 = csrfOf(await authRes.text());
+    await app.request('/oauth/email', { method: 'POST', headers: { ...FORM, Cookie: cookie1 }, body: new URLSearchParams({ email: 'informed@example.com', csrf: csrf1 }).toString() }, ENV);
+    const link = new URL(/https?:\/\/\S+/.exec(outbox[0].text)![0]);
+    const cont = await app.request(`/oauth/continue?lt=${encodeURIComponent(link.searchParams.get('lt')!)}&req=${encodeURIComponent(link.searchParams.get('req')!)}`, { headers: { Cookie: cookie1 } }, ENV);
+    const html = await cont.text();
+    expect(html).toMatch(/claude\.ai/); // client name AND redirect host both surface
+  });
+});
+
+describe('/oauth/email is rate limited (no email-bomb)', () => {
+  it('caps per-owner sends at 5 and per-IP requests at 10 (11th is 429)', async () => {
+    seedOwner('target@example.com');
+    const cid = await clientId();
+    const params = new URLSearchParams({ response_type: 'code', client_id: cid, redirect_uri: REDIRECT, code_challenge: pkce('v'), code_challenge_method: 'S256', resource: RESOURCE, scope: 'board:post' });
+    const authRes = await app.request(`/oauth/authorize?${params.toString()}`, {}, ENV);
+    const cookie1 = cookieOf(authRes);
+    const csrf1 = csrfOf(await authRes.text());
+    const send = () => app.request('/oauth/email', { method: 'POST', headers: { ...FORM, Cookie: cookie1 }, body: new URLSearchParams({ email: 'target@example.com', csrf: csrf1 }).toString() }, ENV);
+
+    for (let i = 0; i < 10; i++) expect((await send()).status).toBe(200);
+    expect((await send()).status).toBe(429); // 11th trips the per-IP cap
+    // Per-owner cap held the actual emails to 5, even though 10 requests were 200.
+    expect(outbox).toHaveLength(5);
+  });
+});
+
 // ─────────────────────────────── /token ───────────────────────────────
 
 describe('/oauth/token', () => {

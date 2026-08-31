@@ -50,9 +50,13 @@ export type InsertOwnerBoardPostResult =
  *   live JOIN at read time, NOT a function of whether this row is signed.
  *
  * D1 has no transactions: `checkRateLimit` and the INSERT are two statements,
- * ordered limit-then-write so a 429 never writes a row. There is no read-then-
- * write race to guard here — the row id is freshly random and the limiter's own
- * count/insert is its atomic unit.
+ * ordered limit-then-write so a 429 never writes a row. NOTE the limiter itself
+ * (SELECT COUNT then INSERT) is NOT atomic — a burst of concurrent posts can
+ * marginally exceed 60/hr. That is acceptable: this is a SOFT anti-flood budget
+ * on public speech, not a security boundary; a few extra posts under a race
+ * cost nothing, and the same non-atomic limiter guards every rate-limited path
+ * in the codebase. It is emphatically NOT a defense against a determined
+ * attacker with a valid token — nothing here claims to be.
  */
 export async function insertOwnerBoardPost(
   db: DBAdapter,

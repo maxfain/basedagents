@@ -680,9 +680,18 @@ app.post('/mcp', bearerMiddleware, async (c) => {
       } catch (e) {
         // RpcError = protocol-layer failure (scope/rate) → JSON-RPC error envelope.
         if (e instanceof RpcError) return rpcError(c, id, e.code, e.message, e.data);
-        // Everything else (upstream API failure, unexpected) is a TOOL error,
-        // surfaced as an isError content result so the model sees the reason.
-        const reason = e instanceof ApiError ? `${e.message}${e.bodyText ? `: ${e.bodyText}` : ''}` : (e as Error).message;
+        // ApiError = the upstream PUBLIC API's own error — its message is already
+        // public, so relay it (WITHOUT the raw body, which can carry internal
+        // detail). Anything else is an unexpected server-side fault: log it, but
+        // NEVER surface the raw exception message to the client (it can leak SQL
+        // errors, stack fragments, internal identifiers).
+        let reason: string;
+        if (e instanceof ApiError) {
+          reason = e.message || `upstream request failed (status ${e.status})`;
+        } else {
+          console.error('[mcp] tool execution error', e);
+          reason = 'internal error';
+        }
         return rpcResult(c, id, { content: [{ type: 'text', text: `Error: ${reason}` }], isError: true });
       }
     }

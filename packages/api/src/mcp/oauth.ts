@@ -72,7 +72,8 @@ export type McpEnv = { Bindings: McpBindings; Variables: McpVariables };
 export const ALLOWED_SCOPES = ['registry:read', 'board:post'] as const;
 const AUTHREQ_COOKIE = 'mcp_authreq';
 const COOKIE_TTL_S = 10 * 60; // matches the authorization-request TTL
-const DCR_PER_IP_HOURLY = 20; // §2 DCR abuse control
+const DCR_PER_IP_HOURLY = 20; // §2 DCR abuse control (burst rate)
+const DCR_CLIENTS_PER_IP_DAILY = 100; // §8 standing-client cap (unbounded-growth guard)
 const enc = new TextEncoder();
 
 interface McpConfig {
@@ -211,6 +212,22 @@ function ipHash(ip: string): string {
   return bytesToHex(sha256(enc.encode(ip)));
 }
 
+/**
+ * Run a side-effect (the magic-link email) AFTER the response is sent, so its
+ * network round-trip never contributes to response timing (account-enumeration
+ * defense) and still completes on the edge. Uses the Worker's waitUntil when
+ * present; in tests (no executionCtx) it awaits so the injected outbox is
+ * captured deterministically.
+ */
+async function deferSend(c: Context<McpEnv>, p: Promise<unknown>): Promise<void> {
+  // ExecutionContext is a Workers global not in this package's tsconfig types;
+  // structurally type the one method we use.
+  let ctx: { waitUntil(promise: Promise<unknown>): void } | undefined;
+  try { ctx = c.executionCtx; } catch { ctx = undefined; }
+  if (ctx) { ctx.waitUntil(p.catch(() => {})); return; } // prod: deferred, no timing leak
+  await p.catch(() => {}); // tests (no executionCtx): await so the outbox is captured
+}
+
 // ─── rendered pages ───
 
 function pageShell(title: string, inner: string): string {
@@ -272,6 +289,14 @@ app.post('/oauth/register', async (c) => {
   const limit = await checkRateLimit(db, `dcr:${iph}`, DCR_PER_IP_HOURLY, 3_600_000);
   if (!limit.allowed) {
     return oauthError(c, 429, 'too_many_requests', 'registration rate limit exceeded');
+  }
+  // Stored-client CAP (§8): the hourly limiter bounds burst rate, but a patient
+  // script (or one rotating the x-forwarded-for fallback) could still slowly
+  // accrete permanent oauth_clients rows. Cap the standing count per IP over a
+  // rolling day so registration can't grow the shared table without bound.
+  const dayAgo = new Date(Date.now() - 24 * 3_600_000).toISOString();
+  if (await new OAuthStore(db).countClientsByIpSince(iph, dayAgo) >= DCR_CLIENTS_PER_IP_DAILY) {
+    return oauthError(c, 429, 'too_many_requests', 'registration limit reached');
   }
 
   let body: unknown;
@@ -405,21 +430,35 @@ app.post('/oauth/email', async (c) => {
     return oauthError(c, 400, 'invalid_request', 'email required');
   }
 
+  // Per-IP throttle on the SEND path (before any owner lookup) — bounds both
+  // enumeration probing and email spray from one source. Cheap and applies to
+  // known and unknown addresses alike, so it leaks nothing.
+  const ipLimit = await checkRateLimit(db, `mcp:email:ip:${ipHash(clientIp(c))}`, 10, 3_600_000);
+  if (!ipLimit.allowed) {
+    return oauthError(c, 429, 'too_many_requests', 'too many requests, try again later');
+  }
+
   // Silent, no-enumeration: look the owner up but ALWAYS render the same page.
-  // A challenge is minted + mailed only when the owner exists; an unknown email
-  // gets identical output and no observable side effect.
+  // A challenge is minted + mailed only when the owner exists AND is under its
+  // own per-owner send cap (bounds targeted email-bombing of a known address);
+  // an unknown or throttled email gets identical output and no observable
+  // difference in the response. The email itself is sent AFTER the response
+  // (waitUntil) so its network round-trip is not a timing oracle on existence.
   const owner = await new ControlStore(db).getOwnerByEmail(email);
   if (owner) {
-    const { token } = await new OAuthStore(db).createLoginChallenge({
-      ownerId: owner.id,
-      authreqId: cookie.authreq_id,
-    });
-    await sendMcpMagicLink(getEmailSender(c), {
-      email,
-      token,
-      authreqId: cookie.authreq_id,
-      resourceHost: config.issuer,
-    });
+    const ownerLimit = await checkRateLimit(db, `mcp:email:owner:${owner.id}`, 5, 3_600_000);
+    if (ownerLimit.allowed) {
+      const { token } = await new OAuthStore(db).createLoginChallenge({
+        ownerId: owner.id,
+        authreqId: cookie.authreq_id,
+      });
+      await deferSend(c, sendMcpMagicLink(getEmailSender(c), {
+        email,
+        token,
+        authreqId: cookie.authreq_id,
+        resourceHost: config.issuer,
+      }));
+    }
   }
 
   return c.html(
@@ -451,16 +490,32 @@ app.get('/oauth/continue', async (c) => {
       400,
     );
   }
-  // The challenge is bound to its authreq; the ?req must match it. And if the
-  // original browser cookie is present it must name the SAME authreq — that is
-  // the login-fixation binding (an attacker can't graft a victim's login onto
-  // their own armed request).
+  // The challenge is bound to its authreq; the ?req must match it.
   if (consumed.authreq_id !== req) {
     return c.html(pageShell('Mismatch', `<h1>Request mismatch</h1><p>This link does not match the authorization request.</p>`), 400);
   }
+  // MANDATORY login-fixation binding (was optional — the flaw): the magic-link
+  // click MUST carry the mcp_authreq cookie from the SAME browser that started
+  // this authorization request. Without it we refuse. This closes cross-account
+  // authorization: an attacker who initiates a request in their browser and
+  // seeds a login challenge for a VICTIM's email cannot complete it, because the
+  // victim clicks the link in the victim's own (cookieless) browser and is
+  // rejected here, while the attacker's cookie-bearing browser never receives
+  // the victim's email. SameSite=Lax lets the cookie ride a top-level GET
+  // navigation from the email client, so a legitimate same-browser click still
+  // carries it; a cross-browser / cross-device click is rejected by design.
   const cookie = await verifyCookie(config.signingSecret, getCookie(c, AUTHREQ_COOKIE));
-  if (cookie && cookie.authreq_id !== req) {
-    return c.html(pageShell('Mismatch', `<h1>Request mismatch</h1><p>This browser started a different authorization request.</p>`), 400);
+  if (!cookie || cookie.authreq_id !== req) {
+    return c.html(
+      pageShell(
+        'Open in the same browser',
+        `<h1>Finish in the same browser</h1>
+         <p>For your security, open this link in the same browser where you started connecting.
+         Go back to that browser (or device) and click the link there — or restart the connection
+         from your app.</p>`,
+      ),
+      400,
+    );
   }
 
   // Bind the owner to the request EXACTLY ONCE (atomic, WHERE owner_id IS NULL).
@@ -468,6 +523,15 @@ app.get('/oauth/continue', async (c) => {
   if (!bound) {
     return c.html(pageShell('Expired', `<h1>Authorization expired</h1><p>This authorization request has expired or is already resolved.</p>`), 400);
   }
+
+  // Show WHAT is being authorized (defense in depth + informed consent): the
+  // registered client name and the redirect host the code will be sent to, so
+  // the human can recognize the app instead of blindly approving.
+  const areq = await store.getAuthRequest(req);
+  const client = areq ? await store.getClient(areq.client_id) : null;
+  const clientLabel = client?.client_name || 'An application';
+  let redirectHost = '';
+  try { redirectHost = areq ? new URL(areq.redirect_uri).host : ''; } catch { redirectHost = ''; }
 
   // Fresh cookie + fresh CSRF for the Approve form (re-arms the binding for the
   // decision POST, whichever browser we're now in).
@@ -483,7 +547,9 @@ app.get('/oauth/continue', async (c) => {
     pageShell(
       'Approve connection',
       `<h1>Approve connection</h1>
-       <p>You're signed in. Approve the connector to read the registry and post to the board as your owner account?</p>
+       <p>You're signed in. <strong>${esc(clientLabel)}</strong>${redirectHost ? ` (<code>${esc(redirectHost)}</code>)` : ''}
+       is asking to read the BasedAgents registry and post to the public board as your owner account.</p>
+       <p>Only approve this if you started it. If you don't recognize it, Deny.</p>
        <form method="post" action="/oauth/decision">
          <input type="hidden" name="req" value="${esc(req)}">
          <input type="hidden" name="csrf" value="${esc(csrf)}">
