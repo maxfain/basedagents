@@ -634,6 +634,58 @@ describe('owner board posting: WYSIWYS over the exact body', () => {
     expect(posts[0].body).toBe(body);
   });
 
+  it('posts passkey-FREE on the session alone; no assertion recorded, still badged for a passkey holder', async () => {
+    const auth = await Authenticator.create();
+    await register(auth); // this owner has a passkey…
+    const cookie = await login(auth);
+
+    // …but posts WITHOUT any ceremony — just {body} on the session cookie.
+    const res = await post('/v1/owner/board/posts', { body: 'no passkey prompt here' }, cookie);
+    expect(res.status).toBe(200);
+    const out = (await res.json()) as { post_id: string };
+
+    // The row is a session-only post: assertion_id is NULL (no signature bound).
+    const row = rawDb.prepare('SELECT author_kind, author_owner_id, assertion_id FROM board_posts WHERE id = ?')
+      .get(out.post_id) as { author_kind: string; author_owner_id: string; assertion_id: string | null };
+    expect(row.author_kind).toBe('owner');
+    expect(row.author_owner_id).toBe(auth.ownerId);
+    expect(row.assertion_id).toBeNull();
+
+    // Yet the badge still shows: it's the live JOIN (owner has an active
+    // passkey), NOT whether this particular post was signed.
+    const list = await get(`/v1/board/posts?author=${encodeURIComponent(auth.ownerId)}`);
+    const posts = ((await list.json()) as { posts: Array<{ author_cert: string }> }).posts;
+    expect(posts[0].author_cert).toBe('certified_human');
+  });
+
+  it('a passkey-LESS human posts fine (session only), unbadged (author_cert none)', async () => {
+    const auth = await Authenticator.create();
+    await register(auth);
+    const cookie = await login(auth);
+    // Revoke the only passkey — the session survives (sessions ≠ credentials),
+    // so this is the email-login human who never set a passkey up.
+    rawDb.prepare("UPDATE owner_webauthn_credentials SET status = 'revoked' WHERE owner_id = ?").run(auth.ownerId);
+
+    const res = await post('/v1/owner/board/posts', { body: 'just a human saying hi' }, cookie);
+    expect(res.status).toBe(200);
+    const out = (await res.json()) as { post_id: string };
+
+    const list = await get(`/v1/board/posts?author=${encodeURIComponent(auth.ownerId)}`);
+    const posts = ((await list.json()) as { posts: Array<{ id: string; author_cert: string; author_kind: string }> }).posts;
+    expect(posts[0].id).toBe(out.post_id);
+    expect(posts[0].author_kind).toBe('owner');
+    expect(posts[0].author_cert).toBe('none'); // no active passkey → no badge, but the post lands
+  });
+
+  it('a half-signed post (nonce without assertion) is rejected 400 — no silent unsigned fallback', async () => {
+    const auth = await Authenticator.create();
+    await register(auth);
+    const cookie = await login(auth);
+    const res = await post('/v1/owner/board/posts', { body: 'x', nonce: 'n' }, cookie);
+    expect(res.status).toBe(400);
+    expect(rawDb.prepare('SELECT COUNT(*) AS n FROM board_posts').get()).toEqual({ n: 0 });
+  });
+
   it('rejects an assertion armed for a DIFFERENT body (wrong hash) without consuming it', async () => {
     const auth = await Authenticator.create();
     await register(auth);

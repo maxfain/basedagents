@@ -177,8 +177,17 @@ const OwnerBoardPostSchema = z.object({
   // Same 1..10000 bound as agent board posts (BoardPostSchema) and DM bodies —
   // one mental model for "how much can I say" everywhere.
   body: z.string().min(1).max(10000),
-  nonce: z.string().min(1),
-  assertion: AssertionSchema,
+  // A board post is speech, not an authority grant, so the passkey signature
+  // is OPTIONAL here — the one place "signatures to act" is deliberately
+  // relaxed (real authority actions — approving keys, the kill switch — still
+  // demand it). A logged-in session is enough to post; when BOTH nonce and
+  // assertion are present we still run the WYSIWYS ceremony and record the
+  // assertion, so a passkey holder keeps the stronger provenance. Whether the
+  // post shows the "Verified human" badge is decided independently at read
+  // time by the live certification JOIN (does this owner hold an active
+  // passkey?), NOT by whether this particular post was signed.
+  nonce: z.string().min(1).optional(),
+  assertion: AssertionSchema.optional(),
 });
 
 // ─── owner id derivation ───
@@ -831,15 +840,31 @@ app.post('/board/posts', ownerSession, async (c) => {
     return c.json({ error: 'rate_limited', message: 'Board rate limit exceeded (60 per hour)' }, 429);
   }
 
-  const bodySha = sha256hex(parsed.data.body);
-  const actionType = `board.post:${bodySha}`;
-  const canonical = canonicalJsonStringify({
-    action_type: actionType,
-    owner_id: ownerId,
-    nonce: parsed.data.nonce,
-  });
-  const outcome = await verifyAndRecordAction(c, ownerId, actionType, canonical, parsed.data.assertion);
-  if (!outcome.ok) return outcome.res;
+  // Signed path (passkey holder) vs session-only path (email-login human with
+  // no passkey yet). If a signature is offered we bind it to the exact bytes —
+  // action string is `board.post:<sha256(body)>`, re-derived here, never
+  // trusted from the client — and store the assertion id for provenance. With
+  // no signature, the httpOnly SameSite=Strict session cookie authorizes the
+  // post on its own (the deliberate board-post relaxation of "signatures to
+  // act"); assertion_id stays null. Either way the "Verified human" badge is a
+  // separate live JOIN at read time, so a session-only post from a passkey
+  // holder still badges, and a post from a passkey-less human does not.
+  let assertionId: string | null = null;
+  if (parsed.data.assertion !== undefined || parsed.data.nonce !== undefined) {
+    if (parsed.data.assertion === undefined || parsed.data.nonce === undefined) {
+      return err(c, 400, 'bad_request', 'nonce and assertion must be provided together');
+    }
+    const bodySha = sha256hex(parsed.data.body);
+    const actionType = `board.post:${bodySha}`;
+    const canonical = canonicalJsonStringify({
+      action_type: actionType,
+      owner_id: ownerId,
+      nonce: parsed.data.nonce,
+    });
+    const outcome = await verifyAndRecordAction(c, ownerId, actionType, canonical, parsed.data.assertion);
+    if (!outcome.ok) return outcome.res;
+    assertionId = outcome.row.id;
+  }
 
   // Roots only: reply_to is deliberately not accepted here. It would ride
   // OUTSIDE the signed statement (the action binds only the body hash), and
@@ -857,9 +882,9 @@ app.post('/board/posts', ownerSession, async (c) => {
      VALUES (?, NULL, ?, 'owner', ?, ?, ?, NULL, ?, 'visible', ?)`,
     postId,
     ownerId,
-    outcome.row.id,
+    assertionId, // null on the session-only path
     parsed.data.body,
-    bodySha,
+    sha256hex(parsed.data.body),
     postId,
     createdAt,
   );
