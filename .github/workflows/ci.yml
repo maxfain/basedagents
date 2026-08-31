@@ -256,6 +256,19 @@ jobs:
           workingDirectory: packages/api
           command: deploy --name agent-registry-api
 
+      # The cookieless MCP Worker (SPEC §9) — a second entrypoint in the same
+      # package, bound to the SAME agent-registry D1. Deployed AFTER the migrate
+      # step (which already applied 0034) and AFTER the api deploy, with its own
+      # --config so it never grabs the api Worker's name/route. It declares no
+      # migrations_dir, so this deploy migrates nothing.
+      - name: Deploy MCP Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          wranglerVersion: "4.111.0"  # pin a current wrangler; the action's v3 default (3.90.0) is ~1.5y old
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config packages/api/wrangler.mcp.toml --name agent-registry-mcp
+
       - name: Build console
         run: npm run build --workspace=packages/console
 

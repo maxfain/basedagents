@@ -36,8 +36,7 @@ import {
   base64urlDecode,
 } from './webauthn.js';
 import { checkAgentLimit } from './entitlements.js';
-import { checkRateLimit } from '../lib/rate-limiter.js';
-import { generatePostId } from '../lib/ids.js';
+import { insertOwnerBoardPost, OWNER_BOARD_HOURLY } from '../mcp/board-post.js';
 import { authorSqlParts, mapPost, type PostRow } from '../routes/board.js';
 import { base58Encode, base58Decode, sha256, bytesToHex, canonicalJsonStringify } from '../crypto/index.js';
 
@@ -815,8 +814,6 @@ app.post('/delegations/:id/revoke', ownerSession, async (c) => {
 // the exact bytes being published. A swapped body changes the action string,
 // hence the action hash, and fails WYSIWYS before anything is consumed.
 
-const OWNER_BOARD_HOURLY = { max: 60, windowMs: 3_600_000 };
-
 app.post('/board/posts', ownerSession, async (c) => {
   const ownerId = getOwnerId(c);
   let body: unknown;
@@ -833,10 +830,21 @@ app.post('/board/posts', ownerSession, async (c) => {
   // throttle; this is the backstop). The bucket is board:owner:, DISTINCT
   // from board:ow: (the certified AGENTS' pooled write tier), so console
   // posting never drains an owner's delegated agents' budget or vice versa.
-  // Checked BEFORE the ceremony: a 429 must not consume the armed single-use
-  // challenge or append a never-executed assertion to the owner's chain.
-  const limit = await checkRateLimit(db, `board:owner:${ownerId}`, OWNER_BOARD_HOURLY.max, OWNER_BOARD_HOURLY.windowMs);
-  if (!limit.allowed) {
+  //
+  // We PEEK the bucket here — a non-consuming COUNT, NOT a checkRateLimit call —
+  // for the sole purpose of 429-ing BEFORE the ceremony, so a rate-limited
+  // request neither consumes the armed single-use challenge nor appends a
+  // never-executed assertion to the owner's chain (nor wastes a passkey tap).
+  // The AUTHORITATIVE consume + the INSERT is insertOwnerBoardPost below (shared
+  // verbatim with the MCP connector), so the hourly slot is spent exactly once,
+  // by whichever transport lands the row — no double count, no split budget.
+  const windowStart = new Date(Date.now() - OWNER_BOARD_HOURLY.windowMs).toISOString();
+  const used = await db.get<{ count: number }>(
+    'SELECT COUNT(*) AS count FROM rate_limit_log WHERE key = ? AND created_at > ?',
+    `board:owner:${ownerId}`,
+    windowStart,
+  );
+  if ((used?.count ?? 0) >= OWNER_BOARD_HOURLY.max) {
     return c.json({ error: 'rate_limited', message: 'Board rate limit exceeded (60 per hour)' }, 429);
   }
 
@@ -866,29 +874,18 @@ app.post('/board/posts', ownerSession, async (c) => {
     assertionId = outcome.row.id;
   }
 
-  // Roots only: reply_to is deliberately not accepted here. It would ride
-  // OUTSIDE the signed statement (the action binds only the body hash), and
-  // an unsigned field that re-threads a human's words under arbitrary content
-  // is exactly what WYSIWYS exists to prevent. Owner replies can come later
-  // by folding the parent id into the action string. No dedupe either — a
-  // duplicate needs a whole second ceremony, and replaying THIS one is dead
-  // on the consumed challenge.
-  const postId = generatePostId();
-  const createdAt = nowIso();
-  await db.run(
-    `INSERT INTO board_posts
-       (id, author_agent_id, author_owner_id, author_kind, assertion_id,
-        body, body_sha256, reply_to_post_id, thread_root_id, status, created_at)
-     VALUES (?, NULL, ?, 'owner', ?, ?, ?, NULL, ?, 'visible', ?)`,
-    postId,
-    ownerId,
-    assertionId, // null on the session-only path
-    parsed.data.body,
-    sha256hex(parsed.data.body),
-    postId,
-    createdAt,
-  );
-  return c.json({ ok: true, post_id: postId, created_at: createdAt });
+  // The authoritative rate-limit consume + the INSERT, shared with the MCP
+  // connector. Roots only, author_kind='owner', body hash re-derived inside —
+  // see insertOwnerBoardPost. assertionId is null on the session-only path.
+  const result = await insertOwnerBoardPost(db, ownerId, parsed.data.body, assertionId);
+  if (!result.ok) {
+    // The peek above passed but the slot was taken between then and now
+    // (concurrent post): same 429 shape. The ceremony has run, but a losing
+    // race on the last slot of the hour is the acceptable cost of not holding
+    // a transaction D1 doesn't offer.
+    return c.json({ error: 'rate_limited', message: 'Board rate limit exceeded (60 per hour)' }, 429);
+  }
+  return c.json({ ok: true, post_id: result.post_id, created_at: result.created_at });
 });
 
 // ── The owner's own board posts (board spec §9 — "held posts … visible to

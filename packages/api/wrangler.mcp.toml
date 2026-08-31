@@ -1,0 +1,42 @@
+# Second Worker entrypoint inside packages/api (SPEC §0/§1/§9): the cookieless
+# OAuth 2.1 AS + Streamable-HTTP RS for the BasedAgents MCP connector. Same
+# package as the api Worker (so it reuses the vitest harness and imports
+# insertOwnerBoardPost in-process), but a SEPARATE Worker — it never mounts
+# /v1/owner and holds no console credential.
+#
+# TOML (not jsonc) so it parses under any wrangler version, matching wrangler.toml.
+name = "agent-registry-mcp"
+main = "src/mcp/worker.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# SAME D1 as the api Worker — the shared `agent-registry` database is the whole
+# point (in-process board INSERT, one owner-post budget). The database_id is the
+# real production id copied verbatim from wrangler.toml.
+#
+# NO migrations_dir: the api Worker OWNS migrations (it applies 0034). If this
+# config also declared a migrations_dir, two Workers would race the d1_migrations
+# bookkeeping table against the same database. Deploy applies nothing; CI's single
+# `d1 migrations apply agent-registry` (before both deploys) is the only migrator.
+[[d1_databases]]
+binding = "DB"
+database_name = "agent-registry"
+database_id = "e8173f0d-7d4f-44c7-8abb-8871a8b56627"
+
+# The mcp.basedagents.ai route on the existing zone (founder points the DNS
+# `mcp` record once; current CF token scopes already cover the zone).
+[[routes]]
+pattern = "mcp.basedagents.ai/*"
+zone_name = "basedagents.ai"
+
+# The three SPEC §9 [vars]. MCP_RESOURCE_URL is byte-identical to the PRM
+# `resource` and the RFC 8707 audience the connector types into claude.ai.
+# MCP_SIGNING_SECRET (mcp_authreq cookie + CSRF HMAC) and the email-sender secret
+# are wrangler SECRETS set out-of-band, never vars.
+[vars]
+MCP_RESOURCE_URL = "https://mcp.basedagents.ai/mcp"
+MCP_ISSUER = "https://mcp.basedagents.ai"
+API_BASE_URL = "https://api.basedagents.ai"
+
+# No KV, no Durable Object, no service binding — the RS is stateless (no
+# Mcp-Session-Id issued) and every write is an atomic D1 statement.
