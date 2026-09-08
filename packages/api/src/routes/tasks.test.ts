@@ -833,6 +833,21 @@ describe('Task Marketplace', () => {
       expect(res.status).toBe(200);
     });
 
+    it('rejects non-http(s) delivery links (javascript:/data:) → 400, task stays claimed', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+
+      for (const bad of ['javascript:alert(1)', 'data:text/html,hi', 'ftp://example.com/x']) {
+        const res = await deliverTask(claimer, taskId, { artifact_urls: [bad], submission_type: 'link' });
+        expect(res.status).toBe(400);
+      }
+      const pr = await deliverTask(claimer, taskId, { pr_url: 'javascript:alert(1)', submission_type: 'pr' });
+      expect(pr.status).toBe(400);
+
+      const row = await db.get<{ status: string }>('SELECT status FROM tasks WHERE task_id = ?', taskId);
+      expect(row?.status).toBe('claimed');
+    });
+
     it('cannot deliver if not claimed agent → 403', async () => {
       const taskId = await createTask(creator);
       await claimTask(claimer, taskId);

@@ -130,7 +130,7 @@ export default function TasksPage() {
       )}
 
       {tasks === null ? (
-        <div className="empty"><p className="muted">Loading…</p></div>
+        error ? null : <div className="empty"><p className="muted">Loading…</p></div>
       ) : tasks.length === 0 ? (
         <div className="empty">
           <p>No tasks yet — post your first one.</p>

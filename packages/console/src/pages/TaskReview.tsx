@@ -57,6 +57,11 @@ function milestones(task: OwnerTaskDetail['task'], claimer: string | null): Mile
   return out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 }
 
+/** Only http(s) links become anchors; anything else (javascript:, data:, …) is shown as text. */
+function isHttpUrl(u: string): boolean {
+  return /^https?:\/\//i.test(u);
+}
+
 function ReceiptCard({ receipt, latest }: { receipt: OwnerTaskReceipt; latest: boolean }) {
   const links = receipt.artifact_urls ?? [];
   return (
@@ -69,11 +74,15 @@ function ReceiptCard({ receipt, latest }: { receipt: OwnerTaskReceipt; latest: b
         <p className="prewrap">{receipt.summary}</p>
         {(links.length > 0 || receipt.pr_url || receipt.commit_hash) && (
           <div className="receipt-links">
-            {links.map((u) => (
-              <a key={u} href={u} target="_blank" rel="noreferrer noopener">{u}</a>
-            ))}
+            {links.map((u) =>
+              isHttpUrl(u)
+                ? <a key={u} href={u} target="_blank" rel="noreferrer noopener">{u}</a>
+                : <code key={u} className="muted">{u}</code>,
+            )}
             {receipt.pr_url && (
-              <a href={receipt.pr_url} target="_blank" rel="noreferrer noopener">Pull request</a>
+              isHttpUrl(receipt.pr_url)
+                ? <a href={receipt.pr_url} target="_blank" rel="noreferrer noopener">Pull request</a>
+                : <code className="muted">{receipt.pr_url}</code>
             )}
             {receipt.commit_hash && (
               <code title={receipt.commit_hash}>commit {receipt.commit_hash.slice(0, 12)}</code>
