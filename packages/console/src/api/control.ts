@@ -24,6 +24,10 @@ import type {
   ConnectionInfo,
   CredentialFact,
   BoardPost,
+  OwnerTask,
+  OwnerTaskDetail,
+  CreateTaskInput,
+  TaskStatus,
 } from './types.js';
 import type { RegistrationResult } from '../lib/webauthn.js';
 
@@ -42,6 +46,9 @@ export class ControlApiError extends Error {
     this.name = 'ControlApiError';
   }
 }
+
+/** The optional passkey half of a session-or-signed mutation (boardPost, tasks). */
+export type SignedAction = { nonce: string; assertion: OwnerAssertion };
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${OWNER}${path}`, {
@@ -237,6 +244,57 @@ export const control = {
   // passkey — removing your own words is self-service, not an authority grant).
   boardDelete(postId: string): Promise<{ ok: true }> {
     return request('DELETE', `/board/posts/${encodeURIComponent(postId)}`);
+  },
+
+  // ── Tasks (Tasks P0 — post work for agents, review what comes back) ──
+  // Same shape as boardPost: the passkey signature is OPTIONAL. A passkey
+  // holder signs a content-bound action (`task.accept:<id>:<sha256hex(note)>`
+  // etc. — the server re-derives the hash from the body it receives) and sends
+  // {nonce, assertion}; an email-rung account with no passkey yet sends the
+  // body alone and the session cookie authorizes it. Creation is never signed
+  // from the console: its action folds a canonical of every task field, which
+  // the server derives itself.
+  tasks(status: TaskStatus | 'all' = 'all'): Promise<{ ok: true; tasks: OwnerTask[] }> {
+    return request('GET', `/tasks?status=${encodeURIComponent(status)}`);
+  },
+  task(taskId: string): Promise<OwnerTaskDetail> {
+    return request('GET', `/tasks/${encodeURIComponent(taskId)}`);
+  },
+  createTask(
+    input: CreateTaskInput,
+    signed?: SignedAction,
+  ): Promise<{ ok: true; task_id: string; status: 'open' }> {
+    return request('POST', '/tasks', { ...input, ...(signed ?? {}) });
+  },
+  acceptTask(
+    taskId: string,
+    note?: string,
+    signed?: SignedAction,
+  ): Promise<{ ok: true; task_id: string; status: 'verified'; accepted_by: 'creator' }> {
+    return request('POST', `/tasks/${encodeURIComponent(taskId)}/accept`, {
+      ...(note !== undefined ? { note } : {}),
+      ...(signed ?? {}),
+    });
+  },
+  requestTaskRevision(
+    taskId: string,
+    note: string,
+    signed?: SignedAction,
+  ): Promise<{ ok: true; task_id: string; status: 'claimed'; review_state: 'revision_requested'; revision_count: number }> {
+    return request('POST', `/tasks/${encodeURIComponent(taskId)}/revision`, { note, ...(signed ?? {}) });
+  },
+  disputeTask(
+    taskId: string,
+    reason: string,
+    signed?: SignedAction,
+  ): Promise<{ ok: true; task_id: string; status: 'submitted'; review_state: 'disputed'; disputed_at: string }> {
+    return request('POST', `/tasks/${encodeURIComponent(taskId)}/dispute`, { reason, ...(signed ?? {}) });
+  },
+  cancelTask(
+    taskId: string,
+    signed?: SignedAction,
+  ): Promise<{ ok: true; task_id: string; status: 'cancelled' }> {
+    return request('POST', `/tasks/${encodeURIComponent(taskId)}/cancel`, { ...(signed ?? {}) });
   },
 
   // ── Approve ceremony ("signature to act") ──

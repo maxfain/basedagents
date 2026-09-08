@@ -29,7 +29,7 @@ import {
 } from '../payments/x402.js';
 import { settleTask, reauthPermitted, wireSettleResponse, REAUTH_CLASSES } from '../payments/settle.js';
 import {
-  type Actor, type TaskRow, loadTask, creatorMatches, logPaymentEvent, recordFunnel, taskChainEntry, hashCanonical,
+  type Actor, type TaskRow, loadTask, creatorMatches, logPaymentEvent, recordFunnel,
   agentTarget, creatorTarget, sendWebhook, recomputeReputation, publicTaskShape, paymentView, bountyView, creatorSqlParts,
   claimGate, deliverGate, acceptUnpaidGate, revisionGate, disputeGate, cancelGate, cancelRefusal, afterAccept,
   notifyMatchingAgents, writeDeliveryReceipt, MAX_REVISIONS,

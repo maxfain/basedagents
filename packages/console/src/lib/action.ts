@@ -1,5 +1,16 @@
 import { sha256 } from '@noble/hashes/sha256';
+import { bytesToHex } from '@noble/hashes/utils';
 import { bytesToBase64url } from './webauthn.js';
+
+/**
+ * Lowercase hex sha256 of a UTF-8 string — the control plane's `sha256hex`
+ * (control/routes.ts). Content-bound action types fold this into the action
+ * string itself (`board.post:<sha256hex(body)>`, `task.accept:<id>:<sha256hex(note)>`),
+ * so the passkey signs a canonical that names the exact bytes being sent.
+ */
+export function sha256hex(input: string): string {
+  return bytesToHex(sha256(new TextEncoder().encode(input)));
+}
 
 /**
  * The action hash a passkey signs: base64url(sha256(utf8(canonical))).
