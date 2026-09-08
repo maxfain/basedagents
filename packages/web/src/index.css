@@ -649,6 +649,50 @@ button.home-gtile-vote:disabled {
   flex-wrap: wrap;
   font-weight: 500;
 }
+
+/* Two-product band: Keyring + Tasks, co-headlined right under the hero. */
+.home-duo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 10px;
+}
+.home-duo-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+}
+.home-duo-card.is-tasks {
+  border-color: var(--accent);
+  background: var(--accent-muted);
+}
+.home-duo-card h3 {
+  font-size: 1.15rem;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+.home-duo-eyebrow {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  margin-bottom: 10px;
+}
+.home-duo-card > p {
+  font-size: 0.95rem;
+  line-height: 1.55;
+  flex: 1;
+  margin: 0;
+}
+.home-duo-card .home-duo-cta {
+  margin-top: 16px;
+  font-weight: 600;
+  font-size: 0.92rem;
+}
 .home-closing {
   text-align: center;
 }
@@ -666,6 +710,9 @@ button.home-gtile-vote:disabled {
     font-size: 2rem;
   }
   .home-plans {
+    grid-template-columns: 1fr;
+  }
+  .home-duo {
     grid-template-columns: 1fr;
   }
 }
