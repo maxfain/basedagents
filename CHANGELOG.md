@@ -76,7 +76,7 @@ payment record; `get_reputation` prints the task-completion row. 400/402/403/
 hosted connector (`/mcp`) shows the same fields; its tool count stays 10
 (`tasks:write` scope is P1).
 
-### Added — Tasks P0 (4/6): review and pay from the SDK and the CLI (SDK, CLI)
+### Added — Tasks P0 (4/6): review and pay from the SDK, the CLI and Python; OpenAPI task routes (SDK, CLI, Python, OpenAPI)
 
 - **SDK**: `acceptTask(kp, id, {note?, paymentSignature?})` →
   `{status, accepted_by, payment_status, payment_tx_hash?}`; throws a typed
@@ -104,6 +104,22 @@ hosted connector (`/mcp`) shows the same fields; its tool count stays 10
   `tasks cancel <id>`, `tasks payment <id>`; `task create` is an alias of
   `tasks post`. One env var, `BASEDAGENTS_API_URL` (the old `BASEDAGENTS_API`
   still works with a warning).
+- **Python** (`basedagents`): `accept_task(kp, id, note=None,
+  payment_signature=None)` (+ `verify_task` alias) raising
+  `PaymentRequiredError` / `PaymentInvalidError` on the 402s,
+  `request_revision`, `dispute_task(reason)`, `cancel_task`, `deliver_task`,
+  `get_task_receipt(s)`, `get_task_payment`, `get_payment_requirements`;
+  `list_tasks(category, capability, creator, claimer)`; `create_task` takes
+  an atomic-units `bounty["amount"]` (`usdc_to_atomic` / `atomic_to_display`
+  exported); `_signed_post` accepts `extra_headers`; `BasedAgentsError` carries
+  the machine `code` and the response `body`.
+- **OpenAPI** (`packages/api/src/openapi.json`, 0.5.0): every `/v1/tasks*`
+  route (`/claim`, `/submit`, `/deliver`, `/accept`, deprecated `/verify`,
+  `/revision`, `/dispute`, `/cancel`, `/receipt`, `/receipts`, `/payment`),
+  the 402 `PaymentRequired` schema with the `PAYMENT-REQUIRED` /
+  `PAYMENT-RESPONSE` headers, `PAYMENT-SIGNATURE` on `/accept` only, `closed`
+  in the status enum, the reputation response; `openapi.test.ts` asserts
+  route↔spec parity in both directions.
 
 BREAKING for SDK users: `createTask` no longer takes `extra.paymentSignature`;
 `disputeTask` requires a reason; `bounty.amount` is an atomic-units string.
