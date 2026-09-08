@@ -142,4 +142,72 @@ describe('computeReputation', () => {
     const rep = await computeReputation(target.agentId, db);
     expect(rep.components.uptime).toBe(0);
   });
+
+  describe('task completion term (additive)', () => {
+    async function seedDelivered(agentId: string, creatorId: string, patch: Record<string, unknown>): Promise<void> {
+      const id = `task_${Math.random().toString(36).slice(2, 12)}`;
+      const now = new Date().toISOString();
+      const row: Record<string, unknown> = {
+        task_id: id, creator_agent_id: creatorId, claimed_by_agent_id: agentId, title: 'T', description: 'D',
+        status: 'verified', created_at: now, ...patch,
+      };
+      const cols = Object.keys(row);
+      await db.run(`INSERT INTO tasks (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`, ...cols.map((k) => row[k]));
+    }
+
+    it('accepted deliveries alone lift an unverified agent above zero', async () => {
+      const agent = await createTestAgent(db, { reputationScore: 0 });
+      const buyer = await createTestAgent(db, { reputationScore: 0 });
+      const now = new Date().toISOString();
+      await seedDelivered(agent.agentId, buyer.agentId, { accepted_by: 'creator', verified_at: now });
+      const rep = await computeReputation(agent.agentId, db);
+      expect(rep.verifications_received).toBe(0);
+      expect(rep.components.task_completion).toBeGreaterThan(0);
+      expect(rep.tasks_accepted).toBeCloseTo(1, 2);
+      expect(rep.tasks_failed).toBe(0);
+      // rate 1 × conf ln(2)/ln(11) ≈ 0.289 → × 0.15
+      expect(rep.final_score).toBeCloseTo(0.15 * (Math.log(2) / Math.log(11)), 2);
+    });
+
+    it('an auto-accepted delivery counts half of a buyer acceptance', async () => {
+      const agent = await createTestAgent(db, { reputationScore: 0 });
+      const buyer = await createTestAgent(db, { reputationScore: 0 });
+      const now = new Date().toISOString();
+      await seedDelivered(agent.agentId, buyer.agentId, { accepted_by: 'auto', verified_at: now });
+      const rep = await computeReputation(agent.agentId, db);
+      expect(rep.tasks_accepted).toBeCloseTo(0.5, 2);
+    });
+
+    it('a disputed-then-cancelled delivery counts against the deliverer', async () => {
+      const agent = await createTestAgent(db, { reputationScore: 0 });
+      const buyer = await createTestAgent(db, { reputationScore: 0 });
+      const now = new Date().toISOString();
+      await seedDelivered(agent.agentId, buyer.agentId, { accepted_by: 'creator', verified_at: now });
+      await seedDelivered(agent.agentId, buyer.agentId, { status: 'cancelled', disputed_at: now, cancelled_at: now });
+      const rep = await computeReputation(agent.agentId, db);
+      expect(rep.tasks_failed).toBeCloseTo(1, 2);
+      expect(rep.components.task_completion).toBeCloseTo(0.5 * (Math.log(3) / Math.log(11)), 3);
+      const onlyFailed = await createTestAgent(db, { reputationScore: 0 });
+      await seedDelivered(onlyFailed.agentId, buyer.agentId, { status: 'cancelled', disputed_at: now, cancelled_at: now });
+      expect((await computeReputation(onlyFailed.agentId, db)).final_score).toBe(0);
+    });
+
+    it('adds on top of peer verification without changing the verification weights', async () => {
+      const target = await createTestAgent(db, { reputationScore: 0 });
+      const verifier = await createTestAgent(db, { reputationScore: 0.8 });
+      const now = new Date().toISOString();
+      await db.run(
+        `INSERT INTO verifications (id, verifier_id, target_id, result, coherence_score, notes, signature, structured_report, nonce, created_at)
+         VALUES (?, ?, ?, 'pass', 0.8, NULL, 'sig', NULL, ?, ?)`,
+        'v1', verifier.agentId, target.agentId, 'nonce-1', now,
+      );
+      const before = await computeReputation(target.agentId, db);
+      await seedDelivered(target.agentId, verifier.agentId, { accepted_by: 'creator', verified_at: now });
+      const after = await computeReputation(target.agentId, db);
+      expect(after.raw_score).toBe(before.raw_score);
+      expect(after.components.pass_rate).toBe(before.components.pass_rate);
+      expect(after.final_score).toBeGreaterThan(before.final_score);
+      expect(after.weights.task_completion).toBe(0.15);
+    });
+  });
 });

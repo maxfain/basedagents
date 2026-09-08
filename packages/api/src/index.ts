@@ -31,6 +31,7 @@ import testingRoutes from './control/testing.js';
 import ladderRoutes from './control/ladder.js';
 import funnelRoutes, { VOTABLE_PROVIDERS } from './routes/funnel.js';
 import { runTaskCron } from './cron/tasks.js';
+import { requireAdmin } from './lib/admin-auth.js';
 import { paymentsDisabledReason } from './payments/index.js';
 import { ASSETS, MAX_TIMEOUT_SECONDS } from './payments/x402.js';
 
@@ -449,31 +450,11 @@ app.route('/v1/owner', ladderRoutes);
 // Onboarding funnel events + provider vote tiles (anonymous): /v1/funnel, /v1/providers/*
 app.route('/v1', funnelRoutes);
 
-/**
- * MED-5: Constant-time string comparison to prevent timing attacks on admin tokens.
- */
-async function constantTimeEqual(a: string, b: string): Promise<boolean> {
-  const encoder = new TextEncoder();
-  const aBuf = encoder.encode(a);
-  const bBuf = encoder.encode(b);
-  if (aBuf.length !== bBuf.length) return false;
-  // timingSafeEqual is a Cloudflare Workers extension on SubtleCrypto
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (crypto.subtle as any).timingSafeEqual(aBuf, bBuf);
-}
-
 // ─── Admin: Manual Bootstrap Probe Trigger ───
-// Protected by ADMIN_SECRET env var. Set via: wrangler secret put ADMIN_SECRET
+// Protected by ADMIN_SECRET env var (lib/admin-auth.ts). Set via: wrangler secret put ADMIN_SECRET
 app.post('/v1/admin/bootstrap-probe', async (c) => {
-  const adminSecret = c.env?.ADMIN_SECRET;
-  if (!adminSecret) {
-    return c.json({ error: 'forbidden', message: 'Admin endpoint disabled — ADMIN_SECRET not configured' }, 403);
-  }
-  const authHeader = c.req.header('Authorization');
-  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
-  if (!token || !(await constantTimeEqual(token, adminSecret))) {
-    return c.json({ error: 'unauthorized', message: 'Invalid admin token' }, 401);
-  }
+  const denied = requireAdmin(c);
+  if (denied) return denied;
   const db = c.get('db');
   if (!db) return c.json({ error: 'db_unavailable', message: 'Database not available' }, 503);
   const threshold = parseInt(c.env?.BOOTSTRAP_THRESHOLD ?? '100', 10);

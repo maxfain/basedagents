@@ -3,13 +3,20 @@
  *
  * Computes a bounded [0, 1] reputation score for an agent.
  *
- * Components:
- *   pass_rate      (0.30) — time-weighted % of verifications that passed
+ * Components (peer verification, weighted into `raw`):
+ *   pass_rate      (0.35) — time-weighted % of verifications that passed
  *   coherence      (0.20) — time-weighted avg coherence score from verifiers
- *   contribution   (0.15) — how many verifications the agent has given (caps at 10)
+ *   contribution   (0.15) — how many verifications the agent has given (log scale, ~50 for 1.0)
  *   uptime         (0.15) — % of verifications where agent responded (not timeout)
  *   cap_confirmation_rate (0.15) — fraction of declared capabilities confirmed by verifiers
  *   penalty        (0.20) — explicit penalty for safety issues / unauthorized actions
+ *
+ * Task completion (Tasks P0, D6 — ADDITIVE, never renormalises the weights above):
+ *   task_completion (0.15) — accepted deliveries vs disputed-then-cancelled ones,
+ *   time-decayed; an acceptance by the 7-day timer counts half of a buyer's
+ *   acceptance; its own confidence min(1, ln(1+n_t)/ln 11) (full at 10 tasks).
+ *   Exactly zero for an agent that never delivered a task, so no existing score
+ *   moves. Settlement never affects the deliverer (it is the buyer's money).
  *
  * Confidence:
  *   min(1, log(1+n) / log(21)) — full weight at 20 received verifications
@@ -18,7 +25,7 @@
  *   exp(-age_days / DECAY_CONSTANT) — verifications older than ~60 days count less
  *
  * Final:
- *   min(1, max(0, (raw - penalty) × confidence + profile_base))
+ *   min(1, max(0, raw × confidence + profile_base + 0.15 × task_completion))
  */
 
 import type { DBAdapter } from '../db/adapter.js';
@@ -31,6 +38,14 @@ interface VerificationRow {
   created_at: string;
   verifier_rep: number | null;
   structured_report: string | null;
+}
+
+interface TaskOutcomeRow {
+  status: 'verified' | 'cancelled';
+  accepted_by: 'creator' | 'auto' | null;
+  verified_at: string | null;
+  cancelled_at: string | null;
+  disputed_at: string | null;
 }
 
 interface StructuredReport {
@@ -58,6 +73,8 @@ export interface ReputationBreakdown {
     contribution: number;
     uptime: number;
     cap_confirmation_rate: number;
+    /** rate × confidence over delivered tasks (accepted vs disputed-then-cancelled), 0 with no tasks. */
+    task_completion: number;
   };
   weights: {
     pass_rate: number;
@@ -66,11 +83,55 @@ export interface ReputationBreakdown {
     uptime: number;
     cap_confirmation_rate: number;
     penalty: number;
+    task_completion: number;
   };
   verifications_received: number;
   verifications_given: number;
   safety_flags: number;
+  /** Time-decayed acceptance weight (an auto-acceptance counts 0.5), rounded. */
+  tasks_accepted: number;
+  /** Time-decayed count of deliveries the buyer disputed and then cancelled, rounded. */
+  tasks_failed: number;
 }
+
+const WEIGHTS: ReputationBreakdown['weights'] = {
+  pass_rate: 0.35, coherence: 0.20, contribution: 0.15, uptime: 0.15, cap_confirmation_rate: 0.15, penalty: 0.20, task_completion: 0.15,
+};
+const TASK_CONFIDENCE_FULL_AT = 10;
+
+/**
+ * The deliverer's task record. Tolerates an OSS deploy without the tasks
+ * table (returns zeros).
+ */
+async function taskCompletion(agentId: string, db: DBAdapter): Promise<{ component: number; accepted: number; failed: number }> {
+  let rows: TaskOutcomeRow[] = [];
+  try {
+    rows = await db.all<TaskOutcomeRow>(
+      `SELECT status, accepted_by, verified_at, cancelled_at, disputed_at FROM tasks
+       WHERE claimed_by_agent_id = ?
+         AND (status = 'verified' OR (status = 'cancelled' AND disputed_at IS NOT NULL))`,
+      agentId,
+    );
+  } catch {
+    return { component: 0, accepted: 0, failed: 0 };
+  }
+  let accepted = 0;
+  let failed = 0;
+  for (const r of rows) {
+    if (r.status === 'verified') {
+      accepted += decayWeight(r.verified_at ?? new Date().toISOString()) * (r.accepted_by === 'auto' ? 0.5 : 1);
+    } else {
+      failed += decayWeight(r.cancelled_at ?? r.disputed_at ?? new Date().toISOString());
+    }
+  }
+  const n = accepted + failed;
+  if (n <= 0) return { component: 0, accepted: 0, failed: 0 };
+  const rate = accepted / n;
+  const confidence = Math.min(1, Math.log(1 + n) / Math.log(1 + TASK_CONFIDENCE_FULL_AT));
+  return { component: rate * confidence, accepted, failed };
+}
+
+const r3 = (x: number): number => Math.round(x * 1000) / 1000;
 
 export async function computeReputation(
   agentId: string,
@@ -89,11 +150,13 @@ export async function computeReputation(
       raw_score: score,
       confidence: 1.0,
       penalty: 0,
-      components: { pass_rate: score, coherence: score, contribution: score, uptime: score, cap_confirmation_rate: score },
-      weights: { pass_rate: 0.35, coherence: 0.20, contribution: 0.15, uptime: 0.15, cap_confirmation_rate: 0.15, penalty: 0.20 },
+      components: { pass_rate: score, coherence: score, contribution: score, uptime: score, cap_confirmation_rate: score, task_completion: score },
+      weights: WEIGHTS,
       verifications_received: 0,
       verifications_given: 0,
       safety_flags: 0,
+      tasks_accepted: 0,
+      tasks_failed: 0,
     };
   }
 
@@ -155,17 +218,23 @@ export async function computeReputation(
   const profileBase = agentRow?.skills ? 0.05 : 0;
   const safetyFlags = agentRow?.safety_flags ?? 0;
 
+  // ── Task completion (additive) ──
+  const tasks = await taskCompletion(agentId, db);
+  const taskTerm = WEIGHTS.task_completion * tasks.component;
+
   if (n === 0) {
     return {
-      final_score: profileBase,
+      final_score: r3(Math.min(1.0, Math.max(0, profileBase + taskTerm))),
       raw_score: 0,
       confidence: 0,
       penalty: 0,
-      components: { pass_rate: 0, coherence: 0, contribution: 0, uptime: 0, cap_confirmation_rate: capConfirmationRate },
-      weights: { pass_rate: 0.35, coherence: 0.20, contribution: 0.15, uptime: 0.15, cap_confirmation_rate: 0.15, penalty: 0.20 },
+      components: { pass_rate: 0, coherence: 0, contribution: 0, uptime: 0, cap_confirmation_rate: capConfirmationRate, task_completion: r3(tasks.component) },
+      weights: WEIGHTS,
       verifications_received: 0,
       verifications_given: given,
       safety_flags: safetyFlags,
+      tasks_accepted: r3(tasks.accepted),
+      tasks_failed: r3(tasks.failed),
     };
   }
 
@@ -230,7 +299,7 @@ export async function computeReputation(
 
   // ── Final score ── (guard against NaN from all-null coherence scores or zero weights)
   const safeRaw = isNaN(raw) ? 0 : raw;
-  const finalScore = Math.min(1.0, Math.max(0, safeRaw * confidence + profileBase));
+  const finalScore = Math.min(1.0, Math.max(0, safeRaw * confidence + profileBase + taskTerm));
 
   return {
     final_score: Math.round(finalScore * 1000) / 1000,
@@ -243,10 +312,13 @@ export async function computeReputation(
       contribution: Math.round(contribution * 1000) / 1000,
       uptime: Math.round(uptime * 1000) / 1000,
       cap_confirmation_rate: Math.round(capConfirmationRate * 1000) / 1000,
+      task_completion: r3(tasks.component),
     },
-    weights: { pass_rate: 0.35, coherence: 0.20, contribution: 0.15, uptime: 0.15, cap_confirmation_rate: 0.15, penalty: 0.20 },
+    weights: WEIGHTS,
     verifications_received: n,
     verifications_given: given,
     safety_flags: safetyFlags,
+    tasks_accepted: r3(tasks.accepted),
+    tasks_failed: r3(tasks.failed),
   };
 }

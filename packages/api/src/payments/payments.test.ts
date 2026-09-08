@@ -324,7 +324,7 @@ describe('x402 Payment Integration (sign-at-accept)', () => {
       expect(t).not.toHaveProperty('payment_requirements');
       expect(t).not.toHaveProperty('payment_payer');
       expect(t).not.toHaveProperty('settle_attempts');
-      expect(t.creator).toEqual({ kind: 'agent', id: creator.agentId });
+      expect(t.creator).toMatchObject({ kind: 'agent', id: creator.agentId, cert: 'none' });
     });
   });
 

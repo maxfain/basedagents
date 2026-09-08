@@ -1267,4 +1267,45 @@ describe('Task Marketplace', () => {
       expect(res.status).toBe(400);
     });
   });
+
+  describe('Task outcomes move the deliverer reputation', () => {
+    it('accept raises it; a dispute followed by cancel lowers it', async () => {
+      const score = async () => (await db.get<{ reputation_score: number }>('SELECT reputation_score FROM agents WHERE id = ?', claimer.agentId))!.reputation_score;
+      await db.run('UPDATE agents SET reputation_score = 0 WHERE id = ?', claimer.agentId);
+
+      const t1 = await createTask(creator);
+      await claimTask(claimer, t1);
+      await deliverTask(claimer, t1);
+      const h1 = await signRequest(creator, 'POST', `/v1/tasks/${t1}/accept`);
+      expect((await app.request(`/v1/tasks/${t1}/accept`, { method: 'POST', headers: { ...h1 } })).status).toBe(200);
+      const afterAcceptScore = await score();
+      expect(afterAcceptScore).toBeGreaterThan(0);
+
+      const t2 = await createTask(creator);
+      await claimTask(claimer, t2);
+      await deliverTask(claimer, t2);
+      const body = JSON.stringify({ reason: 'wrong deliverable' });
+      const h2 = await signRequest(creator, 'POST', `/v1/tasks/${t2}/dispute`, body);
+      expect((await app.request(`/v1/tasks/${t2}/dispute`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h2 }, body })).status).toBe(200);
+      const h3 = await signRequest(creator, 'POST', `/v1/tasks/${t2}/cancel`);
+      expect((await app.request(`/v1/tasks/${t2}/cancel`, { method: 'POST', headers: { ...h3 } })).status).toBe(200);
+      expect(await score()).toBeLessThan(afterAcceptScore);
+
+      const rep = await (await app.request(`/v1/agents/${claimer.agentId}/reputation`)).json() as { breakdown: { task_completion: number } };
+      expect(rep.breakdown.task_completion).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Creator on public reads', () => {
+    it('resolves the creator name, short id and cert badge on list and detail', async () => {
+      const taskId = await createTask(creator);
+      const list = await (await app.request('/v1/tasks?status=open')).json() as { tasks: Array<{ task_id: string; creator: Record<string, unknown> }> };
+      const t = list.tasks.find((x) => x.task_id === taskId)!;
+      expect(t.creator).toEqual({ kind: 'agent', id: creator.agentId, short_id: `${creator.agentId.slice(0, 12)}…`, name: creator.name, cert: 'none' });
+      const detail = await (await app.request(`/v1/tasks/${taskId}`)).json() as { task: { creator: Record<string, unknown>; creator_name?: unknown } };
+      expect(detail.task.creator).toEqual(t.creator);
+      expect(detail.task).not.toHaveProperty('creator_name');
+      expect(detail.task).not.toHaveProperty('creator_certified');
+    });
+  });
 });
