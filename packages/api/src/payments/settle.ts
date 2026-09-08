@@ -101,7 +101,8 @@ export async function settleTask(
 
   // 1. Expiry precheck: never broadcast an authorization about to expire.
   if (pre.settle_broadcast === 0 && pre.payment_expires_at && pre.payment_expires_at <= isoPlus(nowIso, SETTLE_PRECHECK_SLACK * 1000)) {
-    if (await markExpired(db, pre, ['authorized', 'failed'], nowIso)) return { skipped: true, reason: 'expired' };
+    // 'settling' is included for a row re-armed by crash recovery that never reached the broadcast write.
+    if (await markExpired(db, pre, ['authorized', 'failed', 'settling'], nowIso)) return { skipped: true, reason: 'expired' };
   }
 
   // 2. Claim the settle slot.
@@ -164,10 +165,13 @@ export async function applySettleOutcome(
   nowIso: string,
 ): Promise<SettleResult> {
   const taskId = task.task_id;
-  // settle_attempts was incremented by the slot claim; >1 means an earlier attempt
-  // already sent this very payload, so a "nonce already used" answer is OUR landing.
+  // `task` was read after this attempt claimed the slot but BEFORE it wrote
+  // settle_broadcast=1, so the flag here means an EARLIER attempt sent this very
+  // payload — a "nonce already used" answer is then OUR landing, not a conflict.
+  // (settle_attempts is not used for this: an attempt can claim the slot and
+  // die before broadcasting.)
   const attempts = task.settle_attempts;
-  const everBroadcastBefore = attempts > 1;
+  const everBroadcastBefore = task.settle_broadcast === 1;
 
   const settled = async (tx: string | null, inferredFrom?: string): Promise<SettleResult> => {
     const res = await db.run(
