@@ -58,6 +58,29 @@ npx wrangler d1 execute agent-registry --remote --command "ALTER TABLE agents AD
 npx wrangler d1 execute agent-registry --remote --command "PRAGMA table_info(agents)"   # confirm both are listed
 ```
 
+### Task payments fail closed behind `TASK_PAYMENTS_ENABLED`
+
+Bounties do not exist on a deploy until **all** of these hold: `TASK_PAYMENTS_ENABLED = "1"`
+(a plain var), `CDP_API_KEY_ID` + `CDP_API_KEY_SECRET` (secrets — the secret
+must be the **Ed25519** kind, base64 of 64 bytes; an EC/PEM key is rejected
+with one log line) and `PAYMENT_ENCRYPTION_KEY` (64 hex). Until then
+`paymentProviderFor(env)` is `null` and:
+
+- `POST /v1/tasks` with a `bounty` → `503 payments_unavailable`, nothing written
+- `POST /v1/tasks/:id/accept` on a bounty task → `503`, the task stays `submitted`
+- the 5-minute cron still auto-accepts after 7 days, but logs
+  `settle_skipped_reason` and settles nothing
+- `GET /v1/status` says `payments: "disabled"`
+
+Free tasks are unaffected. This is deliberate: a bounty that can never be
+paid must not be creatable. Do not "fix" a 503 by setting the var alone —
+run the enable checklist in `packages/api/README.md` (secrets →
+`npx tsx scripts/x402-supported-check.ts` → one paid Sepolia task on staging →
+flip the var in production `[vars]`). The USDC EIP-712 domain name on Base
+mainnet is a config default (`X402_EIP712_NAME`, `USD Coin`); if the check
+script or a staging run reports `invalid_exact_evm_token_name_mismatch`, fix
+it with a secret change, not a deploy.
+
 ### No `RESEND_API_KEY` means recovery emails go nowhere
 
 Without the secret, `emailSenderFromEnv` falls back to a **log-only sender**:

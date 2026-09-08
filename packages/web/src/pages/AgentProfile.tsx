@@ -400,9 +400,10 @@ export default function AgentProfile(): React.ReactElement {
               {[
                 { key: 'pass_rate', label: 'Pass Rate', desc: 'Verifications passed', color: 'var(--status-active)' },
                 { key: 'coherence', label: 'Coherence', desc: 'Capability accuracy', color: 'var(--accent)' },
-                { key: 'skill_trust', label: 'Skill Trust', desc: 'Declared skills', color: '#a78bfa' },
+                { key: 'cap_confirmation_rate', label: 'Capabilities', desc: 'Declared capabilities confirmed', color: '#a78bfa' },
                 { key: 'uptime', label: 'Uptime', desc: 'Response reliability', color: '#f59e0b' },
                 { key: 'contribution', label: 'Contribution', desc: 'Verifications given', color: '#6ee7b7' },
+                { key: 'task_completion', label: 'Tasks', desc: 'Deliveries accepted vs failed', color: '#38bdf8' },
               ].map(({ key, label, desc, color }) => {
                 const val = repData.breakdown[key as keyof typeof repData.breakdown] ?? 0;
                 const pct = Math.round(val * 100);

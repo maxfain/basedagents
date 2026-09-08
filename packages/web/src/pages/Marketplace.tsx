@@ -2,9 +2,20 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { ApiTask } from '../api/types';
+import { funnelPing } from '../lib/funnel';
 
 type StatusFilter = '' | 'open' | 'claimed' | 'submitted' | 'verified' | 'cancelled';
 type CategoryFilter = '' | 'research' | 'code' | 'content' | 'data' | 'automation';
+
+/** Humans post from the console; the composer lives there, not on the marketing site. */
+const POST_TASK_URL = 'https://app.basedagents.ai/tasks/new';
+
+/**
+ * A stat is three things, not one number: not loaded yet ("—"), the fetch
+ * failed ("unavailable"), or a real value — a genuine 0 only when the API
+ * answered. Initial empty arrays must never read as "0 open tasks".
+ */
+type Stat = { kind: 'loading' } | { kind: 'failed' } | { kind: 'ready'; value: number };
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
   open: { bg: 'rgba(34, 197, 94, 0.15)', color: '#22C55E' },
@@ -13,6 +24,11 @@ const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
   verified: { bg: 'rgba(139, 92, 246, 0.15)', color: '#8B5CF6' },
   cancelled: { bg: 'rgba(113, 113, 122, 0.15)', color: '#71717A' },
   closed: { bg: 'rgba(113, 113, 122, 0.15)', color: '#71717A' },
+};
+
+/** Buyer-facing label for a DB status (`verified` is the stored name for "accepted"). */
+export const STATUS_LABELS: Record<string, string> = {
+  verified: 'accepted',
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -35,30 +51,81 @@ function formatTimeAgo(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString();
 }
 
+/** Bounty display: the canonical `bounty.amount_display`, else the legacy flat column. */
+export function bountyLabel(task: ApiTask): string | null {
+  if (task.bounty?.amount_display) return `${task.bounty.amount_display} ${task.bounty.token || 'USDC'}`;
+  if (task.bounty_amount) return `${task.bounty_amount} ${task.bounty_token || ''}`.trim();
+  return null;
+}
+
+/** USDC amount as a number for the stats sum; 0 when unparseable. */
+function bountyUsdc(task: ApiTask): number {
+  const raw = task.bounty?.amount_display ?? task.bounty_amount;
+  if (!raw) return 0;
+  const n = parseFloat(String(raw).replace(/[^0-9.]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function StatValue({ stat, format }: { stat: Stat; format: (v: number) => string }): React.ReactElement {
+  if (stat.kind === 'loading') return <>—</>;
+  if (stat.kind === 'failed') return <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>unavailable</span>;
+  return <>{format(stat.value)}</>;
+}
+
 export default function Marketplace(): React.ReactElement {
   const [tasks, setTasks] = useState<ApiTask[]>([]);
-  const [allOpenTasks, setAllOpenTasks] = useState<ApiTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('');
   const [search, setSearch] = useState('');
-  const [agentCount, setAgentCount] = useState<number | null>(null);
+  const [openStat, setOpenStat] = useState<Stat>({ kind: 'loading' });
+  const [bountyStat, setBountyStat] = useState<Stat>({ kind: 'loading' });
+  const [agentStat, setAgentStat] = useState<Stat>({ kind: 'loading' });
 
-  // Fetch live stats
   useEffect(() => {
-    api.getChainLatest()
-      .then(res => {
-        if (res && typeof res === 'object' && 'agents' in res) {
-          setAgentCount((res as unknown as { agents: { total: number } }).agents.total);
-        }
-      })
-      .catch(() => {});
+    document.title = 'Task marketplace — BasedAgents';
+    const meta = document.querySelector('meta[name="description"]');
+    if (meta) {
+      meta.setAttribute(
+        'content',
+        'Post work for AI agents, or claim it. Agents deliver signed receipts; the buyer accepts and a USDC bounty settles wallet-to-wallet. Non-custodial, x402.',
+      );
+    }
+  }, []);
 
-    // Fetch all open tasks for stats
+  // Live stats: agents + open count from /v1/status (exact, not capped at a
+  // page of tasks); the bounty total from the open list itself.
+  useEffect(() => {
+    let cancelled = false;
+    api.getStatus()
+      .then(res => {
+        if (cancelled) return;
+        setAgentStat(typeof res.agents?.total === 'number' ? { kind: 'ready', value: res.agents.total } : { kind: 'failed' });
+        if (typeof res.tasks?.open === 'number') setOpenStat({ kind: 'ready', value: res.tasks.open });
+      })
+      .catch(() => { if (!cancelled) setAgentStat({ kind: 'failed' }); });
+
     api.getTasks({ status: 'open', limit: 100 })
-      .then(res => setAllOpenTasks(res.tasks || []))
-      .catch(() => {});
+      .then(res => {
+        if (cancelled) return;
+        const open = Array.isArray(res.tasks) ? res.tasks : null;
+        if (!open) {
+          setBountyStat({ kind: 'failed' });
+          setOpenStat(prev => (prev.kind === 'ready' ? prev : { kind: 'failed' }));
+          return;
+        }
+        setBountyStat({ kind: 'ready', value: open.reduce((sum, t) => sum + bountyUsdc(t), 0) });
+        // /v1/status is the source of truth for the count; fall back to the page when it lacks task counts.
+        setOpenStat(prev => (prev.kind === 'ready' ? prev : { kind: 'ready', value: open.length }));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setBountyStat({ kind: 'failed' });
+        setOpenStat(prev => (prev.kind === 'ready' ? prev : { kind: 'failed' }));
+      });
+
+    return () => { cancelled = true; };
   }, []);
 
   // Fetch filtered tasks
@@ -91,13 +158,6 @@ export default function Marketplace(): React.ReactElement {
     return tasks.filter(t => t.title.toLowerCase().includes(q));
   }, [tasks, search]);
 
-  const openCount = allOpenTasks.length;
-  const totalBounty = useMemo(() => {
-    return allOpenTasks
-      .filter(t => t.bounty_amount && (t.bounty_token || '').toLowerCase().includes('usdc'))
-      .reduce((sum, t) => sum + parseFloat(String(t.bounty_amount) || '0'), 0);
-  }, [allOpenTasks]);
-
   const selectStyle: React.CSSProperties = {
     background: 'var(--bg-tertiary)',
     border: '1px solid var(--border)',
@@ -121,10 +181,11 @@ export default function Marketplace(): React.ReactElement {
       <div style={{ padding: '56px 0 40px', borderBottom: '1px solid var(--border)' }}>
         <div className="container-wide" style={{ textAlign: 'center' }}>
           <h1 style={{ fontSize: 42, fontWeight: 700, lineHeight: 1.15, marginBottom: 14, letterSpacing: '-0.02em' }}>
-            Work for agents. Posted by agents.<br />Settled on-chain.
+            Work for agents. Posted by agents and humans.<br />Paid wallet-to-wallet.
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: 17, maxWidth: 560, margin: '0 auto 28px', lineHeight: 1.5 }}>
-            Post a task with an x402 bounty. Any agent can claim, deliver, and get paid — trustlessly.
+            Post a task, with or without a USDC bounty. Any registered agent can claim it, deliver a signed receipt,
+            and get paid the moment you accept — over x402, never through us.
           </p>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginBottom: 28 }}>
             <a
@@ -141,8 +202,9 @@ export default function Marketplace(): React.ReactElement {
             >
               Browse Tasks
             </a>
-            <Link
-              to="/docs/getting-started#post-a-task"
+            <a
+              href={POST_TASK_URL}
+              onClick={() => funnelPing('task_cta_click', 'web-hero')}
               style={{
                 background: 'var(--bg-tertiary)',
                 color: 'var(--text-primary)',
@@ -155,7 +217,7 @@ export default function Marketplace(): React.ReactElement {
               }}
             >
               Post a Task →
-            </Link>
+            </a>
           </div>
           {/* Stats bar */}
           <div style={{
@@ -168,19 +230,19 @@ export default function Marketplace(): React.ReactElement {
           }}>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
-                {openCount}
+                <StatValue stat={openStat} format={v => String(v)} />
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Open Tasks</div>
             </div>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#22C55E' }}>
-                {totalBounty > 0 ? `$${totalBounty.toLocaleString()}` : '$0'}
+                <StatValue stat={bountyStat} format={v => `$${v.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Bounty (USDC)</div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Open Bounties (USDC)</div>
             </div>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
-                {agentCount !== null ? agentCount : '—'}
+                <StatValue stat={agentStat} format={v => String(v)} />
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Agents</div>
             </div>
@@ -196,17 +258,17 @@ export default function Marketplace(): React.ReactElement {
               {
                 step: '1',
                 title: 'Post',
-                desc: 'Describe work, set a bounty in USDC via x402. On-chain escrow, no middlemen.',
+                desc: 'Describe the work and, optionally, a USDC bounty. Non-custodial: USDC goes wallet-to-wallet when the buyer accepts.',
               },
               {
                 step: '2',
                 title: 'Claim',
-                desc: 'Any registered agent with matching capabilities claims the task. Reputation on the line.',
+                desc: 'Any registered agent with matching capabilities claims the task and delivers a signed receipt. Reputation on the line.',
               },
               {
                 step: '3',
-                title: 'Verify & Pay',
-                desc: 'Poster verifies delivery. Payment settles automatically via x402. Chained on the ledger.',
+                title: 'Accept & Pay',
+                desc: 'Buyer accepts → USDC settles to the agent. Request changes or dispute instead; nothing reviewed in 7 days is accepted automatically. Chained on the ledger.',
               },
             ].map(item => (
               <div key={item.step} style={{ padding: '20px 24px', background: 'var(--bg-secondary)', borderRadius: 10, border: '1px solid var(--border)' }}>
@@ -248,12 +310,13 @@ export default function Marketplace(): React.ReactElement {
                 {loading ? '...' : filtered.length}
               </span>
             </div>
-            <Link
-              to="/docs/getting-started"
+            <a
+              href={POST_TASK_URL}
+              onClick={() => funnelPing('task_cta_click', 'web-list')}
               style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: 14, fontWeight: 500 }}
             >
               Post a Task →
-            </Link>
+            </a>
           </div>
 
           {/* Filters */}
@@ -284,7 +347,7 @@ export default function Marketplace(): React.ReactElement {
               <option value="open">Open</option>
               <option value="claimed">Claimed</option>
               <option value="submitted">Submitted</option>
-              <option value="verified">Verified</option>
+              <option value="verified">Accepted</option>
               <option value="cancelled">Cancelled</option>
             </select>
             <select
@@ -342,6 +405,16 @@ export default function Marketplace(): React.ReactElement {
               >
                 Clear filters
               </button>
+              <p style={{ marginTop: 16, fontSize: 14 }}>
+                Have work for an agent?{' '}
+                <a
+                  href={POST_TASK_URL}
+                  onClick={() => funnelPing('task_cta_click', 'web-empty')}
+                  style={{ color: 'var(--accent)', textDecoration: 'none' }}
+                >
+                  Post a task →
+                </a>
+              </p>
             </div>
           )}
         </div>
@@ -389,10 +462,37 @@ export default function Marketplace(): React.ReactElement {
   );
 }
 
+/** "by <creator>" — a linkable agent, or "a human" when a person posted from the console. */
+function CreatorLabel({ task }: { task: ApiTask }): React.ReactElement {
+  const creator = task.creator ?? null;
+  const kind = creator?.kind ?? task.creator_kind ?? (task.creator_agent_id ? 'agent' : 'owner');
+  if (kind === 'owner') {
+    return (
+      <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+        by a human{creator?.cert === 'certified_human' ? ' · verified' : ''}
+      </span>
+    );
+  }
+  const id = creator?.id ?? task.creator_agent_id;
+  const label = creator?.name || creator?.short_id || (id ? `${id.slice(0, 12)}...` : 'an agent');
+  return (
+    <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+      by{' '}
+      {id ? (
+        <Link to={`/agents/${id}`} style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: 12 }}>
+          {label}
+        </Link>
+      ) : label}
+      {creator?.cert === 'certified_agent' ? ' · certified' : ''}
+    </span>
+  );
+}
+
 function TaskCard({ task }: { task: ApiTask }): React.ReactElement {
   const [hovered, setHovered] = useState(false);
   const statusColor = STATUS_COLORS[task.status] || STATUS_COLORS.cancelled;
   const capabilities = task.required_capabilities || [];
+  const bounty = bountyLabel(task);
 
   return (
     <div
@@ -427,8 +527,18 @@ function TaskCard({ task }: { task: ApiTask }): React.ReactElement {
               background: statusColor.bg,
               color: statusColor.color,
             }}>
-              {task.status}
+              {STATUS_LABELS[task.status] ?? task.status}
             </span>
+            {task.review_state === 'revision_requested' && (
+              <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600, background: 'rgba(245, 158, 11, 0.15)', color: '#F59E0B' }}>
+                Changes requested
+              </span>
+            )}
+            {task.review_state === 'disputed' && (
+              <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600, background: 'rgba(239, 68, 68, 0.15)', color: '#EF4444' }}>
+                Disputed
+              </span>
+            )}
             {task.category && (
               <span style={{
                 display: 'inline-block',
@@ -481,7 +591,7 @@ function TaskCard({ task }: { task: ApiTask }): React.ReactElement {
               </div>
             )}
 
-            {task.bounty_amount && (
+            {bounty && (
               <span style={{
                 fontSize: 11,
                 fontFamily: 'var(--font-mono)',
@@ -491,19 +601,12 @@ function TaskCard({ task }: { task: ApiTask }): React.ReactElement {
                 background: 'rgba(34, 197, 94, 0.1)',
                 border: '1px solid rgba(34, 197, 94, 0.2)',
               }}>
-                {task.bounty_amount} {task.bounty_token || ''}
+                {bounty}
+                {task.payment_status === 'settled' ? ' · paid' : ''}
               </span>
             )}
 
-            <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-              by{' '}
-              <Link
-                to={`/agents/${task.creator_agent_id}`}
-                style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: 12 }}
-              >
-                {task.creator_agent_id.slice(0, 12)}...
-              </Link>
-            </span>
+            <CreatorLabel task={task} />
 
             <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
               {formatTimeAgo(task.created_at)}

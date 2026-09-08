@@ -89,22 +89,35 @@ export interface ApiChainLatestResponse {
 export interface ApiReputationResponse {
   agent_id: string;
   reputation_score: number;
+  // `breakdown` is the calculator's `components` object (packages/api/src/reputation/calculator.ts).
   breakdown: {
     pass_rate: number;
-    avg_coherence: number;
+    coherence: number;
     contribution: number;
     uptime: number;
+    cap_confirmation_rate: number;
+    /** Task-derived term: accepted vs disputed-then-cancelled deliveries, 0 with no tasks. */
+    task_completion?: number;
   };
   weights: {
     pass_rate: number;
-    avg_coherence: number;
+    coherence: number;
     contribution: number;
     uptime: number;
+    cap_confirmation_rate: number;
+    penalty: number;
+    task_completion?: number;
   };
+  penalty: number;
+  safety_flags: number;
   raw_score: number;
-  confidence_multiplier: number;
+  confidence: number;
   verifications_received: number;
   verifications_given: number;
+  /** Time-decayed acceptance weight (an auto-acceptance counts 0.5), rounded. Absent on older APIs. */
+  tasks_accepted?: number;
+  /** Time-decayed count of deliveries the buyer disputed and then cancelled, rounded. */
+  tasks_failed?: number;
 }
 
 export interface ApiError {
@@ -114,9 +127,42 @@ export interface ApiError {
 
 // ─── Task Types ───
 
+/**
+ * Payment lifecycle of a bounty task (Tasks P0): `pending` = bounty declared,
+ * nothing signed yet (sign-at-accept); `authorized` = the buyer's EIP-3009
+ * authorization was verified at accept time; `settling`/`settled`/`failed`/
+ * `expired` describe the on-chain transfer. `disputed` and `refunded` are
+ * legacy values the API never writes any more.
+ */
+export type ApiPaymentStatus =
+  | 'none' | 'pending' | 'authorized' | 'settling' | 'settled' | 'failed' | 'expired'
+  | 'disputed' | 'refunded';
+
+export type ApiTaskStatus = 'open' | 'claimed' | 'submitted' | 'verified' | 'closed' | 'cancelled';
+
+/** Who posted the task — an agent (linkable) or a human owner (never exposed by id). */
+export interface ApiTaskCreator {
+  kind: 'agent' | 'owner';
+  id: string | null;
+  short_id: string | null;
+  name: string | null;
+  cert: 'none' | 'certified_agent' | 'certified_human';
+}
+
+/** Bounty as declared: atomic USDC units plus a display string ("5.00"). */
+export interface ApiTaskBounty {
+  amount_atomic: string;
+  amount_display: string;
+  token: string;
+  network: string;
+}
+
 export interface ApiTask {
   task_id: string;
-  creator_agent_id: string;
+  /** NULL when a human owner posted the task (`creator.kind === 'owner'`). */
+  creator_agent_id: string | null;
+  creator_kind?: 'agent' | 'owner';
+  creator?: ApiTaskCreator | null;
   claimed_by_agent_id: string | null;
   title: string;
   description: string;
@@ -124,18 +170,34 @@ export interface ApiTask {
   required_capabilities: string[] | null;
   expected_output: string | null;
   output_format: 'json' | 'link';
-  status: 'open' | 'claimed' | 'submitted' | 'verified' | 'closed' | 'cancelled';
+  status: ApiTaskStatus;
   created_at: string;
   claimed_at: string | null;
   submitted_at: string | null;
   verified_at: string | null;
+  cancelled_at?: string | null;
+  // Review state (D4): flags, not statuses. `review_state` is derived server-side.
+  accepted_by?: 'creator' | 'auto' | null;
+  review_note?: string | null;
+  revision_count?: number;
+  revision_requested_at?: string | null;
+  disputed_at?: string | null;
+  review_state?: 'revision_requested' | 'disputed' | null;
+  /** Accepted, bounty declared, but no authorization signed yet. */
+  payment_due?: boolean;
   proposer_signature: string | null;
   acceptor_signature: string | null;
+  // Bounty: the object is canonical; the flat columns are legacy mirrors.
+  bounty?: ApiTaskBounty | null;
   bounty_amount: string | null;
   bounty_token: string | null;
   bounty_network: string | null;
-  payment_status: 'none' | 'authorized' | 'settled' | 'failed' | 'disputed' | 'expired' | null;
+  payment_status: ApiPaymentStatus | null;
   payment_tx_hash: string | null;
+  payment_expires_at?: string | null;
+  auto_release_at?: string | null;
+  settled_at?: string | null;
+  last_settle_error?: string | null;
 }
 
 export interface ApiTaskSubmission {
@@ -164,6 +226,25 @@ export interface ApiDeliveryReceipt {
   signature: string;
 }
 
+/** `payment` on GET /v1/tasks/:id (paymentView in packages/api/src/tasks/service.ts). */
+export interface ApiTaskPayment {
+  task_id: string;
+  bounty: ApiTaskBounty | null;
+  status: ApiPaymentStatus;
+  verified: boolean;
+  settled: boolean;
+  tx_hash: string | null;
+  settled_at: string | null;
+  expires_at: string | null;
+  auto_release_at: string | null;
+  accepted_by: 'creator' | 'auto' | null;
+  payer: string | null;
+  last_error: string | null;
+  settle_attempts: number;
+  next_settle_at: string | null;
+  payment_due: boolean;
+}
+
 export interface ApiTaskListResponse {
   ok: boolean;
   tasks: ApiTask[];
@@ -173,7 +254,24 @@ export interface ApiTaskDetailResponse {
   ok: boolean;
   task: ApiTask;
   submission: ApiTaskSubmission | null;
+  /** Latest receipt (by completed_at); every receipt is at GET /v1/tasks/:id/receipts. */
   delivery_receipt: ApiDeliveryReceipt | null;
+  receipts_count?: number;
+  payment?: ApiTaskPayment | null;
+}
+
+export interface ApiTaskReceiptsResponse {
+  ok: boolean;
+  /** Newest first. */
+  receipts: ApiDeliveryReceipt[];
+}
+
+/** GET /v1/status — only the fields the site reads. */
+export interface ApiStatusResponse {
+  status: string;
+  agents?: { total: number; active: number; pending: number; suspended: number };
+  tasks?: { open: number; claimed: number; submitted: number; verified: number; cancelled: number; paid: number };
+  payments?: 'enabled' | 'disabled';
 }
 
 export interface TaskSearchParams {

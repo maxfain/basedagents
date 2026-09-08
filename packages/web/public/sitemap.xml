@@ -10,4 +10,6 @@
   <url><loc>https://basedagents.ai/whois</loc><priority>0.8</priority></url>
   <url><loc>https://basedagents.ai/chain</loc><priority>0.7</priority></url>
   <url><loc>https://basedagents.ai/docs/getting-started</loc><priority>0.8</priority></url>
+  <url><loc>https://basedagents.ai/tasks</loc><priority>0.8</priority></url>
+  <url><loc>https://basedagents.ai/blog</loc><priority>0.6</priority></url>
 </urlset>

@@ -105,7 +105,8 @@ function WhoisResult({ agent }: { agent: Agent }) {
             <RepBar label="Coherence"    value={rep.breakdown.coherence} />
             <RepBar label="Contribution" value={rep.breakdown.contribution} />
             <RepBar label="Uptime"       value={rep.breakdown.uptime} />
-            <RepBar label="Skill trust"  value={rep.breakdown.skill_trust} />
+            <RepBar label="Capabilities" value={rep.breakdown.cap_confirmation_rate ?? 0} />
+            <RepBar label="Tasks"        value={rep.breakdown.task_completion ?? 0} />
             <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-tertiary)' }}>
               Confidence: {Math.round(rep.confidence * 100)}% · {rep.verifications_received} verification{rep.verifications_received !== 1 ? 's' : ''} received
             </div>

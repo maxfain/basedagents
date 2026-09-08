@@ -59,6 +59,12 @@ export default function TrustSafetyCard({ rep, verifications }: TrustSafetyCardP
   const overallOk = safetyOk && penaltyOk && coherenceOk && passRateOk;
   const noData = !hasVerifications;
 
+  // Task record (Tasks P0): time-decayed counts from the reputation response;
+  // absent on an older API, so both default to 0 and the row reads "—".
+  const tasksAccepted = rep.tasks_accepted ?? 0;
+  const tasksFailed = rep.tasks_failed ?? 0;
+  const hasTasks = tasksAccepted + tasksFailed > 0;
+
   const coherence = CoherenceVerdict(rep.breakdown.coherence ?? 0);
   const passRate = PassRateVerdict(rep.breakdown.pass_rate ?? 0);
 
@@ -140,6 +146,17 @@ export default function TrustSafetyCard({ rep, verifications }: TrustSafetyCardP
                 </span>
               </span>
             )}
+        </Row>
+
+        <Row label="Tasks">
+          {hasTasks ? (
+            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+              <StatusPill ok={tasksFailed === 0} label={`${tasksAccepted} accepted · ${tasksFailed} failed`} />
+              <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                Deliveries accepted by the buyer vs disputed and cancelled (recent work counts more)
+              </span>
+            </span>
+          ) : <span style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>—</span>}
         </Row>
 
         {hasVerifications && recent.length > 0 && (
