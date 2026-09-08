@@ -99,10 +99,19 @@ export const VerifySubmitSchema = z.object({
 
 // ─── Task Schemas ───
 
+/**
+ * A bounty as declared at task creation (Tasks P0, N1). `amount` is a string
+ * of ATOMIC USDC units ("5000000" = 5.00 USDC) capped at 1,000 USDC; SDK/CLI/
+ * MCP convert human decimals at the edge. Only USDC on Base (mainnet or
+ * Sepolia) is accepted — the facilitator supports exactly these.
+ */
+export const BOUNTY_NETWORKS = ['eip155:8453', 'eip155:84532'] as const;
 export const BountySchema = z.object({
-  amount: z.string().min(1).max(50),
-  token: z.string().default('USDC'),
-  network: z.string().default('eip155:8453'),
+  amount: z.string().regex(/^[1-9][0-9]{0,9}$/, 'atomic USDC units, digits only')
+    // The regex issue is still collected when this runs, so guard the BigInt.
+    .refine((v) => !/^[0-9]+$/.test(v) || BigInt(v) <= 1_000_000_000n, 'bounty exceeds 1,000 USDC'),
+  token: z.literal('USDC').default('USDC'),
+  network: z.enum(BOUNTY_NETWORKS).default('eip155:8453'),
 });
 
 export type Bounty = z.infer<typeof BountySchema>;
@@ -136,17 +145,36 @@ export const TaskQuerySchema = z.object({
   status: z.enum(['open', 'claimed', 'submitted', 'verified', 'closed', 'cancelled', 'all']).optional(),
   category: z.enum(['research', 'code', 'content', 'data', 'automation']).optional(),
   capability: z.string().optional(),
+  creator: z.string().max(64).optional(),
+  claimer: z.string().max(64).optional(),
   limit: z.number().int().min(1).max(100).optional(),
   offset: z.number().int().min(0).optional(),
 });
 
 // ─── Task Types ───
 
-export type PaymentStatus = 'none' | 'authorized' | 'settled' | 'failed' | 'disputed' | 'expired' | 'refunded';
+/**
+ * Payment lifecycle of a bounty task (Tasks P0, N2):
+ *   none       no bounty
+ *   pending    bounty declared, no authorization yet (sign-at-accept)
+ *   authorized buyer's EIP-3009 authorization verified at accept time
+ *   settling   a settle call is in flight / the facilitator reported pending
+ *   settled    on-chain transfer confirmed by the facilitator
+ *   failed     last settle attempt failed (retryable when settle_next_at is set)
+ *   expired    authorization expired or the bounty was voided by a cancel
+ * `disputed` and `refunded` are never written any more and stay only so old
+ * rows/clients type-check; a dispute is a task flag (tasks.disputed_at).
+ */
+export type PaymentStatus = 'none' | 'pending' | 'authorized' | 'settling' | 'settled' | 'failed' | 'expired' | 'disputed' | 'refunded';
+
+export const TASK_STATUSES = ['open', 'claimed', 'submitted', 'verified', 'closed', 'cancelled'] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export interface Task {
   task_id: string;
-  creator_agent_id: string;
+  /** NULL when a human owner posted the task (creator_kind = 'owner'). */
+  creator_agent_id: string | null;
+  creator_kind: 'agent' | 'owner';
   claimed_by_agent_id: string | null;
   title: string;
   description: string;
@@ -397,9 +425,15 @@ export type Bindings = {
   TWITTER_CONSUMER_SECRET?: string;
   TWITTER_ACCESS_TOKEN?: string;
   TWITTER_ACCESS_SECRET?: string;
-  // x402 payment integration
+  // x402 payment integration (spec N6: ALL of the first four must be valid or
+  // paymentProviderFor(env) is null and paid paths fail closed with 503)
   PAYMENT_ENCRYPTION_KEY?: string; // hex-encoded 32-byte AES-256 key
-  CDP_API_KEY?: string;            // CDP API key for facilitator calls
+  CDP_API_KEY_ID?: string;         // CDP API key id (JWT kid/sub)
+  CDP_API_KEY_SECRET?: string;     // CDP Ed25519 secret: base64 of 64 bytes (seed ‖ pub)
+  TASK_PAYMENTS_ENABLED?: string;  // '1' turns on bounties; absent by default
+  X402_FACILITATOR_URL?: string;   // override CDP facilitator base URL (staging/local)
+  X402_EIP712_NAME?: string;       // override USDC EIP-712 domain name on eip155:8453
+  X402_EIP712_VERSION?: string;    // override USDC EIP-712 domain version on eip155:8453
   GITHUB_TOKEN?: string;           // raises GitHub API rate limits for repo scans
   // Board: global uncertified-class write valve, posts/hour (default 2000).
   // The emergency dial for a PoW-identity spam wave — see routes/board.ts.

@@ -41,6 +41,23 @@ npx wrangler d1 migrations apply agent-registry --remote   # first
 npx wrangler deploy --name agent-registry-api              # then
 ```
 
+### Manual columns: `agents.webhook_url` and `agents.reputation_override` have no migration
+
+No file in `packages/api/migrations/` defines `agents.webhook_url` (task
+webhooks) or `agents.reputation_override` (the SECURITY_AUDIT.md manual
+override). Production has both — they were added by hand — so a migration
+that adds them now would fail there with `duplicate column name`. Locally,
+`src/node.ts` adds both guarded after the chain (`RUNNER_LOCAL_STATEMENTS` in
+`src/db/migration-list.ts`) and `test-helpers.ts` inlines them. A fresh OSS
+deploy must add them once, by hand, before its first Worker deploy:
+
+```bash
+cd packages/api
+npx wrangler d1 execute agent-registry --remote --command "ALTER TABLE agents ADD COLUMN webhook_url TEXT"
+npx wrangler d1 execute agent-registry --remote --command "ALTER TABLE agents ADD COLUMN reputation_override REAL"
+npx wrangler d1 execute agent-registry --remote --command "PRAGMA table_info(agents)"   # confirm both are listed
+```
+
 ### No `RESEND_API_KEY` means recovery emails go nowhere
 
 Without the secret, `emailSenderFromEnv` falls back to a **log-only sender**:
@@ -173,6 +190,47 @@ migration files (`rawDb.exec(SQL_0023)` …). A new migration that existing
 queries depend on must be added to **every** harness
 (`routes.test.ts`, `store.test.ts`, `approvals.test.ts`, `recovery.test.ts`) —
 forgetting this is 28 mysterious `no such column` failures at once.
+
+### `node.ts` replays the FULL migration chain, one transaction per file
+
+The local/E2E runner (`packages/api/src/node.ts`) applies every file in
+`migrations/` from `0001` up, tracked in a `_migrations` table, each file
+inside its own better-sqlite3 transaction — the same implicit per-migration
+transaction D1 gives you, which is what makes `PRAGMA defer_foreign_keys` in a
+table-rebuild migration work locally. The list is `runnerMigrationFiles()` in
+`src/db/migration-list.ts`, shared with `board-schema.test.ts` /
+`tasks-schema.test.ts`; nothing to register when you add a file. (The old
+runner applied only `schema.sql` + `0021` + `≥0023`, so the local DB had no
+`tasks` table and 0035 threw at E2E boot.) Consequences:
+
+- A **dev DB created by the old runner** (`packages/api/data/registry.db`) is
+  upgraded in place: `0001…0022` apply on top of it. A file whose `ALTER`
+  hits an already-present column is tolerated and still recorded — but
+  `exec` stops at that statement, so the rest of that file is skipped. Any
+  other error (e.g. 0008's case-insensitive UNIQUE index on `agents.name`
+  colliding with duplicate-named dev agents) aborts the boot. If in doubt,
+  `rm -rf packages/api/data` and let it rebuild. E2E DBs are always fresh
+  (`rm -rf .e2e-data` in `playwright.config.ts`).
+- Migration files must not contain their own `BEGIN`/`COMMIT` — they would
+  nest inside the runner's transaction.
+
+### Table rebuilds keep the table NAME — `RENAME` fails under foreign keys (0035)
+
+`tasks` is referenced by `submissions`, `delivery_receipts` and
+`payment_events`. The 0027 idiom (`CREATE tasks_new` → `INSERT … SELECT` →
+`DROP tasks` → `ALTER TABLE tasks_new RENAME TO tasks`) **fails at COMMIT**
+with `FOREIGN KEY constraint failed` once any child row exists — even under
+`PRAGMA defer_foreign_keys = ON`. What works, and what
+`0035_task_review.sql` does: `PRAGMA defer_foreign_keys = ON; CREATE TABLE
+tasks_backup AS SELECT * FROM tasks; DROP TABLE tasks; CREATE TABLE tasks
+(new shape); INSERT INTO tasks … SELECT … FROM tasks_backup; DROP TABLE
+tasks_backup;` — inside ONE transaction (D1's implicit one, or the runner's
+wrap; in autocommit the `DROP` fails at its own commit). D1 documents
+`PRAGMA defer_foreign_keys` as supported precisely for this
+(developers.cloudflare.com/d1/sql-api/foreign-keys/). Apply to staging D1
+first and check `PRAGMA foreign_key_check` is empty. And do NOT add 0035 to
+the control-plane/MCP/board test harnesses listed below — they have no
+`tasks` table and it would throw; `tasks-schema.test.ts` covers it.
 
 ### Cross-package type imports need TS project references
 

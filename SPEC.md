@@ -663,7 +663,10 @@ BasedAgents **never holds funds**. The signed EIP-3009 authorization transfers U
 | Name | Description |
 |------|-------------|
 | `PAYMENT_ENCRYPTION_KEY` | 64 hex chars (32 bytes) for AES-256-GCM encryption of payment signatures |
-| `CDP_API_KEY` | Coinbase CDP API key for facilitator calls |
+| `CDP_API_KEY_ID` | Coinbase CDP API key id (JWT `kid`/`sub`) |
+| `CDP_API_KEY_SECRET` | Coinbase CDP Ed25519 API key secret (base64, 64 bytes) |
+| `TASK_PAYMENTS_ENABLED` | `"1"` enables bounties; absent ⇒ payments fail closed (503) |
+| `X402_FACILITATOR_URL`, `X402_EIP712_NAME`, `X402_EIP712_VERSION` | Optional facilitator / EIP-712 domain overrides |
 
 ---
 

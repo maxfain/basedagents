@@ -30,6 +30,9 @@ import { billingRoutes, stripeWebhookRoutes } from './control/billing.js';
 import testingRoutes from './control/testing.js';
 import ladderRoutes from './control/ladder.js';
 import funnelRoutes, { VOTABLE_PROVIDERS } from './routes/funnel.js';
+import { runTaskCron } from './cron/tasks.js';
+import { paymentsDisabledReason } from './payments/index.js';
+import { ASSETS, MAX_TIMEOUT_SECONDS } from './payments/x402.js';
 
 const app = new Hono<AppEnv>();
 
@@ -97,6 +100,9 @@ const RATE_LIMIT_PATTERNS: Array<{ pattern: RegExp; key: string; max: number; wi
   // DELETE): one shared per-IP bucket, so rotating the post id segment never
   // mints a fresh limit.
   { pattern: /^\/v1\/board\/posts\/[^/]+$/, key: 'board:item', max: 120, windowMs: 60_000 },
+  // Every accept call carrying a payment header costs a facilitator verify;
+  // one shared per-IP bucket across task ids (Tasks P0).
+  { pattern: /^\/v1\/tasks\/[^/]+\/(accept|verify)$/, key: 'tasks:accept', max: 10, windowMs: 60_000 },
 ];
 
 // ─── Global Middleware ───
@@ -111,8 +117,8 @@ app.use('*', cors({
     return null; // reject
   },
   allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Timestamp', 'X-Nonce', 'X-PAYMENT-SIGNATURE'],
-  exposeHeaders: ['X-RateLimit-Remaining'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Timestamp', 'X-Nonce', 'PAYMENT-SIGNATURE', 'X-PAYMENT-SIGNATURE'],
+  exposeHeaders: ['X-RateLimit-Remaining', 'PAYMENT-REQUIRED', 'PAYMENT-RESPONSE', 'Deprecation'],
   // The console authenticates with an httpOnly session cookie, so the browser
   // needs Access-Control-Allow-Credentials. Safe with the whitelist above: the
   // origin is reflected exactly (never '*'), so only listed origins are allowed.
@@ -214,12 +220,15 @@ app.get('/', (c) => {
       get_task:         'GET /v1/tasks/:id',
       claim_task:       'POST /v1/tasks/:id/claim',
       submit_task:      'POST /v1/tasks/:id/submit',
-      verify_task:      'POST /v1/tasks/:id/verify',
+      accept_task:      'POST /v1/tasks/:id/accept',
+      verify_task:      'POST /v1/tasks/:id/verify (deprecated alias of accept)',
+      request_revision: 'POST /v1/tasks/:id/revision',
       cancel_task:      'POST /v1/tasks/:id/cancel',
       deliver_task:     'POST /v1/tasks/:id/deliver',
       dispute_task:     'POST /v1/tasks/:id/dispute',
       task_payment:     'GET /v1/tasks/:id/payment',
       task_receipt:     'GET /v1/tasks/:id/receipt',
+      task_receipts:    'GET /v1/tasks/:id/receipts',
       agent_wallet:     'GET /v1/agents/:id/wallet',
       update_wallet:    'PATCH /v1/agents/:id/wallet',
     },
@@ -234,28 +243,32 @@ import openApiSpec from './openapi.json';
 app.get('/openapi.json', (c) => c.json(openApiSpec));
 
 // ─── x402 Payment Method Discovery ───
-// https://docs.cdp.coinbase.com/x402/welcome
+// https://docs.cdp.coinbase.com/x402/welcome — x402 v2 (CAIP-2 networks).
+// BasedAgents is non-custodial and signs at ACCEPT time: a bounty is declared
+// when a task is posted; the buyer signs an EIP-3009 transfer to the
+// deliverer's wallet when accepting the delivered work (GET /v1/tasks/:id/payment
+// returns the exact requirements for a task once it is claimed).
 app.get('/.well-known/x402', (c) => c.json({
-  version: 1,
-  accepts: [
-    {
-      scheme: 'exact',
-      network: 'base-mainnet',
-      maxAmountRequired: '1000000000', // 1,000 USDC (6 decimals)
-      resource: 'https://api.basedagents.ai/v1/tasks',
-      description: 'USDC bounties for AI agent tasks. Payment authorizes on task creation and settles on-chain when the creator verifies the deliverable.',
-      mimeType: 'application/json',
-      payToAddress: null, // non-custodial: payment goes directly to deliverer wallet
-      asset: {
-        address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // USDC on Base
-        decimals: 6,
-        eip712_domain: 'USD Coin',
-      },
-    },
-  ],
-  facilitator: 'https://api.cdp.coinbase.com/platform/v2/x402',
+  x402Version: 2,
   non_custodial: true,
-  settlement: 'deferred', // not synchronous — settles on task verification
+  flow: 'sign-at-accept',
+  payments_enabled: paymentsDisabledReason(c.env) === null,
+  accepts: (Object.keys(ASSETS) as Array<keyof typeof ASSETS>).map((network) => ({
+    scheme: 'exact',
+    network,
+    asset: ASSETS[network].asset,
+    maxTimeoutSeconds: MAX_TIMEOUT_SECONDS,
+    extra: ASSETS[network].defaultExtra,
+    payTo: 'per task — the deliverer wallet, see GET /v1/tasks/{id}/payment',
+    amount: 'per task, atomic units (6 decimals)',
+    max_amount: '1000000000',
+  })),
+  endpoints: {
+    requirements: 'GET /v1/tasks/{id}/payment',
+    accept: 'POST /v1/tasks/{id}/accept',
+  },
+  payment_header: 'PAYMENT-SIGNATURE',
+  facilitator: c.env?.X402_FACILITATOR_URL ?? 'https://api.cdp.coinbase.com/platform/v2/x402',
   protocol_docs: 'https://docs.cdp.coinbase.com/x402/welcome',
   integration_docs: 'https://basedagents.ai/.well-known/agent.json',
 }));
@@ -296,13 +309,14 @@ app.get('/docs', (c) => {
     },
     payments: {
       protocol: 'x402 — https://docs.cdp.coinbase.com/x402/welcome',
-      description: 'Tasks can have USDC bounties on Base (eip155:8453). Payment settles on-chain when the creator verifies the deliverable.',
+      description: 'Tasks can declare USDC bounties on Base (eip155:8453). The buyer authorizes the transfer to the deliverer wallet when accepting the delivered work; the facilitator settles it on-chain.',
       non_custodial: 'BasedAgents never holds funds. Signed EIP-3009 authorizations transfer directly between wallets.',
-      set_wallet:     { method: 'PATCH', path: '/v1/agents/:id/wallet', auth: true,  description: 'Set your EVM wallet address' },
+      set_wallet:     { method: 'PATCH', path: '/v1/agents/:id/wallet', auth: true,  description: 'Set your EVM wallet address (required to claim a bounty task)' },
       get_wallet:     { method: 'GET',   path: '/v1/agents/:id/wallet', auth: false, description: 'Get agent wallet address' },
-      create_paid:    { method: 'POST',  path: '/v1/tasks',            auth: true,  description: 'Create task with bounty + X-PAYMENT-SIGNATURE header' },
-      payment_status: { method: 'GET',   path: '/v1/tasks/:id/payment',auth: false, description: 'Payment status + audit trail' },
-      dispute:        { method: 'POST',  path: '/v1/tasks/:id/dispute',auth: true,  description: 'Dispute deliverable (pauses auto-release)' },
+      create_paid:    { method: 'POST',  path: '/v1/tasks',            auth: true,  description: 'Create task with a bounty {amount (atomic USDC), network}; no payment header at creation' },
+      requirements:   { method: 'GET',   path: '/v1/tasks/:id/payment',auth: false, description: 'Payment status, audit trail and the x402 requirements to sign' },
+      accept_paid:    { method: 'POST',  path: '/v1/tasks/:id/accept', auth: true,  description: 'Accept the deliverable; for a bounty task answers 402 + PAYMENT-REQUIRED until a PAYMENT-SIGNATURE header is supplied' },
+      dispute:        { method: 'POST',  path: '/v1/tasks/:id/dispute',auth: true,  description: 'Dispute deliverable (pauses auto-accept)' },
       without_payment: 'Tasks without bounty work exactly as before. Payment is optional.',
       full_docs: 'https://basedagents.ai/.well-known/agent.json → for_agents.payments',
     },
@@ -347,6 +361,17 @@ app.get('/v1/status', async (c) => {
       `SELECT COUNT(*) as count FROM verifications`
     );
 
+    // Task marketplace counts (Tasks P0). Tolerates an OSS deploy without the tasks table.
+    const taskCounts: Record<string, number> = { open: 0, claimed: 0, submitted: 0, verified: 0, cancelled: 0, paid: 0 };
+    try {
+      const rows = await db.all<{ status: string; count: number }>(`SELECT status, COUNT(*) as count FROM tasks GROUP BY status`);
+      for (const row of rows) if (row.status in taskCounts) taskCounts[row.status] = row.count;
+      const paid = await db.get<{ count: number }>(`SELECT COUNT(*) as count FROM tasks WHERE payment_status = 'settled'`);
+      taskCounts.paid = paid?.count ?? 0;
+    } catch {
+      // no tasks table
+    }
+
     const dbLatencyMs = Date.now() - t0;
 
     return c.json({
@@ -370,6 +395,8 @@ app.get('/v1/status', async (c) => {
       last_registration: lastAgent
         ? { name: lastAgent.name, at: lastAgent.registered_at }
         : null,
+      tasks: taskCounts,
+      payments: paymentsDisabledReason(c.env) === null ? 'enabled' : 'disabled',
       checked_at: new Date().toISOString(),
     });
   } catch (err) {
@@ -492,64 +519,14 @@ const scheduled = async (_event: unknown, env: any, _ctx: unknown) => {
   const rescanResult = await processRescanQueue(db, 5, { githubToken: env.GITHUB_TOKEN });
   console.log(`[cron] Rescan queue done: processed=${rescanResult.processed} succeeded=${rescanResult.succeeded} failed=${rescanResult.failed}`);
 
-  // ─── Auto-release: settle payments for tasks past auto_release_at ───
-  console.log('[cron] Checking for auto-release payment settlements...');
-  const now = new Date().toISOString();
-  const expiredTasks = await db.all<{
-    task_id: string;
-    payment_signature: string;
-    payment_status: string;
-    creator_agent_id: string;
-  }>(
-    `SELECT task_id, payment_signature, payment_status, creator_agent_id
-     FROM tasks
-     WHERE payment_status = 'authorized'
-       AND auto_release_at IS NOT NULL
-       AND auto_release_at <= ?
-       AND status = 'submitted'`,
-    now
-  );
-  let autoSettled = 0;
-  if (expiredTasks.length > 0 && env.PAYMENT_ENCRYPTION_KEY) {
-    const { CdpPaymentProvider } = await import('./payments/cdp-provider.js');
-    const { decryptPaymentSignature } = await import('./payments/crypto.js');
-    const provider = new CdpPaymentProvider(env.CDP_API_KEY);
-
-    for (const task of expiredTasks) {
-      try {
-        const rawSig = await decryptPaymentSignature(task.payment_signature, env.PAYMENT_ENCRYPTION_KEY);
-        const result = await provider.settle(rawSig);
-        if (result.success) {
-          await db.run(
-            `UPDATE tasks SET payment_settled = 1, payment_tx_hash = ?, payment_status = 'settled', status = 'verified', verified_at = ? WHERE task_id = ?`,
-            result.tx_hash ?? null, now, task.task_id
-          );
-          await db.run(
-            `INSERT INTO payment_events (id, task_id, event_type, details, created_at)
-             VALUES (?, ?, 'auto_released', ?, ?)`,
-            crypto.randomUUID(), task.task_id,
-            JSON.stringify({ tx_hash: result.tx_hash }),
-            now
-          );
-          autoSettled++;
-        } else {
-          await db.run(
-            `UPDATE tasks SET payment_status = 'failed' WHERE task_id = ?`, task.task_id
-          );
-          await db.run(
-            `INSERT INTO payment_events (id, task_id, event_type, details, created_at)
-             VALUES (?, ?, 'settle_failed', ?, ?)`,
-            crypto.randomUUID(), task.task_id,
-            JSON.stringify({ error: result.error, trigger: 'auto_release' }),
-            now
-          );
-        }
-      } catch (err) {
-        console.error(`[cron] Auto-release failed for ${task.task_id}:`, err);
-      }
-    }
+  // ─── Tasks: auto-accept, settlement retries, expiry sweep (cron/tasks.ts) ───
+  console.log('[cron] Running task cron (auto-accept / settle / expiry)...');
+  try {
+    const summary = await runTaskCron(db, env, new Date().toISOString());
+    console.log(`[cron] Task cron done: ${JSON.stringify(summary)}`);
+  } catch (err) {
+    console.error('[cron] Task cron failed:', err);
   }
-  console.log(`[cron] Auto-release done: settled=${autoSettled} of ${expiredTasks.length} eligible`);
 };
 
 // Export for Cloudflare Workers

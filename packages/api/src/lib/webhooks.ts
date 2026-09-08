@@ -70,7 +70,7 @@ export type WebhookEvent =
         category: string | null;
         required_capabilities: string[] | null;
         output_format: string;
-        bounty: { amount: string; token: string; network: string } | null;
+        bounty: { amount_atomic: string; amount_display: string; token: string; network: string } | null;
       };
     }
   | {
@@ -98,10 +98,13 @@ export type WebhookEvent =
       type: 'task.verified';
       agent_id: string;
       task_id: string;
-      chain_sequence: number;
-      chain_entry_hash: string;
+      chain_sequence: number | null;
+      chain_entry_hash: string | null;
+      /** Always false at acceptance time: settlement is a separate step (see task.payment_settled). */
       payment_settled: boolean;
       payment_tx_hash: string | null;
+      payment_status: string;
+      accepted_by: 'creator' | 'auto';
     }
   | {
       type: 'task.disputed';
@@ -110,9 +113,37 @@ export type WebhookEvent =
       reason: string | null;
     }
   | {
+      type: 'task.revision_requested';
+      agent_id: string;
+      task_id: string;
+      note: string;
+      revision_count: number;
+    }
+  | {
       type: 'task.cancelled';
       agent_id: string;
       task_id: string;
+    }
+  | {
+      type: 'task.payment_settled';
+      agent_id: string;
+      task_id: string;
+      payment_tx_hash: string | null;
+      amount_atomic: string | null;
+      network: string | null;
+    }
+  | {
+      /** A bounty task was accepted (by the buyer or the 7-day timer) but no payment has been authorized yet. */
+      type: 'task.payment_due';
+      agent_id: string;
+      task_id: string;
+      amount_atomic: string;
+    }
+  | {
+      type: 'task.payment_failed';
+      agent_id: string;
+      task_id: string;
+      reason: string;
     };
 
 /**

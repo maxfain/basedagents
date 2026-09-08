@@ -19,9 +19,11 @@ const ID_LENGTH = 21;
 const UNBIASED_LIMIT = 256 - (256 % ID_ALPHABET.length);
 
 /**
- * Generate a board post id: 'post_' + 21 unbiased random alphanumeric chars.
+ * Generate a public id: `<prefix>_` + 21 unbiased random alphanumeric chars.
+ * Shared by board posts and (since the Tasks P0) tasks, receipts, submissions
+ * and payment events — all public handles that gate state transitions.
  */
-export function generatePostId(): string {
+export function generatePublicId(prefix: string): string {
   let id = '';
   // 32 bytes per draw: ≥ 21 survive rejection almost always, so one draw
   // usually suffices; the loop covers the unlucky tail.
@@ -34,5 +36,12 @@ export function generatePostId(): string {
       if (id.length === ID_LENGTH) break;
     }
   }
-  return `post_${id}`;
+  return `${prefix}_${id}`;
+}
+
+/**
+ * Generate a board post id: 'post_' + 21 unbiased random alphanumeric chars.
+ */
+export function generatePostId(): string {
+  return generatePublicId('post');
 }

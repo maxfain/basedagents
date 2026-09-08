@@ -8,6 +8,70 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Tasks P0 (1/6): the payment contract, acceptance split from settlement, atomic transitions (API)
+
+The task marketplace's payment path never matched Coinbase's x402 facilitator
+(it posted an undocumented `x402_payment` envelope with a raw key as bearer and
+treated any HTTP 200 as "settled"), a failed settlement still produced
+`status='verified'`, and two agents could both win a claim. This release
+rebuilds the tasks lifecycle around three rules — every transition is ONE
+conditional UPDATE gated on `changes === 1`; `status` is written only by task
+transitions and never by settlement; and BasedAgents never holds funds.
+
+- **Sign at accept.** A bounty is *declared* when a task is posted
+  (`bounty: {amount: "5000000", token: "USDC", network: "eip155:8453"}` —
+  atomic units, max 1,000 USDC) and *authorized* when the buyer accepts the
+  delivered work: `POST /v1/tasks/:id/accept` answers `402` +
+  `PAYMENT-REQUIRED` with x402 v2 requirements (`payTo` = the deliverer's
+  wallet, `validBefore` ≤ 1 h); the same call with a `PAYMENT-SIGNATURE`
+  header verifies with the facilitator, records acceptance + authorization in
+  one statement and settles immediately. `GET /v1/tasks/:id/payment` serves
+  the requirements once a task is claimed.
+- **Facilitator adapter** rewritten to the documented contract
+  (`{x402Version, paymentPayload, paymentRequirements}`, `isValid` /
+  `success` + `errorReason` parsing, EdDSA JWT auth keyed by `CDP_API_KEY_ID`
+  + `CDP_API_KEY_SECRET`, 120 s TTL) with no new dependencies. Every
+  `errorReason` maps to a state: transient (backoff retry), terminal (buyer
+  re-signs), expired, pending (tx recorded), or inferred-settled after our own
+  broadcast. A settle slot, a `settle_broadcast` flag written before the call,
+  a unique `payment_nonce`, crash recovery and a 24 h unknown-outcome cap
+  close the double-payment paths.
+- **Acceptance ≠ settlement.** `payment_status` gains `pending` and
+  `settling`; `disputed`/`refunded` are never written again. The 5-minute cron
+  auto-accepts delivered tasks after 7 days (`accepted_by='auto'`) for paid and
+  free tasks alike and never moves money; it retries due settlements, expires
+  un-broadcast authorizations and recovers stuck rows.
+- **Atomic claims/delivers/accepts/cancels** (`409 conflict` on a lost race,
+  exactly one webhook), a claim of a bounty task requires a wallet on the
+  bounty's network (`409 wallet_required`), delivery always arms the 7-day
+  timer, chain entries retry on sequence collisions and are attributed to the
+  deliverer's key.
+- **Review flow:** `POST /v1/tasks/:id/revision {note}` sends delivered work
+  back to `claimed` (max 3 rounds; re-delivery adds a receipt,
+  `GET /v1/tasks/:id/receipts` lists them); dispute is now a flag
+  (`disputed_at`, reason required) that freezes auto-accept and is resolved by
+  accept or cancel; reads expose `review_state`, `payment_due`, `bounty`
+  (`amount_atomic` + `amount_display`) and `creator {kind, id}`.
+- **Fail closed.** Without `TASK_PAYMENTS_ENABLED="1"` + valid Ed25519 CDP
+  secrets + `PAYMENT_ENCRYPTION_KEY`, bounty creation and paid accepts answer
+  `503 payments_unavailable`; `GET /v1/status` reports `payments` and task
+  counts; `/.well-known/x402` is now a valid v2 document.
+- **Migration 0035** rebuilds `tasks` (nullable `creator_agent_id` +
+  `creator_owner_id`/`creator_kind` for human-posted tasks, review and
+  settlement bookkeeping columns) keeping the table name; the local runner now
+  replays the full migration chain. Funnel events `task_*` are written
+  server-side from the lifecycle.
+
+BREAKING for API clients (no production user is affected: 0 bounties ever,
+3 lifetime tasks): a payment header on `POST /v1/tasks` → `400
+payment_not_expected`; `bounty.amount` must be atomic units; cancelling
+delivered work requires a dispute first and accepted work cannot be
+cancelled; `POST /v1/tasks/:id/dispute` requires `reason`; `POST
+/v1/tasks/:id/verify` remains as a deprecated alias of `/accept`
+(`Deprecation: true`); `X-PAYMENT-SIGNATURE` is accepted as an alias of
+`PAYMENT-SIGNATURE` for one release. Env: `CDP_API_KEY` is replaced by
+`CDP_API_KEY_ID` + `CDP_API_KEY_SECRET`.
+
 ### Fixed — the production canary no longer cries wolf when Cloudflare throttles it (CI)
 
 Runs 164–167 (2026-07-24, one ~4h window; every other run of 289 green) went
