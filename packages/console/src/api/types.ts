@@ -241,10 +241,10 @@ export interface OwnerTask {
   needs_review: boolean;
 }
 
-/** GET /v1/owner/tasks/:id */
+/** GET /v1/owner/tasks/:id — the task without the list's `latest_receipt` (the receipts ride alongside). */
 export interface OwnerTaskDetail {
   ok: true;
-  task: OwnerTask;
+  task: Omit<OwnerTask, 'latest_receipt'>;
   /** The latest receipt (by completed_at) — also receipts[0]. */
   delivery_receipt: OwnerTaskReceipt | null;
   /** Every delivery, newest first (a change request yields a second one). */

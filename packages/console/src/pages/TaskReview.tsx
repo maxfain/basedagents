@@ -18,7 +18,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { control, ControlApiError } from '../api/control.js';
 import type { SignedAction } from '../api/control.js';
-import type { OwnerTask, OwnerTaskDetail, OwnerTaskReceipt } from '../api/types.js';
+import type { OwnerTaskDetail, OwnerTaskReceipt } from '../api/types.js';
 import { sha256hex } from '../lib/action.js';
 import { runAction } from '../lib/ceremony.js';
 import { useOwner } from '../state/session.js';
@@ -40,7 +40,7 @@ interface Milestone {
 }
 
 /** The task's history in time order, from the timestamps the task carries. */
-function milestones(task: OwnerTask, claimer: string | null): Milestone[] {
+function milestones(task: OwnerTaskDetail['task'], claimer: string | null): Milestone[] {
   const out: Milestone[] = [{ key: 'posted', at: task.created_at, label: 'Posted' }];
   if (task.claimed_at) out.push({ key: 'claimed', at: task.claimed_at, label: claimer ? `Claimed by ${claimer}` : 'Claimed' });
   if (task.revision_requested_at) out.push({ key: 'revision', at: task.revision_requested_at, label: 'Changes requested' });
