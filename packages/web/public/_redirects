@@ -19,6 +19,11 @@
 /login             https://app.basedagents.ai/login    301
 /approvals         https://app.basedagents.ai/approvals 301
 
+# x402 payment discovery is served by the API (one canonical, spec-valid v2
+# document built from the same ASSETS table the accept route uses). The old
+# static copy here drifted from it; keep the URL working with a redirect.
+/.well-known/x402  https://api.basedagents.ai/.well-known/x402  302
+
 # Generic alias for the sandbox recovery page (codex.html is served as an asset
 # at /codex ahead of these rules). Destination is the pretty URL, NEVER the
 # .html asset — see the warning above.

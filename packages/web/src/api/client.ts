@@ -7,6 +7,8 @@ import type {
   ApiReputationResponse,
   ApiTaskListResponse,
   ApiTaskDetailResponse,
+  ApiTaskReceiptsResponse,
+  ApiStatusResponse,
   ApiScanReport,
   ApiScanListResponse,
   ApiBoardListResponse,
@@ -142,11 +144,16 @@ export const api = {
     return fetchJson<ApiReputationResponse>(`/v1/agents/${encodeURIComponent(id)}/reputation`);
   },
 
+  async getStatus(): Promise<ApiStatusResponse> {
+    return fetchJson<ApiStatusResponse>('/v1/status');
+  },
+
   async getTasks(params: TaskSearchParams = {}): Promise<ApiTaskListResponse> {
     const qs = new URLSearchParams();
     if (params.status) qs.set('status', params.status);
     if (params.category) qs.set('category', params.category);
     if (params.capability) qs.set('capability', params.capability);
+    // Server-side filters on creator_agent_id / claimed_by_agent_id (TaskQuerySchema).
     if (params.creator) qs.set('creator', params.creator);
     if (params.claimer) qs.set('claimer', params.claimer);
     if (params.limit) qs.set('limit', String(params.limit));
@@ -157,6 +164,11 @@ export const api = {
 
   async getTask(id: string): Promise<ApiTaskDetailResponse> {
     return fetchJson<ApiTaskDetailResponse>(`/v1/tasks/${encodeURIComponent(id)}`);
+  },
+
+  /** Every delivery receipt for a task, newest first (a revision round adds one). */
+  async getTaskReceipts(id: string): Promise<ApiTaskReceiptsResponse> {
+    return fetchJson<ApiTaskReceiptsResponse>(`/v1/tasks/${encodeURIComponent(id)}/receipts`);
   },
 
   async getScanReport(identifier: string, version?: string): Promise<ApiScanReport> {

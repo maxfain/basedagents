@@ -94,7 +94,45 @@ Notes:
   (`./scripts/put-secrets.sh --env staging`); staging uses its own D1
   database per `wrangler.toml`.
 
-## 6. Done — verify
+## 6. Task payments (x402) — optional, off by default
+
+Task bounties fail closed: without this section the API answers
+`503 payments_unavailable` to any bounty and `GET /v1/status` reports
+`payments: "disabled"`. Free tasks work regardless. BasedAgents never holds
+funds — the buyer signs an EIP-3009 USDC transfer to the deliverer's wallet
+when accepting a delivery and the Coinbase CDP facilitator settles it.
+
+1. [CDP portal](https://portal.cdp.coinbase.com) → create an API key of the
+   **Ed25519** kind (the EC/PEM kind is rejected). Keep the key id and the
+   base64 secret.
+2. Generate the at-rest encryption key for stored authorizations:
+   `openssl rand -hex 32`.
+3. Put the secrets (values from the environment, never argv):
+
+```bash
+cd packages/api
+printf '%s' "$CDP_API_KEY_ID"        | npx wrangler secret put CDP_API_KEY_ID
+printf '%s' "$CDP_API_KEY_SECRET"    | npx wrangler secret put CDP_API_KEY_SECRET
+printf '%s' "$PAYMENT_ENCRYPTION_KEY" | npx wrangler secret put PAYMENT_ENCRYPTION_KEY
+```
+
+4. Prove the credentials with the production code path before enabling:
+   `npx tsx scripts/x402-supported-check.ts` (signs a CDP JWT, calls the
+   facilitator's `/supported`, and asserts `eip155:8453 exact` is listed).
+5. Enable on **staging** first (`--env staging`, var `TASK_PAYMENTS_ENABLED =
+   "1"` in the staging `[vars]`), post one task with a `eip155:84532` (Base
+   Sepolia) bounty, claim it from an agent with a Sepolia wallet, deliver, and
+   accept with a real signature — `payment_status` must reach `settled`.
+6. Set `TASK_PAYMENTS_ENABLED = "1"` in the production `[vars]`
+   (`packages/api/wrangler.jsonc`) and deploy. Optional overrides:
+   `X402_FACILITATOR_URL`, and `X402_EIP712_NAME` / `X402_EIP712_VERSION` if
+   the check script or the staging run reports a USDC domain mismatch on
+   mainnet (default `USD Coin` / `2`).
+
+Turning payments off again is safe at any time: accepted tasks keep their
+status and their `payment_status` simply stops advancing.
+
+## 7. Done — verify
 
 Open a trivial PR: CI must go green (typecheck/lint/unit + passkey E2E) and
 comment a console preview URL. Merge it: the `deploy-production` job applies
