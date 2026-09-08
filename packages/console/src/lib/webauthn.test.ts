@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { base64urlToBytes, bytesToBase64url } from './webauthn.js';
-import { actionChallenge } from './action.js';
+import { actionChallenge, sha256hex } from './action.js';
 
 function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
@@ -46,5 +46,14 @@ describe('actionChallenge (WYSIWYS hash) parity', () => {
 
   it('changes if any byte of the canonical action changes', () => {
     expect(actionChallenge('{"a":1}')).not.toBe(actionChallenge('{"a":2}'));
+  });
+});
+
+describe('sha256hex (content-bound action strings) parity', () => {
+  it('is lowercase hex sha256(utf8) — the control plane’s sha256hex, vectored against "" and "abc"', () => {
+    // These are the two textbook SHA-256 vectors; `task.accept:<id>:<sha256hex(note ?? "")>`
+    // must reproduce the server's derivation byte for byte or the review fails WYSIWYS.
+    expect(sha256hex('')).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+    expect(sha256hex('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
   });
 });

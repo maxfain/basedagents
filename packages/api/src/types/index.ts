@@ -132,11 +132,14 @@ export const SubmitDeliverableSchema = z.object({
   summary: z.string().min(1).max(2000),
 });
 
+/** Links in a delivery are rendered as anchors in the buyer's console: http(s) only, never javascript:/data:. */
+const HttpUrl = z.string().url().max(2048).refine((u) => /^https?:\/\//i.test(u), { message: 'must be an http(s) URL' });
+
 export const DeliverTaskSchema = z.object({
   summary: z.string().min(1).max(2000),
-  artifact_urls: z.array(z.string().url()).optional(),
+  artifact_urls: z.array(HttpUrl).max(20).optional(),
   commit_hash: z.string().regex(/^[a-f0-9]{40}$/).optional(),
-  pr_url: z.string().url().optional(),
+  pr_url: HttpUrl.optional(),
   submission_type: z.enum(['json', 'link', 'pr']),
   submission_content: z.string().max(50000).optional(),
 });

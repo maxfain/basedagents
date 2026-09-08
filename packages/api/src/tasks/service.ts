@@ -459,3 +459,111 @@ export async function afterAccept(
   await recordFunnel(db, 'task_accepted', task.task_id, opts.acceptedBy);
   return { chain };
 }
+
+// ─── Shared write helpers (used by the agent routes, the owner routes and the E2E seeder) ───
+
+export interface NewTaskNotice {
+  task_id: string;
+  title: string;
+  description: string;
+  category: string | null;
+  required_capabilities: string[] | null;
+  output_format: string;
+  bounty: BountyView | null;
+}
+
+/** `task.available` fan-out to active agents whose capabilities overlap (exact string match). */
+export async function notifyMatchingAgents(db: DBAdapter, task: NewTaskNotice, excludeAgentId: string | null): Promise<void> {
+  const reqCaps = task.required_capabilities;
+  if (!reqCaps || reqCaps.length === 0) return;
+  const agents = await db.all<{ id: string; capabilities: string; webhook_url: string | null; webhook_secret: string | null }>(
+    `SELECT id, capabilities, webhook_url, webhook_secret FROM agents WHERE status = 'active' AND webhook_url IS NOT NULL AND id != ?`,
+    excludeAgentId ?? '',
+  );
+  for (const agent of agents) {
+    try {
+      const caps: string[] = JSON.parse(agent.capabilities);
+      if (reqCaps.some((rc) => caps.includes(rc))) {
+        sendWebhook({ id: agent.id, name: '', webhook_url: agent.webhook_url, webhook_secret: agent.webhook_secret }, {
+          type: 'task.available',
+          agent_id: agent.id,
+          task: {
+            task_id: task.task_id,
+            title: task.title,
+            description: task.description,
+            category: task.category,
+            required_capabilities: reqCaps,
+            output_format: task.output_format,
+            bounty: task.bounty,
+          },
+        });
+      }
+    } catch {
+      // skip agents with invalid capabilities JSON
+    }
+  }
+}
+
+export interface DeliveryFields {
+  summary: string;
+  artifact_urls?: string[];
+  commit_hash?: string;
+  pr_url?: string;
+  submission_type: 'json' | 'link' | 'pr';
+  submission_content?: string;
+}
+
+/**
+ * After deliverGate won: chain entry (best-effort), receipt row, and the
+ * backward-compatible submission row. D1 has no transactions — a failure here
+ * leaves `submitted` without a receipt, logged and tolerated by the readers.
+ */
+export async function writeDeliveryReceipt(
+  db: DBAdapter,
+  taskId: string,
+  agentId: string,
+  fields: DeliveryFields,
+  signature: string,
+  nowIso: string,
+): Promise<{ receipt_id: string; chain: { sequence: number; entry_hash: string } | null }> {
+  const receiptId = generatePublicId('rcpt');
+  const receiptPayload: Record<string, unknown> = {
+    receipt_id: receiptId,
+    task_id: taskId,
+    agent_id: agentId,
+    summary: fields.summary,
+    artifact_urls: fields.artifact_urls ?? null,
+    commit_hash: fields.commit_hash ?? null,
+    pr_url: fields.pr_url ?? null,
+    submission_type: fields.submission_type,
+    submission_content: fields.submission_content ?? null,
+    completed_at: nowIso,
+  };
+  let chain: { sequence: number; entry_hash: string } | null = null;
+  try {
+    chain = await taskChainEntry(db, agentId, 'task_delivered', hashCanonical(receiptPayload));
+  } catch (err) {
+    console.error(`[tasks] chain entry failed for delivery of ${taskId}:`, err);
+  }
+  try {
+    await db.run(
+      `INSERT INTO delivery_receipts (receipt_id, task_id, agent_id, summary, artifact_urls, commit_hash, pr_url, submission_type, submission_content, completed_at, chain_sequence, chain_entry_hash, signature)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      receiptId, taskId, agentId, fields.summary,
+      fields.artifact_urls ? JSON.stringify(fields.artifact_urls) : null,
+      fields.commit_hash ?? null, fields.pr_url ?? null, fields.submission_type,
+      fields.submission_content ?? null, nowIso, chain?.sequence ?? null, chain?.entry_hash ?? null, signature,
+    );
+    await db.run(
+      `INSERT INTO submissions (submission_id, task_id, agent_id, submission_type, content, summary, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      generatePublicId('sub'), taskId, agentId,
+      fields.submission_type === 'pr' ? 'link' : fields.submission_type,
+      fields.submission_content ?? fields.pr_url ?? fields.summary,
+      fields.summary, nowIso,
+    );
+  } catch (err) {
+    console.error(`[tasks] receipt write failed for ${taskId} after the status gate:`, err);
+  }
+  return { receipt_id: receiptId, chain };
+}

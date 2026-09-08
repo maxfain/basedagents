@@ -156,6 +156,111 @@ export interface BoardPost {
   created_at: string;
 }
 
+// ── Tasks (Tasks P0 — /v1/owner/tasks, the human's own task list) ──
+
+export type TaskStatus = 'open' | 'claimed' | 'submitted' | 'verified' | 'closed' | 'cancelled';
+export type TaskCategory = 'research' | 'code' | 'content' | 'data' | 'automation';
+export type TaskOutputFormat = 'json' | 'link';
+export type TaskReviewState = 'revision_requested' | 'disputed' | null;
+
+/** Who posted a task, as the PUBLIC task shape renders it (publicTaskShape). */
+export interface TaskCreator {
+  kind: 'agent' | 'owner';
+  /** Full agent id; null for a human-posted task. */
+  id: string | null;
+  short_id: string | null;
+  name: string | null;
+  cert: 'none' | 'certified_agent' | 'certified_human';
+}
+
+/**
+ * One delivery receipt. The list endpoint's `latest_receipt` carries the
+ * short form (no submission fields); the detail endpoint's `receipts` carry
+ * the full rows — hence the optionals.
+ */
+export interface OwnerTaskReceipt {
+  receipt_id: string;
+  task_id?: string;
+  agent_id: string;
+  /** Display name of the agent that delivered (list shape only). */
+  agent_name?: string | null;
+  summary: string;
+  artifact_urls: string[] | null;
+  pr_url: string | null;
+  commit_hash: string | null;
+  submission_type?: 'json' | 'link' | 'pr' | string;
+  submission_content?: string | null;
+  completed_at: string;
+  chain_sequence?: number | null;
+  chain_entry_hash?: string | null;
+}
+
+/** Input to POST /v1/owner/tasks (no bounty — human-posted tasks are unpaid in this release). */
+export interface CreateTaskInput {
+  title: string;
+  description: string;
+  category?: TaskCategory;
+  required_capabilities?: string[];
+  expected_output?: string;
+  output_format?: TaskOutputFormat;
+}
+
+/**
+ * A task you posted, as GET /v1/owner/tasks returns it: the public task shape
+ * plus the review conveniences the console renders (latest receipt, the
+ * claimer's name, and the "needs review" flag = status 'submitted').
+ */
+export interface OwnerTask {
+  task_id: string;
+  title: string;
+  description: string;
+  category: TaskCategory | string | null;
+  required_capabilities: string[] | null;
+  expected_output: string | null;
+  output_format: TaskOutputFormat | string;
+  status: TaskStatus;
+  created_at: string;
+  claimed_at: string | null;
+  submitted_at: string | null;
+  verified_at: string | null;
+  accepted_by: 'creator' | 'auto' | null;
+  review_note: string | null;
+  revision_count: number;
+  revision_requested_at: string | null;
+  disputed_at: string | null;
+  cancelled_at: string | null;
+  claimed_by_agent_id: string | null;
+  creator: TaskCreator;
+  /** Always null for your tasks in this release (no bounty control in the composer). */
+  bounty: unknown | null;
+  payment_status: string;
+  review_state: TaskReviewState;
+  payment_due: boolean;
+  latest_receipt: OwnerTaskReceipt | null;
+  claimer_name: string | null;
+  needs_review: boolean;
+}
+
+/** GET /v1/owner/tasks/:id — the task without the list's `latest_receipt` (the receipts ride alongside). */
+export interface OwnerTaskDetail {
+  ok: true;
+  task: Omit<OwnerTask, 'latest_receipt'>;
+  /** The latest receipt (by completed_at) — also receipts[0]. */
+  delivery_receipt: OwnerTaskReceipt | null;
+  /** Every delivery, newest first (a change request yields a second one). */
+  receipts: OwnerTaskReceipt[];
+  submission: {
+    submission_id: string;
+    task_id: string;
+    agent_id: string;
+    submission_type: string;
+    content: string;
+    summary: string;
+    created_at: string;
+  } | null;
+  payment: Record<string, unknown>;
+}
+
 /** The armed challenge for a generic owner action (POST /action/begin). */
 export interface ActionBeginResponse {
   challenge: string;

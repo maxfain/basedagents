@@ -29,6 +29,11 @@ const SURFACES = [
   'packages/console/src/pages/Login.tsx',
   'packages/console/src/pages/Start.tsx',
   'packages/console/src/pages/Board.tsx',
+  'packages/console/src/pages/Tasks.tsx',
+  'packages/console/src/pages/TaskNew.tsx',
+  'packages/console/src/pages/TaskReview.tsx',
+  // Pills + error copy shared by the three task pages render to the same human.
+  'packages/console/src/components/TaskBits.tsx',
   'packages/console/src/components/AgentSetup.tsx',
   'packages/console/src/components/AddAgentGuide.tsx',
   'packages/console/src/components/Layout.tsx',

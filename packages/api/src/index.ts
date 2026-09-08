@@ -24,6 +24,7 @@ import probeRoutes from './routes/probe.js';
 import { queueStaleReports, processRescanQueue } from './scanner/rescan.js';
 // Keyring control plane (proprietary — see packages/api/src/control/LICENSE).
 import ownerRoutes from './control/routes.js';
+import ownerTaskRoutes from './control/tasks.js';
 import approvalRoutes from './control/approvals.js';
 import recoveryRoutes from './control/recovery.js';
 import { billingRoutes, stripeWebhookRoutes } from './control/billing.js';
@@ -435,6 +436,7 @@ app.route('/v1/scan', scanRoutes);
 app.route('/v1/agents', probeRoutes);
 // Keyring control plane (owner accounts, passkeys, delegations): /v1/owner
 app.route('/v1/owner', ownerRoutes);
+app.route('/v1/owner', ownerTaskRoutes);
 // Keyring approvals inbox + grant approvals + daemon pull/confirm: /v1/owner
 app.route('/v1/owner', approvalRoutes);
 // Keyring account recovery (magic link + recovery code → passkey rotation): /v1/owner
