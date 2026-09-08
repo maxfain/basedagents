@@ -4,7 +4,7 @@
  * Look up an agent by ID or name and print a full profile summary.
  */
 
-import { RegistryClient } from '../index.js';
+import { RegistryClient, DEFAULT_API_URL } from '../index.js';
 
 // ─── ANSI ───
 const R = '\x1b[0m';
@@ -15,7 +15,7 @@ const green  = (s: string) => `\x1b[32m${s}${R}`;
 const yellow = (s: string) => `\x1b[33m${s}${R}`;
 const cyan   = (s: string) => `\x1b[36m${s}${R}`;
 
-const API_URL = process.env.BASEDAGENTS_API_URL ?? 'https://api.basedagents.ai';
+const API_URL = DEFAULT_API_URL;
 
 type AgentStatus = 'active' | 'pending' | 'suspended' | 'revoked';
 
@@ -55,8 +55,11 @@ interface ReputationData {
     coherence: number;
     contribution: number;
     uptime: number;
-    skill_trust: number;
+    cap_confirmation_rate: number;
+    task_completion: number;
   };
+  tasks_accepted?: number;
+  tasks_failed?: number;
   penalty: number;
   safety_flags: number;
   confidence: number;
@@ -235,10 +238,14 @@ ${bold('Options:')}
       ['Coherence',    bd.coherence],
       ['Contribution', bd.contribution],
       ['Uptime',       bd.uptime],
-      ['Skill trust',  bd.skill_trust],
+      ['Capabilities', bd.cap_confirmation_rate],
+      ['Tasks',        bd.task_completion],
     ];
     for (const [label, val] of rows) {
-      console.log(`  ${dim(label.padEnd(14))} ${bar(val, 16)} ${String(Math.round(val * 100)).padStart(3)}%`);
+      console.log(`  ${dim(label.padEnd(14))} ${bar(val ?? 0, 16)} ${String(Math.round((val ?? 0) * 100)).padStart(3)}%`);
+    }
+    if ((rep.tasks_accepted ?? 0) > 0 || (rep.tasks_failed ?? 0) > 0) {
+      console.log(`  ${dim('Tasks'.padEnd(14))} accepted ${rep.tasks_accepted ?? 0} / failed ${rep.tasks_failed ?? 0}`);
     }
     console.log('');
     if (rep.safety_flags > 0) {

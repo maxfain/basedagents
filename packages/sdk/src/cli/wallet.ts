@@ -7,7 +7,7 @@
 import { readFileSync, readdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import { RegistryClient, deserializeKeypair, publicKeyToAgentId } from '../index.js';
+import { RegistryClient, DEFAULT_API_URL, deserializeKeypair, publicKeyToAgentId, type AgentKeypair } from '../index.js';
 
 // ─── ANSI ───
 const R = '\x1b[0m';
@@ -18,9 +18,15 @@ const green  = (s: string) => `\x1b[32m${s}${R}`;
 const cyan   = (s: string) => `\x1b[36m${s}${R}`;
 const yellow = (s: string) => `\x1b[33m${s}${R}`;
 
-const API_URL = process.env.BASEDAGENTS_API_URL ?? 'https://api.basedagents.ai';
+const API_URL = DEFAULT_API_URL;
 
-function loadKeypair(keypairFile?: string) {
+/**
+ * Load the agent keypair the CLI signs with. `keypairFile` may be a path (any
+ * string containing `/`) or a filename inside `~/.basedagents/keys/`; without
+ * it the last keypair (alphabetically) in that directory is used, with a
+ * warning when there is more than one. Shared by every authenticated command.
+ */
+export function loadKeypair(keypairFile?: string): AgentKeypair {
   const keysDir = join(homedir(), '.basedagents', 'keys');
   if (keypairFile) {
     // Explicit keypair path provided via --keypair flag

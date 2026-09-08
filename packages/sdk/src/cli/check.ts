@@ -5,7 +5,7 @@
  * Exit code 0 = trusted, 1 = not found or untrusted (CI/CD friendly).
  */
 
-import { RegistryClient } from '../index.js';
+import { RegistryClient, DEFAULT_API_URL } from '../index.js';
 import { scanCommand } from './scan.js';
 
 const R = '\x1b[0m';
@@ -16,7 +16,7 @@ const green  = (s: string) => `\x1b[32m${s}${R}`;
 const yellow = (s: string) => `\x1b[33m${s}${R}`;
 const cyan   = (s: string) => `\x1b[36m${s}${R}`;
 
-const API_URL = process.env.BASEDAGENTS_API_URL ?? 'https://api.basedagents.ai';
+const API_URL = DEFAULT_API_URL;
 
 function bar(value: number, width = 20): string {
   const filled = Math.round(value * width);

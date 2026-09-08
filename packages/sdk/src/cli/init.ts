@@ -10,7 +10,7 @@ import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { generateKeypair, serializeKeypair } from '../index.js';
-import { RegistryClient } from '../index.js';
+import { RegistryClient, DEFAULT_API_URL } from '../index.js';
 
 // ─── ANSI ───
 const R = '\x1b[0m';
@@ -21,7 +21,7 @@ const green  = (s: string) => `\x1b[32m${s}${R}`;
 const cyan   = (s: string) => `\x1b[36m${s}${R}`;
 
 const DEFAULT_API = 'https://api.basedagents.ai';
-const API_URL = process.env.BASEDAGENTS_API_URL ?? DEFAULT_API;
+const API_URL = DEFAULT_API_URL;
 
 // ─── Readline helpers ───
 function makeRl() {

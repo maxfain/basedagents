@@ -35,9 +35,78 @@ function canonicalJsonStringify(value: unknown): string {
 // ─── Constants ───
 
 // Allow override via env var — use staging URL during tests/development,
-// never point tests at production.
-export const DEFAULT_API_URL = (typeof process !== 'undefined' ? process.env?.BASEDAGENTS_API : undefined)
-  ?? 'https://api.basedagents.ai';
+// never point tests at production. `BASEDAGENTS_API_URL` is the one name the
+// SDK, the CLI and the Python package share; the older `BASEDAGENTS_API` is
+// still honoured for one release, with a warning.
+function resolveApiUrl(): string {
+  const env = typeof process !== 'undefined' ? process.env : undefined;
+  if (env?.BASEDAGENTS_API_URL) return env.BASEDAGENTS_API_URL;
+  if (env?.BASEDAGENTS_API) {
+    console.warn('[basedagents] BASEDAGENTS_API is deprecated; set BASEDAGENTS_API_URL instead.');
+    return env.BASEDAGENTS_API;
+  }
+  return 'https://api.basedagents.ai';
+}
+export const DEFAULT_API_URL = resolveApiUrl();
+
+/** The header a buyer sends a signed x402 payment authorization in (accept only). */
+export const PAYMENT_HEADER = 'PAYMENT-SIGNATURE';
+
+/** Every task status the API can return; `closed` is legacy and never written. */
+export const TASK_STATUSES = ['open', 'claimed', 'submitted', 'verified', 'closed', 'cancelled'] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+export const TASK_CATEGORIES = ['research', 'code', 'content', 'data', 'automation'] as const;
+export type TaskCategory = (typeof TASK_CATEGORIES)[number];
+
+/** Networks a bounty can settle on (USDC on Base mainnet / Base Sepolia). */
+export const BOUNTY_NETWORKS = ['eip155:8453', 'eip155:84532'] as const;
+export type BountyNetwork = (typeof BOUNTY_NETWORKS)[number];
+
+// ─── Amounts (copied verbatim from packages/api/src/payments/x402.ts — no cross-package import) ───
+
+/** API `bounty.amount`: atomic units, no leading zero, ≤ 10 digits (N1). */
+export const BOUNTY_AMOUNT_RE = /^[1-9][0-9]{0,9}$/;
+/** 1,000 USDC in atomic units — the per-task ceiling (N1). */
+export const MAX_BOUNTY_ATOMIC = 1_000_000_000n;
+/** USDC decimals. */
+const USDC_DECIMALS = 6n;
+const ATOMIC_PER_USDC = 10n ** USDC_DECIMALS;
+
+const USDC_DECIMAL_RE = /^\d{1,7}(\.\d{1,6})?$/;
+
+/**
+ * `'5'` / `'5.00'` / `'0.5'` → atomic-unit string (`'5000000'`, `'500000'`).
+ * Rejects anything but a plain decimal with ≤ 6 fraction digits, zero, and
+ * amounts above MAX_BOUNTY_ATOMIC (1,000 USDC). Output always satisfies
+ * BOUNTY_AMOUNT_RE.
+ */
+export function usdcToAtomic(decimal: string): string {
+  if (typeof decimal !== 'string' || !USDC_DECIMAL_RE.test(decimal)) {
+    throw new Error('amount must be a decimal USDC string with at most 6 decimals (e.g. "5.00")');
+  }
+  const [whole, frac = ''] = decimal.split('.');
+  const atomic = BigInt(whole) * ATOMIC_PER_USDC + BigInt(frac.padEnd(6, '0'));
+  if (atomic <= 0n) throw new Error('amount must be greater than zero');
+  if (atomic > MAX_BOUNTY_ATOMIC) throw new Error('amount exceeds the 1000 USDC maximum');
+  return atomic.toString();
+}
+
+/**
+ * Atomic-unit string → human decimal with at least 2 fraction digits;
+ * trailing zeros beyond the 2nd decimal are trimmed (`'5000000'` → `'5.00'`,
+ * `'5120000'` → `'5.12'`, `'5123456'` → `'5.123456'`).
+ */
+export function atomicToDisplay(atomic: string): string {
+  if (typeof atomic !== 'string' || !/^[0-9]{1,30}$/.test(atomic)) {
+    throw new Error('atomic amount must be a non-negative integer string');
+  }
+  const n = BigInt(atomic);
+  const whole = (n / ATOMIC_PER_USDC).toString();
+  let frac = (n % ATOMIC_PER_USDC).toString().padStart(6, '0');
+  while (frac.length > 2 && frac.endsWith('0')) frac = frac.slice(0, -1);
+  return `${whole}.${frac}`;
+}
 
 /**
  * A short, actionable hint appended to network failures that look like a
@@ -111,9 +180,15 @@ export interface Agent {
   last_seen?: string;
 }
 
+/**
+ * `GET /v1/agents/:id/reputation`. Peer-verification components are weighted
+ * into `raw_score`; `task_completion` (accepted deliveries vs disputed-then-
+ * cancelled ones) is an additive bonus that never renormalises the others.
+ */
 export interface ReputationBreakdown {
   agent_id: string;
   reputation_score: number;
+  raw_score: number;
   confidence: number;
   penalty: number;
   safety_flags: number;
@@ -122,18 +197,25 @@ export interface ReputationBreakdown {
     coherence: number;
     contribution: number;
     uptime: number;
-    skill_trust: number;
+    cap_confirmation_rate: number;
+    /** rate × confidence over delivered tasks; 0 for an agent that never delivered one. */
+    task_completion: number;
   };
   weights: {
     pass_rate: number;
     coherence: number;
     contribution: number;
     uptime: number;
-    skill_trust: number;
+    cap_confirmation_rate: number;
     penalty: number;
+    task_completion: number;
   };
   verifications_received: number;
   verifications_given: number;
+  /** Time-decayed acceptance weight (an auto-acceptance counts 0.5), rounded. */
+  tasks_accepted: number;
+  /** Time-decayed count of deliveries the buyer disputed and then cancelled, rounded. */
+  tasks_failed: number;
 }
 
 export interface StructuredReport {
@@ -391,6 +473,80 @@ export async function signRequest(
   };
 }
 
+// ─── Errors ───
+
+/**
+ * Any non-2xx answer from the API. `code` is the machine-readable `error`
+ * field of the JSON body (`conflict`, `wallet_required`, `dispute_first`, …)
+ * and `body` the parsed JSON when there was one. The message keeps the
+ * `BasedAgents API error <status>: <message>` format.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  readonly body: unknown;
+
+  constructor(status: number, message: string, body: unknown = null) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.body = body;
+    const code = (body as { error?: unknown } | null)?.error;
+    this.code = typeof code === 'string' ? code : null;
+  }
+}
+
+/**
+ * Thrown by `acceptTask` when a bounty task is accepted without a payment
+ * signature: the server answered 402 with the x402 `PaymentRequired`
+ * challenge. Sign `accepts[0]` (an EIP-3009 TransferWithAuthorization of
+ * `amount` atomic USDC to `payTo`, `validBefore ≤ now + maxTimeoutSeconds`)
+ * with any x402 client and call `acceptTask` again with `paymentSignature`.
+ */
+export class PaymentRequiredError extends ApiError {
+  /** The parsed 402 body — the x402 PaymentRequired plus task_id, bounty, accept_endpoint, payment_header. */
+  readonly paymentRequired: PaymentRequiredBody;
+  /** Raw `PAYMENT-REQUIRED` response header (base64 JSON of the x402 PaymentRequired), when present. */
+  readonly paymentRequiredHeader: string | null;
+
+  constructor(body: PaymentRequiredBody, header: string | null = null) {
+    super(402, `BasedAgents API error 402: ${body.message ?? 'payment required'}`, body);
+    this.name = 'PaymentRequiredError';
+    this.paymentRequired = body;
+    this.paymentRequiredHeader = header;
+  }
+
+  /** The requirements to sign — one entry per accepted network/asset. */
+  get accepts(): PaymentRequirements[] { return this.paymentRequired.accepts; }
+  get resource(): PaymentRequired['resource'] { return this.paymentRequired.resource; }
+  get taskId(): string { return this.paymentRequired.task_id; }
+}
+
+/**
+ * Thrown by `acceptTask` when the signed authorization was rejected — by the
+ * local binding checks (`recipient_mismatch`, `amount_mismatch`,
+ * `requirements_mismatch`, `not_yet_valid`, `valid_before_out_of_range`) or
+ * by the facilitator (`insufficient_funds`, signature errors, …). Nothing was
+ * written; re-sign against `paymentRequirements` and retry.
+ */
+export class PaymentInvalidError extends ApiError {
+  readonly reason: string | null;
+  readonly expected: string | null;
+  readonly got: string | null;
+  readonly payer: string | null;
+  readonly paymentRequirements: PaymentRequirements | null;
+
+  constructor(body: PaymentInvalidBody | null) {
+    super(402, `BasedAgents API error 402: ${body?.message ?? 'payment invalid'}${body?.reason ? ` (${body.reason})` : ''}`, body);
+    this.name = 'PaymentInvalidError';
+    this.reason = body?.reason ?? null;
+    this.expected = body?.expected ?? null;
+    this.got = body?.got ?? null;
+    this.payer = body?.payer ?? null;
+    this.paymentRequirements = body?.payment_requirements ?? null;
+  }
+}
+
 // ─── Registry Client ───
 
 export class RegistryClient {
@@ -400,12 +556,12 @@ export class RegistryClient {
     this.baseUrl = baseUrl.replace(/\/$/, '');
   }
 
-  private async fetch(path: string, init?: RequestInit): Promise<Response> {
+  /** Network-level fetch: base URL, JSON content type, 30 s timeout. Never inspects the status. */
+  private async rawFetch(path: string, init?: RequestInit): Promise<Response> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
-    let res: Response;
     try {
-      res = await fetch(`${this.baseUrl}${path}`, {
+      return await fetch(`${this.baseUrl}${path}`, {
         ...init,
         signal: controller.signal,
         headers: { 'Content-Type': 'application/json', ...init?.headers },
@@ -418,15 +574,27 @@ export class RegistryClient {
     } finally {
       clearTimeout(timeout);
     }
-    if (!res.ok) {
-      let msg = res.statusText;
-      try { const e = await res.json() as { message?: string }; msg = e.message ?? msg; } catch { /* ignore */ }
-      // 403 (Forbidden) / 407 (Proxy Auth) from an intermediary is the classic
-      // "agent behind a filtering proxy" signature — most register calls are
-      // unauthenticated, so a 403 rarely means the API rejected you.
-      const hint = res.status === 403 || res.status === 407 ? proxyHint() : '';
-      throw new Error(`BasedAgents API error ${res.status}: ${msg}${hint}`);
-    }
+  }
+
+  /** Turn a non-2xx response into an ApiError carrying the parsed body. */
+  private async apiError(res: Response): Promise<ApiError> {
+    let body: unknown = null;
+    let msg = res.statusText;
+    try {
+      body = await res.json();
+      const m = (body as { message?: unknown } | null)?.message;
+      if (typeof m === 'string') msg = m;
+    } catch { /* ignore */ }
+    // 403 (Forbidden) / 407 (Proxy Auth) from an intermediary is the classic
+    // "agent behind a filtering proxy" signature — most register calls are
+    // unauthenticated, so a 403 rarely means the API rejected you.
+    const hint = res.status === 403 || res.status === 407 ? proxyHint() : '';
+    return new ApiError(res.status, `BasedAgents API error ${res.status}: ${msg}${hint}`, body);
+  }
+
+  private async fetch(path: string, init?: RequestInit): Promise<Response> {
+    const res = await this.rawFetch(path, init);
+    if (!res.ok) throw await this.apiError(res);
     return res;
   }
 
@@ -613,25 +781,21 @@ export class RegistryClient {
   }
 
   // ── Tasks ──
+  //
+  // Lifecycle: post (bounty declared, nothing paid) → claim (a bounty task
+  // needs the claimer to have a wallet) → deliver → accept. A bounty is
+  // AUTHORIZED by the buyer at accept time — `acceptTask` throws
+  // `PaymentRequiredError` with the x402 requirements to sign — and settled
+  // wallet-to-wallet by the facilitator; BasedAgents never holds funds.
 
-  /** Create a new task. Pass paymentSignature for bounty tasks. */
-  async createTask(
-    keypair: AgentKeypair,
-    options: TaskCreateOptions,
-    extra?: { paymentSignature?: string }
-  ): Promise<{ ok: boolean; task_id: string; status: string; payment_status?: PaymentStatus }> {
-    const path = '/v1/tasks';
-    const bodyStr = JSON.stringify(options);
-    const authHeaders = await signRequest(keypair, 'POST', path, bodyStr);
-    const headers: Record<string, string> = { ...authHeaders };
-    if (extra?.paymentSignature) {
-      headers['X-PAYMENT-SIGNATURE'] = extra.paymentSignature;
-    }
-    return this.fetchJson(path, {
-      method: 'POST',
-      headers,
-      body: bodyStr,
-    });
+  /**
+   * Post a task. A bounty is declared here and paid when you accept the
+   * deliverable — never send a payment header on create (the API answers
+   * 400 `payment_not_expected`). `bounty.amount` is an atomic-unit USDC
+   * string: use `usdcToAtomic('5.00')`.
+   */
+  async createTask(keypair: AgentKeypair, options: TaskCreateOptions): Promise<CreateTaskResponse> {
+    return this.fetchAuth(keypair, 'POST', '/v1/tasks', options as unknown as Record<string, unknown>);
   }
 
   /** Browse/search tasks. */
@@ -647,24 +811,22 @@ export class RegistryClient {
   }
 
   /** Get task detail by ID. */
-  async getTask(taskId: string): Promise<{
-    ok: boolean;
-    task: Task;
-    submission?: TaskSubmission | null;
-    delivery_receipt?: DeliveryReceipt | null;
-  }> {
+  async getTask(taskId: string): Promise<TaskDetail> {
     return this.fetchJson(`/v1/tasks/${taskId}`);
   }
 
-  /** Claim an open task. */
+  /**
+   * Claim an open task. A bounty task requires your agent to have a wallet
+   * on the bounty's network (`updateWallet`) — otherwise 409 `wallet_required`.
+   */
   async claimTask(
     keypair: AgentKeypair,
     taskId: string
-  ): Promise<{ ok: boolean; task_id: string; status: string }> {
+  ): Promise<{ ok: boolean; task_id: string; status: 'claimed' }> {
     return this.fetchAuth(keypair, 'POST', `/v1/tasks/${taskId}/claim`);
   }
 
-  /** Deliver a claimed task with a receipt. */
+  /** Deliver a claimed task with a signed receipt (also used to re-deliver after a revision request). */
   async deliverTask(
     keypair: AgentKeypair,
     taskId: string,
@@ -673,66 +835,198 @@ export class RegistryClient {
     ok: boolean;
     task_id: string;
     receipt_id: string;
-    chain_sequence: number;
-    chain_entry_hash: string;
-    status: string;
+    chain_sequence: number | null;
+    chain_entry_hash: string | null;
+    status: 'submitted';
+    revision_count: number;
   }> {
     return this.fetchAuth(keypair, 'POST', `/v1/tasks/${taskId}/deliver`, delivery as unknown as Record<string, unknown>);
   }
 
-  /** Submit a deliverable (legacy). */
+  /** Submit a deliverable (legacy; prefer deliverTask). */
   async submitTask(
     keypair: AgentKeypair,
     taskId: string,
     submission: { summary: string; submission_type: string; content: string }
-  ): Promise<{ ok: boolean; task_id: string }> {
+  ): Promise<{ ok: boolean; task_id: string; submission_id: string; status: 'submitted'; revision_count: number }> {
     return this.fetchAuth(keypair, 'POST', `/v1/tasks/${taskId}/submit`, submission);
   }
 
-  /** Verify a submitted task (triggers payment settlement if bounty). */
-  async verifyTask(
+  /**
+   * Accept a delivered task (creator only). Records acceptance; on a bounty
+   * task the buyer authorizes the payment here:
+   *
+   *   1. Call without `paymentSignature` → the API answers 402 and this throws
+   *      `PaymentRequiredError` whose `accepts[0]` is what to sign.
+   *   2. Sign it with any x402 client (EIP-3009 TransferWithAuthorization to
+   *      `payTo` for `amount`), then call again with `paymentSignature` set to
+   *      the base64 x402 payment payload. The server verifies it, records
+   *      acceptance + authorization atomically and settles immediately.
+   *
+   * `payment_status` tells you where the money is (`settled` with
+   * `payment_tx_hash`, or `authorized`/`failed` while the cron retries).
+   * `PaymentInvalidError` means the signature did not match the requirements.
+   */
+  async acceptTask(
     keypair: AgentKeypair,
-    taskId: string
-  ): Promise<{ ok: boolean; task_id: string; status: string; payment_status?: PaymentStatus; payment_tx_hash?: string }> {
-    return this.fetchAuth(keypair, 'POST', `/v1/tasks/${taskId}/verify`);
+    taskId: string,
+    options: AcceptTaskOptions = {}
+  ): Promise<AcceptTaskResponse> {
+    const path = `/v1/tasks/${taskId}/accept`;
+    const body: Record<string, unknown> = {};
+    if (options.note !== undefined) body.note = options.note;
+    const bodyStr = JSON.stringify(body);
+    const headers: Record<string, string> = { ...(await signRequest(keypair, 'POST', path, bodyStr)) };
+    if (options.paymentSignature) headers[PAYMENT_HEADER] = options.paymentSignature;
+
+    const res = await this.rawFetch(path, { method: 'POST', headers, body: bodyStr });
+    if (res.status === 402) {
+      let parsed: unknown = null;
+      try { parsed = await res.json(); } catch { /* ignore */ }
+      const err = (parsed as { error?: unknown } | null)?.error;
+      if (err === 'payment_required') {
+        throw new PaymentRequiredError(parsed as PaymentRequiredBody, res.headers.get('PAYMENT-REQUIRED'));
+      }
+      throw new PaymentInvalidError(parsed as PaymentInvalidBody | null);
+    }
+    if (!res.ok) throw await this.apiError(res);
+    const data = await res.json() as AcceptTaskResponse;
+    const settle = res.headers.get('PAYMENT-RESPONSE');
+    return settle ? { ...data, payment_response_header: settle } : data;
   }
 
-  /** Cancel a task (creator only). */
-  async cancelTask(
-    keypair: AgentKeypair,
-    taskId: string
-  ): Promise<{ ok: boolean; task_id: string }> {
-    return this.fetchAuth(keypair, 'POST', `/v1/tasks/${taskId}/cancel`);
+  /** @deprecated Use `acceptTask`. Same call; `/verify` is a deprecated alias of `/accept` on the API. */
+  async verifyTask(keypair: AgentKeypair, taskId: string, options?: AcceptTaskOptions): Promise<AcceptTaskResponse> {
+    return this.acceptTask(keypair, taskId, options);
   }
 
-  /** Dispute a submitted task (pauses auto-release). */
+  /**
+   * Send a delivered task back for changes (creator only). The task returns
+   * to `claimed` with `review_state: 'revision_requested'`; the deliverer
+   * re-delivers with `deliverTask`. At most 3 rounds per task (409 `max_revisions`).
+   */
+  async requestRevision(
+    keypair: AgentKeypair,
+    taskId: string,
+    note: string
+  ): Promise<{ ok: boolean; task_id: string; status: 'claimed'; review_state: 'revision_requested'; revision_count: number }> {
+    if (!note || !note.trim()) throw new Error('A note describing the requested changes is required');
+    return this.fetchAuth(keypair, 'POST', `/v1/tasks/${taskId}/revision`, { note });
+  }
+
+  /**
+   * Dispute a delivered task (creator only). Freezes the 7-day auto-accept;
+   * you resolve it with your next action — `acceptTask` or `cancelTask`.
+   * A reason is required.
+   */
   async disputeTask(
     keypair: AgentKeypair,
     taskId: string,
-    reason?: string
-  ): Promise<{ ok: boolean; task_id: string; payment_status: PaymentStatus }> {
-    return this.fetchAuth(keypair, 'POST', `/v1/tasks/${taskId}/dispute`, reason ? { reason } : {});
+    reason: string
+  ): Promise<{ ok: boolean; task_id: string; status: 'submitted'; review_state: 'disputed'; disputed_at: string; payment_status: PaymentStatus }> {
+    if (!reason || !reason.trim()) throw new Error('A reason is required to dispute a deliverable');
+    return this.fetchAuth(keypair, 'POST', `/v1/tasks/${taskId}/dispute`, { reason });
   }
 
-  /** Get payment status and events for a task. */
-  async getTaskPayment(taskId: string): Promise<{ ok: boolean; payment: TaskPayment; events: PaymentEvent[] }> {
+  /**
+   * Cancel a task (creator only). Allowed from `open`, `claimed`, and
+   * `submitted` only after a dispute (409 `dispute_first`); never once
+   * accepted (409 `already_accepted`) or while a payment is authorized or
+   * settling (409 `payment_in_flight`). A never-paid bounty becomes `expired`.
+   */
+  async cancelTask(
+    keypair: AgentKeypair,
+    taskId: string
+  ): Promise<{ ok: boolean; task_id: string; status: 'cancelled'; payment_status: PaymentStatus }> {
+    return this.fetchAuth(keypair, 'POST', `/v1/tasks/${taskId}/cancel`);
+  }
+
+  /** Every delivery receipt for a task, newest first (a revision round adds one). */
+  async getTaskReceipts(taskId: string): Promise<{ ok: boolean; receipts: DeliveryReceipt[] }> {
+    return this.fetchJson(`/v1/tasks/${taskId}/receipts`);
+  }
+
+  /**
+   * Payment status, audit trail, and — when a claimed bounty task can be
+   * accepted — the x402 requirements the buyer will be asked to sign.
+   */
+  async getTaskPayment(taskId: string): Promise<TaskPaymentResponse> {
     return this.fetchJson(`/v1/tasks/${taskId}/payment`);
+  }
+
+  /**
+   * Just the x402 requirements for a task (or why there are none yet), so a
+   * buyer can sign before calling `acceptTask` instead of round-tripping a 402.
+   */
+  async getPaymentRequirements(taskId: string): Promise<{
+    requirements: PaymentRequirements | null;
+    payment_required: PaymentRequired | null;
+    unavailable_reason: TaskPaymentResponse['requirements_unavailable_reason'] | null;
+  }> {
+    const res = await this.getTaskPayment(taskId);
+    return {
+      requirements: res.requirements ?? null,
+      payment_required: res.payment_required ?? null,
+      unavailable_reason: res.requirements_unavailable_reason ?? null,
+    };
   }
 }
 
 // ─── Task & Payment Types ───
 
-export type PaymentStatus = 'none' | 'authorized' | 'settled' | 'failed' | 'disputed' | 'expired' | 'refunded';
+/**
+ * Payment lifecycle of a bounty task:
+ *   none       no bounty
+ *   pending    bounty declared, not authorized yet (sign-at-accept)
+ *   authorized buyer's EIP-3009 authorization verified at accept time
+ *   settling   a settle call is in flight / the facilitator reported pending
+ *   settled    on-chain transfer confirmed (`payment_tx_hash`)
+ *   failed     last settle attempt failed (retried while `next_settle_at` is set)
+ *   expired    authorization expired, or the bounty was voided by a cancel
+ * `disputed` and `refunded` are never written any more (a dispute is a task
+ * flag — see `Task.review_state`); they stay so older rows type-check.
+ */
+export type PaymentStatus =
+  | 'none' | 'pending' | 'authorized' | 'settling' | 'settled' | 'failed' | 'expired'
+  /** @deprecated never written since Tasks P0 */
+  | 'disputed'
+  /** @deprecated never written since Tasks P0 */
+  | 'refunded';
 
+/** A bounty as declared on create. `amount` is ATOMIC USDC units (`usdcToAtomic('5.00')` → `'5000000'`), max 1,000 USDC. */
 export interface Bounty {
   amount: string;
-  token?: string;
-  network?: string;
+  token?: 'USDC';
+  network?: BountyNetwork;
 }
+
+/** A bounty as returned on every read. */
+export interface BountyView {
+  amount_atomic: string;
+  /** Human decimal, e.g. `'5.00'`. */
+  amount_display: string;
+  token: string;
+  network: string;
+}
+
+/** Who posted the task — an agent (AgentSig) or a human from the console. Owner ids are never exposed. */
+export interface TaskCreator {
+  kind: 'agent' | 'owner';
+  /** Agent id, or null for a human poster. */
+  id: string | null;
+  short_id: string | null;
+  name: string | null;
+  cert: 'certified_agent' | 'certified_human' | 'none';
+}
+
+export type ReviewState = 'revision_requested' | 'disputed' | null;
 
 export interface Task {
   task_id: string;
-  creator_agent_id: string;
+  /** null when a human posted the task (`creator.kind === 'owner'`). */
+  creator_agent_id: string | null;
+  creator_kind: 'agent' | 'owner';
+  creator: TaskCreator;
   claimed_by_agent_id: string | null;
   title: string;
   description: string;
@@ -740,16 +1034,38 @@ export interface Task {
   required_capabilities: string[] | null;
   expected_output: string | null;
   output_format: string;
-  status: 'open' | 'claimed' | 'submitted' | 'verified' | 'closed' | 'cancelled';
+  status: TaskStatus;
   created_at: string;
   claimed_at: string | null;
   submitted_at: string | null;
+  /** Acceptance time (`verified` is the acceptance status). */
   verified_at: string | null;
+  /** Who accepted: the creator, or the 7-day timer. */
+  accepted_by: 'creator' | 'auto' | null;
+  /** Creator's latest note: acceptance note, revision request, or dispute reason. */
+  review_note: string | null;
+  revision_count: number;
+  revision_requested_at: string | null;
+  disputed_at: string | null;
+  cancelled_at: string | null;
+  proposer_signature: string | null;
+  acceptor_signature: string | null;
+  bounty: BountyView | null;
   bounty_amount: string | null;
   bounty_token: string | null;
   bounty_network: string | null;
   payment_status: PaymentStatus;
+  payment_verified: number;
+  payment_settled: number;
   payment_tx_hash: string | null;
+  payment_expires_at: string | null;
+  auto_release_at: string | null;
+  settled_at: string | null;
+  last_settle_error: string | null;
+  /** Derived: `'revision_requested'` (claimed after a revision), `'disputed'` (submitted + disputed), else null. */
+  review_state: ReviewState;
+  /** Derived: accepted bounty task whose payment has not been authorized/settled yet. */
+  payment_due: boolean;
 }
 
 export interface TaskSubmission {
@@ -776,17 +1092,37 @@ export interface DeliveryReceipt {
   chain_sequence: number | null;
   chain_entry_hash: string | null;
   signature: string;
+  /** Hex public key of the deliverer, present on `GET /v1/tasks/:id/receipt`. */
+  agent_public_key?: string;
+}
+
+export interface TaskDetail {
+  ok: boolean;
+  task: Task;
+  submission: TaskSubmission | null;
+  delivery_receipt: DeliveryReceipt | null;
+  receipts_count: number;
+  payment: TaskPayment;
 }
 
 export interface TaskPayment {
   task_id: string;
-  bounty: Bounty | null;
+  bounty: BountyView | null;
   status: PaymentStatus;
   verified: boolean;
   settled: boolean;
   tx_hash: string | null;
+  settled_at: string | null;
   expires_at: string | null;
   auto_release_at: string | null;
+  accepted_by: 'creator' | 'auto' | null;
+  payer: string | null;
+  last_error: string | null;
+  settle_attempts: number;
+  next_settle_at: string | null;
+  payment_due: boolean;
+  /** Deliverer wallet the bounty pays to; only on `GET /v1/tasks/:id/payment`. */
+  pay_to?: string | null;
 }
 
 export interface PaymentEvent {
@@ -794,6 +1130,93 @@ export interface PaymentEvent {
   event_type: string;
   details: Record<string, unknown> | null;
   created_at: string;
+}
+
+/** x402 v2 `PaymentRequirements` — what the buyer signs. */
+export interface PaymentRequirements {
+  scheme: 'exact';
+  network: BountyNetwork;
+  asset: string;
+  /** Atomic USDC units. */
+  amount: string;
+  /** The deliverer's wallet. */
+  payTo: string;
+  maxTimeoutSeconds: number;
+  extra: { name: string; version: string } & Record<string, unknown>;
+}
+
+/** x402 v2 `PaymentRequired` — the 402 body and the `PAYMENT-REQUIRED` header (base64 JSON). */
+export interface PaymentRequired {
+  x402Version: 2;
+  error?: string;
+  resource: { url: string; description?: string; mimeType?: string };
+  accepts: PaymentRequirements[];
+}
+
+/** The 402 `payment_required` body from `POST /v1/tasks/:id/accept`. */
+export interface PaymentRequiredBody extends PaymentRequired {
+  error: 'payment_required';
+  message: string;
+  task_id: string;
+  bounty: BountyView | null;
+  accept_endpoint: string;
+  payment_header: string;
+}
+
+/** The 402 `payment_invalid` / `insufficient_funds` body from `POST /v1/tasks/:id/accept`. */
+export interface PaymentInvalidBody {
+  error: 'payment_invalid' | 'insufficient_funds';
+  message?: string;
+  reason?: string;
+  expected?: string;
+  got?: string;
+  payer?: string | null;
+  payment_requirements?: PaymentRequirements;
+}
+
+export interface TaskPaymentResponse {
+  ok: boolean;
+  payment: TaskPayment;
+  /** Present when the task has a bounty, is claimed, and the deliverer has a wallet. */
+  requirements: PaymentRequirements | null;
+  requirements_unavailable_reason?: 'no_bounty' | 'unsupported_network' | 'not_claimed' | 'payee_wallet_missing';
+  payment_required?: PaymentRequired;
+  accept_endpoint: string;
+  /** `'PAYMENT-SIGNATURE'` */
+  payment_header: string;
+  events: PaymentEvent[];
+}
+
+export interface CreateTaskResponse {
+  ok: boolean;
+  task_id: string;
+  status: 'open';
+  /** `'pending'` for a bounty task, `'none'` otherwise. */
+  payment_status: PaymentStatus;
+  bounty?: BountyView;
+}
+
+export interface AcceptTaskOptions {
+  /** Optional acceptance note (≤ 2000 chars), stored as the task's `review_note`. */
+  note?: string;
+  /** Base64 x402 v2 payment payload — sent as the `PAYMENT-SIGNATURE` header. */
+  paymentSignature?: string;
+}
+
+export interface AcceptTaskResponse {
+  ok: boolean;
+  task_id: string;
+  status: 'verified';
+  accepted_by: 'creator' | 'auto' | null;
+  /** Always present; `'none'` on an unpaid task. */
+  payment_status: PaymentStatus;
+  payment_tx_hash?: string;
+  /** Last settle error when the payment is not settled yet. */
+  settle_error?: string;
+  chain_sequence?: number | null;
+  chain_entry_hash?: string | null;
+  /** Raw `PAYMENT-RESPONSE` header (base64 x402 SettleResponse) when the facilitator answered. */
+  payment_response_header?: string;
 }
 
 export interface WalletInfo {
@@ -805,17 +1228,22 @@ export interface WalletInfo {
 export interface TaskCreateOptions {
   title: string;
   description: string;
-  category?: 'research' | 'code' | 'content' | 'data' | 'automation';
+  category?: TaskCategory;
   required_capabilities?: string[];
   expected_output?: string;
   output_format?: 'json' | 'link';
+  /** Declared now, authorized when you accept. No payment header on create. */
   bounty?: Bounty;
 }
 
 export interface TaskSearchParams {
-  status?: string;
-  category?: string;
+  status?: TaskStatus | 'all';
+  category?: TaskCategory;
   capability?: string;
+  /** Filter by creator agent id. */
+  creator?: string;
+  /** Filter by claimer agent id. */
+  claimer?: string;
   limit?: number;
   offset?: number;
 }
