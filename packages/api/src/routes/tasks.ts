@@ -32,7 +32,7 @@ import {
   type Actor, type TaskRow, loadTask, creatorMatches, logPaymentEvent, recordFunnel, taskChainEntry, hashCanonical,
   agentTarget, creatorTarget, sendWebhook, recomputeReputation, publicTaskShape, paymentView, bountyView, creatorSqlParts,
   claimGate, deliverGate, acceptUnpaidGate, revisionGate, disputeGate, cancelGate, cancelRefusal, afterAccept,
-  MAX_REVISIONS,
+  notifyMatchingAgents, writeDeliveryReceipt, MAX_REVISIONS,
 } from '../tasks/service.js';
 
 const tasks = new Hono<AppEnv>();
@@ -136,35 +136,10 @@ tasks.post('/', agentAuth, async (c) => {
 
   const bountyOut = bountyView({ bounty_amount: bounty?.amount ?? null, bounty_token: bounty?.token ?? null, bounty_network: bounty?.network ?? null });
 
-  // Auto-notify matching agents (fire-and-forget)
-  if (reqCaps && reqCaps.length > 0) {
-    const agents = await db.all<{ id: string; capabilities: string; webhook_url: string | null; webhook_secret: string | null }>(
-      `SELECT id, capabilities, webhook_url, webhook_secret FROM agents WHERE status = 'active' AND webhook_url IS NOT NULL AND id != ?`,
-      creatorId,
-    );
-    for (const agent of agents) {
-      try {
-        const caps: string[] = JSON.parse(agent.capabilities);
-        if (reqCaps.some((rc: string) => caps.includes(rc))) {
-          sendWebhook({ id: agent.id, name: '', webhook_url: agent.webhook_url, webhook_secret: agent.webhook_secret }, {
-            type: 'task.available',
-            agent_id: agent.id,
-            task: {
-              task_id: taskId,
-              title: parsed.data.title,
-              description: parsed.data.description,
-              category: parsed.data.category ?? null,
-              required_capabilities: reqCaps,
-              output_format: parsed.data.output_format,
-              bounty: bountyOut,
-            },
-          });
-        }
-      } catch {
-        // skip agents with invalid capabilities JSON
-      }
-    }
-  }
+  await notifyMatchingAgents(db, {
+    task_id: taskId, title: parsed.data.title, description: parsed.data.description, category: parsed.data.category ?? null,
+    required_capabilities: reqCaps, output_format: parsed.data.output_format, bounty: bountyOut,
+  }, creatorId);
 
   const response: Record<string, unknown> = { ok: true, task_id: taskId, status: 'open', payment_status: paymentStatus };
   if (bountyOut) response.bounty = bountyOut;
@@ -414,53 +389,7 @@ tasks.post('/:id/deliver', agentAuth, async (c) => {
     return c.json({ error: 'conflict', message: 'Task is no longer claimed by you', status: task.status }, 409);
   }
 
-  // Gate won. Everything below is recorded best-effort: D1 has no transactions,
-  // so a failure here leaves `submitted` without a receipt — logged, and
-  // tolerated by the read endpoints.
-  const receiptId = generatePublicId('rcpt');
-  const signature = agentSigFromHeader(c) ?? '';
-  const receiptPayload: Record<string, unknown> = {
-    receipt_id: receiptId,
-    task_id: taskId,
-    agent_id: agentId,
-    summary: parsed.data.summary,
-    artifact_urls: parsed.data.artifact_urls ?? null,
-    commit_hash: parsed.data.commit_hash ?? null,
-    pr_url: parsed.data.pr_url ?? null,
-    submission_type: parsed.data.submission_type,
-    submission_content: parsed.data.submission_content ?? null,
-    completed_at: now,
-  };
-  const receiptHash = hashCanonical(receiptPayload);
-
-  let chainEntry: { sequence: number; entry_hash: string } | null = null;
-  try {
-    chainEntry = await taskChainEntry(db, agentId, 'task_delivered', receiptHash);
-  } catch (err) {
-    console.error(`[tasks] chain entry failed for delivery of ${taskId}:`, err);
-  }
-
-  try {
-    await db.run(
-      `INSERT INTO delivery_receipts (receipt_id, task_id, agent_id, summary, artifact_urls, commit_hash, pr_url, submission_type, submission_content, completed_at, chain_sequence, chain_entry_hash, signature)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      receiptId, taskId, agentId, parsed.data.summary,
-      parsed.data.artifact_urls ? JSON.stringify(parsed.data.artifact_urls) : null,
-      parsed.data.commit_hash ?? null, parsed.data.pr_url ?? null, parsed.data.submission_type,
-      parsed.data.submission_content ?? null, now, chainEntry?.sequence ?? null, chainEntry?.entry_hash ?? null, signature,
-    );
-    // Backward-compatible submission record
-    await db.run(
-      `INSERT INTO submissions (submission_id, task_id, agent_id, submission_type, content, summary, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      generatePublicId('sub'), taskId, agentId,
-      parsed.data.submission_type === 'pr' ? 'link' : parsed.data.submission_type,
-      parsed.data.submission_content ?? parsed.data.pr_url ?? parsed.data.summary,
-      parsed.data.summary, now,
-    );
-  } catch (err) {
-    console.error(`[tasks] receipt write failed for ${taskId} after the status gate:`, err);
-  }
+  const { receipt_id: receiptId, chain: chainEntry } = await writeDeliveryReceipt(db, taskId, agentId, parsed.data, agentSigFromHeader(c) ?? '', now);
 
   const creator = await creatorTarget(db, task);
   const deliverer = await db.get<{ name: string }>('SELECT name FROM agents WHERE id = ?', agentId);
