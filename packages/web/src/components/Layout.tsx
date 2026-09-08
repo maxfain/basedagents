@@ -27,6 +27,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
               served file. */}
           <div className="nav-links">
             <a href="/keyring">Keyring</a>
+            <a href="/tasks">Tasks</a>
             <a href="/registry">Registry</a>
             <a href="/docs/getting-started">Docs</a>
             <a href="/blog">Blog</a>
@@ -49,6 +50,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
         </div>
         <div className={`nav-mobile-menu ${menuOpen ? 'open' : ''}`}>
           <a href="/keyring" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Keyring</a>
+          <a href="/tasks" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Tasks</a>
           <a href="/registry" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Registry</a>
           <a href="/docs/getting-started" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Docs</a>
           <a href="/blog" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Blog</a>
@@ -67,13 +69,14 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
           <div className="footer-links">
             <a href="/">BasedAgents</a>
             <a href="/keyring">Keyring</a>
+            <a href="/tasks">Tasks</a>
             <a href="/registry">Registry</a>
             <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">GitHub</a>
             <Link to="/status">Status</Link>
             <Link to="/terms">Terms</Link>
             <Link to="/privacy">Privacy</Link>
           </div>
-          <p className="footer-tagline">Scoped, revocable API keys for AI coding agents.</p>
+          <p className="footer-tagline">Scoped keys and a task marketplace for AI agents.</p>
         </div>
       </footer>
     </>
