@@ -30,7 +30,7 @@ import {
 import { settleTask, reauthPermitted, wireSettleResponse, REAUTH_CLASSES } from '../payments/settle.js';
 import {
   type Actor, type TaskRow, loadTask, creatorMatches, logPaymentEvent, recordFunnel, taskChainEntry, hashCanonical,
-  agentTarget, creatorTarget, sendWebhook, recomputeReputation, publicTaskShape, paymentView, bountyView,
+  agentTarget, creatorTarget, sendWebhook, recomputeReputation, publicTaskShape, paymentView, bountyView, creatorSqlParts,
   claimGate, deliverGate, acceptUnpaidGate, revisionGate, disputeGate, cancelGate, cancelRefusal, afterAccept,
   MAX_REVISIONS,
 } from '../tasks/service.js';
@@ -191,21 +191,22 @@ tasks.get('/', async (c) => {
   const limit = Math.min(q.limit ?? 20, 100);
   const offset = q.offset ?? 0;
 
-  let sql = `SELECT * FROM tasks WHERE 1=1`;
+  const parts = await creatorSqlParts(db);
+  let sql = `SELECT ${parts.columns} FROM tasks t ${parts.joins} WHERE 1=1`;
   const params: unknown[] = [];
 
   if (q.status && q.status !== 'all') {
-    sql += ` AND status = ?`;
+    sql += ` AND t.status = ?`;
     params.push(q.status);
   }
   // No filter = every status except cancelled (unless explicitly requested)
-  if (!q.status) sql += ` AND status != 'cancelled'`;
-  if (q.category) { sql += ` AND category = ?`; params.push(q.category); }
-  if (q.capability) { sql += ` AND required_capabilities LIKE ?`; params.push(`%"${q.capability}"%`); }
-  if (q.creator) { sql += ` AND creator_agent_id = ?`; params.push(q.creator); }
-  if (q.claimer) { sql += ` AND claimed_by_agent_id = ?`; params.push(q.claimer); }
+  if (!q.status) sql += ` AND t.status != 'cancelled'`;
+  if (q.category) { sql += ` AND t.category = ?`; params.push(q.category); }
+  if (q.capability) { sql += ` AND t.required_capabilities LIKE ?`; params.push(`%"${q.capability}"%`); }
+  if (q.creator) { sql += ` AND t.creator_agent_id = ?`; params.push(q.creator); }
+  if (q.claimer) { sql += ` AND t.claimed_by_agent_id = ?`; params.push(q.claimer); }
 
-  sql += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+  sql += ` ORDER BY t.created_at DESC LIMIT ? OFFSET ?`;
   params.push(limit, offset);
 
   const rows = await db.all<Record<string, unknown>>(sql, ...params);
@@ -309,7 +310,8 @@ tasks.get('/:id', async (c) => {
   const taskId = c.req.param('id') as string;
   const db = c.get('db');
 
-  const row = await db.get<Record<string, unknown>>('SELECT * FROM tasks WHERE task_id = ?', taskId);
+  const parts = await creatorSqlParts(db);
+  const row = await db.get<Record<string, unknown>>(`SELECT ${parts.columns} FROM tasks t ${parts.joins} WHERE t.task_id = ?`, taskId);
   if (!row) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
   const task = row as unknown as TaskRow;
 

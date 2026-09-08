@@ -25,6 +25,8 @@ import { fireWebhook, type WebhookEvent } from '../lib/webhooks.js';
 import { computeReputation } from '../reputation/calculator.js';
 import { generatePublicId } from '../lib/ids.js';
 import { atomicToDisplay } from '../payments/x402.js';
+import { sanitizeDisplayName } from '../lib/display-name.js';
+import { certificationTablesPresent, certifiedExistsSql, ownerCertifiedExistsSql } from '../control/certification.js';
 
 export type Actor = { kind: 'agent'; agentId: string } | { kind: 'owner'; ownerId: string };
 
@@ -88,8 +90,27 @@ export const MAX_REVISIONS = 3;
 const PRIVATE_COLUMNS = new Set([
   'payment_signature', 'payment_requirements', 'payment_payer', 'payment_nonce', 'creator_owner_id',
   'creator_assertion_id', 'review_assertion_id',
-  'settle_attempts', 'settle_broadcast', 'settle_started_at', 'settle_next_at',
+  'settle_attempts', 'settle_broadcast', 'settle_started_at', 'settle_next_at', 'last_settle_class',
+  // JOIN outputs folded into `creator` by publicTaskShape
+  'creator_name', 'creator_owner_name', 'creator_certified', 'creator_owner_certified',
 ]);
+
+/**
+ * SELECT fragments that resolve the creator (agent or human) with a display
+ * name and a LIVE certification badge — the board's authorSqlParts pattern.
+ * Without the proprietary control-plane tables (OSS deploys) the owner name
+ * and both cert fragments degrade to constants.
+ */
+export async function creatorSqlParts(db: DBAdapter): Promise<{ columns: string; joins: string }> {
+  const present = await certificationTablesPresent(db);
+  return {
+    columns: `t.*, a.name AS creator_name,
+      ${present ? 'ow.display_name' : 'NULL'} AS creator_owner_name,
+      ${present ? certifiedExistsSql('t.creator_agent_id') : '0'} AS creator_certified,
+      ${present ? ownerCertifiedExistsSql('t.creator_owner_id') : '0'} AS creator_owner_certified`,
+    joins: `LEFT JOIN agents a ON a.id = t.creator_agent_id${present ? ' LEFT JOIN owners ow ON ow.id = t.creator_owner_id' : ''}`,
+  };
+}
 
 export function isoPlus(nowIso: string, ms: number): string {
   return new Date(Date.parse(nowIso) + ms).toISOString();
@@ -247,8 +268,25 @@ export function publicTaskShape(row: Record<string, unknown>): Record<string, un
     if (!PRIVATE_COLUMNS.has(k)) out[k] = v;
   }
   const t = row as unknown as TaskRow;
-  out.required_capabilities = t.required_capabilities ? JSON.parse(t.required_capabilities) : null;
-  out.creator = { kind: t.creator_kind ?? 'agent', id: t.creator_kind === 'owner' ? null : t.creator_agent_id };
+  try {
+    out.required_capabilities = t.required_capabilities ? JSON.parse(t.required_capabilities) : null;
+  } catch {
+    out.required_capabilities = null;
+  }
+  const kind = t.creator_kind ?? 'agent';
+  const creatorId = kind === 'owner' ? null : t.creator_agent_id;
+  const joined = row as { creator_name?: string | null; creator_owner_name?: string | null; creator_certified?: number; creator_owner_certified?: number };
+  out.creator = {
+    kind,
+    id: creatorId,
+    // Truncated display id for cards; the full id (agents only) is `id`.
+    short_id: creatorId ? (creatorId.length > 12 ? `${creatorId.slice(0, 12)}…` : creatorId) : null,
+    // Sanitized so a display name can never forge the cert badge next to it.
+    name: sanitizeDisplayName((kind === 'owner' ? joined.creator_owner_name : joined.creator_name) ?? null),
+    cert: kind === 'owner'
+      ? (joined.creator_owner_certified === 1 ? 'certified_human' : 'none')
+      : (joined.creator_certified === 1 ? 'certified_agent' : 'none'),
+  };
   out.bounty = bountyView(t);
   out.review_state = reviewState(t);
   out.payment_due = paymentDue(t);

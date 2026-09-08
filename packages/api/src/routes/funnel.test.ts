@@ -96,3 +96,44 @@ describe('provider votes', () => {
     }
   });
 });
+
+describe('GET /v1/admin/funnel (task funnel reader)', () => {
+  function adminApp(secret: string | undefined): Hono<AppEnv> {
+    const a = new Hono<AppEnv>();
+    a.use('*', async (c, next) => {
+      c.set('db', db);
+      (c.env as AppEnv['Bindings']) = { ...(c.env ?? {}), ...(secret ? { ADMIN_SECRET: secret } : {}) };
+      await next();
+    });
+    a.route('/v1', funnelRoutes);
+    return a;
+  }
+
+  it('is disabled without ADMIN_SECRET → 403, and rejects a wrong token → 401', async () => {
+    expect((await adminApp(undefined).request('/v1/admin/funnel', { headers: { Authorization: 'Bearer x' } })).status).toBe(403);
+    expect((await adminApp('s3cret').request('/v1/admin/funnel', { headers: { Authorization: 'Bearer wrong' } })).status).toBe(401);
+    expect((await adminApp('s3cret').request('/v1/admin/funnel')).status).toBe(401);
+  });
+
+  it('counts task_* events by name with distinct funnels, honouring since', async () => {
+    const a = adminApp('s3cret');
+    await db.run(`INSERT INTO funnel_events (event, funnel_id, provider, created_at) VALUES ('task_posted', 'task_a', 'agent', '2026-09-01T00:00:00Z')`);
+    await db.run(`INSERT INTO funnel_events (event, funnel_id, provider, created_at) VALUES ('task_posted', 'task_b', 'agent', '2026-09-05T00:00:00Z')`);
+    await db.run(`INSERT INTO funnel_events (event, funnel_id, provider, created_at) VALUES ('task_delivered', 'task_b', NULL, '2026-09-06T00:00:00Z')`);
+    await db.run(`INSERT INTO funnel_events (event, funnel_id, provider, created_at) VALUES ('task_delivered', 'task_b', NULL, '2026-09-07T00:00:00Z')`);
+    await db.run(`INSERT INTO funnel_events (event, funnel_id, provider, created_at) VALUES ('init_run', 'run-1', NULL, '2026-09-07T00:00:00Z')`);
+
+    const all = await (await a.request('/v1/admin/funnel?since=2026-08-01T00:00:00Z', { headers: { Authorization: 'Bearer s3cret' } })).json() as {
+      ok: boolean; since: string; events: Record<string, { count: number; distinct_funnels: number }>;
+    };
+    expect(all.ok).toBe(true);
+    expect(all.since).toBe('2026-08-01T00:00:00.000Z');
+    expect(all.events).toEqual({
+      task_delivered: { count: 2, distinct_funnels: 1 },
+      task_posted: { count: 2, distinct_funnels: 2 },
+    });
+
+    const recent = await (await a.request('/v1/admin/funnel?since=2026-09-04T00:00:00Z', { headers: { Authorization: 'Bearer s3cret' } })).json() as { events: Record<string, { count: number }> };
+    expect(recent.events.task_posted.count).toBe(1);
+  });
+});

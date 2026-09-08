@@ -15,6 +15,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../types/index.js';
+import { requireAdmin } from '../lib/admin-auth.js';
 
 /** The funnel of the onboarding redesign, in order. */
 export const FUNNEL_EVENTS = [
@@ -105,6 +106,28 @@ app.get('/providers/votes', async (c) => {
     `SELECT provider, votes FROM provider_votes ORDER BY votes DESC, provider ASC`,
   );
   return c.json({ votes: rows.map((r) => ({ provider: r.provider, votes: Number(r.votes) })) });
+});
+
+/**
+ * GET /v1/admin/funnel?since=<iso> — read side of the server-emitted task_*
+ * funnel events (Tasks P0, N10). ADMIN_SECRET bearer; default window 30 days.
+ */
+app.get('/admin/funnel', async (c) => {
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  const db = c.get('db');
+  const sinceRaw = c.req.query('since');
+  const since = sinceRaw && !Number.isNaN(Date.parse(sinceRaw))
+    ? new Date(sinceRaw).toISOString()
+    : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const rows = await db.all<{ event: string; count: number; distinct_funnels: number }>(
+    `SELECT event, COUNT(*) AS count, COUNT(DISTINCT funnel_id) AS distinct_funnels
+     FROM funnel_events WHERE event LIKE 'task_%' AND created_at >= ? GROUP BY event ORDER BY event`,
+    since,
+  );
+  const events: Record<string, { count: number; distinct_funnels: number }> = {};
+  for (const r of rows) events[r.event] = { count: r.count, distinct_funnels: r.distinct_funnels };
+  return c.json({ ok: true, since, events });
 });
 
 export default app;

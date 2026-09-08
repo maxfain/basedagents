@@ -435,6 +435,8 @@ agents.get('/:id/reputation', async (c) => {
     confidence: rep.confidence,
     verifications_received: rep.verifications_received,
     verifications_given: rep.verifications_given,
+    tasks_accepted: rep.tasks_accepted,
+    tasks_failed: rep.tasks_failed,
   });
 });
 
