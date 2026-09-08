@@ -3,28 +3,28 @@
  * agents.name_skeleton) — spec §12.1.
  *
  * The migration must be visible to three harnesses: wrangler d1 (directory
- * scan), the node runner (src/node.ts ≥0023 filter), and the vitest schema in
+ * scan), the node runner (src/node.ts — the full chain from
+ * db/migration-list.ts, one transaction per file), and the vitest schema in
  * test-helpers.ts (inlined statements). The first two are exercised here by
  * replaying the real file the way node.ts does; the third via a parity test
  * on setupTestDb() so the inlined copy can't silently drift from the file.
  */
 import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setupTestDb } from './test-helpers.js';
+import { migrationFilesBefore, runnerMigrationFiles } from './db/migration-list.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, '..', 'migrations');
 const SCHEMA_SQL = readFileSync(join(__dirname, 'db', 'schema.sql'), 'utf-8');
 const SQL_0033 = readFileSync(join(MIGRATIONS_DIR, '0033_board.sql'), 'utf-8');
 
-/** Apply migrations exactly the way src/node.ts does on an existing deploy. */
+/** The list src/node.ts replays — shared, so this can't drift from the runner. */
 function nodeRunnerMigrations(): string[] {
-  return readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f >= '0023' && f.endsWith('.sql'))
-    .sort();
+  return runnerMigrationFiles(MIGRATIONS_DIR);
 }
 
 function freshDb(): Database.Database {
@@ -34,13 +34,11 @@ function freshDb(): Database.Database {
   return db;
 }
 
-/** schema.sql + 0021 + all ≥0023 migrations except 0033 — a pre-board deploy. */
+/** schema.sql + every migration before 0033, applied the way node.ts does — a pre-board deploy. */
 function existingDb(): Database.Database {
   const db = freshDb();
-  db.exec(readFileSync(join(MIGRATIONS_DIR, '0021_rate_limit_table.sql'), 'utf-8'));
-  for (const file of nodeRunnerMigrations()) {
-    if (file === '0033_board.sql') continue;
-    db.exec(readFileSync(join(MIGRATIONS_DIR, file), 'utf-8'));
+  for (const file of migrationFilesBefore(MIGRATIONS_DIR, '0033_board.sql')) {
+    db.transaction(() => db.exec(readFileSync(join(MIGRATIONS_DIR, file), 'utf-8')))();
   }
   return db;
 }
@@ -63,9 +61,9 @@ function insertPost(
 }
 
 describe('migration 0033_board.sql', () => {
-  it('is picked up by the node runner filter (≥0023, .sql)', () => {
-    // The runner auto-applies by directory scan — a misnamed file (e.g.
-    // starting below '0023') would silently never run locally.
+  it('is picked up by the node runner list (*.sql directory scan)', () => {
+    // The runner auto-applies by directory scan — a misnamed file (wrong
+    // extension) would silently never run locally.
     expect(nodeRunnerMigrations()).toContain('0033_board.sql');
   });
 

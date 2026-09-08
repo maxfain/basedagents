@@ -879,8 +879,21 @@ npx wrangler dev --local
 
 | Name | Description |
 |------|-------------|
-| `PAYMENT_ENCRYPTION_KEY` | 64 hex chars for AES-256-GCM encryption of payment signatures |
-| `CDP_API_KEY` | Coinbase CDP API key |
+| `PAYMENT_ENCRYPTION_KEY` | 64 hex chars for AES-256-GCM encryption of stored payment authorizations |
+| `CDP_API_KEY_ID` | Coinbase CDP API key id (the JWT `kid`/`sub`) — secret |
+| `CDP_API_KEY_SECRET` | Coinbase CDP **Ed25519** API key secret (base64, 64 bytes) — secret; EC/PEM keys are not supported |
+| `TASK_PAYMENTS_ENABLED` | `"1"` turns bounties on. Absent by default: bounty creation and paid accepts answer 503, the cron skips settlement |
+| `X402_FACILITATOR_URL` | Optional facilitator base URL (default `https://api.cdp.coinbase.com/platform/v2/x402`) |
+| `X402_EIP712_NAME` / `X402_EIP712_VERSION` | Optional EIP-712 domain overrides for USDC on Base mainnet (defaults `USD Coin` / `2`) |
+
+Payments fail closed: `paymentProviderFor(env)` returns a facilitator only when
+`TASK_PAYMENTS_ENABLED="1"` **and** both CDP secrets parse **and**
+`PAYMENT_ENCRYPTION_KEY` is 64 hex. `GET /v1/status` reports `payments:
+enabled|disabled`. Enable checklist: `wrangler secret put CDP_API_KEY_ID` /
+`CDP_API_KEY_SECRET` → `npx tsx scripts/x402-supported-check.ts` (signs a JWT
+with the production code path and asserts `eip155:8453 exact` is supported) →
+enable on staging with an `eip155:84532` bounty and run one paid task end to
+end → set `TASK_PAYMENTS_ENABLED = "1"` in the production `[vars]`.
 | `GENESIS_AGENT_ID` | Optional: agent ID to pin as trust anchor at reputation = 1.0 |
 
 ### Deploying

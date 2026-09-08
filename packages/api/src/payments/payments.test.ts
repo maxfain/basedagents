@@ -8,6 +8,11 @@ import {
 import type { SQLiteAdapter } from '../db/sqlite-adapter.js';
 import type { TestKeypair } from '../test-helpers.js';
 import { encryptPaymentSignature, decryptPaymentSignature } from './crypto.js';
+import {
+  enablePaymentsForTests, disablePaymentsForTests, resetPaymentsForTests, paymentHeaderFor, paymentPayloadFor,
+  TEST_WALLET, TEST_TX, type FakeFacilitator,
+} from './test-fixtures.js';
+import { encodeB64Json, type PaymentRequirementsV2 } from './x402.js';
 
 // Mock twitter
 vi.mock('../lib/twitter.js', () => ({
@@ -22,29 +27,12 @@ vi.mock('../skills/resolver.js', () => ({
   computeSkillReputations: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Mock CDP provider — we don't actually call the CDP API in tests
-vi.mock('./cdp-provider.js', () => {
-  return {
-    CdpPaymentProvider: vi.fn().mockImplementation(() => ({
-      name: 'cdp',
-      verify: vi.fn().mockResolvedValue({
-        valid: true,
-        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-      }),
-      settle: vi.fn().mockResolvedValue({
-        success: true,
-        tx_hash: '0xmocktxhash123456789abcdef',
-      }),
-    })),
-  };
-});
-
 const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
 
 // Test encryption key (64 hex chars = 32 bytes)
 const TEST_ENC_KEY = 'a'.repeat(64);
 
-describe('x402 Payment Integration', () => {
+describe('x402 Payment Integration (sign-at-accept)', () => {
   let db: SQLiteAdapter;
   let app: ReturnType<typeof createTestApp>;
   let creator: TestKeypair & { name: string };
@@ -56,6 +44,8 @@ describe('x402 Payment Integration', () => {
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal('fetch', mockFetch);
+    // Production default: payments are OFF until the founder flips the switch.
+    disablePaymentsForTests();
 
     creator = await createTestAgent(db, { status: 'active', capabilities: ['research', 'code'] });
     claimer = await createTestAgent(db, { status: 'active', capabilities: ['code', 'data'] });
@@ -63,7 +53,88 @@ describe('x402 Payment Integration', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    resetPaymentsForTests();
   });
+
+  // ─── Helpers ───
+
+  async function signedPost(agent: TestKeypair, path: string, body?: unknown, extraHeaders: Record<string, string> = {}): Promise<Response> {
+    const text = body === undefined ? undefined : JSON.stringify(body);
+    const headers = await signRequest(agent, 'POST', path, text);
+    return app.request(path, {
+      method: 'POST',
+      headers: { ...(text ? { 'Content-Type': 'application/json' } : {}), ...extraHeaders, ...headers },
+      body: text,
+    });
+  }
+
+  async function createBountyTask(amount = '5000000', extra: Record<string, unknown> = {}): Promise<{ res: Response; task_id: string }> {
+    const res = await signedPost(creator, '/v1/tasks', {
+      title: 'Paid Research Task',
+      description: 'Research AI safety for 5 USDC',
+      category: 'research',
+      bounty: { amount, token: 'USDC', network: 'eip155:8453' },
+      ...extra,
+    });
+    const data = await res.clone().json() as { task_id: string };
+    return { res, task_id: data.task_id };
+  }
+
+  async function setWallet(agent: TestKeypair, address = TEST_WALLET): Promise<void> {
+    const body = JSON.stringify({ wallet_address: address });
+    const headers = await signRequest(agent, 'PATCH', `/v1/agents/${agent.agentId}/wallet`, body);
+    const r = await app.request(`/v1/agents/${agent.agentId}/wallet`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', ...headers }, body,
+    });
+    expect(r.status).toBe(200);
+  }
+
+  async function claimAndDeliver(taskId: string): Promise<void> {
+    const claim = await signedPost(claimer, `/v1/tasks/${taskId}/claim`);
+    expect(claim.status).toBe(200);
+    const deliver = await signedPost(claimer, `/v1/tasks/${taskId}/deliver`, {
+      summary: 'All done', submission_type: 'json', submission_content: '{"result":"done"}',
+    });
+    expect(deliver.status).toBe(200);
+  }
+
+  async function requirementsFor(taskId: string): Promise<PaymentRequirementsV2> {
+    const res = await app.request(`/v1/tasks/${taskId}/payment`);
+    const data = await res.json() as { requirements: PaymentRequirementsV2 | null };
+    expect(data.requirements).not.toBeNull();
+    return data.requirements!;
+  }
+
+  /** A paid task, claimed by a wallet-bearing agent and delivered — ready to accept. */
+  async function deliveredPaidTask(): Promise<{ taskId: string; requirements: PaymentRequirementsV2 }> {
+    const { res, task_id } = await createBountyTask();
+    expect(res.status).toBe(200);
+    await setWallet(claimer);
+    await claimAndDeliver(task_id);
+    return { taskId: task_id, requirements: await requirementsFor(task_id) };
+  }
+
+  async function accept(taskId: string, header?: string, body?: unknown): Promise<Response> {
+    return signedPost(creator, `/v1/tasks/${taskId}/accept`, body, header ? { 'PAYMENT-SIGNATURE': header } : {});
+  }
+
+  async function taskRow(taskId: string): Promise<Record<string, unknown>> {
+    return (await db.get<Record<string, unknown>>('SELECT * FROM tasks WHERE task_id = ?', taskId))!;
+  }
+
+  async function eventTypes(taskId: string): Promise<string[]> {
+    const rows = await db.all<{ event_type: string }>('SELECT event_type FROM payment_events WHERE task_id = ? ORDER BY created_at ASC, rowid ASC', taskId);
+    return rows.map((r) => r.event_type);
+  }
+
+  function webhookEvents(): Array<{ url: string; type: string; body: Record<string, unknown> }> {
+    return mockFetch.mock.calls
+      .filter((call: unknown[]) => typeof call[0] === 'string' && (call[1] as { body?: string } | undefined)?.body)
+      .map((call: unknown[]) => {
+        const body = JSON.parse((call[1] as { body: string }).body) as Record<string, unknown>;
+        return { url: call[0] as string, type: String(body.type), body };
+      });
+  }
 
   // ─── Encryption Tests ───
 
@@ -164,480 +235,602 @@ describe('x402 Payment Integration', () => {
     });
   });
 
-  // ─── Task with Bounty ───
+  // ─── Fail closed ───
 
-  describe('Paid Task Creation', () => {
-    it('creates task with bounty when payment signature provided', async () => {
-      const body = JSON.stringify({
-        title: 'Paid Research Task',
-        description: 'Research AI safety for $5',
-        category: 'research',
-        bounty: { amount: '$5.00', token: 'USDC', network: 'eip155:8453' },
-      });
-      const headers = await signRequest(creator, 'POST', '/v1/tasks', body);
+  describe('Payments disabled (production default)', () => {
+    it('a bounty task cannot be created → 503 and nothing is written', async () => {
+      const { res } = await createBountyTask();
+      expect(res.status).toBe(503);
+      const data = await res.json() as Record<string, unknown>;
+      expect(data.error).toBe('payments_unavailable');
+      const count = await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM tasks');
+      expect(count!.n).toBe(0);
+    });
 
-      const res = await app.request('/v1/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-PAYMENT-SIGNATURE': 'mock-x402-payment-signature',
-          ...headers,
-        },
-        body,
-      });
-
+    it('a free task still works and reports payment_status none', async () => {
+      const res = await signedPost(creator, '/v1/tasks', { title: 'Free Task', description: 'No bounty' });
       expect(res.status).toBe(200);
       const data = await res.json() as Record<string, unknown>;
-      expect(data.ok).toBe(true);
-      expect(data.payment_status).toBe('authorized');
-
-      // Verify DB state
-      const task = await db.get<{ bounty_amount: string; payment_status: string; payment_verified: number }>(
-        'SELECT bounty_amount, payment_status, payment_verified FROM tasks WHERE task_id = ?', data.task_id
-      );
-      expect(task!.bounty_amount).toBe('$5.00');
-      expect(task!.payment_status).toBe('authorized');
-      expect(task!.payment_verified).toBe(1);
+      expect(data.payment_status).toBe('none');
+      expect(data.bounty).toBeUndefined();
     });
 
-    it('rejects bounty without X-PAYMENT-SIGNATURE header → 402', async () => {
-      const body = JSON.stringify({
-        title: 'Missing Payment',
-        description: 'Has bounty but no signature',
-        bounty: { amount: '$5.00', token: 'USDC', network: 'eip155:8453' },
-      });
-      const headers = await signRequest(creator, 'POST', '/v1/tasks', body);
-
-      const res = await app.request('/v1/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body,
-      });
-
-      expect(res.status).toBe(402);
-      const data = await res.json() as Record<string, unknown>;
-      expect(data.error).toBe('payment_required');
-      expect(data.payment_docs).toBeDefined();
-      expect(data.help).toBeDefined();
-    });
-
-    it('creates task without bounty normally (backward compat)', async () => {
-      const body = JSON.stringify({
-        title: 'Free Task',
-        description: 'No bounty',
-      });
-      const headers = await signRequest(creator, 'POST', '/v1/tasks', body);
-
-      const res = await app.request('/v1/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body,
-      });
-
-      expect(res.status).toBe(200);
-      const data = await res.json() as Record<string, unknown>;
-      expect(data.payment_status).toBeUndefined(); // no payment fields in response for free tasks
-    });
-
-    it('rejects X-PAYMENT-SIGNATURE with invalid characters → 400 (NEW-5)', async () => {
-      const body = JSON.stringify({
-        title: 'Bad Sig Task',
-        description: 'Signature has forbidden chars',
-        bounty: { amount: '$5.00', token: 'USDC', network: 'eip155:8453' },
-      });
-      const headers = await signRequest(creator, 'POST', '/v1/tasks', body);
-
-      // This signature contains characters outside the allowed set (< > !)
-      const badSig = '<script>alert("xss")</script>';
-
-      const res = await app.request('/v1/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-PAYMENT-SIGNATURE': badSig,
-          ...headers,
-        },
-        body,
-      });
-
-      expect(res.status).toBe(400);
-      const data = await res.json() as Record<string, unknown>;
-      expect(data.error).toBe('bad_request');
-    });
-
-    it('rejects X-PAYMENT-SIGNATURE that exceeds length limit → 400 (NEW-5)', async () => {
-      const body = JSON.stringify({
-        title: 'Too Long Sig',
-        description: 'Signature is way too long',
-        bounty: { amount: '$5.00', token: 'USDC', network: 'eip155:8453' },
-      });
-      const headers = await signRequest(creator, 'POST', '/v1/tasks', body);
-
-      // 10001 chars — exceeds the 10000 char limit
-      const oversizedSig = 'A'.repeat(10001);
-
-      const res = await app.request('/v1/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-PAYMENT-SIGNATURE': oversizedSig,
-          ...headers,
-        },
-        body,
-      });
-
-      expect(res.status).toBe(400);
-      const data = await res.json() as Record<string, unknown>;
-      expect(data.error).toBe('bad_request');
+    it('accepting an existing bounty task without a header → 503', async () => {
+      // Row created while payments were on; the switch was then flipped off.
+      const f = enablePaymentsForTests();
+      const { taskId } = await deliveredPaidTask();
+      disablePaymentsForTests();
+      const res = await accept(taskId);
+      expect(res.status).toBe(503);
+      expect(f.verifyCalls.length).toBe(0);
     });
   });
 
-  // ─── Payment Status Endpoint ───
+  // ─── Bounty declaration ───
 
-  describe('GET /v1/tasks/:id/payment', () => {
-    it('returns payment status for a paid task', async () => {
-      // Create paid task directly in DB
-      const taskId = 'task_payment_test_1';
-      const now = new Date().toISOString();
-      await db.run(
-        `INSERT INTO tasks (task_id, creator_agent_id, title, description, status, created_at, bounty_amount, bounty_token, bounty_network, payment_status)
-         VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`,
-        taskId, creator.agentId, 'Test', 'Test', now, '$10.00', 'USDC', 'eip155:8453', 'authorized'
-      );
-      await db.run(
-        `INSERT INTO payment_events (id, task_id, event_type, details, created_at)
-         VALUES (?, ?, ?, ?, ?)`,
-        'pev_test1', taskId, 'authorized', JSON.stringify({ amount: '$10.00' }), now
-      );
+  describe('Declaring a bounty (payments enabled)', () => {
+    let facilitator: FakeFacilitator;
+    beforeEach(() => { facilitator = enablePaymentsForTests(); });
 
-      const res = await app.request(`/v1/tasks/${taskId}/payment`);
+    it('creates a pending bounty task with no payment header', async () => {
+      const { res, task_id } = await createBountyTask();
       expect(res.status).toBe(200);
       const data = await res.json() as Record<string, unknown>;
-      expect(data.ok).toBe(true);
-      const payment = data.payment as Record<string, unknown>;
-      expect(payment.status).toBe('authorized');
-      expect((payment.bounty as Record<string, unknown>).amount).toBe('$10.00');
-      const events = data.events as Array<Record<string, unknown>>;
-      expect(events.length).toBe(1);
-      expect(events[0].event_type).toBe('authorized');
+      expect(data.payment_status).toBe('pending');
+      expect(data.bounty).toEqual({ amount_atomic: '5000000', amount_display: '5.00', token: 'USDC', network: 'eip155:8453' });
+
+      const row = await taskRow(task_id);
+      expect(row.bounty_amount).toBe('5000000');
+      expect(row.payment_status).toBe('pending');
+      expect(row.payment_verified).toBe(0);
+      expect(row.payment_signature).toBeNull();
+      expect(await eventTypes(task_id)).toEqual(['bounty_declared']);
+      expect(facilitator.verifyCalls.length).toBe(0);
     });
 
-    it('returns payment_status=none for non-paid task', async () => {
-      const taskId = 'task_nopay_test';
-      const now = new Date().toISOString();
-      await db.run(
-        `INSERT INTO tasks (task_id, creator_agent_id, title, description, status, created_at)
-         VALUES (?, ?, ?, ?, 'open', ?)`,
-        taskId, creator.agentId, 'Free', 'Free task', now
-      );
+    it('rejects a display amount → 400 (atomic units only)', async () => {
+      const { res } = await createBountyTask('$5.00');
+      expect(res.status).toBe(400);
+    });
 
-      const res = await app.request(`/v1/tasks/${taskId}/payment`);
+    it('rejects a bounty above 1,000 USDC → 400', async () => {
+      const { res } = await createBountyTask('1000000001');
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects a payment header at creation → 400 payment_not_expected', async () => {
+      const res = await signedPost(creator, '/v1/tasks', {
+        title: 'Paid', description: 'x', bounty: { amount: '5000000', token: 'USDC', network: 'eip155:8453' },
+      }, { 'PAYMENT-SIGNATURE': 'anything' });
+      expect(res.status).toBe(400);
+      expect((await res.json() as Record<string, unknown>).error).toBe('payment_not_expected');
+    });
+
+    it('also rejects the legacy X-PAYMENT-SIGNATURE header at creation', async () => {
+      const res = await signedPost(creator, '/v1/tasks', {
+        title: 'Paid', description: 'x', bounty: { amount: '5000000', token: 'USDC', network: 'eip155:8453' },
+      }, { 'X-PAYMENT-SIGNATURE': 'anything' });
+      expect(res.status).toBe(400);
+    });
+
+    it('public reads show the bounty view and never the payment internals', async () => {
+      const { task_id } = await createBountyTask();
+      const list = await (await app.request('/v1/tasks?status=open')).json() as { tasks: Array<Record<string, unknown>> };
+      const t = list.tasks.find((x) => x.task_id === task_id)!;
+      expect(t.bounty).toEqual({ amount_atomic: '5000000', amount_display: '5.00', token: 'USDC', network: 'eip155:8453' });
+      expect(t.payment_status).toBe('pending');
+      expect(t.payment_due).toBe(false);
+      expect(t).not.toHaveProperty('payment_signature');
+      expect(t).not.toHaveProperty('payment_requirements');
+      expect(t).not.toHaveProperty('payment_payer');
+      expect(t).not.toHaveProperty('settle_attempts');
+      expect(t.creator).toEqual({ kind: 'agent', id: creator.agentId });
+    });
+  });
+
+  // ─── GET /v1/tasks/:id/payment ───
+
+  describe('GET /v1/tasks/:id/payment', () => {
+    beforeEach(() => { enablePaymentsForTests(); });
+
+    it('has no requirements until the task is claimed', async () => {
+      const { task_id } = await createBountyTask();
+      const data = await (await app.request(`/v1/tasks/${task_id}/payment`)).json() as Record<string, unknown>;
+      expect(data.requirements).toBeNull();
+      expect(data.requirements_unavailable_reason).toBe('not_claimed');
+      expect((data.payment as Record<string, unknown>).status).toBe('pending');
+      expect(data.payment_header).toBe('PAYMENT-SIGNATURE');
+    });
+
+    it('serves the exact requirements once claimed by a wallet-bearing agent', async () => {
+      const { taskId, requirements } = await deliveredPaidTask();
+      expect(requirements.scheme).toBe('exact');
+      expect(requirements.network).toBe('eip155:8453');
+      expect(requirements.amount).toBe('5000000');
+      expect(requirements.payTo).toBe(TEST_WALLET);
+      expect(requirements.maxTimeoutSeconds).toBe(3600);
+      expect(requirements.extra).toMatchObject({ name: 'USD Coin', version: '2' });
+      const data = await (await app.request(`/v1/tasks/${taskId}/payment`)).json() as Record<string, unknown>;
+      expect((data.payment_required as { accepts: unknown[] }).accepts).toHaveLength(1);
+      expect((data.payment as Record<string, unknown>).pay_to).toBe(TEST_WALLET);
+      expect(data.accept_endpoint).toBe(`POST /v1/tasks/${taskId}/accept`);
+    });
+
+    it('returns payment_status=none for a free task', async () => {
+      const res = await signedPost(creator, '/v1/tasks', { title: 'Free', description: 'Free task' });
+      const { task_id } = await res.json() as { task_id: string };
+      const data = await (await app.request(`/v1/tasks/${task_id}/payment`)).json() as Record<string, unknown>;
+      expect((data.payment as Record<string, unknown>).status).toBe('none');
+      expect((data.payment as Record<string, unknown>).bounty).toBeNull();
+      expect(data.requirements_unavailable_reason).toBe('no_bounty');
+    });
+  });
+
+  // ─── Claiming a bounty task ───
+
+  describe('Claiming a bounty task', () => {
+    beforeEach(() => { enablePaymentsForTests(); });
+
+    it('requires the claimer to have a wallet → 409 wallet_required', async () => {
+      const { task_id } = await createBountyTask();
+      const res = await signedPost(claimer, `/v1/tasks/${task_id}/claim`);
+      expect(res.status).toBe(409);
+      expect((await res.json() as Record<string, unknown>).error).toBe('wallet_required');
+    });
+  });
+
+  // ─── Accept: the 402 challenge ───
+
+  describe('Accepting a paid deliverable', () => {
+    let facilitator: FakeFacilitator;
+    beforeEach(() => { facilitator = enablePaymentsForTests(); });
+
+    it('without a header → 402 with PAYMENT-REQUIRED and no state change', async () => {
+      const { taskId, requirements } = await deliveredPaidTask();
+      const res = await accept(taskId);
+      expect(res.status).toBe(402);
+      const data = await res.json() as Record<string, unknown>;
+      expect(data.error).toBe('payment_required');
+      expect(data.x402Version).toBe(2);
+      expect((data.accepts as PaymentRequirementsV2[])[0]).toEqual(requirements);
+      const header = res.headers.get('PAYMENT-REQUIRED')!;
+      const decoded = JSON.parse(Buffer.from(header, 'base64').toString('utf8')) as { accepts: PaymentRequirementsV2[] };
+      expect(decoded.accepts[0].payTo).toBe(TEST_WALLET);
+
+      const row = await taskRow(taskId);
+      expect(row.status).toBe('submitted');
+      expect(row.payment_status).toBe('pending');
+      expect(facilitator.verifyCalls.length).toBe(0);
+    });
+
+    it('with a valid header → verified + settled in one call, with chain entries, events and webhooks', async () => {
+      const { taskId, requirements } = await deliveredPaidTask();
+      const res = await accept(taskId, paymentHeaderFor(requirements), { note: 'Great work' });
       expect(res.status).toBe(200);
       const data = await res.json() as Record<string, unknown>;
-      const payment = data.payment as Record<string, unknown>;
-      expect(payment.status).toBe('none');
-      expect(payment.bounty).toBeNull();
+      expect(data.status).toBe('verified');
+      expect(data.accepted_by).toBe('creator');
+      expect(data.payment_status).toBe('settled');
+      expect(data.payment_tx_hash).toBe(TEST_TX);
+      expect(data.chain_sequence).toBeTypeOf('number');
+      expect(res.headers.get('PAYMENT-RESPONSE')).not.toBeNull();
+
+      const row = await taskRow(taskId);
+      expect(row.status).toBe('verified');
+      expect(row.review_note).toBe('Great work');
+      expect(row.payment_status).toBe('settled');
+      expect(row.payment_settled).toBe(1);
+      expect(row.payment_tx_hash).toBe(TEST_TX);
+      expect(row.settle_broadcast).toBe(1);
+      expect(row.settle_attempts).toBe(1);
+      expect(row.payment_nonce).toMatch(/^0x[0-9a-f]{64}$/);
+      expect(row.payment_payer).toBeTruthy();
+      expect(row.settled_at).not.toBeNull();
+      expect(row.auto_release_at).toBeNull();
+
+      // The stored payload is the raw header, encrypted, and the requirements are the ones we served.
+      const stored = await decryptPaymentSignature(row.payment_signature as string, TEST_ENC_KEY);
+      expect(JSON.parse(Buffer.from(stored, 'base64').toString('utf8')).x402Version).toBe(2);
+      expect(JSON.parse(row.payment_requirements as string)).toEqual(requirements);
+
+      expect(facilitator.verifyCalls.length).toBe(1);
+      expect(facilitator.settleCalls.length).toBe(1);
+      expect(facilitator.settleCalls[0].requirements).toEqual(requirements);
+
+      expect(await eventTypes(taskId)).toEqual(['bounty_declared', 'authorized', 'settled']);
+      const chain = await db.all<{ entry_type: string }>(`SELECT entry_type FROM chain WHERE entry_type LIKE 'task_%' ORDER BY sequence`);
+      expect(chain.map((c) => c.entry_type)).toEqual(['task_delivered', 'task_verified', 'task_payment_settled']);
+    });
+
+    it('rejects a payload signed to the wrong recipient before calling the facilitator → 402', async () => {
+      const { taskId, requirements } = await deliveredPaidTask();
+      const header = paymentHeaderFor(requirements, undefined, { authorization: { to: '0x' + '9'.repeat(40) } });
+      const res = await accept(taskId, header);
+      expect(res.status).toBe(402);
+      const data = await res.json() as Record<string, unknown>;
+      expect(data.error).toBe('payment_invalid');
+      expect(data.reason).toBe('recipient_mismatch');
+      expect(facilitator.verifyCalls.length).toBe(0);
+      expect((await taskRow(taskId)).payment_status).toBe('pending');
+    });
+
+    it('rejects a wrong amount → 402 amount_mismatch', async () => {
+      const { taskId, requirements } = await deliveredPaidTask();
+      const header = paymentHeaderFor(requirements, undefined, { authorization: { value: '4999999' } });
+      const res = await accept(taskId, header);
+      expect(res.status).toBe(402);
+      expect((await res.json() as Record<string, unknown>).reason).toBe('amount_mismatch');
+    });
+
+    it('rejects an authorization that expires too soon → 402 valid_before_out_of_range', async () => {
+      const { taskId, requirements } = await deliveredPaidTask();
+      const now = Math.floor(Date.now() / 1000);
+      const header = paymentHeaderFor(requirements, now, { authorization: { validBefore: String(now + 30) } });
+      const res = await accept(taskId, header);
+      expect(res.status).toBe(402);
+      expect((await res.json() as Record<string, unknown>).reason).toBe('valid_before_out_of_range');
+    });
+
+    it('rejects a malformed header → 400 payment_malformed', async () => {
+      const { taskId } = await deliveredPaidTask();
+      const res = await accept(taskId, 'not-a-payload');
+      expect(res.status).toBe(400);
+      expect((await res.json() as Record<string, unknown>).error).toBe('payment_malformed');
+    });
+
+    it('rejects a v1 payload → 400', async () => {
+      const { taskId, requirements } = await deliveredPaidTask();
+      const v1 = { x402Version: 1, scheme: 'exact', network: 'base', payload: paymentPayloadFor(requirements).payload };
+      const res = await accept(taskId, encodeB64Json(v1));
+      expect(res.status).toBe(400);
+    });
+
+    it('facilitator says invalid → 402 and nothing is written', async () => {
+      facilitator.verifyOutcomes.push({ kind: 'invalid', reason: 'insufficient_funds', message: 'Insufficient funds', http: 200 });
+      const { taskId, requirements } = await deliveredPaidTask();
+      const res = await accept(taskId, paymentHeaderFor(requirements));
+      expect(res.status).toBe(402);
+      const data = await res.json() as Record<string, unknown>;
+      expect(data.error).toBe('insufficient_funds');
+      const row = await taskRow(taskId);
+      expect(row.status).toBe('submitted');
+      expect(row.payment_status).toBe('pending');
+      expect(row.payment_signature).toBeNull();
+      expect(facilitator.settleCalls.length).toBe(0);
+    });
+
+    it('facilitator unavailable at verify → 503 and nothing is written', async () => {
+      facilitator.verifyOutcomes.push({ kind: 'unavailable', cause: 'network', detail: 'timeout' });
+      const { taskId, requirements } = await deliveredPaidTask();
+      const res = await accept(taskId, paymentHeaderFor(requirements));
+      expect(res.status).toBe(503);
+      expect((await res.json() as Record<string, unknown>).error).toBe('facilitator_unavailable');
+      expect((await taskRow(taskId)).status).toBe('submitted');
+    });
+
+    it('accepts the deprecated X-PAYMENT-SIGNATURE header name', async () => {
+      const { taskId, requirements } = await deliveredPaidTask();
+      const res = await signedPost(creator, `/v1/tasks/${taskId}/verify`, undefined, { 'X-PAYMENT-SIGNATURE': paymentHeaderFor(requirements) });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Deprecation')).toBe('true');
+      expect((await res.json() as Record<string, unknown>).payment_status).toBe('settled');
+    });
+
+    it('is idempotent once settled: a second accept never re-settles', async () => {
+      const { taskId, requirements } = await deliveredPaidTask();
+      expect((await accept(taskId, paymentHeaderFor(requirements))).status).toBe(200);
+      const again = await accept(taskId);
+      expect(again.status).toBe(200);
+      const data = await again.json() as Record<string, unknown>;
+      expect(data.payment_status).toBe('settled');
+      expect(data.payment_tx_hash).toBe(TEST_TX);
+      expect(facilitator.settleCalls.length).toBe(1);
+    });
+
+    it('a nonce already used on another task → 409 authorization_reused', async () => {
+      const first = await deliveredPaidTask();
+      const payload = paymentPayloadFor(first.requirements);
+      expect((await accept(first.taskId, encodeB64Json(payload))).status).toBe(200);
+
+      const { res, task_id } = await createBountyTask();
+      expect(res.status).toBe(200);
+      await claimAndDeliver(task_id);
+      const requirements = await requirementsFor(task_id);
+      const reused = paymentPayloadFor(requirements, undefined, { authorization: { nonce: payload.payload.authorization.nonce } });
+      const second = await accept(task_id, encodeB64Json(reused));
+      expect(second.status).toBe(409);
+      expect((await second.json() as Record<string, unknown>).error).toBe('authorization_reused');
+      expect((await taskRow(task_id)).status).toBe('submitted');
+    });
+
+    it('deliverer without a wallet at accept time → 409 payee_wallet_missing', async () => {
+      const { taskId } = await deliveredPaidTask();
+      await db.run('UPDATE agents SET wallet_address = NULL WHERE id = ?', claimer.agentId);
+      const res = await accept(taskId);
+      expect(res.status).toBe(409);
+      expect((await res.json() as Record<string, unknown>).error).toBe('payee_wallet_missing');
+    });
+  });
+
+  // ─── Acceptance is not settlement ───
+
+  describe('Settlement outcomes after acceptance', () => {
+    let facilitator: FakeFacilitator;
+    beforeEach(() => { facilitator = enablePaymentsForTests(); });
+
+    it('transient settle failure → task stays verified, payment failed with a retry, re-auth refused', async () => {
+      facilitator.settleOutcomes.push({ kind: 'rejected', reason: 'settle_exact_evm_transaction_confirmation_timed_out', http: 400 });
+      const { taskId, requirements } = await deliveredPaidTask();
+      const res = await accept(taskId, paymentHeaderFor(requirements));
+      expect(res.status).toBe(200);
+      const data = await res.json() as Record<string, unknown>;
+      expect(data.status).toBe('verified');
+      expect(data.payment_status).toBe('failed');
+      expect(data.settle_error).toBe('settle_exact_evm_transaction_confirmation_timed_out');
+      expect(data.payment_tx_hash).toBeUndefined();
+
+      const row = await taskRow(taskId);
+      expect(row.status).toBe('verified');
+      expect(row.payment_status).toBe('failed');
+      expect(row.payment_settled).toBe(0);
+      expect(row.settle_next_at).not.toBeNull();
+      expect(row.settle_broadcast).toBe(1);
+      expect(await eventTypes(taskId)).toEqual(['bounty_declared', 'authorized', 'settle_failed']);
+
+      // The payload may have reached the chain: a fresh signature is refused.
+      const again = await accept(taskId, paymentHeaderFor(requirements));
+      expect(again.status).toBe(409);
+      expect((await again.json() as Record<string, unknown>).error).toBe('settlement_in_progress');
+    });
+
+    it('terminal settle failure → payment failed with no retry; the buyer may re-sign', async () => {
+      facilitator.settleOutcomes.push({ kind: 'rejected', reason: 'invalid_exact_evm_payload_signature', http: 400 });
+      const { taskId, requirements } = await deliveredPaidTask();
+      expect((await accept(taskId, paymentHeaderFor(requirements))).status).toBe(200);
+      let row = await taskRow(taskId);
+      expect(row.payment_status).toBe('failed');
+      expect(row.settle_next_at).toBeNull();
+      expect(row.last_settle_error).toBe('invalid_exact_evm_payload_signature');
+
+      facilitator.settleOutcomes.length = 0;
+      const again = await accept(taskId, paymentHeaderFor(requirements));
+      expect(again.status).toBe(200);
+      expect((await again.json() as Record<string, unknown>).payment_status).toBe('settled');
+      row = await taskRow(taskId);
+      expect(row.settle_attempts).toBe(1);
+      expect(row.accepted_by).toBe('creator');
+      expect(facilitator.settleCalls.length).toBe(2);
+    });
+
+    it('settlement_pending → settling with the tx recorded and a retry scheduled', async () => {
+      facilitator.settleOutcomes.push({ kind: 'pending', transaction: TEST_TX });
+      const { taskId, requirements } = await deliveredPaidTask();
+      const res = await accept(taskId, paymentHeaderFor(requirements));
+      expect(res.status).toBe(200);
+      expect((await res.json() as Record<string, unknown>).payment_status).toBe('settling');
+      const row = await taskRow(taskId);
+      expect(row.payment_status).toBe('settling');
+      expect(row.payment_tx_hash).toBe(TEST_TX);
+      expect(row.settle_next_at).not.toBeNull();
+      expect(await eventTypes(taskId)).toContain('settle_pending');
+    });
+
+    it('a settle response with success:false is never recorded as settled', async () => {
+      facilitator.settleOutcomes.push({ kind: 'rejected', reason: 'settle_exact_failed_onchain', http: 200 });
+      const { taskId, requirements } = await deliveredPaidTask();
+      await accept(taskId, paymentHeaderFor(requirements));
+      const row = await taskRow(taskId);
+      expect(row.payment_status).toBe('failed');
+      expect(row.payment_settled).toBe(0);
+      expect(row.payment_tx_hash).toBeNull();
+    });
+
+    it('re-signing is refused after a transient outcome whose free text contains validation keywords (review finding)', async () => {
+      // After our broadcast the facilitator answered with transport text that happens to
+      // contain words like "signature"/"blocked"/"mismatch". Only the STRUCTURED class may
+      // unlock a second signature — never the error string.
+      facilitator.settleOutcomes.push({ kind: 'unavailable', cause: 'server', http: 503, detail: 'HTTP 503: upstream request blocked (signature mismatch)' });
+      const { taskId, requirements } = await deliveredPaidTask();
+      expect((await accept(taskId, paymentHeaderFor(requirements))).status).toBe(200);
+      const row = await taskRow(taskId);
+      expect(row.payment_status).toBe('failed');
+      expect(row.last_settle_class).toBe('transient');
+      expect(row.settle_broadcast).toBe(1);
+
+      facilitator.settleOutcomes.length = 0;
+      const again = await accept(taskId, paymentHeaderFor(requirements));
+      expect(again.status).toBe(409);
+      expect((await again.json() as Record<string, unknown>).error).toBe('settlement_in_progress');
+      expect(facilitator.settleCalls.length).toBe(1);
+      expect((await taskRow(taskId)).payment_nonce).toBe(row.payment_nonce);
+    });
+
+    it('an unreadable stored payload after our broadcast is handed to a human, not re-signed', async () => {
+      facilitator.settleOutcomes.push({ kind: 'rejected', reason: 'settle_exact_evm_transaction_confirmation_timed_out', http: 400 });
+      const { taskId, requirements } = await deliveredPaidTask();
+      expect((await accept(taskId, paymentHeaderFor(requirements))).status).toBe(200);
+      // Simulate a key rotation: the ciphertext can no longer be decrypted on retry.
+      await db.run(`UPDATE tasks SET payment_signature = 'garbage', settle_next_at = ? WHERE task_id = ?`, new Date().toISOString(), taskId);
+      const { settleTask } = await import('./settle.js');
+      const r = await settleTask(db, { PAYMENT_ENCRYPTION_KEY: TEST_ENC_KEY } as never, taskId, 'cron');
+      expect(r).toMatchObject({ skipped: false, error: 'stored_payload_unreadable_after_broadcast' });
+      const row = await taskRow(taskId);
+      expect(row.last_settle_class).toBe('unknown');
+      expect(row.settle_next_at).toBeNull();
+      const again = await accept(taskId, paymentHeaderFor(requirements));
+      expect(again.status).toBe(409);
+    });
+
+    it('authorizing a task the timer already accepted keeps accepted_by=auto and adds no second acceptance entry', async () => {
+      const { taskId, requirements } = await deliveredPaidTask();
+      // The cron accepted it first (T5); the buyer then pays.
+      await db.run(`UPDATE tasks SET status = 'verified', accepted_by = 'auto', verified_at = ?, auto_release_at = NULL WHERE task_id = ?`, new Date().toISOString(), taskId);
+      const res = await accept(taskId, paymentHeaderFor(requirements));
+      expect(res.status).toBe(200);
+      const data = await res.json() as Record<string, unknown>;
+      expect(data.accepted_by).toBe('auto');
+      expect(data.payment_status).toBe('settled');
+      expect(data.chain_sequence).toBeNull();
+      const chain = await db.all<{ entry_type: string }>(`SELECT entry_type FROM chain WHERE entry_type = 'task_verified'`);
+      expect(chain.length).toBe(0);
+      const funnel = await db.all<{ event: string; provider: string | null }>(`SELECT event, provider FROM funnel_events WHERE funnel_id = ? AND event = 'task_accepted'`, taskId);
+      expect(funnel.length).toBe(0);
+    });
+
+    it('PAYMENT-RESPONSE carries the x402 SettleResponse wire shape', async () => {
+      const { taskId, requirements } = await deliveredPaidTask();
+      const res = await accept(taskId, paymentHeaderFor(requirements));
+      const decoded = JSON.parse(Buffer.from(res.headers.get('PAYMENT-RESPONSE')!, 'base64').toString('utf8')) as Record<string, unknown>;
+      expect(decoded.success).toBe(true);
+      expect(decoded.transaction).toBe(TEST_TX);
+      expect(decoded.network).toBe('eip155:8453');
+      expect(decoded).not.toHaveProperty('kind');
+    });
+
+    it('a legacy bounty on an unsupported network cannot be paid and does not crash', async () => {
+      const { taskId } = await deliveredPaidTask();
+      await db.run(`UPDATE tasks SET bounty_network = 'base' WHERE task_id = ?`, taskId);
+      const payment = await app.request(`/v1/tasks/${taskId}/payment`);
+      expect(payment.status).toBe(200);
+      expect((await payment.json() as Record<string, unknown>).requirements_unavailable_reason).toBe('unsupported_network');
+      const res = await accept(taskId);
+      expect(res.status).toBe(409);
+      expect((await res.json() as Record<string, unknown>).error).toBe('bounty_unsupported_network');
+    });
+
+    it('notifies the deliverer of acceptance and of settlement separately', async () => {
+      await db.run('UPDATE agents SET webhook_url = ? WHERE id = ?', 'https://deliverer.example.com/hook', claimer.agentId);
+      const { taskId, requirements } = await deliveredPaidTask();
+      await accept(taskId, paymentHeaderFor(requirements));
+      await new Promise((r) => setTimeout(r, 10));
+      const events = webhookEvents().filter((e) => e.url === 'https://deliverer.example.com/hook').map((e) => e.type);
+      expect(events).toContain('task.verified');
+      expect(events).toContain('task.payment_settled');
+      const verified = webhookEvents().find((e) => e.type === 'task.verified')!;
+      expect(verified.body.payment_settled).toBe(false);
+      expect(verified.body.payment_status).toBe('authorized');
+      expect(verified.body.accepted_by).toBe('creator');
     });
   });
 
   // ─── Dispute Flow ───
 
   describe('POST /v1/tasks/:id/dispute', () => {
-    async function createPaidTask(): Promise<string> {
-      const body = JSON.stringify({
-        title: 'Disputed Task',
-        description: 'Will be disputed',
-        bounty: { amount: '$5.00', token: 'USDC', network: 'eip155:8453' },
-      });
-      const headers = await signRequest(creator, 'POST', '/v1/tasks', body);
-      const res = await app.request('/v1/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-PAYMENT-SIGNATURE': 'mock-payment',
-          ...headers,
-        },
-        body,
-      });
-      const data = await res.json() as { task_id: string };
-      return data.task_id;
-    }
+    beforeEach(() => { enablePaymentsForTests(); });
 
-    it('creator can dispute a submitted task', async () => {
-      const taskId = await createPaidTask();
-
-      // Claim
-      let headers = await signRequest(claimer, 'POST', `/v1/tasks/${taskId}/claim`);
-      await app.request(`/v1/tasks/${taskId}/claim`, { method: 'POST', headers });
-
-      // Submit
-      const submitBody = JSON.stringify({
-        submission_type: 'json',
-        content: '{"result": "bad work"}',
-        summary: 'Half-done',
-      });
-      headers = await signRequest(claimer, 'POST', `/v1/tasks/${taskId}/submit`, submitBody);
-      await app.request(`/v1/tasks/${taskId}/submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body: submitBody,
-      });
-
-      // Dispute
-      const disputeBody = JSON.stringify({ reason: 'Work was incomplete' });
-      headers = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/dispute`, disputeBody);
-      const res = await app.request(`/v1/tasks/${taskId}/dispute`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body: disputeBody,
-      });
-
+    it('flags a submitted task as disputed without touching payment_status', async () => {
+      const { taskId } = await deliveredPaidTask();
+      const res = await signedPost(creator, `/v1/tasks/${taskId}/dispute`, { reason: 'Work was incomplete' });
       expect(res.status).toBe(200);
       const data = await res.json() as Record<string, unknown>;
-      expect(data.ok).toBe(true);
-      expect(data.payment_status).toBe('disputed');
+      expect(data.status).toBe('submitted');
+      expect(data.review_state).toBe('disputed');
+      expect(data.payment_status).toBe('pending');
 
-      // Verify auto_release_at is cleared
-      const task = await db.get<{ payment_status: string; auto_release_at: string | null }>(
-        'SELECT payment_status, auto_release_at FROM tasks WHERE task_id = ?', taskId
-      );
-      expect(task!.payment_status).toBe('disputed');
-      expect(task!.auto_release_at).toBeNull();
+      const row = await taskRow(taskId);
+      expect(row.status).toBe('submitted');
+      expect(row.disputed_at).not.toBeNull();
+      expect(row.review_note).toBe('Work was incomplete');
+      expect(row.auto_release_at).toBeNull();
+      expect(row.payment_status).toBe('pending');
+      expect(await eventTypes(taskId)).toContain('disputed');
 
-      // Verify payment event logged
-      const events = await db.all<{ event_type: string }>(
-        'SELECT event_type FROM payment_events WHERE task_id = ?', taskId
-      );
-      const disputeEvents = events.filter(e => e.event_type === 'disputed');
-      expect(disputeEvents.length).toBe(1);
+      const detail = await (await app.request(`/v1/tasks/${taskId}`)).json() as { task: Record<string, unknown> };
+      expect(detail.task.review_state).toBe('disputed');
+    });
+
+    it('requires a reason → 400', async () => {
+      const { taskId } = await deliveredPaidTask();
+      const res = await signedPost(creator, `/v1/tasks/${taskId}/dispute`, {});
+      expect(res.status).toBe(400);
+    });
+
+    it('cannot be disputed twice → 409 already_disputed', async () => {
+      const { taskId } = await deliveredPaidTask();
+      expect((await signedPost(creator, `/v1/tasks/${taskId}/dispute`, { reason: 'a' })).status).toBe(200);
+      const res = await signedPost(creator, `/v1/tasks/${taskId}/dispute`, { reason: 'b' });
+      expect(res.status).toBe(409);
+      expect((await res.json() as Record<string, unknown>).error).toBe('already_disputed');
     });
 
     it('only creator can dispute → 403', async () => {
-      const taskId = await createPaidTask();
-
-      let headers = await signRequest(claimer, 'POST', `/v1/tasks/${taskId}/claim`);
-      await app.request(`/v1/tasks/${taskId}/claim`, { method: 'POST', headers });
-
-      const submitBody = JSON.stringify({
-        submission_type: 'json',
-        content: '{}',
-        summary: 'done',
-      });
-      headers = await signRequest(claimer, 'POST', `/v1/tasks/${taskId}/submit`, submitBody);
-      await app.request(`/v1/tasks/${taskId}/submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body: submitBody,
-      });
-
-      // Claimer tries to dispute — should fail
-      headers = await signRequest(claimer, 'POST', `/v1/tasks/${taskId}/dispute`);
-      const res = await app.request(`/v1/tasks/${taskId}/dispute`, {
-        method: 'POST',
-        headers,
-      });
+      const { taskId } = await deliveredPaidTask();
+      const res = await signedPost(claimer, `/v1/tasks/${taskId}/dispute`, { reason: 'nope' });
       expect(res.status).toBe(403);
     });
 
-    it('cannot dispute non-submitted task → 400', async () => {
-      const taskId = await createPaidTask();
-
-      const headers = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/dispute`);
-      const res = await app.request(`/v1/tasks/${taskId}/dispute`, {
-        method: 'POST',
-        headers,
-      });
-      expect(res.status).toBe(400);
+    it('cannot dispute a non-submitted task → 409', async () => {
+      const { task_id } = await createBountyTask();
+      const res = await signedPost(creator, `/v1/tasks/${task_id}/dispute`, { reason: 'x' });
+      expect(res.status).toBe(409);
     });
-  });
 
-  // ─── Settlement on Verify ───
-
-  describe('Settlement on verify', () => {
-    it('settles payment when creator verifies a paid task', async () => {
-      // Create paid task
-      const createBody = JSON.stringify({
-        title: 'Settlement Test',
-        description: 'Should settle on verify',
-        bounty: { amount: '$5.00', token: 'USDC', network: 'eip155:8453' },
-      });
-      let headers = await signRequest(creator, 'POST', '/v1/tasks', createBody);
-      const createRes = await app.request('/v1/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-PAYMENT-SIGNATURE': 'mock-x402-sig',
-          ...headers,
-        },
-        body: createBody,
-      });
-      const { task_id: taskId } = await createRes.json() as { task_id: string };
-
-      // Claim
-      headers = await signRequest(claimer, 'POST', `/v1/tasks/${taskId}/claim`);
-      await app.request(`/v1/tasks/${taskId}/claim`, { method: 'POST', headers });
-
-      // Submit
-      const submitBody = JSON.stringify({
-        submission_type: 'json',
-        content: '{"result": "done"}',
-        summary: 'All done',
-      });
-      headers = await signRequest(claimer, 'POST', `/v1/tasks/${taskId}/submit`, submitBody);
-      await app.request(`/v1/tasks/${taskId}/submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body: submitBody,
-      });
-
-      // Verify (triggers settlement)
-      headers = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/verify`);
-      const verifyRes = await app.request(`/v1/tasks/${taskId}/verify`, {
-        method: 'POST',
-        headers,
-      });
-
-      expect(verifyRes.status).toBe(200);
-      const data = await verifyRes.json() as Record<string, unknown>;
-      expect(data.ok).toBe(true);
-      expect(data.status).toBe('verified');
-      expect(data.payment_status).toBe('settled');
-      expect(data.payment_tx_hash).toBe('0xmocktxhash123456789abcdef');
-
-      // Verify DB state
-      const task = await db.get<{ payment_status: string; payment_settled: number; payment_tx_hash: string }>(
-        'SELECT payment_status, payment_settled, payment_tx_hash FROM tasks WHERE task_id = ?', taskId
-      );
-      expect(task!.payment_status).toBe('settled');
-      expect(task!.payment_settled).toBe(1);
-      expect(task!.payment_tx_hash).toBe('0xmocktxhash123456789abcdef');
-
-      // Verify payment events
-      const events = await db.all<{ event_type: string }>(
-        'SELECT event_type FROM payment_events WHERE task_id = ? ORDER BY created_at ASC', taskId
-      );
-      expect(events.map(e => e.event_type)).toContain('authorized');
-      expect(events.map(e => e.event_type)).toContain('settled');
+    it('a disputed task can still be accepted (and paid)', async () => {
+      const { taskId, requirements } = await deliveredPaidTask();
+      await signedPost(creator, `/v1/tasks/${taskId}/dispute`, { reason: 'let me look again' });
+      const res = await accept(taskId, paymentHeaderFor(requirements));
+      expect(res.status).toBe(200);
+      expect((await res.json() as Record<string, unknown>).payment_status).toBe('settled');
     });
   });
 
   // ─── Cancel with Payment ───
 
   describe('Cancel with payment', () => {
-    it('marks payment as expired when task with bounty is cancelled', async () => {
-      const createBody = JSON.stringify({
-        title: 'Cancel Payment Test',
-        description: 'Will be cancelled',
-        bounty: { amount: '$3.00', token: 'USDC', network: 'eip155:8453' },
-      });
-      let headers = await signRequest(creator, 'POST', '/v1/tasks', createBody);
-      const createRes = await app.request('/v1/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-PAYMENT-SIGNATURE': 'mock-sig',
-          ...headers,
-        },
-        body: createBody,
-      });
-      const { task_id: taskId } = await createRes.json() as { task_id: string };
+    beforeEach(() => { enablePaymentsForTests(); });
 
-      // Cancel
-      headers = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/cancel`);
-      const res = await app.request(`/v1/tasks/${taskId}/cancel`, {
-        method: 'POST',
-        headers,
-      });
+    it('voids a pending bounty when an open task is cancelled', async () => {
+      const { task_id } = await createBountyTask();
+      const res = await signedPost(creator, `/v1/tasks/${task_id}/cancel`);
       expect(res.status).toBe(200);
+      expect((await res.json() as Record<string, unknown>).payment_status).toBe('expired');
+      const row = await taskRow(task_id);
+      expect(row.status).toBe('cancelled');
+      expect(row.payment_status).toBe('expired');
+      expect(row.cancelled_at).not.toBeNull();
+      expect(await eventTypes(task_id)).toContain('expired');
+    });
 
-      // Verify payment_status = expired
-      const task = await db.get<{ payment_status: string }>(
-        'SELECT payment_status FROM tasks WHERE task_id = ?', taskId
-      );
-      expect(task!.payment_status).toBe('expired');
-
-      // Verify payment event logged
-      const events = await db.all<{ event_type: string }>(
-        'SELECT event_type FROM payment_events WHERE task_id = ?', taskId
-      );
-      expect(events.map(e => e.event_type)).toContain('expired');
+    it('refuses to cancel once the bounty is settled → 409 already_accepted', async () => {
+      const { taskId, requirements } = await deliveredPaidTask();
+      await accept(taskId, paymentHeaderFor(requirements));
+      const res = await signedPost(creator, `/v1/tasks/${taskId}/cancel`);
+      expect(res.status).toBe(409);
+      expect((await res.json() as Record<string, unknown>).error).toBe('already_accepted');
     });
   });
 
-  // ─── Task detail strips payment_signature ───
+  // ─── Task detail strips payment internals ───
 
   describe('Task detail security', () => {
-    it('GET /v1/tasks/:id never exposes encrypted payment_signature', async () => {
-      const createBody = JSON.stringify({
-        title: 'Sig Strip Test',
-        description: 'Test',
-        bounty: { amount: '$1.00', token: 'USDC', network: 'eip155:8453' },
-      });
-      const headers = await signRequest(creator, 'POST', '/v1/tasks', createBody);
-      const createRes = await app.request('/v1/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-PAYMENT-SIGNATURE': 'secret-sig',
-          ...headers,
-        },
-        body: createBody,
-      });
-      const { task_id: taskId } = await createRes.json() as { task_id: string };
+    beforeEach(() => { enablePaymentsForTests(); });
 
+    it('GET /v1/tasks/:id never exposes the encrypted payload, requirements or payer', async () => {
+      const { taskId, requirements } = await deliveredPaidTask();
+      await accept(taskId, paymentHeaderFor(requirements));
       const res = await app.request(`/v1/tasks/${taskId}`);
       expect(res.status).toBe(200);
-      const data = await res.json() as { task: Record<string, unknown> };
-      expect(data.task.payment_signature).toBeUndefined();
-      expect(data.task.payment_status).toBe('authorized');
-      expect(data.task.bounty_amount).toBe('$1.00');
+      const data = await res.json() as { task: Record<string, unknown>; payment: Record<string, unknown> };
+      expect(data.task).not.toHaveProperty('payment_signature');
+      expect(data.task).not.toHaveProperty('payment_requirements');
+      expect(data.task).not.toHaveProperty('payment_payer');
+      expect(data.task).not.toHaveProperty('payment_nonce');
+      expect(data.task.payment_status).toBe('settled');
+      expect(data.payment.tx_hash).toBe(TEST_TX);
+      expect(data.payment.payment_due).toBe(false);
     });
   });
 
-  // ─── Auto-release timer ───
+  // ─── Auto-accept timer ───
 
-  describe('Auto-release timer', () => {
-    it('sets auto_release_at when a paid task is submitted', async () => {
-      const createBody = JSON.stringify({
-        title: 'Auto Release Test',
-        description: 'Test auto-release',
-        bounty: { amount: '$2.00', token: 'USDC', network: 'eip155:8453' },
-      });
-      let headers = await signRequest(creator, 'POST', '/v1/tasks', createBody);
-      const createRes = await app.request('/v1/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-PAYMENT-SIGNATURE': 'mock-sig',
-          ...headers,
-        },
-        body: createBody,
-      });
-      const { task_id: taskId } = await createRes.json() as { task_id: string };
-
-      // Claim
-      headers = await signRequest(claimer, 'POST', `/v1/tasks/${taskId}/claim`);
-      await app.request(`/v1/tasks/${taskId}/claim`, { method: 'POST', headers });
-
-      // Submit
-      const submitBody = JSON.stringify({
-        submission_type: 'json',
-        content: '{"done": true}',
-        summary: 'Done',
-      });
-      headers = await signRequest(claimer, 'POST', `/v1/tasks/${taskId}/submit`, submitBody);
-      await app.request(`/v1/tasks/${taskId}/submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body: submitBody,
-      });
-
-      const task = await db.get<{ auto_release_at: string | null }>(
-        'SELECT auto_release_at FROM tasks WHERE task_id = ?', taskId
-      );
-      expect(task!.auto_release_at).not.toBeNull();
-      // Should be ~7 days from now
-      const releaseDate = new Date(task!.auto_release_at!);
+  describe('Auto-accept timer', () => {
+    it('arms auto_release_at ~7 days out on delivery, for free tasks too', async () => {
+      const res = await signedPost(creator, '/v1/tasks', { title: 'Free', description: 'Free task' });
+      const { task_id } = await res.json() as { task_id: string };
+      await claimAndDeliver(task_id);
+      const row = await taskRow(task_id);
+      expect(row.auto_release_at).not.toBeNull();
+      const releaseDate = new Date(row.auto_release_at as string);
       const expectedMin = new Date(Date.now() + 6.9 * 24 * 60 * 60 * 1000);
       const expectedMax = new Date(Date.now() + 7.1 * 24 * 60 * 60 * 1000);
       expect(releaseDate.getTime()).toBeGreaterThan(expectedMin.getTime());

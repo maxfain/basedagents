@@ -1,254 +1,152 @@
+/**
+ * Task marketplace routes — the AGENT (AgentSig) route family.
+ *
+ * State transitions live in tasks/service.ts (one conditional UPDATE each);
+ * settlement lives in payments/settle.ts. This file only parses requests,
+ * answers 404/403/409 from the row it read, calls the gate, and runs the
+ * side effects after a win. The human-owner route family (control/tasks.ts)
+ * shares the same service.
+ *
+ * Payment model (Tasks P0, spec section 2): a bounty is DECLARED at creation
+ * and AUTHORIZED at accept time — the buyer signs an EIP-3009 transfer to the
+ * deliverer's wallet only after seeing the work. BasedAgents never holds
+ * funds. Payments fail closed: without TASK_PAYMENTS_ENABLED + CDP secrets a
+ * bounty task cannot be created and a paid accept answers 503.
+ */
 import { Hono } from 'hono';
+import type { Context } from 'hono';
+import { z } from 'zod';
 import type { AppEnv } from '../types/index.js';
-import type { DBAdapter } from '../db/adapter.js';
 import { CreateTaskSchema, SubmitDeliverableSchema, DeliverTaskSchema, TaskQuerySchema } from '../types/index.js';
-import type { PaymentStatus } from '../types/index.js';
+import type { DBAdapter } from '../db/adapter.js';
 import { agentAuth } from '../middleware/auth.js';
-import { fireWebhook } from '../lib/webhooks.js';
-import { computeChainHash, GENESIS_HASH, sha256, bytesToHex, canonicalJsonStringify } from '../crypto/index.js';
-import { computeReputation } from '../reputation/calculator.js';
-import { CdpPaymentProvider } from '../payments/cdp-provider.js';
-import { encryptPaymentSignature, decryptPaymentSignature } from '../payments/crypto.js';
+import { bytesToHex } from '../crypto/index.js';
+import { generatePublicId } from '../lib/ids.js';
+import { paymentProviderFor } from '../payments/index.js';
+import { encryptPaymentSignature } from '../payments/crypto.js';
+import {
+  decodePaymentHeader, buildRequirements, buildPaymentRequired, encodeB64Json, localPrechecks, PaymentMalformed, isNetwork,
+} from '../payments/x402.js';
+import { settleTask, reauthPermitted, wireSettleResponse, REAUTH_CLASSES } from '../payments/settle.js';
+import {
+  type Actor, type TaskRow, loadTask, creatorMatches, logPaymentEvent, recordFunnel, taskChainEntry, hashCanonical,
+  agentTarget, creatorTarget, sendWebhook, recomputeReputation, publicTaskShape, paymentView, bountyView,
+  claimGate, deliverGate, acceptUnpaidGate, revisionGate, disputeGate, cancelGate, cancelRefusal, afterAccept,
+  MAX_REVISIONS,
+} from '../tasks/service.js';
 
 const tasks = new Hono<AppEnv>();
 
-function generateTaskId(): string {
-  const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
-  let id = 'task_';
-  for (let i = 0; i < 21; i++) {
-    id += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return id;
+const PAYMENT_HEADER = 'PAYMENT-SIGNATURE';
+/** Accepted for one release; logged so the deprecation is visible (D8). */
+const LEGACY_PAYMENT_HEADER = 'X-PAYMENT-SIGNATURE';
+const WALLET_RE = /^0x[0-9a-fA-F]{40}$/;
+
+const AcceptBodySchema = z.object({ note: z.string().max(2000).optional() }).passthrough();
+const RevisionBodySchema = z.object({ note: z.string().min(1).max(2000) }).passthrough();
+const DisputeBodySchema = z.object({ reason: z.string().min(1).max(2000) }).passthrough();
+const CancelBodySchema = z.object({ reason: z.string().max(2000).optional() }).passthrough();
+
+type Ctx = Context<AppEnv>;
+
+async function readJson(c: Ctx): Promise<{ ok: true; body: unknown } | { ok: false }> {
+  const text = await c.req.text();
+  if (!text.trim()) return { ok: true, body: {} };
+  try { return { ok: true, body: JSON.parse(text) }; } catch { return { ok: false }; }
 }
 
-function generateSubmissionId(): string {
-  const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
-  let id = 'sub_';
-  for (let i = 0; i < 21; i++) {
-    id += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return id;
+function agentSigFromHeader(c: Ctx): string | null {
+  const authHeader = c.req.header('Authorization') ?? '';
+  return authHeader.startsWith('AgentSig ') ? authHeader.split(':').slice(1).join(':') : null;
 }
 
-function generateReceiptId(): string {
-  const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
-  let id = 'rcpt_';
-  for (let i = 0; i < 21; i++) {
-    id += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return id;
+function paymentHeader(c: Ctx): string | undefined {
+  const canonical = c.req.header(PAYMENT_HEADER);
+  if (canonical) return canonical;
+  const legacy = c.req.header(LEGACY_PAYMENT_HEADER);
+  if (legacy) console.warn(`[payments] ${LEGACY_PAYMENT_HEADER} is deprecated; send ${PAYMENT_HEADER}`);
+  return legacy;
 }
 
-function generateEventId(): string {
-  const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
-  let id = 'pev_';
-  for (let i = 0; i < 21; i++) {
-    id += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return id;
+async function delivererWallet(db: DBAdapter, agentId: string | null): Promise<{ address: string; network: string | null } | null> {
+  if (!agentId) return null;
+  const row = await db.get<{ wallet_address: string | null; wallet_network: string | null }>(
+    'SELECT wallet_address, wallet_network FROM agents WHERE id = ?', agentId,
+  );
+  if (!row?.wallet_address || !WALLET_RE.test(row.wallet_address)) return null;
+  return { address: row.wallet_address, network: row.wallet_network };
 }
 
 /**
- * Canonicalize an object for hashing using RFC 8785 canonical JSON.
- */
-function canonicalJson(obj: Record<string, unknown>): string {
-  return canonicalJsonStringify(obj);
-}
-
-/**
- * Log a payment event to the audit table.
- */
-async function logPaymentEvent(
-  db: DBAdapter,
-  taskId: string,
-  eventType: string,
-  details?: Record<string, unknown>
-): Promise<void> {
-  await db.run(
-    `INSERT INTO payment_events (id, task_id, event_type, details, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
-    generateEventId(), taskId, eventType,
-    details ? JSON.stringify(details) : null,
-    new Date().toISOString()
-  );
-}
-
-/**
- * Create a chain entry for task events (task_delivered, task_verified, task_payment_settled).
- */
-async function createTaskChainEntry(
-  db: DBAdapter,
-  agentId: string,
-  entryType: string,
-  dataHash: string,
-): Promise<{ sequence: number; entry_hash: string }> {
-  const agent = await db.get<{ public_key: Uint8Array }>(
-    'SELECT public_key FROM agents WHERE id = ?', agentId
-  );
-  const pubKeyRaw = agent!.public_key;
-  const pubKeyBytes = pubKeyRaw instanceof Uint8Array
-    ? pubKeyRaw
-    : new Uint8Array(Object.values(pubKeyRaw as Record<string, number>));
-
-  const latestEntry = await db.get<{ entry_hash: string }>(
-    'SELECT entry_hash FROM chain ORDER BY sequence DESC LIMIT 1'
-  );
-  const previousHash = latestEntry?.entry_hash ?? GENESIS_HASH;
-  const now = new Date().toISOString();
-
-  const entryHash = computeChainHash(previousHash, pubKeyBytes, '', dataHash, now);
-
-  const seqRow = await db.get<{ next_seq: number }>(
-    'SELECT COALESCE(MAX(sequence), -1) + 1 AS next_seq FROM chain'
-  );
-  const nextSeq = seqRow!.next_seq;
-
-  await db.run(
-    `INSERT INTO chain (sequence, entry_hash, previous_hash, agent_id, public_key, nonce, profile_hash, timestamp, entry_type)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    nextSeq, entryHash, previousHash, agentId, pubKeyBytes, '', dataHash, now, entryType
-  );
-
-  return { sequence: nextSeq, entry_hash: entryHash };
-}
-
-/**
- * POST /v1/tasks — Create a task (with optional bounty + payment signature)
+ * POST /v1/tasks — Create a task. A bounty is declared here, never paid here.
  */
 tasks.post('/', agentAuth, async (c) => {
   const creatorId = c.get('agentId') as string;
   const db = c.get('db');
 
-  let body: unknown;
-  try { body = JSON.parse(await c.req.text()); }
-  catch { return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400); }
-
-  const parsed = CreateTaskSchema.safeParse(body);
+  const json = await readJson(c);
+  if (!json.ok) return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400);
+  const parsed = CreateTaskSchema.safeParse(json.body);
   if (!parsed.success) {
     return c.json({ error: 'bad_request', message: 'Validation failed', details: parsed.error.flatten() }, 400);
   }
 
-  // Creator must be active
   const creator = await db.get<{ id: string; name: string; status: string }>(
-    'SELECT id, name, status FROM agents WHERE id = ?', creatorId
+    'SELECT id, name, status FROM agents WHERE id = ?', creatorId,
   );
   if (!creator || creator.status !== 'active') {
     return c.json({ error: 'forbidden', message: 'Agent must be active to create tasks' }, 403);
   }
 
-  const taskId = generateTaskId();
+  if (paymentHeader(c)) {
+    return c.json({
+      error: 'payment_not_expected',
+      message: 'Payment is authorized when you accept the deliverable, not when you post the task. Declare the bounty in the body and omit the payment header.',
+    }, 400);
+  }
+
+  const bounty = parsed.data.bounty;
+  if (bounty && !paymentProviderFor(c.env)) {
+    return c.json({
+      error: 'payments_unavailable',
+      message: 'Bounties are not enabled on this registry yet. Post the task without a bounty, or check GET /v1/status -> payments.',
+    }, 503);
+  }
+
+  const taskId = generatePublicId('task');
   const now = new Date().toISOString();
   const reqCaps = parsed.data.required_capabilities ?? null;
-
-  // Store proposer_signature from auth header
-  const authHeader = c.req.header('Authorization') ?? '';
-  const proposerSig = authHeader.startsWith('AgentSig ') ? authHeader.split(':').slice(1).join(':') : null;
-
-  // ─── Payment handling ───
-  const bounty = parsed.data.bounty;
-  const paymentSigHeader = c.req.header('X-PAYMENT-SIGNATURE');
-  let paymentStatus: PaymentStatus = 'none';
-  let encryptedSig: string | null = null;
-  let paymentExpiresAt: string | null = null;
-  let autoReleaseAt: string | null = null;
-
-  if (bounty && paymentSigHeader) {
-    // Validate X-PAYMENT-SIGNATURE format before forwarding to CDP (NEW-5)
-    if (
-      !paymentSigHeader ||
-      paymentSigHeader.length > 10000 ||
-      !/^[A-Za-z0-9+/=_\-.:{}",\s]+$/.test(paymentSigHeader)
-    ) {
-      return c.json({ error: 'bad_request', message: 'Invalid X-PAYMENT-SIGNATURE format' }, 400);
-    }
-    // Verify payment signature via CDP facilitator
-    const provider = new CdpPaymentProvider(c.env?.CDP_API_KEY);
-    const verifyResult = await provider.verify(paymentSigHeader);
-
-    if (!verifyResult.valid) {
-      // Note: can't log to payment_events yet — task row doesn't exist (FK constraint)
-      return c.json({
-        error: 'payment_invalid',
-        message: verifyResult.error ?? 'Payment signature verification failed',
-        payment_docs: 'https://basedagents.ai/.well-known/agent.json → for_agents.payments',
-        help: {
-          protocol: 'x402 — https://docs.cdp.coinbase.com/x402/welcome',
-          what_to_send: 'X-PAYMENT-SIGNATURE header with a signed EIP-3009 TransferWithAuthorization for USDC on Base (eip155:8453)',
-          sdk: 'npm install @x402/core @x402/evm — use createPaymentHeader() to generate the signature',
-          note: 'The payment signature must authorize a USDC transfer from your wallet to the task deliverer. The CDP facilitator verifies it has valid format and sufficient funds.',
-        },
-      }, 402);
-    }
-
-    // Encrypt the payment signature for storage
-    const encKey = c.env?.PAYMENT_ENCRYPTION_KEY;
-    if (!encKey) {
-      return c.json({
-        error: 'server_error',
-        message: 'Payment encryption not configured',
-      }, 500);
-    }
-    encryptedSig = await encryptPaymentSignature(paymentSigHeader, encKey);
-    paymentStatus = 'authorized';
-    paymentExpiresAt = verifyResult.expires_at ?? null;
-    // Note: logPaymentEvent('authorized') is called AFTER task INSERT (FK constraint)
-  } else if (bounty && !paymentSigHeader) {
-    return c.json({
-      error: 'payment_required',
-      message: 'Bounty requires X-PAYMENT-SIGNATURE header with x402 signed payment',
-      payment_docs: 'https://basedagents.ai/.well-known/agent.json → for_agents.payments',
-      help: {
-        protocol: 'x402 — https://docs.cdp.coinbase.com/x402/welcome',
-        header: 'X-PAYMENT-SIGNATURE: <signed EIP-3009 authorization for USDC on Base>',
-        sdk: 'npm install @x402/core @x402/evm',
-        without_payment: 'To create a task without a bounty, omit the bounty field entirely.',
-      },
-    }, 402);
-  }
+  const paymentStatus = bounty ? 'pending' : 'none';
 
   await db.run(
-    `INSERT INTO tasks (task_id, creator_agent_id, title, description, category, required_capabilities, expected_output, output_format, status, created_at, proposer_signature, bounty_amount, bounty_token, bounty_network, payment_signature, payment_verified, payment_settled, payment_expires_at, auto_release_at, payment_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
-    taskId, creatorId,
-    parsed.data.title, parsed.data.description,
-    parsed.data.category ?? null,
-    reqCaps ? JSON.stringify(reqCaps) : null,
-    parsed.data.expected_output ?? null,
-    parsed.data.output_format,
-    now,
-    proposerSig,
-    bounty?.amount ?? null,
-    bounty?.token ?? null,
-    bounty?.network ?? null,
-    encryptedSig,
-    paymentStatus === 'authorized' ? 1 : 0,
-    paymentExpiresAt,
-    autoReleaseAt,
-    paymentStatus
+    `INSERT INTO tasks (task_id, creator_agent_id, creator_kind, title, description, category, required_capabilities,
+       expected_output, output_format, status, created_at, proposer_signature,
+       bounty_amount, bounty_token, bounty_network, payment_status)
+     VALUES (?, ?, 'agent', ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)`,
+    taskId, creatorId, parsed.data.title, parsed.data.description, parsed.data.category ?? null,
+    reqCaps ? JSON.stringify(reqCaps) : null, parsed.data.expected_output ?? null, parsed.data.output_format,
+    now, agentSigFromHeader(c),
+    bounty?.amount ?? null, bounty?.token ?? null, bounty?.network ?? null, paymentStatus,
   );
 
-  // Log payment event AFTER task insert (FK constraint)
-  if (paymentStatus === 'authorized' && bounty) {
-    await logPaymentEvent(db, taskId, 'authorized', {
-      amount: bounty.amount,
-      token: bounty.token,
-      network: bounty.network,
-      expires_at: paymentExpiresAt,
-    });
+  if (bounty) {
+    await logPaymentEvent(db, taskId, 'bounty_declared', { amount_atomic: bounty.amount, token: bounty.token, network: bounty.network }, now);
   }
+  await recordFunnel(db, 'task_posted', taskId, 'agent');
+
+  const bountyOut = bountyView({ bounty_amount: bounty?.amount ?? null, bounty_token: bounty?.token ?? null, bounty_network: bounty?.network ?? null });
 
   // Auto-notify matching agents (fire-and-forget)
   if (reqCaps && reqCaps.length > 0) {
     const agents = await db.all<{ id: string; capabilities: string; webhook_url: string | null; webhook_secret: string | null }>(
       `SELECT id, capabilities, webhook_url, webhook_secret FROM agents WHERE status = 'active' AND webhook_url IS NOT NULL AND id != ?`,
-      creatorId
+      creatorId,
     );
     for (const agent of agents) {
       try {
         const caps: string[] = JSON.parse(agent.capabilities);
-        const matches = reqCaps.some((rc: string) => caps.includes(rc));
-        if (matches && agent.webhook_url) {
-          fireWebhook(agent.webhook_url, {
+        if (reqCaps.some((rc: string) => caps.includes(rc))) {
+          sendWebhook({ id: agent.id, name: '', webhook_url: agent.webhook_url, webhook_secret: agent.webhook_secret }, {
             type: 'task.available',
             agent_id: agent.id,
             task: {
@@ -258,9 +156,9 @@ tasks.post('/', agentAuth, async (c) => {
               category: parsed.data.category ?? null,
               required_capabilities: reqCaps,
               output_format: parsed.data.output_format,
-              bounty: bounty ?? null,
+              bounty: bountyOut,
             },
-          }, agent.webhook_secret);
+          });
         }
       } catch {
         // skip agents with invalid capabilities JSON
@@ -268,10 +166,8 @@ tasks.post('/', agentAuth, async (c) => {
     }
   }
 
-  const response: Record<string, unknown> = { ok: true, task_id: taskId, status: 'open' };
-  if (paymentStatus !== 'none') {
-    response.payment_status = paymentStatus;
-  }
+  const response: Record<string, unknown> = { ok: true, task_id: taskId, status: 'open', payment_status: paymentStatus };
+  if (bountyOut) response.bounty = bountyOut;
   return c.json(response);
 });
 
@@ -285,78 +181,61 @@ tasks.get('/', async (c) => {
     status: c.req.query('status'),
     category: c.req.query('category'),
     capability: c.req.query('capability'),
+    creator: c.req.query('creator'),
+    claimer: c.req.query('claimer'),
     limit: c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : undefined,
     offset: c.req.query('offset') ? parseInt(c.req.query('offset')!, 10) : undefined,
   });
 
-  const limit = Math.min(query.success ? (query.data.limit ?? 20) : 20, 100);
-  const offset = query.success ? (query.data.offset ?? 0) : 0;
-  const status = query.success ? query.data.status : undefined;
-  const category = query.success ? query.data.category : undefined;
-  const capability = query.success ? query.data.capability : undefined;
+  const q = query.success ? query.data : {};
+  const limit = Math.min(q.limit ?? 20, 100);
+  const offset = q.offset ?? 0;
 
   let sql = `SELECT * FROM tasks WHERE 1=1`;
   const params: unknown[] = [];
 
-  if (status && status !== 'all') {
+  if (q.status && q.status !== 'all') {
     sql += ` AND status = ?`;
-    params.push(status);
+    params.push(q.status);
   }
-  // No filter = return all statuses (except cancelled, unless explicitly requested)
-  if (!status) {
-    sql += ` AND status != 'cancelled'`;
-  }
-
-  if (category) {
-    sql += ` AND category = ?`;
-    params.push(category);
-  }
-
-  if (capability) {
-    sql += ` AND required_capabilities LIKE ?`;
-    params.push(`%"${capability}"%`);
-  }
+  // No filter = every status except cancelled (unless explicitly requested)
+  if (!q.status) sql += ` AND status != 'cancelled'`;
+  if (q.category) { sql += ` AND category = ?`; params.push(q.category); }
+  if (q.capability) { sql += ` AND required_capabilities LIKE ?`; params.push(`%"${q.capability}"%`); }
+  if (q.creator) { sql += ` AND creator_agent_id = ?`; params.push(q.creator); }
+  if (q.claimer) { sql += ` AND claimed_by_agent_id = ?`; params.push(q.claimer); }
 
   sql += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
   params.push(limit, offset);
 
   const rows = await db.all<Record<string, unknown>>(sql, ...params);
-
-  // Parse required_capabilities JSON and strip encrypted payment_signature from response
-  const tasks_list = rows.map((row) => {
-    const { payment_signature, ...rest } = row;
-    return {
-      ...rest,
-      required_capabilities: row.required_capabilities ? JSON.parse(row.required_capabilities as string) : null,
-    };
-  });
-
-  return c.json({ ok: true, tasks: tasks_list });
+  return c.json({ ok: true, tasks: rows.map(publicTaskShape) });
 });
 
+function parseReceipt(receipt: Record<string, unknown>): Record<string, unknown> {
+  if (receipt.artifact_urls && typeof receipt.artifact_urls === 'string') {
+    receipt.artifact_urls = JSON.parse(receipt.artifact_urls);
+  }
+  return receipt;
+}
+
 /**
- * GET /v1/tasks/:id/receipt — Get delivery receipt (public, no auth)
+ * GET /v1/tasks/:id/receipt — Latest delivery receipt (public)
  */
 tasks.get('/:id/receipt', async (c) => {
-  const taskId = c.req.param('id');
+  const taskId = c.req.param('id') as string;
   const db = c.get('db');
 
   const receipt = await db.get<Record<string, unknown>>(
-    'SELECT * FROM delivery_receipts WHERE task_id = ?', taskId
+    'SELECT * FROM delivery_receipts WHERE task_id = ? ORDER BY completed_at DESC LIMIT 1', taskId,
   );
   if (!receipt) {
     return c.json({ error: 'not_found', message: 'No delivery receipt found for this task' }, 404);
   }
-
-  // Parse artifact_urls JSON
-  if (receipt.artifact_urls) {
-    receipt.artifact_urls = JSON.parse(receipt.artifact_urls as string);
-  }
+  parseReceipt(receipt);
 
   // Include agent's public key for independent verification
-  const agent = await db.get<{ public_key: Uint8Array }>(
-    'SELECT public_key FROM agents WHERE id = ?', receipt.agent_id
-  );
+  const agent = await db.get<{ public_key: Uint8Array }>('SELECT public_key FROM agents WHERE id = ?', receipt.agent_id);
   if (agent) {
     const pkBytes = agent.public_key instanceof Uint8Array
       ? agent.public_key
@@ -368,270 +247,176 @@ tasks.get('/:id/receipt', async (c) => {
 });
 
 /**
- * GET /v1/tasks/:id/payment — Payment status (public, no auth)
+ * GET /v1/tasks/:id/receipts — Every delivery receipt, newest first (public)
+ */
+tasks.get('/:id/receipts', async (c) => {
+  const taskId = c.req.param('id') as string;
+  const db = c.get('db');
+  const task = await db.get<{ task_id: string }>('SELECT task_id FROM tasks WHERE task_id = ?', taskId);
+  if (!task) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
+  const rows = await db.all<Record<string, unknown>>(
+    'SELECT * FROM delivery_receipts WHERE task_id = ? ORDER BY completed_at DESC', taskId,
+  );
+  return c.json({ ok: true, receipts: rows.map(parseReceipt) });
+});
+
+/**
+ * GET /v1/tasks/:id/payment — Payment status, audit trail and (when a claimed
+ * bounty task is ready to be accepted) the x402 requirements the buyer signs.
  */
 tasks.get('/:id/payment', async (c) => {
-  const taskId = c.req.param('id');
+  const taskId = c.req.param('id') as string;
   const db = c.get('db');
 
-  const task = await db.get<{
-    task_id: string;
-    bounty_amount: string | null;
-    bounty_token: string | null;
-    bounty_network: string | null;
-    payment_status: string;
-    payment_verified: number;
-    payment_settled: number;
-    payment_tx_hash: string | null;
-    payment_expires_at: string | null;
-    auto_release_at: string | null;
-  }>(
-    `SELECT task_id, bounty_amount, bounty_token, bounty_network, payment_status,
-            payment_verified, payment_settled, payment_tx_hash, payment_expires_at, auto_release_at
-     FROM tasks WHERE task_id = ?`, taskId
-  );
-  if (!task) {
-    return c.json({ error: 'not_found', message: 'Task not found' }, 404);
-  }
+  const task = await loadTask(db, taskId);
+  if (!task) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
 
-  // Get payment events
   const events = await db.all<{ id: string; event_type: string; details: string | null; created_at: string }>(
-    'SELECT id, event_type, details, created_at FROM payment_events WHERE task_id = ? ORDER BY created_at ASC', taskId
+    'SELECT id, event_type, details, created_at FROM payment_events WHERE task_id = ? ORDER BY created_at ASC', taskId,
   );
+
+  let requirements: ReturnType<typeof buildRequirements> | null = null;
+  let paymentRequired: ReturnType<typeof buildPaymentRequired> | null = null;
+  let unavailableReason: 'no_bounty' | 'unsupported_network' | 'not_claimed' | 'payee_wallet_missing' | null = null;
+  if (!task.bounty_amount) unavailableReason = 'no_bounty';
+  else if (!isNetwork(task.bounty_network)) unavailableReason = 'unsupported_network';
+  else if (!task.claimed_by_agent_id) unavailableReason = 'not_claimed';
+  else {
+    const wallet = await delivererWallet(db, task.claimed_by_agent_id);
+    if (!wallet) unavailableReason = 'payee_wallet_missing';
+    else {
+      requirements = buildRequirements(task, wallet.address, c.env);
+      paymentRequired = buildPaymentRequired(task, requirements);
+    }
+  }
 
   return c.json({
     ok: true,
-    payment: {
-      task_id: task.task_id,
-      bounty: task.bounty_amount ? {
-        amount: task.bounty_amount,
-        token: task.bounty_token,
-        network: task.bounty_network,
-      } : null,
-      status: task.payment_status,
-      verified: !!task.payment_verified,
-      settled: !!task.payment_settled,
-      tx_hash: task.payment_tx_hash,
-      expires_at: task.payment_expires_at,
-      auto_release_at: task.auto_release_at,
-    },
-    events: events.map(e => ({
-      ...e,
-      details: e.details ? JSON.parse(e.details) : null,
-    })),
+    payment: { ...paymentView(task), pay_to: requirements?.payTo ?? null },
+    requirements,
+    ...(unavailableReason ? { requirements_unavailable_reason: unavailableReason } : {}),
+    ...(paymentRequired ? { payment_required: paymentRequired } : {}),
+    accept_endpoint: `POST /v1/tasks/${taskId}/accept`,
+    payment_header: PAYMENT_HEADER,
+    events: events.map((e) => ({ ...e, details: e.details ? JSON.parse(e.details) : null })),
   });
 });
 
 /**
- * GET /v1/tasks/:id — Get task detail (public, no auth)
+ * GET /v1/tasks/:id — Task detail (public, no auth)
  */
 tasks.get('/:id', async (c) => {
-  const taskId = c.req.param('id');
+  const taskId = c.req.param('id') as string;
   const db = c.get('db');
 
-  const task = await db.get<Record<string, unknown>>(
-    'SELECT * FROM tasks WHERE task_id = ?', taskId
+  const row = await db.get<Record<string, unknown>>('SELECT * FROM tasks WHERE task_id = ?', taskId);
+  if (!row) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
+  const task = row as unknown as TaskRow;
+
+  const submission = await db.get<Record<string, unknown>>(
+    'SELECT * FROM submissions WHERE task_id = ? ORDER BY created_at DESC LIMIT 1', taskId,
   );
-  if (!task) {
-    return c.json({ error: 'not_found', message: 'Task not found' }, 404);
-  }
-
-  // Parse JSON fields
-  if (task.required_capabilities) {
-    task.required_capabilities = JSON.parse(task.required_capabilities as string);
-  }
-
-  // Never expose encrypted payment signature
-  delete task.payment_signature;
-
-  // Include submission if task has been submitted
-  let submission = null;
-  if (task.status === 'submitted' || task.status === 'verified') {
-    submission = await db.get<Record<string, unknown>>(
-      'SELECT * FROM submissions WHERE task_id = ? ORDER BY created_at DESC LIMIT 1', taskId
-    );
-  }
-
-  // Include delivery receipt if it exists
-  let delivery_receipt = null;
   const receipt = await db.get<Record<string, unknown>>(
-    'SELECT * FROM delivery_receipts WHERE task_id = ?', taskId
+    'SELECT * FROM delivery_receipts WHERE task_id = ? ORDER BY completed_at DESC LIMIT 1', taskId,
   );
-  if (receipt) {
-    if (receipt.artifact_urls) {
-      receipt.artifact_urls = JSON.parse(receipt.artifact_urls as string);
-    }
-    delivery_receipt = receipt;
-  }
+  const receiptsCount = await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM delivery_receipts WHERE task_id = ?', taskId);
 
-  return c.json({ ok: true, task, submission, delivery_receipt });
+  return c.json({
+    ok: true,
+    task: publicTaskShape(row),
+    submission: submission ?? null,
+    delivery_receipt: receipt ? parseReceipt(receipt) : null,
+    receipts_count: receiptsCount?.n ?? 0,
+    payment: paymentView(task),
+  });
 });
 
 /**
- * POST /v1/tasks/:id/claim — Claim a task
+ * POST /v1/tasks/:id/claim — Claim a task (T2)
  */
 tasks.post('/:id/claim', agentAuth, async (c) => {
   const agentId = c.get('agentId') as string;
-  const taskId = c.req.param('id');
+  const taskId = c.req.param('id') as string;
   const db = c.get('db');
+  const actor: Actor = { kind: 'agent', agentId };
 
-  // Agent must be active
-  const agent = await db.get<{ id: string; name: string; status: string }>(
-    'SELECT id, name, status FROM agents WHERE id = ?', agentId
-  );
+  const agent = await db.get<{ id: string; name: string; status: string }>('SELECT id, name, status FROM agents WHERE id = ?', agentId);
   if (!agent || agent.status !== 'active') {
     return c.json({ error: 'forbidden', message: 'Agent must be active to claim tasks' }, 403);
   }
 
-  const task = await db.get<{
-    task_id: string;
-    creator_agent_id: string;
-    status: string;
-    payment_status: string;
-    payment_signature: string | null;
-    payment_expires_at: string | null;
-    bounty_amount: string | null;
-    bounty_token: string | null;
-    bounty_network: string | null;
-  }>(
-    `SELECT task_id, creator_agent_id, status, payment_status, payment_signature,
-            payment_expires_at, bounty_amount, bounty_token, bounty_network
-     FROM tasks WHERE task_id = ?`, taskId
-  );
-  if (!task) {
-    return c.json({ error: 'not_found', message: 'Task not found' }, 404);
+  const task = await loadTask(db, taskId);
+  if (!task) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
+  if (creatorMatches(task, actor)) return c.json({ error: 'bad_request', message: 'Cannot claim your own task' }, 400);
+  if (task.status !== 'open') return c.json({ error: 'conflict', message: 'Task is not open for claiming' }, 409);
+
+  // A bounty is paid to the claimer's wallet at accept time — require it now,
+  // so a buyer never faces a deliverer who cannot be paid.
+  if (task.bounty_amount) {
+    const wallet = await db.get<{ wallet_address: string | null; wallet_network: string | null }>(
+      'SELECT wallet_address, wallet_network FROM agents WHERE id = ?', agentId,
+    );
+    if (!wallet?.wallet_address || !WALLET_RE.test(wallet.wallet_address)) {
+      return c.json({
+        error: 'wallet_required',
+        message: 'This task pays a USDC bounty to your wallet. Set one before claiming.',
+        help: { set_wallet: `PATCH /v1/agents/${agentId}/wallet`, body: { wallet_address: '0x...', wallet_network: task.bounty_network } },
+      }, 409);
+    }
+    if (wallet.wallet_network && wallet.wallet_network !== task.bounty_network) {
+      return c.json({
+        error: 'wallet_network_mismatch',
+        message: `Your wallet is on ${wallet.wallet_network}; this bounty settles on ${task.bounty_network}.`,
+      }, 409);
+    }
   }
 
-  // Cannot claim your own task
-  if (task.creator_agent_id === agentId) {
-    return c.json({ error: 'bad_request', message: 'Cannot claim your own task' }, 400);
-  }
-
-  // Task must be open
-  if (task.status !== 'open') {
+  const now = new Date().toISOString();
+  if (!(await claimGate(db, taskId, agentId, agentSigFromHeader(c), now))) {
     return c.json({ error: 'conflict', message: 'Task is not open for claiming' }, 409);
   }
 
-  // ─── Balance verification at claim time ───
-  // If this task has an authorized bounty, re-verify the payment signature is still valid
-  // before allowing a claim. Catches expired authorizations and drained wallets.
-  if (task.payment_status === 'authorized' && task.payment_signature) {
-    // Fast path: check payment_expires_at before hitting CDP
-    if (task.payment_expires_at && new Date(task.payment_expires_at) <= new Date()) {
-      await db.run(
-        `UPDATE tasks SET payment_status = 'expired' WHERE task_id = ?`, taskId
-      );
-      await logPaymentEvent(db, taskId, 'expired', { reason: 'authorization_expired_at_claim' });
-      return c.json({
-        error: 'payment_expired',
-        message: 'The bounty payment authorization has expired. The task creator must re-authorize payment.',
-        payment_expires_at: task.payment_expires_at,
-      }, 402);
-    }
-
-    // Call CDP to re-verify the signature is still valid (funds still available)
-    const encKey = c.env?.PAYMENT_ENCRYPTION_KEY;
-    if (encKey) {
-      try {
-        const rawSig = await decryptPaymentSignature(task.payment_signature, encKey);
-        const provider = new CdpPaymentProvider(c.env?.CDP_API_KEY);
-        const verifyResult = await provider.verify(rawSig);
-        if (!verifyResult.valid) {
-          if (verifyResult.unreachable) {
-            // CDP is unreachable — non-fatal, allow the claim and log a warning.
-            // Settlement at verify time will catch any real funding issues.
-            console.warn(`[claim] CDP unreachable for task ${taskId} — allowing claim (non-fatal)`);
-          } else {
-            // Sig is explicitly invalid (funds moved, sig tampered, etc.) — hard fail.
-            await db.run(
-              `UPDATE tasks SET payment_status = 'failed' WHERE task_id = ?`, taskId
-            );
-            await logPaymentEvent(db, taskId, 'settle_failed', {
-              error: verifyResult.error,
-              trigger: 'balance_check_at_claim',
-            });
-            return c.json({
-              error: 'payment_invalid',
-              message: 'The bounty payment authorization is no longer valid. The task creator must re-authorize payment.',
-              detail: verifyResult.error,
-            }, 402);
-          }
-        }
-      } catch (err) {
-        // Non-fatal: unexpected error — allow the claim but log the warning.
-        console.warn(`[claim] CDP balance check error for task ${taskId} (non-fatal):`, err);
-      }
-    }
-  }
-
-  // Store acceptor_signature from auth header
-  const authHeader = c.req.header('Authorization') ?? '';
-  const acceptorSig = authHeader.startsWith('AgentSig ') ? authHeader.split(':').slice(1).join(':') : null;
-
-  const now = new Date().toISOString();
-  await db.run(
-    `UPDATE tasks SET claimed_by_agent_id = ?, status = 'claimed', claimed_at = ?, acceptor_signature = ? WHERE task_id = ?`,
-    agentId, now, acceptorSig, taskId
-  );
-
-  // Notify creator via webhook
-  const creator = await db.get<{ id: string; webhook_url: string | null; webhook_secret: string | null }>(
-    'SELECT id, webhook_url, webhook_secret FROM agents WHERE id = ?', task.creator_agent_id
-  );
-  if (creator?.webhook_url) {
-    fireWebhook(creator.webhook_url, {
-      type: 'task.claimed',
-      agent_id: creator.id,
-      task_id: taskId,
-      claimed_by: { agent_id: agentId, name: agent.name },
-    }, creator.webhook_secret);
-  }
+  const creator = await creatorTarget(db, task);
+  sendWebhook(creator, { type: 'task.claimed', agent_id: creator?.id ?? '', task_id: taskId, claimed_by: { agent_id: agentId, name: agent.name } });
+  await recordFunnel(db, 'task_claimed', taskId, null);
 
   return c.json({ ok: true, task_id: taskId, status: 'claimed' });
 });
 
 /**
- * POST /v1/tasks/:id/deliver — Deliver with receipt (new delivery protocol)
+ * POST /v1/tasks/:id/deliver — Deliver with a signed receipt (T3)
  */
 tasks.post('/:id/deliver', agentAuth, async (c) => {
   const agentId = c.get('agentId') as string;
-  const taskId = c.req.param('id');
+  const taskId = c.req.param('id') as string;
   const db = c.get('db');
 
-  let body: unknown;
-  try { body = JSON.parse(await c.req.text()); }
-  catch { return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400); }
-
-  const parsed = DeliverTaskSchema.safeParse(body);
+  const json = await readJson(c);
+  if (!json.ok) return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400);
+  const parsed = DeliverTaskSchema.safeParse(json.body);
   if (!parsed.success) {
     return c.json({ error: 'bad_request', message: 'Validation failed', details: parsed.error.flatten() }, 400);
   }
 
-  const task = await db.get<{ task_id: string; creator_agent_id: string; claimed_by_agent_id: string | null; status: string; bounty_amount: string | null }>(
-    'SELECT task_id, creator_agent_id, claimed_by_agent_id, status, bounty_amount FROM tasks WHERE task_id = ?', taskId
-  );
-  if (!task) {
-    return c.json({ error: 'not_found', message: 'Task not found' }, 404);
-  }
-
-  // Only the claimer can deliver
+  const task = await loadTask(db, taskId);
+  if (!task) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
   if (task.claimed_by_agent_id !== agentId) {
     return c.json({ error: 'forbidden', message: 'Only the assigned agent can deliver' }, 403);
   }
-
-  // Task must be claimed
   if (task.status !== 'claimed') {
-    return c.json({ error: 'bad_request', message: 'Task must be in claimed status to deliver' }, 400);
+    return c.json({ error: 'conflict', message: 'Task must be in claimed status to deliver', status: task.status }, 409);
   }
 
-  const receiptId = generateReceiptId();
   const now = new Date().toISOString();
+  if (!(await deliverGate(db, taskId, agentId, now))) {
+    return c.json({ error: 'conflict', message: 'Task is no longer claimed by you', status: task.status }, 409);
+  }
 
-  // The signature is the AgentSig from the auth header
-  const authHeader = c.req.header('Authorization') ?? '';
-  const signature = authHeader.startsWith('AgentSig ') ? authHeader.split(':').slice(1).join(':') : '';
-
-  // Build canonical receipt payload for hashing
+  // Gate won. Everything below is recorded best-effort: D1 has no transactions,
+  // so a failure here leaves `submitted` without a receipt — logged, and
+  // tolerated by the read endpoints.
+  const receiptId = generatePublicId('rcpt');
+  const signature = agentSigFromHeader(c) ?? '';
   const receiptPayload: Record<string, unknown> = {
     receipt_id: receiptId,
     task_id: taskId,
@@ -644,426 +429,424 @@ tasks.post('/:id/deliver', agentAuth, async (c) => {
     submission_content: parsed.data.submission_content ?? null,
     completed_at: now,
   };
-  const receiptHash = bytesToHex(sha256(new TextEncoder().encode(canonicalJson(receiptPayload))));
+  const receiptHash = hashCanonical(receiptPayload);
 
-  // Create chain entry of type 'task_delivered'
-  const chainEntry = await createTaskChainEntry(db, agentId, 'task_delivered', receiptHash);
-
-  // Store delivery receipt
-  await db.run(
-    `INSERT INTO delivery_receipts (receipt_id, task_id, agent_id, summary, artifact_urls, commit_hash, pr_url, submission_type, submission_content, completed_at, chain_sequence, chain_entry_hash, signature)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    receiptId, taskId, agentId,
-    parsed.data.summary,
-    parsed.data.artifact_urls ? JSON.stringify(parsed.data.artifact_urls) : null,
-    parsed.data.commit_hash ?? null,
-    parsed.data.pr_url ?? null,
-    parsed.data.submission_type,
-    parsed.data.submission_content ?? null,
-    now,
-    chainEntry.sequence,
-    chainEntry.entry_hash,
-    signature
-  );
-
-  // Also create a backward-compatible submission record
-  const submissionId = generateSubmissionId();
-  await db.run(
-    `INSERT INTO submissions (submission_id, task_id, agent_id, submission_type, content, summary, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    submissionId, taskId, agentId,
-    parsed.data.submission_type === 'pr' ? 'link' : parsed.data.submission_type,
-    parsed.data.submission_content ?? parsed.data.pr_url ?? parsed.data.summary,
-    parsed.data.summary,
-    now
-  );
-
-  // Update task status to 'submitted' (backward compat status name)
-  // If task has a bounty, set auto_release_at to 7 days from now
-  let autoRelease: string | null = null;
-  if (task.bounty_amount) {
-    autoRelease = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  let chainEntry: { sequence: number; entry_hash: string } | null = null;
+  try {
+    chainEntry = await taskChainEntry(db, agentId, 'task_delivered', receiptHash);
+  } catch (err) {
+    console.error(`[tasks] chain entry failed for delivery of ${taskId}:`, err);
   }
 
-  await db.run(
-    `UPDATE tasks SET status = 'submitted', submitted_at = ?, auto_release_at = COALESCE(?, auto_release_at) WHERE task_id = ?`,
-    now, autoRelease, taskId
-  );
-
-  // Notify creator via webhook
-  const creator = await db.get<{ id: string; webhook_url: string | null; webhook_secret: string | null }>(
-    'SELECT id, webhook_url, webhook_secret FROM agents WHERE id = ?', task.creator_agent_id
-  );
-  const deliverer = await db.get<{ id: string; name: string }>(
-    'SELECT id, name FROM agents WHERE id = ?', agentId
-  );
-  if (creator?.webhook_url && deliverer) {
-    fireWebhook(creator.webhook_url, {
-      type: 'task.delivered',
-      agent_id: creator.id,
-      task_id: taskId,
-      delivered_by: { agent_id: agentId, name: deliverer.name },
-      summary: parsed.data.summary,
-      receipt_id: receiptId,
-    }, creator.webhook_secret);
+  try {
+    await db.run(
+      `INSERT INTO delivery_receipts (receipt_id, task_id, agent_id, summary, artifact_urls, commit_hash, pr_url, submission_type, submission_content, completed_at, chain_sequence, chain_entry_hash, signature)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      receiptId, taskId, agentId, parsed.data.summary,
+      parsed.data.artifact_urls ? JSON.stringify(parsed.data.artifact_urls) : null,
+      parsed.data.commit_hash ?? null, parsed.data.pr_url ?? null, parsed.data.submission_type,
+      parsed.data.submission_content ?? null, now, chainEntry?.sequence ?? null, chainEntry?.entry_hash ?? null, signature,
+    );
+    // Backward-compatible submission record
+    await db.run(
+      `INSERT INTO submissions (submission_id, task_id, agent_id, submission_type, content, summary, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      generatePublicId('sub'), taskId, agentId,
+      parsed.data.submission_type === 'pr' ? 'link' : parsed.data.submission_type,
+      parsed.data.submission_content ?? parsed.data.pr_url ?? parsed.data.summary,
+      parsed.data.summary, now,
+    );
+  } catch (err) {
+    console.error(`[tasks] receipt write failed for ${taskId} after the status gate:`, err);
   }
+
+  const creator = await creatorTarget(db, task);
+  const deliverer = await db.get<{ name: string }>('SELECT name FROM agents WHERE id = ?', agentId);
+  sendWebhook(creator, {
+    type: 'task.delivered', agent_id: creator?.id ?? '', task_id: taskId,
+    delivered_by: { agent_id: agentId, name: deliverer?.name ?? '' }, summary: parsed.data.summary, receipt_id: receiptId,
+  });
+  await recordFunnel(db, 'task_delivered', taskId, null);
 
   return c.json({
     ok: true,
     receipt_id: receiptId,
     task_id: taskId,
-    chain_sequence: chainEntry.sequence,
-    chain_entry_hash: chainEntry.entry_hash,
+    chain_sequence: chainEntry?.sequence ?? null,
+    chain_entry_hash: chainEntry?.entry_hash ?? null,
     status: 'submitted',
+    revision_count: task.revision_count,
   });
 });
 
 /**
- * POST /v1/tasks/:id/submit — Submit deliverable (legacy, still supported)
+ * POST /v1/tasks/:id/submit — Submit deliverable (legacy, still supported; T3)
  */
 tasks.post('/:id/submit', agentAuth, async (c) => {
   const agentId = c.get('agentId') as string;
-  const taskId = c.req.param('id');
+  const taskId = c.req.param('id') as string;
   const db = c.get('db');
 
-  let body: unknown;
-  try { body = JSON.parse(await c.req.text()); }
-  catch { return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400); }
-
-  const parsed = SubmitDeliverableSchema.safeParse(body);
+  const json = await readJson(c);
+  if (!json.ok) return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400);
+  const parsed = SubmitDeliverableSchema.safeParse(json.body);
   if (!parsed.success) {
     return c.json({ error: 'bad_request', message: 'Validation failed', details: parsed.error.flatten() }, 400);
   }
 
-  const task = await db.get<{ task_id: string; creator_agent_id: string; claimed_by_agent_id: string | null; status: string; bounty_amount: string | null }>(
-    'SELECT task_id, creator_agent_id, claimed_by_agent_id, status, bounty_amount FROM tasks WHERE task_id = ?', taskId
-  );
-  if (!task) {
-    return c.json({ error: 'not_found', message: 'Task not found' }, 404);
-  }
-
-  // Only the claimer can submit
+  const task = await loadTask(db, taskId);
+  if (!task) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
   if (task.claimed_by_agent_id !== agentId) {
     return c.json({ error: 'forbidden', message: 'Only the assigned agent can submit deliverables' }, 403);
   }
-
-  // Task must be claimed
   if (task.status !== 'claimed') {
-    return c.json({ error: 'bad_request', message: 'Task must be in claimed status to submit' }, 400);
-  }
-
-  const submissionId = generateSubmissionId();
-  const now = new Date().toISOString();
-
-  await db.run(
-    `INSERT INTO submissions (submission_id, task_id, agent_id, submission_type, content, summary, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    submissionId, taskId, agentId,
-    parsed.data.submission_type, parsed.data.content, parsed.data.summary,
-    now
-  );
-
-  // Set auto_release_at for bounty tasks
-  let autoRelease: string | null = null;
-  if (task.bounty_amount) {
-    autoRelease = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-  }
-
-  await db.run(
-    `UPDATE tasks SET status = 'submitted', submitted_at = ?, auto_release_at = COALESCE(?, auto_release_at) WHERE task_id = ?`,
-    now, autoRelease, taskId
-  );
-
-  // Notify creator via webhook
-  const creator = await db.get<{ id: string; webhook_url: string | null; webhook_secret: string | null }>(
-    'SELECT id, webhook_url, webhook_secret FROM agents WHERE id = ?', task.creator_agent_id
-  );
-  const submitter = await db.get<{ id: string; name: string }>(
-    'SELECT id, name FROM agents WHERE id = ?', agentId
-  );
-  if (creator?.webhook_url && submitter) {
-    fireWebhook(creator.webhook_url, {
-      type: 'task.submitted',
-      agent_id: creator.id,
-      task_id: taskId,
-      submitted_by: { agent_id: agentId, name: submitter.name },
-      summary: parsed.data.summary,
-    }, creator.webhook_secret);
-  }
-
-  return c.json({ ok: true, submission_id: submissionId, task_id: taskId, status: 'submitted' });
-});
-
-/**
- * POST /v1/tasks/:id/verify — Creator verifies deliverable (triggers settlement if bounty)
- */
-tasks.post('/:id/verify', agentAuth, async (c) => {
-  const agentId = c.get('agentId') as string;
-  const taskId = c.req.param('id');
-  const db = c.get('db');
-
-  const task = await db.get<{
-    task_id: string;
-    creator_agent_id: string;
-    claimed_by_agent_id: string | null;
-    status: string;
-    payment_status: string;
-    payment_signature: string | null;
-    bounty_amount: string | null;
-  }>(
-    'SELECT task_id, creator_agent_id, claimed_by_agent_id, status, payment_status, payment_signature, bounty_amount FROM tasks WHERE task_id = ?', taskId
-  );
-  if (!task) {
-    return c.json({ error: 'not_found', message: 'Task not found' }, 404);
-  }
-
-  // Only creator can verify
-  if (task.creator_agent_id !== agentId) {
-    return c.json({ error: 'forbidden', message: 'Only the task creator can verify deliverables' }, 403);
-  }
-
-  // Task must be submitted
-  if (task.status !== 'submitted') {
-    return c.json({ error: 'bad_request', message: 'Task must be in submitted status to verify' }, 400);
+    return c.json({ error: 'conflict', message: 'Task must be in claimed status to submit', status: task.status }, 409);
   }
 
   const now = new Date().toISOString();
-
-  // ─── Settlement: if task has authorized payment, settle it ───
-  let settlementResult: { tx_hash?: string; payment_status: PaymentStatus } = { payment_status: 'none' };
-
-  if (task.payment_status === 'authorized' && task.payment_signature) {
-    const encKey = c.env?.PAYMENT_ENCRYPTION_KEY;
-    if (!encKey) {
-      await logPaymentEvent(db, taskId, 'settle_failed', { error: 'PAYMENT_ENCRYPTION_KEY not configured' });
-      settlementResult = { payment_status: 'failed' };
-    } else {
-      try {
-        const rawSig = await decryptPaymentSignature(task.payment_signature, encKey);
-        const provider = new CdpPaymentProvider(c.env?.CDP_API_KEY);
-        const result = await provider.settle(rawSig);
-
-        if (result.success) {
-          settlementResult = { tx_hash: result.tx_hash, payment_status: 'settled' };
-          await db.run(
-            `UPDATE tasks SET payment_settled = 1, payment_tx_hash = ?, payment_status = 'settled' WHERE task_id = ?`,
-            result.tx_hash ?? null, taskId
-          );
-          await logPaymentEvent(db, taskId, 'settled', { tx_hash: result.tx_hash });
-
-          // Chain entry for payment settlement
-          const settlementHash = bytesToHex(sha256(new TextEncoder().encode(
-            canonicalJson({ task_id: taskId, settled_at: now, tx_hash: result.tx_hash ?? null })
-          )));
-          await createTaskChainEntry(db, agentId, 'task_payment_settled', settlementHash);
-        } else {
-          settlementResult = { payment_status: 'failed' };
-          await db.run(
-            `UPDATE tasks SET payment_status = 'failed' WHERE task_id = ?`, taskId
-          );
-          await logPaymentEvent(db, taskId, 'settle_failed', { error: result.error, raw: result.raw });
-        }
-      } catch (err) {
-        settlementResult = { payment_status: 'failed' };
-        await db.run(
-          `UPDATE tasks SET payment_status = 'failed' WHERE task_id = ?`, taskId
-        );
-        await logPaymentEvent(db, taskId, 'settle_failed', { error: String(err) });
-      }
-    }
+  if (!(await deliverGate(db, taskId, agentId, now))) {
+    return c.json({ error: 'conflict', message: 'Task is no longer claimed by you', status: task.status }, 409);
   }
 
-  await db.run(
-    `UPDATE tasks SET status = 'verified', verified_at = ? WHERE task_id = ?`,
-    now, taskId
-  );
-
-  // Create chain entry of type 'task_verified'
-  const verifyDataHash = bytesToHex(sha256(new TextEncoder().encode(
-    canonicalJson({ task_id: taskId, verified_at: now, verified_by: agentId })
-  )));
-  const chainEntry = await createTaskChainEntry(db, agentId, 'task_verified', verifyDataHash);
-
-  // Boost deliverer's reputation (contribution + pass_rate)
-  if (task.claimed_by_agent_id) {
-    try {
-      const rep = await computeReputation(task.claimed_by_agent_id, db);
-      await db.run(
-        'UPDATE agents SET reputation_score = ? WHERE id = ?',
-        rep.final_score, task.claimed_by_agent_id
-      );
-    } catch {
-      // Non-fatal — reputation update is best-effort
-    }
-  }
-
-  // Notify claimer via webhook
-  if (task.claimed_by_agent_id) {
-    const claimer = await db.get<{ id: string; webhook_url: string | null; webhook_secret: string | null }>(
-      'SELECT id, webhook_url, webhook_secret FROM agents WHERE id = ?', task.claimed_by_agent_id
+  const submissionId = generatePublicId('sub');
+  try {
+    await db.run(
+      `INSERT INTO submissions (submission_id, task_id, agent_id, submission_type, content, summary, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      submissionId, taskId, agentId, parsed.data.submission_type, parsed.data.content, parsed.data.summary, now,
     );
-    if (claimer?.webhook_url) {
-      fireWebhook(claimer.webhook_url, {
-        type: 'task.verified',
-        agent_id: claimer.id,
-        task_id: taskId,
-        chain_sequence: chainEntry.sequence,
-        chain_entry_hash: chainEntry.entry_hash,
-        payment_settled: settlementResult.payment_status === 'settled',
-        payment_tx_hash: settlementResult.tx_hash ?? null,
-      }, claimer.webhook_secret);
-    }
+  } catch (err) {
+    console.error(`[tasks] submission write failed for ${taskId} after the status gate:`, err);
   }
 
-  const response: Record<string, unknown> = {
-    ok: true,
-    task_id: taskId,
-    chain_sequence: chainEntry.sequence,
-    chain_entry_hash: chainEntry.entry_hash,
-    status: 'verified',
-  };
-  if (settlementResult.payment_status !== 'none') {
-    response.payment_status = settlementResult.payment_status;
-    if (settlementResult.tx_hash) {
-      response.payment_tx_hash = settlementResult.tx_hash;
-    }
-  }
+  const creator = await creatorTarget(db, task);
+  const submitter = await db.get<{ name: string }>('SELECT name FROM agents WHERE id = ?', agentId);
+  sendWebhook(creator, {
+    type: 'task.submitted', agent_id: creator?.id ?? '', task_id: taskId,
+    submitted_by: { agent_id: agentId, name: submitter?.name ?? '' }, summary: parsed.data.summary,
+  });
+  await recordFunnel(db, 'task_delivered', taskId, null);
 
-  return c.json(response);
+  return c.json({ ok: true, submission_id: submissionId, task_id: taskId, status: 'submitted', revision_count: task.revision_count });
 });
 
 /**
- * POST /v1/tasks/:id/dispute — Creator disputes deliverable (pauses auto-release)
+ * Accept — records acceptance (T4) and, for a bounty task, runs the x402
+ * challenge/verify/settle sequence of spec section 2, steps 4-7.
+ */
+async function handleAccept(c: Ctx, deprecatedAlias: boolean): Promise<Response> {
+  const agentId = c.get('agentId') as string;
+  const taskId = c.req.param('id') as string;
+  const db = c.get('db');
+  const actor: Actor = { kind: 'agent', agentId };
+  if (deprecatedAlias) c.header('Deprecation', 'true');
+
+  const json = await readJson(c);
+  if (!json.ok) return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400);
+  const parsed = AcceptBodySchema.safeParse(json.body);
+  if (!parsed.success) {
+    return c.json({ error: 'bad_request', message: 'Validation failed', details: parsed.error.flatten() }, 400);
+  }
+  const note = parsed.data.note ?? null;
+
+  const task = await loadTask(db, taskId);
+  if (!task) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
+  if (!creatorMatches(task, actor)) {
+    return c.json({
+      error: 'forbidden',
+      message: task.creator_kind === 'owner'
+        ? 'This task is reviewed by the person who posted it'
+        : 'Only the task creator can accept deliverables',
+    }, 403);
+  }
+  if (task.status !== 'submitted' && task.status !== 'verified') {
+    return c.json({ error: 'invalid_state', message: `Task is ${task.status}; only a submitted task can be accepted`, status: task.status }, 409);
+  }
+
+  const now = new Date().toISOString();
+  const bountyOut = bountyView(task);
+  const alreadyPaidOrInFlight = ['authorized', 'settling', 'settled'].includes(task.payment_status);
+
+  // Idempotent re-accept: nothing to do, nothing to charge.
+  if (task.status === 'verified' && (!task.bounty_amount || alreadyPaidOrInFlight)) {
+    const body: Record<string, unknown> = { ok: true, task_id: taskId, status: 'verified', accepted_by: task.accepted_by };
+    if (task.bounty_amount) {
+      body.payment_status = task.payment_status;
+      if (task.payment_tx_hash) body.payment_tx_hash = task.payment_tx_hash;
+    } else {
+      body.payment_status = 'none';
+    }
+    return c.json(body);
+  }
+
+  // ─── Unpaid task ───
+  if (!task.bounty_amount) {
+    if (!(await acceptUnpaidGate(db, taskId, note, null, now))) {
+      return c.json({ error: 'conflict', message: 'Task was accepted or cancelled by another action' }, 409);
+    }
+    const fresh = (await loadTask(db, taskId)) as TaskRow;
+    const side = await afterAccept(db, fresh, { acceptedBy: 'creator', by: actor, nowIso: now, paymentStatus: 'none' });
+    return c.json({
+      ok: true, task_id: taskId, status: 'verified', accepted_by: 'creator', payment_status: 'none',
+      chain_sequence: side.chain?.sequence ?? null, chain_entry_hash: side.chain?.entry_hash ?? null,
+    });
+  }
+
+  // ─── Bounty task ───
+  if (!isNetwork(task.bounty_network)) {
+    // A pre-0035 row declared on a network the facilitator does not support; it can only be cancelled.
+    return c.json({ error: 'bounty_unsupported_network', message: `This bounty is on ${task.bounty_network}, which cannot be settled; cancel the task or contact support.`, network: task.bounty_network }, 409);
+  }
+  const provider = paymentProviderFor(c.env);
+  const rawHeader = paymentHeader(c);
+  const wallet = await delivererWallet(db, task.claimed_by_agent_id);
+
+  if (!rawHeader) {
+    if (!provider) return c.json({ error: 'payments_unavailable', message: 'Payments are not enabled on this registry.' }, 503);
+    if (!wallet) return c.json({ error: 'payee_wallet_missing', message: 'The deliverer has no wallet on record; they must set one before the bounty can be paid.' }, 409);
+    const requirements = buildRequirements(task, wallet.address, c.env);
+    const paymentRequired = buildPaymentRequired(task, requirements);
+    c.header('PAYMENT-REQUIRED', encodeB64Json(paymentRequired));
+    return c.json({
+      error: 'payment_required',
+      message: `Sign an EIP-3009 USDC transfer of ${bountyOut?.amount_display} USDC to the deliverer's wallet and retry with the ${PAYMENT_HEADER} header.`,
+      ...paymentRequired,
+      task_id: taskId,
+      bounty: bountyOut,
+      accept_endpoint: `POST /v1/tasks/${taskId}/accept`,
+      payment_header: PAYMENT_HEADER,
+    }, 402);
+  }
+
+  if (!wallet) return c.json({ error: 'payee_wallet_missing', message: 'The deliverer has no wallet on record; they must set one before the bounty can be paid.' }, 409);
+  const requirements = buildRequirements(task, wallet.address, c.env);
+
+  let payload: ReturnType<typeof decodePaymentHeader>;
+  try {
+    payload = decodePaymentHeader(rawHeader);
+  } catch (err) {
+    return c.json({
+      error: 'payment_malformed',
+      message: 'The payment header is not a valid x402 v2 payment payload.',
+      detail: err instanceof PaymentMalformed ? err.detail : String(err),
+      payment_requirements: requirements,
+    }, 400);
+  }
+
+  const nowSec = Math.floor(Date.parse(now) / 1000);
+  const pre = localPrechecks(payload, requirements, nowSec);
+  if (!pre.ok) {
+    return c.json({
+      error: 'payment_invalid', reason: pre.reason, expected: pre.expected, got: pre.got,
+      message: "The signed authorization does not match this task's payment requirements.",
+      payment_requirements: requirements,
+    }, 402);
+  }
+
+  // Re-authorization guard (N11): a payload that may have reached the chain is
+  // never replaced unless the facilitator gave a definitive negative. Decided
+  // on the structured settle class only (payments/settle.ts reauthPermitted).
+  if (!reauthPermitted(task)) {
+    return c.json({
+      error: 'settlement_in_progress',
+      message: 'A previous authorization for this task is still being settled; check GET /v1/tasks/:id/payment.',
+      payment_status: task.payment_status,
+    }, 409);
+  }
+
+  if (!provider) return c.json({ error: 'payments_unavailable', message: 'Payments are not enabled on this registry.' }, 503);
+
+  const verify = await provider.verify(payload, requirements);
+  if (verify.kind === 'invalid') {
+    return c.json({
+      error: verify.reason === 'insufficient_funds' ? 'insufficient_funds' : 'payment_invalid',
+      reason: verify.reason, message: verify.message ?? 'The facilitator rejected the authorization.', payer: verify.payer ?? null,
+      payment_requirements: requirements,
+    }, 402);
+  }
+  if (verify.kind === 'unavailable') {
+    if (verify.cause === 'auth') console.error('[payments] CDP auth rejected — check CDP_API_KEY_ID/CDP_API_KEY_SECRET');
+    return c.json({ error: 'facilitator_unavailable', cause: verify.cause, message: 'The payment facilitator is unavailable; retry shortly.' }, 503);
+  }
+
+  const encKey = c.env?.PAYMENT_ENCRYPTION_KEY as string; // guaranteed by paymentProviderFor
+  const encrypted = await encryptPaymentSignature(rawHeader, encKey);
+  const auth = payload.payload.authorization;
+  const expiresAt = new Date(Number(auth.validBefore) * 1000).toISOString();
+
+  // THE GATE (T4-P): acceptance + authorization in ONE statement. Two
+  // predicates are tried in turn so we KNOW which edge we consumed: the
+  // submitted→verified edge (this call is the acceptance) or the
+  // verified→verified edge (authorizing a task the timer or an earlier call
+  // already accepted). The pre-read is not trusted for that — the cron may
+  // have auto-accepted while the facilitator verify was in flight.
+  const gateSql = (statusPredicate: string) => `
+      UPDATE tasks SET
+         status = 'verified', verified_at = COALESCE(verified_at, ?), accepted_by = COALESCE(accepted_by, 'creator'),
+         review_note = COALESCE(?, review_note), auto_release_at = NULL,
+         payment_signature = ?, payment_requirements = ?, payment_payer = ?, payment_nonce = ?, payment_expires_at = ?,
+         payment_verified = 1, payment_status = 'authorized', settle_attempts = 0, settle_broadcast = 0,
+         settle_started_at = NULL, settle_next_at = ?, last_settle_error = NULL, last_settle_class = NULL
+       WHERE task_id = ? AND ${statusPredicate}
+         AND payment_status IN ('pending','failed','expired')
+         AND (settle_broadcast = 0 OR payment_status = 'expired' OR last_settle_class IN (${REAUTH_CLASSES.map((cls) => `'${cls}'`).join(',')}))`;
+  const gateParams = [now, note, encrypted, JSON.stringify(requirements), verify.payer ?? auth.from, auth.nonce.toLowerCase(), expiresAt, now, taskId];
+  let wasSubmitted = false;
+  let changes = 0;
+  try {
+    const first = await db.run(gateSql(`status = 'submitted'`), ...gateParams);
+    if (first.changes === 1) {
+      wasSubmitted = true;
+      changes = 1;
+    } else {
+      changes = (await db.run(gateSql(`status = 'verified'`), ...gateParams)).changes;
+    }
+  } catch (err) {
+    if (/UNIQUE/i.test(String(err))) {
+      return c.json({ error: 'authorization_reused', message: 'This authorization nonce was already used for another task.' }, 409);
+    }
+    throw err;
+  }
+  if (changes !== 1) {
+    return c.json({ error: 'conflict', message: 'Task changed while you were accepting it; reload and retry. Your signature was not used.' }, 409);
+  }
+
+  const fresh = (await loadTask(db, taskId)) as TaskRow;
+  let side: { chain: { sequence: number; entry_hash: string } | null } = { chain: null };
+  if (wasSubmitted) {
+    side = await afterAccept(db, fresh, { acceptedBy: 'creator', by: actor, nowIso: now, paymentStatus: 'authorized' });
+  }
+  await logPaymentEvent(db, taskId, 'authorized', {
+    payer: verify.payer ?? auth.from, nonce: auth.nonce, valid_before: expiresAt, amount_atomic: task.bounty_amount, pay_to: wallet.address, trigger: 'accept',
+  }, now);
+
+  const settle = await settleTask(db, c.env, taskId, 'accept', now);
+  const after = (await loadTask(db, taskId)) as TaskRow;
+  if (!settle.skipped && settle.facilitator) c.header('PAYMENT-RESPONSE', encodeB64Json(wireSettleResponse(settle.facilitator, task.bounty_network)));
+
+  const body: Record<string, unknown> = {
+    ok: true, task_id: taskId, status: 'verified', accepted_by: after.accepted_by,
+    payment_status: after.payment_status,
+    chain_sequence: side.chain?.sequence ?? null, chain_entry_hash: side.chain?.entry_hash ?? null,
+  };
+  if (after.payment_tx_hash) body.payment_tx_hash = after.payment_tx_hash;
+  if (after.payment_status !== 'settled' && after.last_settle_error) body.settle_error = after.last_settle_error;
+  return c.json(body);
+}
+
+tasks.post('/:id/accept', agentAuth, (c) => handleAccept(c, false));
+/** Deprecated alias of /accept (D5). */
+tasks.post('/:id/verify', agentAuth, (c) => handleAccept(c, true));
+
+/**
+ * POST /v1/tasks/:id/revision — Creator asks for changes (T6)
+ */
+tasks.post('/:id/revision', agentAuth, async (c) => {
+  const agentId = c.get('agentId') as string;
+  const taskId = c.req.param('id') as string;
+  const db = c.get('db');
+  const actor: Actor = { kind: 'agent', agentId };
+
+  const json = await readJson(c);
+  if (!json.ok) return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400);
+  const parsed = RevisionBodySchema.safeParse(json.body);
+  if (!parsed.success) return c.json({ error: 'bad_request', message: 'A note describing the requested changes is required', details: parsed.error.flatten() }, 400);
+
+  const task = await loadTask(db, taskId);
+  if (!task) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
+  if (!creatorMatches(task, actor)) return c.json({ error: 'forbidden', message: 'Only the task creator can request changes' }, 403);
+  if (task.status !== 'submitted') return c.json({ error: 'invalid_state', message: 'Only a submitted task can be sent back for changes', status: task.status }, 409);
+  if (task.revision_count >= MAX_REVISIONS) return c.json({ error: 'max_revisions', message: `This task already had ${MAX_REVISIONS} revision rounds; accept, dispute or cancel it.` }, 409);
+
+  const now = new Date().toISOString();
+  if (!(await revisionGate(db, taskId, parsed.data.note, now))) {
+    return c.json({ error: 'conflict', message: 'Task changed while you were reviewing it' }, 409);
+  }
+  const revisionCount = task.revision_count + 1;
+  const deliverer = await agentTarget(db, task.claimed_by_agent_id);
+  sendWebhook(deliverer, { type: 'task.revision_requested', agent_id: deliverer?.id ?? '', task_id: taskId, note: parsed.data.note, revision_count: revisionCount });
+  await recordFunnel(db, 'task_revision_requested', taskId, null);
+
+  return c.json({ ok: true, task_id: taskId, status: 'claimed', review_state: 'revision_requested', revision_count: revisionCount });
+});
+
+/**
+ * POST /v1/tasks/:id/dispute — Creator disputes the deliverable (T7): freezes
+ * auto-accept; resolved by the creator's next action (accept or cancel).
  */
 tasks.post('/:id/dispute', agentAuth, async (c) => {
   const agentId = c.get('agentId') as string;
-  const taskId = c.req.param('id');
+  const taskId = c.req.param('id') as string;
   const db = c.get('db');
+  const actor: Actor = { kind: 'agent', agentId };
 
-  const task = await db.get<{
-    task_id: string;
-    creator_agent_id: string;
-    claimed_by_agent_id: string | null;
-    status: string;
-    payment_status: string;
-  }>(
-    'SELECT task_id, creator_agent_id, claimed_by_agent_id, status, payment_status FROM tasks WHERE task_id = ?', taskId
-  );
-  if (!task) {
-    return c.json({ error: 'not_found', message: 'Task not found' }, 404);
+  const json = await readJson(c);
+  if (!json.ok) return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400);
+  const parsed = DisputeBodySchema.safeParse(json.body);
+  if (!parsed.success) return c.json({ error: 'bad_request', message: 'A reason is required to dispute a deliverable', details: parsed.error.flatten() }, 400);
+
+  const task = await loadTask(db, taskId);
+  if (!task) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
+  if (!creatorMatches(task, actor)) return c.json({ error: 'forbidden', message: 'Only the task creator can dispute deliverables' }, 403);
+  if (task.status !== 'submitted') return c.json({ error: 'invalid_state', message: 'Only a submitted task can be disputed', status: task.status }, 409);
+  if (task.disputed_at) return c.json({ error: 'already_disputed', message: 'This deliverable is already disputed', disputed_at: task.disputed_at }, 409);
+
+  const now = new Date().toISOString();
+  if (!(await disputeGate(db, taskId, parsed.data.reason, now))) {
+    return c.json({ error: 'conflict', message: 'Task changed while you were reviewing it' }, 409);
   }
+  await logPaymentEvent(db, taskId, 'disputed', { reason: parsed.data.reason, disputed_by: agentId, payment_status: task.payment_status }, now);
+  const deliverer = await agentTarget(db, task.claimed_by_agent_id);
+  sendWebhook(deliverer, { type: 'task.disputed', agent_id: deliverer?.id ?? '', task_id: taskId, reason: parsed.data.reason });
+  await recordFunnel(db, 'task_disputed', taskId, null);
 
-  // Only creator can dispute
-  if (task.creator_agent_id !== agentId) {
-    return c.json({ error: 'forbidden', message: 'Only the task creator can dispute deliverables' }, 403);
-  }
-
-  // Task must be submitted (not yet verified, not already disputed)
-  if (task.status !== 'submitted') {
-    return c.json({ error: 'bad_request', message: 'Task must be in submitted status to dispute' }, 400);
-  }
-
-  let body: Record<string, unknown> = {};
-  try { body = JSON.parse(await c.req.text()) as Record<string, unknown>; } catch { /* no body required */ }
-  const reason = typeof body.reason === 'string' ? body.reason : null;
-
-  // Update payment status to disputed if there's an authorized payment
-  if (task.payment_status === 'authorized') {
-    await db.run(
-      `UPDATE tasks SET payment_status = 'disputed', auto_release_at = NULL WHERE task_id = ?`, taskId
-    );
-    await logPaymentEvent(db, taskId, 'disputed', { reason, disputed_by: agentId });
-  }
-
-  // Update task status — we keep status as 'submitted' but mark it disputed via payment_status
-  // This is because 'disputed' is a payment state, not a task lifecycle state
-  // The task can still be verified (accepting the work) or cancelled
-  if (task.payment_status === 'authorized') {
-    // Already updated above
-  } else {
-    // No payment — just log the dispute
-    await logPaymentEvent(db, taskId, 'disputed', { reason, disputed_by: agentId, note: 'no_payment' });
-  }
-
-  // Notify claimer via webhook
-  if (task.claimed_by_agent_id) {
-    const claimer = await db.get<{ id: string; webhook_url: string | null; webhook_secret: string | null }>(
-      'SELECT id, webhook_url, webhook_secret FROM agents WHERE id = ?', task.claimed_by_agent_id
-    );
-    if (claimer?.webhook_url) {
-      fireWebhook(claimer.webhook_url, {
-        type: 'task.disputed',
-        agent_id: claimer.id,
-        task_id: taskId,
-        reason,
-      }, claimer.webhook_secret);
-    }
-  }
-
-  return c.json({
-    ok: true,
-    task_id: taskId,
-    payment_status: task.payment_status === 'authorized' ? 'disputed' : task.payment_status,
-  });
+  return c.json({ ok: true, task_id: taskId, status: 'submitted', review_state: 'disputed', disputed_at: now, payment_status: task.payment_status });
 });
 
 /**
- * POST /v1/tasks/:id/cancel — Creator cancels task
+ * POST /v1/tasks/:id/cancel — Creator cancels (T8)
  */
 tasks.post('/:id/cancel', agentAuth, async (c) => {
   const agentId = c.get('agentId') as string;
-  const taskId = c.req.param('id');
+  const taskId = c.req.param('id') as string;
   const db = c.get('db');
+  const actor: Actor = { kind: 'agent', agentId };
 
-  const task = await db.get<{ task_id: string; creator_agent_id: string; claimed_by_agent_id: string | null; status: string; payment_status: string }>(
-    'SELECT task_id, creator_agent_id, claimed_by_agent_id, status, payment_status FROM tasks WHERE task_id = ?', taskId
-  );
-  if (!task) {
-    return c.json({ error: 'not_found', message: 'Task not found' }, 404);
+  const json = await readJson(c);
+  if (!json.ok) return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400);
+  const parsed = CancelBodySchema.safeParse(json.body);
+  const reason = parsed.success ? parsed.data.reason ?? null : null;
+
+  const task = await loadTask(db, taskId);
+  if (!task) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
+  if (!creatorMatches(task, actor)) return c.json({ error: 'forbidden', message: 'Only the task creator can cancel tasks' }, 403);
+
+  const refusal = cancelRefusal(task);
+  if (refusal) {
+    const messages: Record<string, string> = {
+      already_accepted: 'Accepted work cannot be cancelled',
+      dispute_first: 'Delivered work can only be cancelled after a dispute (POST /v1/tasks/:id/dispute)',
+      payment_in_flight: 'A payment is authorized or settling for this task; it cannot be cancelled',
+      conflict: 'Task cannot be cancelled in its current state',
+    };
+    return c.json({ error: refusal, message: messages[refusal], status: task.status, payment_status: task.payment_status }, 409);
   }
 
-  // Only creator can cancel
-  if (task.creator_agent_id !== agentId) {
-    return c.json({ error: 'forbidden', message: 'Only the task creator can cancel tasks' }, 403);
+  const now = new Date().toISOString();
+  if (!(await cancelGate(db, taskId, now))) {
+    return c.json({ error: 'conflict', message: 'Task changed while you were cancelling it' }, 409);
   }
 
-  // Task must be open, claimed, or verified/closed (soft-cancel for cleanup)
-  if (!['open', 'claimed', 'submitted', 'verified', 'closed'].includes(task.status)) {
-    return c.json({ error: 'bad_request', message: 'Task cannot be cancelled in its current state' }, 400);
+  if (task.bounty_amount && ['pending', 'failed'].includes(task.payment_status)) {
+    await logPaymentEvent(db, taskId, 'expired', { reason: 'task_cancelled', cancel_reason: reason }, now);
   }
-  // Cannot cancel a task with a settled payment (money already moved)
-  if (task.payment_status === 'settled') {
-    return c.json({ error: 'bad_request', message: 'Cannot cancel a task with settled payment' }, 400);
-  }
+  const claimer = await agentTarget(db, task.claimed_by_agent_id);
+  sendWebhook(claimer, { type: 'task.cancelled', agent_id: claimer?.id ?? '', task_id: taskId });
+  if (task.disputed_at && task.claimed_by_agent_id) await recomputeReputation(db, task.claimed_by_agent_id);
+  await recordFunnel(db, 'task_cancelled', taskId, null);
 
-  await db.run(
-    `UPDATE tasks SET status = 'cancelled' WHERE task_id = ?`,
-    taskId
-  );
-
-  // If payment was authorized, mark it as expired (not settled, funds stay with creator)
-  if (task.payment_status === 'authorized') {
-    await db.run(
-      `UPDATE tasks SET payment_status = 'expired' WHERE task_id = ?`, taskId
-    );
-    await logPaymentEvent(db, taskId, 'expired', { reason: 'task_cancelled' });
-  }
-
-  // If was claimed, notify claimer via webhook
-  if (task.claimed_by_agent_id) {
-    const claimer = await db.get<{ id: string; webhook_url: string | null; webhook_secret: string | null }>(
-      'SELECT id, webhook_url, webhook_secret FROM agents WHERE id = ?', task.claimed_by_agent_id
-    );
-    if (claimer?.webhook_url) {
-      fireWebhook(claimer.webhook_url, {
-        type: 'task.cancelled',
-        agent_id: claimer.id,
-        task_id: taskId,
-      }, claimer.webhook_secret);
-    }
-  }
-
-  return c.json({ ok: true, task_id: taskId, status: 'cancelled' });
+  const after = await loadTask(db, taskId);
+  return c.json({ ok: true, task_id: taskId, status: 'cancelled', payment_status: after?.payment_status ?? task.payment_status });
 });
 
 export default tasks;

@@ -37,20 +37,9 @@ vi.mock('../crypto/index.js', async () => {
   };
 });
 
-// Mock CDP payment provider
-vi.mock('../payments/cdp-provider.js', () => ({
-  CdpPaymentProvider: vi.fn().mockImplementation(() => ({
-    name: 'cdp',
-    verify: vi.fn().mockResolvedValue({
-      valid: true,
-      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-    }),
-    settle: vi.fn().mockResolvedValue({
-      success: true,
-      tx_hash: '0xsmoketxhash',
-    }),
-  })),
-}));
+// Payments: a scripted facilitator stands in for CDP (sign-at-accept flow).
+import { enablePaymentsForTests, resetPaymentsForTests, paymentHeaderFor, TEST_WALLET, TEST_TX } from '../payments/test-fixtures.js';
+import type { PaymentRequirementsV2 } from '../payments/x402.js';
 
 const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
 
@@ -320,61 +309,83 @@ describe('E2E Smoke — Full Agent Lifecycle', () => {
     expect(receiptData.receipt.chain_entry_hash).toBeDefined();
   });
 
-  it('paid task full lifecycle: create with bounty → claim → submit → verify (settles)', async () => {
-    const createBody = JSON.stringify({
-      title: 'Paid Smoke Task',
-      description: 'Bounty task for smoke test',
-      category: 'research',
-      bounty: { amount: '$10.00', token: 'USDC', network: 'eip155:8453' },
-    });
-    const createHeaders = await signRequest(alice, 'POST', '/v1/tasks', createBody);
-    const createRes = await app.request('/v1/tasks', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-PAYMENT-SIGNATURE': 'valid-mock-payment-signature',
-        ...createHeaders,
-      },
-      body: createBody,
-    });
-    expect(createRes.status).toBe(200);
-    const createData = await createRes.json() as { task_id: string; payment_status: string };
-    expect(createData.payment_status).toBe('authorized');
-    const taskId = createData.task_id;
+  it('paid task full lifecycle: declare bounty → claim (wallet) → deliver → 402 → accept with signature (settles)', async () => {
+    enablePaymentsForTests();
+    try {
+      const createBody = JSON.stringify({
+        title: 'Paid Smoke Task',
+        description: 'Bounty task for smoke test',
+        category: 'research',
+        bounty: { amount: '10000000', token: 'USDC', network: 'eip155:8453' },
+      });
+      const createHeaders = await signRequest(alice, 'POST', '/v1/tasks', createBody);
+      const createRes = await app.request('/v1/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...createHeaders },
+        body: createBody,
+      });
+      expect(createRes.status).toBe(200);
+      const createData = await createRes.json() as { task_id: string; payment_status: string; bounty: { amount_display: string } };
+      expect(createData.payment_status).toBe('pending');
+      expect(createData.bounty.amount_display).toBe('10.00');
+      const taskId = createData.task_id;
 
-    // Claim
-    const claimH = await signRequest(bob, 'POST', `/v1/tasks/${taskId}/claim`);
-    await app.request(`/v1/tasks/${taskId}/claim`, { method: 'POST', headers: claimH });
+      // Bob needs a wallet before he can claim a bounty task
+      const walletBody = JSON.stringify({ wallet_address: TEST_WALLET });
+      const walletH = await signRequest(bob, 'PATCH', `/v1/agents/${bob.agentId}/wallet`, walletBody);
+      const walletRes = await app.request(`/v1/agents/${bob.agentId}/wallet`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', ...walletH }, body: walletBody,
+      });
+      expect(walletRes.status).toBe(200);
 
-    // Submit
-    const submitBody = JSON.stringify({
-      submission_type: 'json',
-      content: '{"research": "done"}',
-      summary: 'Paid task complete',
-    });
-    const submitH = await signRequest(bob, 'POST', `/v1/tasks/${taskId}/submit`, submitBody);
-    await app.request(`/v1/tasks/${taskId}/submit`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...submitH },
-      body: submitBody,
-    });
+      // Claim
+      const claimH = await signRequest(bob, 'POST', `/v1/tasks/${taskId}/claim`);
+      const claimRes = await app.request(`/v1/tasks/${taskId}/claim`, { method: 'POST', headers: claimH });
+      expect(claimRes.status).toBe(200);
 
-    // Verify → triggers settlement
-    const verifyH = await signRequest(alice, 'POST', `/v1/tasks/${taskId}/verify`);
-    const verifyRes = await app.request(`/v1/tasks/${taskId}/verify`, {
-      method: 'POST',
-      headers: verifyH,
-    });
-    expect(verifyRes.status).toBe(200);
-    const verifyData = await verifyRes.json() as { status: string; payment_status: string; payment_tx_hash: string };
-    expect(verifyData.status).toBe('verified');
-    expect(verifyData.payment_status).toBe('settled');
-    expect(verifyData.payment_tx_hash).toBe('0xsmoketxhash');
+      // Deliver
+      const deliverBody = JSON.stringify({
+        summary: 'Paid task complete',
+        submission_type: 'json',
+        submission_content: '{"research": "done"}',
+      });
+      const deliverH = await signRequest(bob, 'POST', `/v1/tasks/${taskId}/deliver`, deliverBody);
+      const deliverRes = await app.request(`/v1/tasks/${taskId}/deliver`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...deliverH }, body: deliverBody,
+      });
+      expect(deliverRes.status).toBe(200);
 
-    // Payment status endpoint
-    const paymentRes = await app.request(`/v1/tasks/${taskId}/payment`);
-    expect(paymentRes.status).toBe(200);
-    const paymentData = await paymentRes.json() as { payment: { status: string } };
-    expect(paymentData.payment.status).toBe('settled');
+      // Accept without a signature → 402 challenge with the requirements to sign
+      const challengeH = await signRequest(alice, 'POST', `/v1/tasks/${taskId}/accept`);
+      const challengeRes = await app.request(`/v1/tasks/${taskId}/accept`, { method: 'POST', headers: challengeH });
+      expect(challengeRes.status).toBe(402);
+      const challenge = await challengeRes.json() as { accepts: PaymentRequirementsV2[] };
+      expect(challenge.accepts[0].payTo).toBe(TEST_WALLET);
+      expect(challenge.accepts[0].amount).toBe('10000000');
+      expect(challengeRes.headers.get('PAYMENT-REQUIRED')).toBeTruthy();
+
+      // Accept with the signed authorization → verified + settled
+      const acceptH = await signRequest(alice, 'POST', `/v1/tasks/${taskId}/accept`);
+      const acceptRes = await app.request(`/v1/tasks/${taskId}/accept`, {
+        method: 'POST',
+        headers: { ...acceptH, 'PAYMENT-SIGNATURE': paymentHeaderFor(challenge.accepts[0]) },
+      });
+      expect(acceptRes.status).toBe(200);
+      const acceptData = await acceptRes.json() as { status: string; payment_status: string; payment_tx_hash: string; accepted_by: string };
+      expect(acceptData.status).toBe('verified');
+      expect(acceptData.accepted_by).toBe('creator');
+      expect(acceptData.payment_status).toBe('settled');
+      expect(acceptData.payment_tx_hash).toBe(TEST_TX);
+
+      // Payment status endpoint
+      const paymentRes = await app.request(`/v1/tasks/${taskId}/payment`);
+      expect(paymentRes.status).toBe(200);
+      const paymentData = await paymentRes.json() as { payment: { status: string; tx_hash: string; payment_due: boolean } };
+      expect(paymentData.payment.status).toBe('settled');
+      expect(paymentData.payment.tx_hash).toBe(TEST_TX);
+      expect(paymentData.payment.payment_due).toBe(false);
+    } finally {
+      resetPaymentsForTests();
+    }
   });
 });

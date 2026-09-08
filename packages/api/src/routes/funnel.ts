@@ -26,6 +26,21 @@ export const FUNNEL_EVENTS = [
   'provider_connected',
   'first_lease', // accepted for a future local opt-in; nothing ships it today
   'codex_recovery_view', // a /codex pageview ≈ one cold-sandbox npm block in the wild
+  // Tasks marketplace conversion funnel (Tasks P0). The two client-side events
+  // arrive through POST /v1/funnel; the rest are written server-side from
+  // tasks/service.ts with funnel_id = task_id, so every client (SDK, MCP, CLI,
+  // console) is counted without instrumenting each one.
+  'task_cta_click',
+  'task_composer_view',
+  'task_posted',
+  'task_claimed',
+  'task_delivered',
+  'task_revision_requested',
+  'task_disputed',
+  'task_accepted',
+  'task_cancelled',
+  'task_paid',
+  'task_payment_failed',
 ] as const;
 
 /** The marketing grid's "vote for next" tiles. Live providers are not votable. */

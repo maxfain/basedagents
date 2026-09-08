@@ -45,6 +45,9 @@ export default defineConfig({
         E2E: '1',
         PORT: String(API_PORT),
         DATABASE_PATH: '.e2e-data/e2e.db',
+        // Payments stay OFF (no TASK_PAYMENTS_ENABLED); the encryption key only
+        // lets the fail-closed paths be exercised the way production is.
+        PAYMENT_ENCRYPTION_KEY: 'a'.repeat(64),
         KEYRING_RP_ID: 'localhost',
         KEYRING_ORIGINS: `http://localhost:${CONSOLE_PORT}`,
         KEYRING_CONSOLE_ORIGIN: `http://localhost:${CONSOLE_PORT}`,

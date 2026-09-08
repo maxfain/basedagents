@@ -466,7 +466,7 @@ describe('Task Marketplace', () => {
 
       const res = await submitDeliverable(claimer, taskId);
       // 401 (replay protection) or 400 (wrong state) — both are valid rejections
-      expect([400, 401]).toContain(res.status);
+      expect([409, 401]).toContain(res.status);
     });
 
     it('invalid body → 400', async () => {
@@ -546,7 +546,7 @@ describe('Task Marketplace', () => {
       expect(res.status).toBe(403);
     });
 
-    it('cannot verify non-submitted task → 400', async () => {
+    it('cannot verify non-submitted task → 409 invalid_state', async () => {
       const taskId = await createTask(creator);
       await claimTask(claimer, taskId);
 
@@ -555,7 +555,34 @@ describe('Task Marketplace', () => {
         method: 'POST',
         headers: { ...headers },
       });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(409);
+      const data = await res.json() as Record<string, unknown>;
+      expect(data.error).toBe('invalid_state');
+      expect(res.headers.get('Deprecation')).toBe('true');
+    });
+
+    it('POST /accept is the canonical route and is idempotent', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+      await submitDeliverable(claimer, taskId);
+
+      let headers = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/accept`);
+      const first = await app.request(`/v1/tasks/${taskId}/accept`, { method: 'POST', headers: { ...headers } });
+      expect(first.status).toBe(200);
+      expect(first.headers.get('Deprecation')).toBeNull();
+      const firstData = await first.json() as Record<string, unknown>;
+      expect(firstData.accepted_by).toBe('creator');
+      expect(firstData.payment_status).toBe('none');
+      expect(firstData.chain_sequence).toBeTypeOf('number');
+
+      headers = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/accept`);
+      const second = await app.request(`/v1/tasks/${taskId}/accept`, { method: 'POST', headers: { ...headers } });
+      expect(second.status).toBe(200);
+      const secondData = await second.json() as Record<string, unknown>;
+      expect(secondData.status).toBe('verified');
+      // No second chain entry for an idempotent re-accept
+      const entries = await db.all<{ entry_type: string }>(`SELECT entry_type FROM chain WHERE entry_type = 'task_verified'`);
+      expect(entries.length).toBe(1);
     });
 
     it('notifies claimer via webhook on verify', async () => {
@@ -625,17 +652,34 @@ describe('Task Marketplace', () => {
       expect(res.status).toBe(403);
     });
 
-    it('can cancel submitted task (soft-cancel for cleanup)', async () => {
+    it('cannot cancel delivered work without a dispute → 409 dispute_first', async () => {
       const taskId = await createTask(creator);
       await claimTask(claimer, taskId);
       await submitDeliverable(claimer, taskId);
 
-      const headers = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/cancel`);
+      let headers = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/cancel`);
       const res = await app.request(`/v1/tasks/${taskId}/cancel`, {
         method: 'POST',
         headers: { ...headers },
       });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(409);
+      expect((await res.json() as Record<string, unknown>).error).toBe('dispute_first');
+
+      // Dispute (reason required), then cancel is allowed
+      const disputeBody = JSON.stringify({ reason: 'Not what was asked' });
+      headers = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/dispute`, disputeBody);
+      const disputeRes = await app.request(`/v1/tasks/${taskId}/dispute`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: disputeBody,
+      });
+      expect(disputeRes.status).toBe(200);
+      expect((await disputeRes.json() as Record<string, unknown>).review_state).toBe('disputed');
+
+      headers = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/cancel`);
+      const cancelRes = await app.request(`/v1/tasks/${taskId}/cancel`, { method: 'POST', headers: { ...headers } });
+      expect(cancelRes.status).toBe(200);
+      const row = await db.get<{ status: string; cancelled_at: string | null }>('SELECT status, cancelled_at FROM tasks WHERE task_id = ?', taskId);
+      expect(row!.status).toBe('cancelled');
+      expect(row!.cancelled_at).not.toBeNull();
     });
 
     it('notifies claimer via webhook on cancel', async () => {
@@ -680,17 +724,17 @@ describe('Task Marketplace', () => {
       expect(res.status).toBe(409);
     });
 
-    it('cannot verify an open task → 400', async () => {
+    it('cannot verify an open task → 409', async () => {
       const taskId = await createTask(creator);
       const headers = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/verify`);
       const res = await app.request(`/v1/tasks/${taskId}/verify`, {
         method: 'POST',
         headers: { ...headers },
       });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(409);
     });
 
-    it('can cancel a verified task (soft-cancel for cleanup)', async () => {
+    it('cannot cancel an accepted task → 409 already_accepted', async () => {
       const taskId = await createTask(creator);
       await claimTask(claimer, taskId);
       await submitDeliverable(claimer, taskId);
@@ -706,7 +750,8 @@ describe('Task Marketplace', () => {
         method: 'POST',
         headers: { ...headers },
       });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(409);
+      expect((await res.json() as Record<string, unknown>).error).toBe('already_accepted');
     });
   });
 
@@ -811,7 +856,7 @@ describe('Task Marketplace', () => {
 
       const res = await deliverTask(claimer, taskId);
       // 401 (replay protection) or 400 (wrong state) — both are valid rejections
-      expect([400, 401]).toContain(res.status);
+      expect([409, 401]).toContain(res.status);
     });
 
     it('notifies creator via webhook on deliver', async () => {
@@ -1040,128 +1085,186 @@ describe('Task Marketplace', () => {
       const data = await res.json() as Record<string, unknown>;
       expect(data.ok).toBe(true);
       expect(data.status).toBe('verified');
-      // No payment fields in response for free tasks
-      expect(data.payment_status).toBeUndefined();
+      // Free tasks report payment_status 'none' and never a tx hash
+      expect(data.payment_status).toBe('none');
       expect(data.payment_tx_hash).toBeUndefined();
     });
   });
 
-  // ─── Balance verification at claim time ───
+  // ─── Bounty tasks: wallet required to claim (sign-at-accept model) ───
 
-  describe('Balance verification at claim time', () => {
-    // The test app uses PAYMENT_ENCRYPTION_KEY = 'a'.repeat(64)
-    // We need a properly encrypted sig so decryptPaymentSignature doesn't throw
-    async function makeEncryptedSig(): Promise<string> {
-      const { encryptPaymentSignature } = await import('../payments/crypto.js');
-      return encryptPaymentSignature('mock-x402-sig', 'a'.repeat(64));
-    }
-
-    async function createBountyTask(paymentStatus = 'authorized', paymentExpiresAt: string | null = null): Promise<string> {
+  describe('Claiming a bounty task', () => {
+    async function createBountyTaskRow(): Promise<string> {
       const taskId = `task_bounty_${Math.random().toString(36).slice(2)}`;
       const now = new Date().toISOString();
-      const encryptedSig = await makeEncryptedSig();
       await db.run(
         `INSERT INTO tasks (task_id, creator_agent_id, title, description, status, created_at,
-                            bounty_amount, bounty_token, bounty_network, payment_signature,
-                            payment_status, payment_expires_at)
-         VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)`,
-        taskId, creator.agentId, 'Bounty Task', 'Do work for pay', now,
-        '$5.00', 'USDC', 'eip155:8453', encryptedSig,
-        paymentStatus, paymentExpiresAt
+                            bounty_amount, bounty_token, bounty_network, payment_status)
+         VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, 'pending')`,
+        taskId, creator.agentId, 'Bounty Task', 'Do work for pay', now, '5000000', 'USDC', 'eip155:8453',
       );
       return taskId;
     }
 
-    it('rejects claim when payment_expires_at is in the past → 402', async () => {
-      const expiredAt = new Date(Date.now() - 60_000).toISOString(); // 1 min ago
-      const taskId = await createBountyTask('authorized', expiredAt);
-
+    it('rejects a claimer without a wallet → 409 wallet_required', async () => {
+      const taskId = await createBountyTaskRow();
       const res = await claimTask(claimer, taskId);
-      expect(res.status).toBe(402);
+      expect(res.status).toBe(409);
       const data = await res.json() as Record<string, unknown>;
-      expect(data.error).toBe('payment_expired');
-
-      // DB should be updated to expired
-      const task = await db.get<{ payment_status: string }>(
-        'SELECT payment_status FROM tasks WHERE task_id = ?', taskId
-      );
-      expect(task!.payment_status).toBe('expired');
+      expect(data.error).toBe('wallet_required');
+      const row = await db.get<{ status: string }>('SELECT status FROM tasks WHERE task_id = ?', taskId);
+      expect(row!.status).toBe('open');
     });
 
-    it('allows claim when payment_expires_at is in the future', async () => {
-      const futureAt = new Date(Date.now() + 3_600_000).toISOString(); // 1h from now
-      const taskId = await createBountyTask('authorized', futureAt);
+    it('rejects a claimer whose wallet is on another network → 409 wallet_network_mismatch', async () => {
+      const taskId = await createBountyTaskRow();
+      await db.run(`UPDATE agents SET wallet_address = ?, wallet_network = ? WHERE id = ?`, '0x' + '1'.repeat(40), 'eip155:84532', claimer.agentId);
+      const res = await claimTask(claimer, taskId);
+      expect(res.status).toBe(409);
+      expect((await res.json() as Record<string, unknown>).error).toBe('wallet_network_mismatch');
+    });
 
-      // CDP verify call — mock as valid
-      mockFetch.mockImplementation((url: string) => {
-        if (typeof url === 'string' && url.includes('cdp.coinbase.com')) {
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ valid: true, valid_before: futureAt }),
-          });
-        }
-        return Promise.resolve({ ok: true });
-      });
-
+    it('lets a claimer with a matching wallet claim; no facilitator call is made', async () => {
+      const taskId = await createBountyTaskRow();
+      await db.run(`UPDATE agents SET wallet_address = ?, wallet_network = ? WHERE id = ?`, '0x' + '1'.repeat(40), 'eip155:8453', claimer.agentId);
       const res = await claimTask(claimer, taskId);
       expect(res.status).toBe(200);
+      const cdpCalls = mockFetch.mock.calls.filter((call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('coinbase'));
+      expect(cdpCalls.length).toBe(0);
     });
 
-    it('allows claim when task has no bounty (no payment check)', async () => {
+    it('allows claim when task has no bounty (no wallet check)', async () => {
       const taskId = await createTask(creator);
       const res = await claimTask(claimer, taskId);
       expect(res.status).toBe(200);
     });
+  });
 
-    it('rejects claim when CDP re-verify returns invalid → 402', async () => {
-      const futureAt = new Date(Date.now() + 3_600_000).toISOString();
-      const taskId = await createBountyTask('authorized', futureAt);
+  // ─── Atomic transitions ───
 
-      // Simulate funds moved — CDP says invalid
-      mockFetch.mockImplementation((url: string) => {
-        if (typeof url === 'string' && url.includes('cdp.coinbase.com')) {
-          return Promise.resolve({
-            ok: false,
-            json: () => Promise.resolve({ message: 'Insufficient funds' }),
-          });
-        }
-        return Promise.resolve({ ok: true });
+  describe('Atomic transitions', () => {
+    it('two concurrent claims → exactly one 200, one 409, one task.claimed webhook', async () => {
+      const webhookCreator = await createTestAgent(db, { status: 'active', webhookUrl: 'https://creator-webhook.example.com/events' });
+      const taskId = await createTask(webhookCreator);
+      const other = await createTestAgent(db, { status: 'active', capabilities: ['code'] });
+
+      const [a, b] = await Promise.all([claimTask(claimer, taskId), claimTask(other, taskId)]);
+      const statuses = [a.status, b.status].sort();
+      expect(statuses).toEqual([200, 409]);
+
+      const row = await db.get<{ claimed_by_agent_id: string; status: string }>('SELECT claimed_by_agent_id, status FROM tasks WHERE task_id = ?', taskId);
+      expect(row!.status).toBe('claimed');
+      const winner = a.status === 200 ? claimer.agentId : other.agentId;
+      expect(row!.claimed_by_agent_id).toBe(winner);
+
+      await new Promise(r => setTimeout(r, 10));
+      const claimedCalls = mockFetch.mock.calls.filter((call: unknown[]) => {
+        const [url, opts] = call as [string, { body: string }];
+        return url === 'https://creator-webhook.example.com/events' && JSON.parse(opts.body).type === 'task.claimed';
       });
+      expect(claimedCalls.length).toBe(1);
+    });
 
-      const res = await claimTask(claimer, taskId);
-      expect(res.status).toBe(402);
-      const data = await res.json() as Record<string, unknown>;
-      expect(data.error).toBe('payment_invalid');
+    it('two concurrent delivers → exactly one receipt', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+      const [a, b] = await Promise.all([deliverTask(claimer, taskId), deliverTask(claimer, taskId)]);
+      expect([a.status, b.status].sort()).toEqual([200, 409]);
+      const receipts = await db.all<{ receipt_id: string }>('SELECT receipt_id FROM delivery_receipts WHERE task_id = ?', taskId);
+      expect(receipts.length).toBe(1);
+    });
 
-      // DB should reflect failed status
-      const task = await db.get<{ payment_status: string }>(
-        'SELECT payment_status FROM tasks WHERE task_id = ?', taskId
+    it('accept racing cancel → one wins, the other gets 409', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+      await deliverTask(claimer, taskId);
+      // dispute first so cancel is permitted
+      const disputeBody = JSON.stringify({ reason: 'hmm' });
+      const dh = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/dispute`, disputeBody);
+      await app.request(`/v1/tasks/${taskId}/dispute`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...dh }, body: disputeBody });
+
+      const ah = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/accept`);
+      const ch = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/cancel`);
+      const [a, b] = await Promise.all([
+        app.request(`/v1/tasks/${taskId}/accept`, { method: 'POST', headers: { ...ah } }),
+        app.request(`/v1/tasks/${taskId}/cancel`, { method: 'POST', headers: { ...ch } }),
+      ]);
+      expect([a.status, b.status].sort()).toEqual([200, 409]);
+      const row = await db.get<{ status: string }>('SELECT status FROM tasks WHERE task_id = ?', taskId);
+      expect(['verified', 'cancelled']).toContain(row!.status);
+    });
+
+    it('concurrent chain entries do not collide', async () => {
+      const taskA = await createTask(creator);
+      const taskB = await createTask(creator);
+      const other = await createTestAgent(db, { status: 'active', capabilities: ['code'] });
+      await claimTask(claimer, taskA);
+      await claimTask(other, taskB);
+      const [a, b] = await Promise.all([deliverTask(claimer, taskA), deliverTask(other, taskB)]);
+      expect(a.status).toBe(200);
+      expect(b.status).toBe(200);
+      const seqs = await db.all<{ sequence: number; previous_hash: string; entry_hash: string }>(
+        `SELECT sequence, previous_hash, entry_hash FROM chain WHERE entry_type = 'task_delivered' ORDER BY sequence ASC`,
       );
-      expect(task!.payment_status).toBe('failed');
+      expect(seqs.length).toBe(2);
+      expect(seqs[1].sequence).toBe(seqs[0].sequence + 1);
+      expect(seqs[1].previous_hash).toBe(seqs[0].entry_hash);
+    });
+  });
+
+  // ─── Review flow: request changes ───
+
+  describe('POST /v1/tasks/:id/revision — Request changes', () => {
+    async function requestRevision(taskId: string, note = 'Please add tests'): Promise<Response> {
+      const body = JSON.stringify({ note });
+      const headers = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/revision`, body);
+      return app.request(`/v1/tasks/${taskId}/revision`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
+    }
+
+    it('sends a submitted task back to claimed; a second delivery adds a second receipt', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+      await deliverTask(claimer, taskId);
+
+      const res = await requestRevision(taskId);
+      expect(res.status).toBe(200);
+      const data = await res.json() as Record<string, unknown>;
+      expect(data.status).toBe('claimed');
+      expect(data.review_state).toBe('revision_requested');
+      expect(data.revision_count).toBe(1);
+
+      const detail = await (await app.request(`/v1/tasks/${taskId}`)).json() as { task: Record<string, unknown> };
+      expect(detail.task.review_state).toBe('revision_requested');
+      expect(detail.task.review_note).toBe('Please add tests');
+
+      const second = await deliverTask(claimer, taskId, { summary: 'Now with tests' });
+      expect(second.status).toBe(200);
+      const receipts = await (await app.request(`/v1/tasks/${taskId}/receipts`)).json() as { receipts: Array<{ summary: string }> };
+      expect(receipts.receipts.length).toBe(2);
+      expect(receipts.receipts[0].summary).toBe('Now with tests');
+      const latest = await (await app.request(`/v1/tasks/${taskId}/receipt`)).json() as { receipt: { summary: string } };
+      expect(latest.receipt.summary).toBe('Now with tests');
     });
 
-    it('allows claim even if CDP is unreachable (non-fatal, logs warning)', async () => {
-      const futureAt = new Date(Date.now() + 3_600_000).toISOString();
-      const taskId = await createBountyTask('authorized', futureAt);
-
-      // CDP throws a network error
-      mockFetch.mockImplementation((url: string) => {
-        if (typeof url === 'string' && url.includes('cdp.coinbase.com')) {
-          return Promise.reject(new Error('Network timeout'));
-        }
-        return Promise.resolve({ ok: true });
-      });
-
-      const res = await claimTask(claimer, taskId);
-      // Should still succeed — CDP failure is non-fatal at claim time
-      expect(res.status).toBe(200);
+    it('caps revisions at 3 → 409 max_revisions', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+      for (let i = 0; i < 3; i++) {
+        await deliverTask(claimer, taskId);
+        expect((await requestRevision(taskId)).status).toBe(200);
+      }
+      await deliverTask(claimer, taskId);
+      const res = await requestRevision(taskId);
+      expect(res.status).toBe(409);
+      expect((await res.json() as Record<string, unknown>).error).toBe('max_revisions');
     });
 
-    it('allows claim for task with payment_status=none (free task with explicit check)', async () => {
-      const taskId = await createBountyTask('none', null);
-      const res = await claimTask(claimer, taskId);
-      // payment_status=none means no bounty check — should pass
-      expect(res.status).toBe(200);
+    it('requires a note → 400', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+      await deliverTask(claimer, taskId);
+      const res = await requestRevision(taskId, '');
+      expect(res.status).toBe(400);
     });
   });
 });
