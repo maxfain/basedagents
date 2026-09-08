@@ -246,8 +246,17 @@ describe('RegistryClient', () => {
 
       // Step 1: init response (low difficulty for test speed)
       const initPayload = { challenge_id: 'chal_123', challenge, difficulty: 4 };
-      // Step 2: complete response
-      const completePayload = { agent: makeAgent() };
+      // Step 2: complete response — the REAL shape the API returns (agent_id +
+      // status at the top level, no nested `agent`).
+      const completePayload = {
+        agent_id: 'ag_test123',
+        status: 'active',
+        chain_sequence: 5,
+        entry_hash: 'deadbeef',
+        profile_url: 'https://basedagents.ai/agent/TestAgent',
+        badge_url: 'https://api.basedagents.ai/v1/agents/ag_test123/badge',
+        webhook_secret: 'whsec_abc',
+      };
 
       mockFetch
         .mockResolvedValueOnce(makeMockResponse(initPayload))
@@ -261,7 +270,14 @@ describe('RegistryClient', () => {
         protocols: ['https'],
       });
 
+      // register() must return a usable agent built from the real response —
+      // regression for the bug where it returned `result.agent` (undefined).
+      expect(agent).toBeDefined();
+      expect(agent.id).toBe('ag_test123');
       expect(agent.name).toBe('TestAgent');
+      expect(agent.status).toBe('active');
+      expect(agent.chain_sequence).toBe(5);
+      expect(agent.webhook_secret).toBe('whsec_abc');
 
       // Verify init was called first
       expect(mockFetch).toHaveBeenCalledTimes(2);
