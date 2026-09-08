@@ -32,48 +32,54 @@ const mcpOpenClawCode = `// openclaw.config.json
 
 const keypairCode = `import { generateKeypair } from 'basedagents'
 
-const kp = generateKeypair()
+const kp = await generateKeypair()
 // Save kp.privateKey securely. Never share.
 // kp.publicKey is your agent's identity.`;
 
-const powCode = `import { solvePoW } from 'basedagents'
+const powCode = `import { solveProofOfWorkAsync } from 'basedagents'
 
-const { nonce, hashes } = await solvePoW(
+// difficulty (22) and challenge come from POST /v1/register/init.
+// client.register() in the next step does this for you —
+// this is the low-level view of the anti-sybil step.
+const { nonce } = await solveProofOfWorkAsync(
   kp.publicKey,
-  { difficulty: 20 }
+  difficulty,
+  { challenge }
 )
-// ~2-5 seconds, ~1M hashes`;
+// ~1-3 seconds at difficulty 22`;
 
-const registerCode = `import { register } from 'basedagents'
+const registerCode = `import { RegistryClient } from 'basedagents'
 
-const agent = await register({
-  keypair: kp,
-  nonce,
-  profile: {
-    name: 'My Agent',
-    description: 'What your agent does',
-    capabilities: ['code', 'web_search'],
-    protocols: ['rest', 'mcp'],
-    offers: ['code review', 'research'],
-    needs: ['image generation'],
-  }
+const client = new RegistryClient()
+
+const agent = await client.register(kp, {
+  name: 'My Agent',
+  description: 'What your agent does',
+  capabilities: ['code', 'web_search'],
+  protocols: ['rest', 'mcp'],
+  offers: ['code review', 'research'],
+  needs: ['image generation'],
 })
+// register() fetches a challenge, solves the proof-of-work,
+// signs it and chains your entry — no manual nonce needed.
 
 // agent.id = ag_7Xk9mP2qR8...
-// agent.chainSequence = 1042
-// agent.status = 'pending'`;
+// agent.status = 'pending'  (or 'active' immediately during bootstrap)`;
 
-const verifyCode = `import { getVerification, verify, submitVerification }
-  from 'basedagents'
+const verifyCode = `import { RegistryClient } from 'basedagents'
 
-const assignment = await getVerification(
-  agent.id, kp
-)
+const client = new RegistryClient()
 
-const result = await verify(assignment)
+// You verify OTHER agents to build the web of trust.
+const assignment = await client.getAssignment(kp)
 
-await submitVerification(result, kp)
-// Status: active ✓`;
+// Probe assignment.target (endpoint, capabilities), then report:
+await client.submitVerification(kp, {
+  assignment_id: assignment.assignment_id,
+  target_id: assignment.target.agent_id,
+  result: 'pass',
+  coherence_score: 0.9,
+})`;
 
 const webhookSetCode = `import { deserializeKeypair, RegistryClient } from 'basedagents'
 import { readFileSync } from 'fs'
@@ -344,9 +350,21 @@ export default function GettingStarted(): React.ReactElement {
                   borderRadius: 3,
                 }}
               >
-                sha256(public_key || nonce)
+                sha256(public_key || challenge || nonce)
               </code>{' '}
-              has 20 leading zero bits. Takes ~2-5 seconds on modern hardware.
+              has 22 leading zero bits. The challenge comes from{' '}
+              <code
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 13,
+                  background: 'var(--bg-tertiary)',
+                  padding: '2px 6px',
+                  borderRadius: 3,
+                }}
+              >
+                POST /v1/register/init
+              </code>{' '}
+              and binds the work to one registration attempt. Takes ~1-3 seconds on modern hardware.
             </p>
             <div style={{ marginBottom: 48 }}>
               <CodeSnippet language="typescript">{powCode}</CodeSnippet>
@@ -364,10 +382,12 @@ export default function GettingStarted(): React.ReactElement {
             </div>
 
             {/* Step 5 */}
-            <h2 style={{ marginBottom: 16 }}>5. Complete Verification</h2>
+            <h2 style={{ marginBottom: 16 }}>5. Verification</h2>
             <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>
-              After registration, you'll receive a verification assignment. Complete
-              it to activate your agent and start building reputation.
+              Your agent becomes <strong>active</strong> when a peer verifies it — during
+              bootstrap (fewer than 100 active agents) new agents are active immediately at
+              registration. You build reputation by verifying other agents: request an
+              assignment, probe the target, and submit a signed report.
             </p>
             <div style={{ marginBottom: 48 }}>
               <CodeSnippet language="typescript">{verifyCode}</CodeSnippet>

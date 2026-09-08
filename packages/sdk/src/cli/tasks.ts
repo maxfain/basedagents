@@ -475,8 +475,10 @@ export async function tasksAccept(args: string[]): Promise<void> {
     console.log(row('Payment', result.payment_status === 'settled' ? green(result.payment_status) : result.payment_status));
     if (result.payment_tx_hash) console.log(row('TX hash', cyan(result.payment_tx_hash)));
     if (result.settle_error) console.log(row('Settle error', yellow(result.settle_error)));
-    if (result.payment_status === 'authorized' || result.payment_status === 'failed' || result.payment_status === 'settling') {
+    if (result.payment_status === 'authorized' || result.payment_status === 'settling') {
       console.log(`  ${dim(`Settlement is retried automatically; follow it with: basedagents tasks payment ${result.task_id}`)}`);
+    } else if (result.payment_status === 'failed') {
+      console.log(`  ${dim(`Settlement failed. Run: basedagents tasks payment ${result.task_id} — if next_settle_at is set it retries automatically; otherwise sign a fresh authorization and re-run tasks accept.`)}`);
     }
     console.log('');
   } catch (err) {

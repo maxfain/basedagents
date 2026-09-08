@@ -840,7 +840,13 @@ export class RegistryClient {
     status: 'submitted';
     revision_count: number;
   }> {
-    return this.fetchAuth(keypair, 'POST', `/v1/tasks/${taskId}/deliver`, delivery as unknown as Record<string, unknown>);
+    // The API's deliver route reads `submission_content` and ignores `content`
+    // (that field is only on the legacy `/submit` route). Map the alias so a
+    // caller passing `content` does not silently lose the deliverable body.
+    const { content, ...rest } = delivery;
+    const body: Record<string, unknown> = { ...rest };
+    if (content !== undefined && body.submission_content === undefined) body.submission_content = content;
+    return this.fetchAuth(keypair, 'POST', `/v1/tasks/${taskId}/deliver`, body);
   }
 
   /** Submit a deliverable (legacy; prefer deliverTask). */
@@ -1251,8 +1257,10 @@ export interface TaskSearchParams {
 export interface DeliverOptions {
   summary: string;
   submission_type: 'json' | 'link' | 'pr';
-  content?: string;
+  /** The deliverable body. (`content` is accepted as an alias and mapped to this.) */
   submission_content?: string;
+  /** Alias of `submission_content`, kept for callers migrating off `submitTask`. */
+  content?: string;
   artifact_urls?: string[];
   commit_hash?: string;
   pr_url?: string;
