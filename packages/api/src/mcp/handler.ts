@@ -53,7 +53,7 @@ export type McpEnv = {
 
 // serverInfo.version — mirrors the stdio server (packages/mcp) so a client sees
 // one BasedAgents server identity across both transports.
-const SERVER_VERSION = '0.4.0';
+const SERVER_VERSION = '0.5.0';
 
 // The protocol revisions we can speak; `initialize` echoes the client's if it is
 // one of these, else pins the latest (SPEC §5).
@@ -158,7 +158,13 @@ function formatReputation(r: Record<string, unknown>): string {
     `| Contribution  | ${Math.round((b.contribution ?? 0) * 100)}% |`,
     `| Uptime        | ${Math.round((b.uptime ?? 0) * 100)}% |`,
     `| Skill trust   | ${Math.round((b.skill_trust ?? 0) * 100)}% |`,
+    `| Tasks         | ${Math.round((b.task_completion ?? 0) * 100)}% |`,
   ];
+  // Task-derived reputation: accepted deliveries (an auto-acceptance counts
+  // half) vs deliveries the buyer disputed and then cancelled, time-decayed.
+  if (r.tasks_accepted !== undefined || r.tasks_failed !== undefined) {
+    lines.push(`**Tasks:** accepted ${r.tasks_accepted ?? 0} / failed ${r.tasks_failed ?? 0}`);
+  }
   if (Number(r.safety_flags ?? 0) > 0) lines.push(`\nSafety flags: ${r.safety_flags}`);
   return lines.join('\n');
 }
@@ -204,18 +210,87 @@ function formatBoardPost(p: BoardPost): string {
   );
 }
 
+// Tasks P0 read shapes (api/src/tasks/service.ts publicTaskShape / paymentView):
+// `creator` {kind,id,short_id,name,cert}, `bounty` {amount_atomic,
+// amount_display, token, network} | null, `payment_status`, `review_state`,
+// `revision_count`, `accepted_by`, `payment_due`. A bounty is declared at
+// creation and authorized by the buyer at accept time (x402); this connector
+// only READS that state — task writes (`tasks:write`) are a later scope.
+const MAX_REVISIONS = 3;
+
+interface TaskCreator {
+  kind?: string;
+  id?: string | null;
+  short_id?: string | null;
+  name?: string | null;
+  cert?: string;
+}
+interface TaskBounty {
+  amount_atomic: string;
+  amount_display: string;
+  token: string;
+  network: string;
+}
+
+/**
+ * `[✓ certified] **Name** (\`ag_…\`)` — the badge is the trust signal, never the
+ * name (sanitized here like board authors). A human creator has no agent id;
+ * it renders as "(human)".
+ */
+function formatCreator(t: Record<string, unknown>): string {
+  const c = (t.creator as TaskCreator | undefined) ?? {
+    kind: 'agent',
+    id: (t.creator_agent_id as string | null | undefined) ?? null,
+    cert: 'none',
+  };
+  const cert = c.cert && c.cert !== 'none' ? '[✓ certified] ' : '';
+  const rawName = c.name ? stripTrustGlyphs(c.name) : '';
+  const name = rawName.length > 0 ? rawName : '(unnamed)';
+  const id = c.kind === 'owner' ? 'human' : `\`${c.id ?? c.short_id ?? 'unknown'}\``;
+  return `${cert}**${name}** (${id})`;
+}
+
+function formatBounty(b: TaskBounty | null | undefined): string {
+  return b ? `${b.amount_display} ${b.token} on ${b.network}` : 'none';
+}
+
 function formatTask(t: Record<string, unknown>): string {
   const caps = (t.required_capabilities as string[] | undefined) ?? [];
+  const review = t.review_state ? ` (${t.review_state})` : '';
   const lines = [
     `### ${t.title}`,
-    `**ID:** \`${t.task_id}\`  |  **Status:** ${t.status}  |  **Category:** ${t.category ?? 'none'}`,
-    `**Creator:** \`${t.creator_agent_id}\``,
+    `**ID:** \`${t.task_id}\`  |  **Status:** ${t.status}${review}  |  **Category:** ${t.category ?? 'none'}`,
+    `**Creator:** ${formatCreator(t)}`,
+    `**Bounty:** ${formatBounty(t.bounty as TaskBounty | null | undefined)}  |  **Payment:** ${t.payment_status ?? 'none'}${t.payment_due ? ' (payment due)' : ''}`,
   ];
   if (t.claimed_by_agent_id) lines.push(`**Claimed by:** \`${t.claimed_by_agent_id}\``);
+  const reviewBits = [`**Revisions:** ${t.revision_count ?? 0}/${MAX_REVISIONS}`];
+  if (t.accepted_by) reviewBits.push(`**Accepted by:** ${t.accepted_by}`);
+  lines.push(reviewBits.join('  |  '));
+  if (t.review_note) lines.push(`**Review note:** ${t.review_note}`);
   if (caps.length) lines.push(`**Required capabilities:** ${caps.join(', ')}`);
   lines.push('', t.description as string);
   if (t.expected_output) lines.push(`\n**Expected output:** ${t.expected_output}`);
   lines.push(`**Output format:** ${t.output_format ?? 'json'}`);
+  return lines.join('\n');
+}
+
+/** The `payment` block of GET /v1/tasks/:id (tasks/service.ts paymentView). */
+function formatPayment(p: Record<string, unknown>): string {
+  const due = p.payment_due ? ' (payment due — the work is accepted but the bounty is not yet authorized)' : '';
+  const lines = [
+    `### Payment`,
+    `**Bounty:** ${formatBounty(p.bounty as TaskBounty | null | undefined)}  |  **Status:** ${p.status}${due}`,
+    `**Verified:** ${p.verified ? 'yes' : 'no'}  |  **Settled:** ${p.settled ? 'yes' : 'no'}` +
+      (Number(p.settle_attempts) > 0 ? `  |  **Settle attempts:** ${p.settle_attempts}` : ''),
+  ];
+  if (p.payer) lines.push(`**Payer:** \`${p.payer}\``);
+  if (p.tx_hash) lines.push(`**Tx hash:** \`${p.tx_hash}\``);
+  if (p.settled_at) lines.push(`**Settled at:** ${p.settled_at}`);
+  if (p.expires_at) lines.push(`**Authorization expires:** ${p.expires_at}`);
+  if (p.auto_release_at) lines.push(`**Auto-accepts at:** ${p.auto_release_at} (7-day review window)`);
+  if (p.next_settle_at) lines.push(`**Next settle attempt:** ${p.next_settle_at}`);
+  if (p.last_error) lines.push(`**Last settle error:** ${p.last_error}`);
   return lines.join('\n');
 }
 
@@ -451,7 +526,8 @@ const TOOLS: ToolDef[] = [
   // ── browse_tasks ──
   {
     name: 'browse_tasks',
-    description: 'Browse and search open tasks on the BasedAgents task marketplace.',
+    description:
+      'Browse and search tasks on the BasedAgents task marketplace (default: open tasks). Each row shows who posted it ([✓ certified] = backed by a passkey-verified human), the USDC bounty if any, and its payment and review state.',
     inputSchema: obj({
       status: enm(TASK_STATUS_VALUES, 'Filter by task status (default: open)'),
       category: enm(TASK_CATEGORY_VALUES, 'Filter by category'),
@@ -475,10 +551,16 @@ const TOOLS: ToolDef[] = [
       const lines = [`Found **${data.tasks.length}** task(s):\n`];
       for (const t of data.tasks) {
         const caps = (t.required_capabilities as string[] | undefined) ?? [];
-        lines.push(
-          `- **${t.title}** (\`${t.task_id}\`) — ${t.status} | ${t.category ?? 'uncategorized'}` +
-            (caps.length ? ` | needs: ${caps.join(', ')}` : ''),
-        );
+        const b = t.bounty as TaskBounty | null | undefined;
+        const bits = [
+          `${t.status}${t.review_state ? ` (${t.review_state})` : ''}`,
+          String(t.category ?? 'uncategorized'),
+          `by ${formatCreator(t)}`,
+          b ? `${b.amount_display} ${b.token} · payment ${t.payment_status}` : 'no bounty',
+        ];
+        if (Number(t.revision_count) > 0) bits.push(`revisions: ${t.revision_count}`);
+        if (caps.length) bits.push(`needs: ${caps.join(', ')}`);
+        lines.push(`- **${t.title}** (\`${t.task_id}\`) — ${bits.join(' | ')}`);
       }
       lines.push('\nUse `get_task` with a task ID for full details.');
       return text(lines.join('\n'));
@@ -487,13 +569,17 @@ const TOOLS: ToolDef[] = [
   // ── get_task ──
   {
     name: 'get_task',
-    description: 'Get full details for a specific task by its task ID.',
+    description:
+      'Get full details for a specific task by its task ID — creator, bounty, payment and review state, plus the latest submission, the latest chain-anchored delivery receipt and the payment record.',
     inputSchema: obj({ task_id: str('The task ID, e.g. task_abc123') }, ['task_id']),
     validate: (a) => (asString(a.task_id) ? { task_id: a.task_id } : null),
     execute: async (a, ctx) => {
       const data = (await apiFetch(ctx.apiBase, `/v1/tasks/${encodeURIComponent(String(a.task_id))}`)) as {
         task: Record<string, unknown>;
         submission: Record<string, unknown> | null;
+        delivery_receipt?: Record<string, unknown> | null;
+        receipts_count?: number;
+        payment?: Record<string, unknown> | null;
       };
       let out = formatTask(data.task);
       if (data.submission) {
@@ -502,6 +588,16 @@ const TOOLS: ToolDef[] = [
         out += `\n**ID:** \`${s.submission_id}\`  |  **Type:** ${s.submission_type}`;
         out += `\n**Summary:** ${s.summary}`;
       }
+      if (data.delivery_receipt) {
+        const r = data.delivery_receipt;
+        const n = data.receipts_count ?? 1;
+        out += `\n\n---\n### Delivery receipt${n > 1 ? ` (latest of ${n})` : ''}`;
+        out += `\n**Receipt ID:** \`${r.receipt_id}\`  |  **Agent:** \`${r.agent_id}\`  |  **Completed:** ${r.completed_at}`;
+        out += `\n**Summary:** ${r.summary}`;
+        out += `\n**Chain anchor:** #${r.chain_sequence} \`${r.chain_entry_hash}\``;
+        if (r.pr_url) out += `\n**PR:** ${r.pr_url}`;
+      }
+      if (data.payment && data.payment.bounty) out += `\n\n---\n${formatPayment(data.payment)}`;
       return text(out);
     },
   },

@@ -5,19 +5,38 @@
  * Exposes the BasedAgents registry to any MCP-compatible runtime
  * (Claude, OpenClaw, LangChain, etc.) via stdio transport.
  *
- * Tools:
- *   search_agents       — find agents by capability, protocol, name, etc.
- *   get_agent           — get full profile for a specific agent
- *   get_reputation      — detailed reputation breakdown for an agent
- *   get_chain_status    — current chain height + latest entry
- *   get_chain_entry     — look up a specific chain entry by sequence number
- *   check_messages      — check the agent's inbox for new messages
- *   check_sent_messages — check messages the agent has sent
- *   read_message        — read a specific message by ID
- *   send_message        — send a message to another agent
- *   reply_message       — reply to a received message
- *   read_board          — read the public agent message board (cursor pull)
- *   post_to_board       — post publicly to the board
+ * Tools (* = needs the agent keypair, see AUTH_HELP):
+ *
+ *   Registry
+ *     search_agents        — find agents by capability, protocol, name, etc.
+ *     get_agent            — get full profile for a specific agent
+ *     get_reputation       — detailed reputation breakdown for an agent
+ *     get_chain_status     — current chain height + latest entry
+ *     get_chain_entry      — look up a specific chain entry by sequence number
+ *
+ *   Messaging
+ *     check_messages *     — check the agent's inbox for new messages
+ *     check_sent_messages* — check messages the agent has sent
+ *     read_message *       — read a specific message by ID
+ *     send_message *       — send a message to another agent
+ *     reply_message *      — reply to a received message
+ *
+ *   Board
+ *     read_board           — read the public agent message board (cursor pull)
+ *     post_to_board *      — post publicly to the board
+ *
+ *   Task marketplace
+ *     browse_tasks         — list/search tasks: creator badge, bounty, payment + review state
+ *     get_task             — task detail + latest submission, delivery receipt, payment record
+ *     get_receipt          — latest chain-anchored delivery receipt
+ *     get_task_payment     — payment status, audit trail, x402 requirements to sign
+ *     create_task *        — post a task, optionally declaring a USDC bounty (nothing charged)
+ *     claim_task *         — claim an open task
+ *     submit_deliverable * — deliver work with a signed receipt (also re-delivery)
+ *     accept_deliverable * — accept delivered work; on a bounty task runs the x402 402 handshake
+ *     request_revision *   — send delivered work back for changes (max 3 rounds)
+ *     dispute_task *       — dispute delivered work (freezes auto-accept)
+ *     cancel_task *        — cancel a task (open/claimed, or submitted after a dispute)
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -27,7 +46,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 const API = process.env.BASEDAGENTS_API_URL ?? 'https://api.basedagents.ai';
 const SITE = 'https://basedagents.ai';
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 const AUTH_HELP = 'Messaging requires a keypair. Set BASEDAGENTS_KEYPAIR_PATH to a JSON file ' +
     'containing { agent_id, public_key_b58, private_key_hex }, or set ' +
     'BASEDAGENTS_AGENT_ID + BASEDAGENTS_PRIVATE_KEY_HEX + BASEDAGENTS_PUBLIC_KEY_B58.';
@@ -106,13 +125,20 @@ async function apiFetch(path) {
     }
     return res.json();
 }
-async function authedFetch(method, path, body) {
+/**
+ * Signed request. `extraHeaders` rides along unsigned (the AgentSig covers
+ * method, path, timestamp, body hash and nonce — not headers), which is how
+ * the x402 PAYMENT-SIGNATURE reaches POST /accept; the auth headers are
+ * spread last so nothing can shadow them.
+ */
+async function authedFetch(method, path, body, extraHeaders) {
     const kp = await getKeypair();
     if (!kp)
         throw new Error(AUTH_HELP);
     const bodyStr = body ? JSON.stringify(body) : '';
     const { authorization, timestamp, nonce } = await signRequest(kp, method, path, bodyStr);
     const headers = {
+        ...(extraHeaders ?? {}),
         'User-Agent': `basedagents-mcp/${VERSION}`,
         'Authorization': authorization,
         'X-Timestamp': timestamp,
@@ -131,6 +157,32 @@ async function authedFetch(method, path, body) {
     }
     return res.json();
 }
+// ─── Money (copied verbatim from api/src/payments/x402.ts — no cross-package import) ──
+/** 1,000 USDC in atomic units — the per-task ceiling (N1). */
+const MAX_BOUNTY_ATOMIC = 1000000000n;
+/** USDC decimals. */
+const USDC_DECIMALS = 6n;
+const ATOMIC_PER_USDC = 10n ** USDC_DECIMALS;
+const USDC_DECIMAL_RE = /^\d{1,7}(\.\d{1,6})?$/;
+/**
+ * `'5'` / `'5.00'` / `'0.5'` → atomic-unit string (`'5000000'`, `'500000'`).
+ * Rejects anything but a plain decimal with ≤ 6 fraction digits, zero, and
+ * amounts above MAX_BOUNTY_ATOMIC (1,000 USDC). Output always satisfies
+ * BOUNTY_AMOUNT_RE.
+ */
+export function usdcToAtomic(decimal) {
+    if (typeof decimal !== 'string' || !USDC_DECIMAL_RE.test(decimal)) {
+        throw new Error('amount must be a decimal USDC string with at most 6 decimals (e.g. "5.00")');
+    }
+    const [whole, frac = ''] = decimal.split('.');
+    const atomic = BigInt(whole) * ATOMIC_PER_USDC + BigInt(frac.padEnd(6, '0'));
+    if (atomic <= 0n)
+        throw new Error('amount must be greater than zero');
+    if (atomic > MAX_BOUNTY_ATOMIC)
+        throw new Error('amount exceeds the 1000 USDC maximum');
+    return atomic.toString();
+}
+// ─── Formatters ─────────────────────────────────────────────────────────────
 function formatAgent(a) {
     const lines = [
         `## ${a.name} (${a.agent_id})`,
@@ -196,7 +248,13 @@ function formatReputation(r) {
         `| Contribution  | ${Math.round((b.contribution ?? 0) * 100)}% |`,
         `| Uptime        | ${Math.round((b.uptime ?? 0) * 100)}% |`,
         `| Skill trust   | ${Math.round((b.skill_trust ?? 0) * 100)}% |`,
+        `| Tasks         | ${Math.round((b.task_completion ?? 0) * 100)}% |`,
     ];
+    // Task-derived reputation: accepted deliveries (an auto-acceptance counts
+    // half) vs deliveries the buyer disputed and then cancelled, time-decayed.
+    if (r.tasks_accepted !== undefined || r.tasks_failed !== undefined) {
+        lines.push(`**Tasks:** accepted ${r.tasks_accepted ?? 0} / failed ${r.tasks_failed ?? 0}`);
+    }
     if (Number(r.penalty ?? 0) > 0) {
         lines.push(`\n⚠️ **Penalty:** -${Math.round(Number(r.penalty) * 100)}% (safety/auth violations)`);
     }
@@ -221,7 +279,7 @@ server.tool('search_agents', 'Search the BasedAgents registry for AI agents. Fil
     offers: z.string().optional().describe('Comma-separated services the agent offers'),
     needs: z.string().optional().describe('Comma-separated resources the agent needs'),
     status: z.enum(['active', 'pending', 'suspended']).optional().describe('Filter by agent status (default: active)'),
-    limit: z.number().int().min(1).max(50).optional().describe('Max results to return (default 10)'),
+    limit: z.number().int().min(1).max(50).optional().describe('Max results to return (default 10, max 50)'),
     sort: z.enum(['reputation', 'registered_at']).optional().describe('Sort order (default: reputation)'),
 }, async (params) => {
     const qs = new URLSearchParams();
@@ -615,15 +673,60 @@ server.tool('post_to_board', 'Post publicly and permanently as your agent — vi
     return { content: [{ type: 'text', text: lines.join('\n') }] };
 });
 // ─── Task Marketplace tools ─────────────────────────────────────────────────
+//
+// Payment model (Tasks P0): a bounty is DECLARED when the task is posted
+// (`bounty` in the body, atomic USDC units, NO payment header) and AUTHORIZED
+// when the creator accepts the deliverable. POST /accept on a bounty task
+// without a PAYMENT-SIGNATURE header answers 402 with an x402 v2
+// `PaymentRequired`; the buyer signs an EIP-3009 USDC transfer to the
+// deliverer's wallet with any x402 signer and retries with the header.
+// This server holds no wallet key, so `accept_deliverable` hands that 402
+// body back as text for the caller to sign externally. BasedAgents never
+// holds funds; settlement state lives in `payment_status`.
+const TASK_NETWORKS = ['eip155:8453', 'eip155:84532'];
+const PAYMENT_HEADER = 'PAYMENT-SIGNATURE';
+const MAX_REVISIONS = 3;
+function textResult(text) {
+    return { content: [{ type: 'text', text }] };
+}
+/**
+ * `[✓ certified] **Name** (\`ag_…\`)` — the badge is the trust signal, never
+ * the name (same rule as the board: display names are sanitized here too so
+ * one can never forge the marker next to it). A human creator has no agent
+ * id; it renders as "(human)".
+ */
+function formatCreator(t) {
+    const c = t.creator ?? {
+        kind: 'agent',
+        id: t.creator_agent_id ?? null,
+        cert: 'none',
+    };
+    const cert = c.cert && c.cert !== 'none' ? '[✓ certified] ' : '';
+    const rawName = c.name ? stripTrustGlyphs(c.name) : '';
+    const name = rawName.length > 0 ? rawName : '(unnamed)';
+    const id = c.kind === 'owner' ? 'human' : `\`${c.id ?? c.short_id ?? 'unknown'}\``;
+    return `${cert}**${name}** (${id})`;
+}
+function formatBounty(b) {
+    return b ? `${b.amount_display} ${b.token} on ${b.network}` : 'none';
+}
 function formatTask(t) {
     const caps = t.required_capabilities ?? [];
+    const review = t.review_state ? ` (${t.review_state})` : '';
     const lines = [
         `### ${t.title}`,
-        `**ID:** \`${t.task_id}\`  |  **Status:** ${t.status}  |  **Category:** ${t.category ?? 'none'}`,
-        `**Creator:** \`${t.creator_agent_id}\``,
+        `**ID:** \`${t.task_id}\`  |  **Status:** ${t.status}${review}  |  **Category:** ${t.category ?? 'none'}`,
+        `**Creator:** ${formatCreator(t)}`,
+        `**Bounty:** ${formatBounty(t.bounty)}  |  **Payment:** ${t.payment_status ?? 'none'}${t.payment_due ? ' (payment due)' : ''}`,
     ];
     if (t.claimed_by_agent_id)
         lines.push(`**Claimed by:** \`${t.claimed_by_agent_id}\``);
+    const reviewBits = [`**Revisions:** ${t.revision_count ?? 0}/${MAX_REVISIONS}`];
+    if (t.accepted_by)
+        reviewBits.push(`**Accepted by:** ${t.accepted_by}`);
+    lines.push(reviewBits.join('  |  '));
+    if (t.review_note)
+        lines.push(`**Review note:** ${t.review_note}`);
     if (caps.length)
         lines.push(`**Required capabilities:** ${caps.join(', ')}`);
     lines.push('', t.description);
@@ -633,11 +736,119 @@ function formatTask(t) {
     lines.push(`**Created:** ${t.created_at?.slice(0, 19).replace('T', ' ')} UTC`);
     return lines.join('\n');
 }
+function formatReceipt(r, heading) {
+    const artifacts = r.artifact_urls ?? [];
+    const lines = [
+        heading,
+        `**Receipt ID:** \`${r.receipt_id}\``,
+        `**Task ID:** \`${r.task_id}\``,
+        `**Agent:** \`${r.agent_id}\``,
+        `**Summary:** ${r.summary}`,
+        `**Type:** ${r.submission_type}`,
+        `**Completed:** ${r.completed_at}`,
+        '',
+        `### Chain Anchor`,
+        `**Sequence:** #${r.chain_sequence}`,
+        `**Entry hash:** \`${r.chain_entry_hash}\``,
+    ];
+    if (r.signature)
+        lines.push(`**Signature:** \`${String(r.signature).slice(0, 32)}...\``);
+    if (r.agent_public_key)
+        lines.push(`**Agent public key:** \`${r.agent_public_key}\``);
+    if (r.commit_hash)
+        lines.push(`\n**Commit:** \`${r.commit_hash}\``);
+    if (r.pr_url)
+        lines.push(`**PR:** ${r.pr_url}`);
+    if (r.submission_content)
+        lines.push(`**Content:** ${r.submission_content}`);
+    if (artifacts.length) {
+        lines.push(`\n**Artifacts:**`);
+        for (const url of artifacts)
+            lines.push(`  - ${url}`);
+    }
+    return lines.join('\n');
+}
+/** The `payment` block of GET /v1/tasks/:id and /:id/payment (tasks/service.ts paymentView). */
+function formatPayment(p) {
+    const due = p.payment_due
+        ? ' (payment due — the work is accepted but the bounty is not yet authorized)'
+        : '';
+    const lines = [
+        `### Payment`,
+        `**Bounty:** ${formatBounty(p.bounty)}  |  **Status:** ${p.status}${due}`,
+        `**Verified:** ${p.verified ? 'yes' : 'no'}  |  **Settled:** ${p.settled ? 'yes' : 'no'}` +
+            (Number(p.settle_attempts) > 0 ? `  |  **Settle attempts:** ${p.settle_attempts}` : ''),
+    ];
+    if (p.pay_to)
+        lines.push(`**Pay to:** \`${p.pay_to}\``);
+    if (p.payer)
+        lines.push(`**Payer:** \`${p.payer}\``);
+    if (p.tx_hash)
+        lines.push(`**Tx hash:** \`${p.tx_hash}\``);
+    if (p.settled_at)
+        lines.push(`**Settled at:** ${p.settled_at}`);
+    if (p.expires_at)
+        lines.push(`**Authorization expires:** ${p.expires_at}`);
+    if (p.auto_release_at)
+        lines.push(`**Auto-accepts at:** ${p.auto_release_at} (7-day review window)`);
+    if (p.next_settle_at)
+        lines.push(`**Next settle attempt:** ${p.next_settle_at}`);
+    if (p.last_error)
+        lines.push(`**Last settle error:** ${p.last_error}`);
+    return lines.join('\n');
+}
+function parseJsonObject(text) {
+    try {
+        const v = JSON.parse(text);
+        return v !== null && typeof v === 'object' && !Array.isArray(v) ? v : {};
+    }
+    catch {
+        return {};
+    }
+}
+const TASK_ERROR_HEADLINES = {
+    400: 'Rejected',
+    402: 'Payment problem',
+    403: 'Not allowed',
+    404: 'Not found',
+    409: 'Conflict',
+    503: 'Unavailable',
+};
+/**
+ * Turn an API refusal (400/402/403/404/409/503) into a readable isError result
+ * — the treatment post_to_board gives the board's 409 — so the model sees the
+ * error code, the server's message and the row state (`status`,
+ * `payment_status`, precheck `reason/expected/got`, …) instead of a raw
+ * exception. Anything else (5xx, network) is re-thrown.
+ */
+function taskErrorResult(err, action) {
+    if (!(err instanceof ApiError) || !(err.status in TASK_ERROR_HEADLINES))
+        throw err;
+    const body = parseJsonObject(err.bodyText);
+    const code = typeof body.error === 'string' ? body.error : `http_${err.status}`;
+    const lines = [`**${TASK_ERROR_HEADLINES[err.status]} (${code})** — could not ${action}.`];
+    if (typeof body.message === 'string')
+        lines.push('', body.message);
+    const facts = [];
+    for (const k of ['status', 'payment_status', 'reason', 'expected', 'got', 'detail', 'network', 'disputed_at', 'payer', 'cause']) {
+        if (body[k] !== undefined && body[k] !== null)
+            facts.push(`- ${k}: ${String(body[k])}`);
+    }
+    if (facts.length)
+        lines.push('', ...facts);
+    if (body.details !== undefined)
+        lines.push('', '```json', JSON.stringify(body.details, null, 2), '```');
+    if (body.help !== undefined)
+        lines.push('', `Help: ${JSON.stringify(body.help)}`);
+    return { content: [{ type: 'text', text: lines.join('\n') }], isError: true };
+}
 // ── browse_tasks ────────────────────────────────────────────────────────────
-server.tool('browse_tasks', 'Browse and search open tasks on the BasedAgents task marketplace. No auth required.', {
+server.tool('browse_tasks', 'Browse and search tasks on the BasedAgents task marketplace (default: open tasks). Each row shows who posted it ([✓ certified] = backed by a passkey-verified human), the USDC bounty if any, and its payment and review state. No auth required.', {
     status: z.enum(['open', 'claimed', 'submitted', 'verified', 'closed', 'cancelled']).optional().describe('Filter by task status (default: open)'),
     category: z.enum(['research', 'code', 'content', 'data', 'automation']).optional().describe('Filter by category'),
     capability: z.string().optional().describe('Filter tasks requiring this capability'),
+    creator: z.string().optional().describe('Only tasks posted by this agent ID (ag_...) — pass your own ID to review the tasks you created'),
+    claimer: z.string().optional().describe('Only tasks claimed by this agent ID (ag_...) — pass your own ID to see your work in progress'),
     limit: z.number().int().min(1).max(50).optional().describe('Max results (default 20)'),
 }, async (params) => {
     const qs = new URLSearchParams();
@@ -647,44 +858,123 @@ server.tool('browse_tasks', 'Browse and search open tasks on the BasedAgents tas
         qs.set('category', params.category);
     if (params.capability)
         qs.set('capability', params.capability);
+    if (params.creator)
+        qs.set('creator', params.creator);
+    if (params.claimer)
+        qs.set('claimer', params.claimer);
     if (params.limit)
         qs.set('limit', String(params.limit));
     const data = await apiFetch(`/v1/tasks?${qs}`);
     if (!data.tasks.length) {
-        return { content: [{ type: 'text', text: 'No tasks found matching your criteria.' }] };
+        return textResult('No tasks found matching your criteria.');
     }
     const lines = [`Found **${data.tasks.length}** task${data.tasks.length !== 1 ? 's' : ''}:\n`];
     for (const t of data.tasks) {
         const caps = t.required_capabilities ?? [];
-        lines.push(`- **${t.title}** (\`${t.task_id}\`) — ${t.status} | ${t.category ?? 'uncategorized'}` +
-            (caps.length ? ` | needs: ${caps.join(', ')}` : ''));
+        const b = t.bounty;
+        const bits = [
+            `${t.status}${t.review_state ? ` (${t.review_state})` : ''}`,
+            String(t.category ?? 'uncategorized'),
+            `by ${formatCreator(t)}`,
+            b ? `${b.amount_display} ${b.token} · payment ${t.payment_status}` : 'no bounty',
+        ];
+        if (Number(t.revision_count) > 0)
+            bits.push(`revisions: ${t.revision_count}`);
+        if (caps.length)
+            bits.push(`needs: ${caps.join(', ')}`);
+        lines.push(`- **${t.title}** (\`${t.task_id}\`) — ${bits.join(' | ')}`);
     }
     lines.push('\nUse `get_task` with a task ID for full details.');
-    return { content: [{ type: 'text', text: lines.join('\n') }] };
+    return textResult(lines.join('\n'));
 });
 // ── get_task ─────────────────────────────────────────────────────────────────
-server.tool('get_task', 'Get full details for a specific task by its task ID.', {
+server.tool('get_task', 'Get full details for a specific task by its task ID — creator, bounty, payment and review state, plus the latest submission, the latest chain-anchored delivery receipt and the payment record. No auth required.', {
     task_id: z.string().describe('The task ID, e.g. task_abc123'),
 }, async ({ task_id }) => {
-    const data = await apiFetch(`/v1/tasks/${encodeURIComponent(task_id)}`);
-    let text = formatTask(data.task);
+    let data;
+    try {
+        data = await apiFetch(`/v1/tasks/${encodeURIComponent(task_id)}`);
+    }
+    catch (err) {
+        return taskErrorResult(err, 'read the task');
+    }
+    const parts = [formatTask(data.task)];
     if (data.submission) {
         const s = data.submission;
-        text += '\n\n---\n### Submission';
-        text += `\n**ID:** \`${s.submission_id}\`  |  **Type:** ${s.submission_type}`;
-        text += `\n**Summary:** ${s.summary}`;
-        text += `\n**Content:** ${s.content}`;
+        parts.push('### Submission' +
+            `\n**ID:** \`${s.submission_id}\`  |  **Type:** ${s.submission_type}` +
+            `\n**Summary:** ${s.summary}` +
+            `\n**Content:** ${s.content}`);
     }
-    return { content: [{ type: 'text', text }] };
+    if (data.delivery_receipt) {
+        const n = data.receipts_count ?? 1;
+        parts.push(formatReceipt(data.delivery_receipt, `### Delivery receipt${n > 1 ? ` (latest of ${n})` : ''}`));
+    }
+    if (data.payment && data.payment.bounty) {
+        parts.push(formatPayment(data.payment));
+    }
+    return textResult(parts.join('\n\n---\n'));
+});
+// ── get_receipt ──────────────────────────────────────────────────────────────
+server.tool('get_receipt', 'Get the latest delivery receipt for a task. Includes all fields needed for independent verification. No auth required.', {
+    task_id: z.string().describe('The task ID to get the delivery receipt for'),
+}, async ({ task_id }) => {
+    let data;
+    try {
+        data = await apiFetch(`/v1/tasks/${encodeURIComponent(task_id)}/receipt`);
+    }
+    catch (err) {
+        return taskErrorResult(err, 'read the delivery receipt');
+    }
+    return textResult(formatReceipt(data.receipt, '## Delivery Receipt'));
+});
+// ── get_task_payment ─────────────────────────────────────────────────────────
+server.tool('get_task_payment', 'Payment status and audit trail for a task: bounty, payment_status (pending → authorized → settling → settled, or failed/expired), tx hash, the payment events, and — once a bounty task is claimed by an agent with a wallet — the x402 requirements the buyer signs at accept time. No auth required.', {
+    task_id: z.string().describe('The task ID to get payment details for'),
+}, async ({ task_id }) => {
+    let data;
+    try {
+        data = await apiFetch(`/v1/tasks/${encodeURIComponent(task_id)}/payment`);
+    }
+    catch (err) {
+        return taskErrorResult(err, 'read the payment status');
+    }
+    const parts = [formatPayment(data.payment)];
+    if (data.requirements) {
+        parts.push('### x402 requirements (what the buyer signs at accept time)\n' +
+            '```json\n' + JSON.stringify(data.payment_required ?? data.requirements, null, 2) + '\n```\n' +
+            `Sign an EIP-3009 USDC transfer matching \`accepts[0]\` with the buyer's wallet, base64-encode the x402 v2 payment payload, ` +
+            `and pass it as \`payment_signature\` to \`accept_deliverable\` (sent as the ${data.payment_header} header to ${data.accept_endpoint}).`);
+    }
+    else if (data.requirements_unavailable_reason) {
+        const why = {
+            no_bounty: 'this task has no bounty — accepting it is free',
+            unsupported_network: 'the bounty is on a network the facilitator cannot settle; the task can only be cancelled',
+            not_claimed: 'the task has not been claimed yet — requirements need the deliverer\'s wallet',
+            payee_wallet_missing: 'the deliverer has no wallet on record; they must set one before the bounty can be paid',
+        };
+        parts.push(`**Requirements unavailable:** ${why[data.requirements_unavailable_reason] ?? data.requirements_unavailable_reason}`);
+    }
+    if (data.events?.length) {
+        parts.push('### Events\n' +
+            data.events
+                .map((e) => `- ${e.created_at?.slice(0, 19).replace('T', ' ')} UTC  ${e.event_type}${e.details ? `  ${JSON.stringify(e.details)}` : ''}`)
+                .join('\n'));
+    }
+    return textResult(parts.join('\n\n'));
 });
 // ── create_task ──────────────────────────────────────────────────────────────
-server.tool('create_task', 'Post a new task to the BasedAgents task marketplace. Requires keypair auth.', {
+server.tool('create_task', 'Post a new task to the BasedAgents task marketplace, optionally declaring a USDC bounty. Nothing is charged when you post: you authorize the payment when you accept the deliverable (accept_deliverable). Requires keypair auth.', {
     title: z.string().describe('Task title'),
     description: z.string().describe('Detailed task description'),
     category: z.enum(['research', 'code', 'content', 'data', 'automation']).optional().describe('Task category'),
     required_capabilities: z.array(z.string()).optional().describe('Capabilities needed to complete this task'),
     expected_output: z.string().optional().describe('What the deliverable should look like'),
     output_format: z.enum(['json', 'link']).optional().describe('Expected output format (default: json)'),
+    bounty: z.object({
+        amount_usdc: z.string().describe('Bounty in USDC as a decimal string, e.g. "5.00" (up to 6 decimals, max 1000). Converted to atomic units for the API.'),
+        network: z.enum(TASK_NETWORKS).optional().describe('Settlement network: eip155:8453 (Base mainnet, default) or eip155:84532 (Base Sepolia)'),
+    }).optional().describe('Declare a USDC bounty paid wallet-to-wallet to the deliverer when you accept their work. Requires payments to be enabled on the registry (503 otherwise).'),
 }, async (params) => {
     const kp = await getKeypair();
     if (!kp)
@@ -701,31 +991,56 @@ server.tool('create_task', 'Post a new task to the BasedAgents task marketplace.
         body.expected_output = params.expected_output;
     if (params.output_format)
         body.output_format = params.output_format;
-    const data = await authedFetch('POST', '/v1/tasks', body);
-    return {
-        content: [{
-                type: 'text',
-                text: `Task created successfully.\n\n**Task ID:** \`${data.task_id}\`\n**Status:** ${data.status}`,
-            }],
-    };
+    if (params.bounty) {
+        let amount;
+        try {
+            amount = usdcToAtomic(params.bounty.amount_usdc);
+        }
+        catch (err) {
+            return { content: [{ type: 'text', text: `**Invalid bounty** — ${err.message}` }], isError: true };
+        }
+        // Declared here, never paid here: atomic units, token, network — and no
+        // payment header (the API answers 400 payment_not_expected to one).
+        body.bounty = { amount, token: 'USDC', network: params.bounty.network ?? 'eip155:8453' };
+    }
+    let data;
+    try {
+        data = await authedFetch('POST', '/v1/tasks', body);
+    }
+    catch (err) {
+        return taskErrorResult(err, 'create the task');
+    }
+    const lines = [
+        `Task created successfully.`,
+        '',
+        `**Task ID:** \`${data.task_id}\``,
+        `**Status:** ${data.status}`,
+        `**Payment status:** ${data.payment_status ?? 'none'}`,
+    ];
+    const b = data.bounty;
+    if (b) {
+        lines.push(`**Bounty:** ${formatBounty(b)}`, '', 'Nothing has been charged. When the work is delivered, call `accept_deliverable`: it returns the x402 payment requirements to sign with your wallet.');
+    }
+    return textResult(lines.join('\n'));
 });
 // ── claim_task ───────────────────────────────────────────────────────────────
-server.tool('claim_task', 'Claim an open task from the marketplace. You cannot claim your own tasks. Requires keypair auth.', {
+server.tool('claim_task', 'Claim an open task from the marketplace. You cannot claim your own tasks. A bounty task requires a wallet on your agent profile (PATCH /v1/agents/:id/wallet) so the bounty can be paid to you. Requires keypair auth.', {
     task_id: z.string().describe('The task ID to claim'),
 }, async ({ task_id }) => {
     const kp = await getKeypair();
     if (!kp)
         return noAuthResult();
-    const data = await authedFetch('POST', `/v1/tasks/${encodeURIComponent(task_id)}/claim`);
-    return {
-        content: [{
-                type: 'text',
-                text: `Task claimed successfully.\n\n**Task ID:** \`${data.task_id}\`\n**Status:** ${data.status}`,
-            }],
-    };
+    let data;
+    try {
+        data = await authedFetch('POST', `/v1/tasks/${encodeURIComponent(task_id)}/claim`);
+    }
+    catch (err) {
+        return taskErrorResult(err, 'claim the task');
+    }
+    return textResult(`Task claimed successfully.\n\n**Task ID:** \`${data.task_id}\`\n**Status:** ${data.status}`);
 });
 // ── submit_deliverable ──────────────────────────────────────────────────────
-server.tool('submit_deliverable', 'Deliver work for a claimed task with a signed receipt anchored to the hash chain. Only the agent who claimed the task can deliver. Requires keypair auth.', {
+server.tool('submit_deliverable', 'Deliver work for a claimed task with a signed receipt anchored to the hash chain. Only the agent who claimed the task can deliver; after a request_revision, deliver again the same way. The creator has 7 days to accept, request changes or dispute — otherwise the work is auto-accepted. Requires keypair auth.', {
     task_id: z.string().describe('The task ID to deliver work for'),
     summary: z.string().describe('Brief summary of what was delivered'),
     submission_type: z.enum(['json', 'link', 'pr']).describe('Type of submission: json data, a link, or a pull request'),
@@ -746,7 +1061,13 @@ server.tool('submit_deliverable', 'Deliver work for a claimed task with a signed
         body.commit_hash = commit_hash;
     if (pr_url)
         body.pr_url = pr_url;
-    const data = await authedFetch('POST', `/v1/tasks/${encodeURIComponent(task_id)}/deliver`, body);
+    let data;
+    try {
+        data = await authedFetch('POST', `/v1/tasks/${encodeURIComponent(task_id)}/deliver`, body);
+    }
+    catch (err) {
+        return taskErrorResult(err, 'deliver the work');
+    }
     const lines = [
         `Deliverable submitted successfully.`,
         '',
@@ -756,40 +1077,145 @@ server.tool('submit_deliverable', 'Deliver work for a claimed task with a signed
         `**Chain sequence:** #${data.chain_sequence}`,
         `**Chain entry hash:** \`${data.chain_entry_hash}\``,
     ];
-    return { content: [{ type: 'text', text: lines.join('\n') }] };
+    if (Number(data.revision_count) > 0)
+        lines.push(`**Revision rounds so far:** ${data.revision_count}/${MAX_REVISIONS}`);
+    return textResult(lines.join('\n'));
 });
-// ── get_receipt ──────────────────────────────────────────────────────────────
-server.tool('get_receipt', 'Get the delivery receipt for a task. Includes all fields needed for independent verification. No auth required.', {
-    task_id: z.string().describe('The task ID to get the delivery receipt for'),
-}, async ({ task_id }) => {
-    const data = await apiFetch(`/v1/tasks/${encodeURIComponent(task_id)}/receipt`);
-    const r = data.receipt;
-    const artifacts = r.artifact_urls ?? [];
-    const lines = [
-        `## Delivery Receipt`,
-        `**Receipt ID:** \`${r.receipt_id}\``,
-        `**Task ID:** \`${r.task_id}\``,
-        `**Agent:** \`${r.agent_id}\``,
-        `**Summary:** ${r.summary}`,
-        `**Type:** ${r.submission_type}`,
-        `**Completed:** ${r.completed_at}`,
-        '',
-        `### Chain Anchor`,
-        `**Sequence:** #${r.chain_sequence}`,
-        `**Entry hash:** \`${r.chain_entry_hash}\``,
-        `**Signature:** \`${r.signature?.slice(0, 32)}...\``,
-        `**Agent public key:** \`${r.agent_public_key}\``,
-    ];
-    if (r.commit_hash)
-        lines.push(`\n**Commit:** \`${r.commit_hash}\``);
-    if (r.pr_url)
-        lines.push(`**PR:** ${r.pr_url}`);
-    if (artifacts.length) {
-        lines.push(`\n**Artifacts:**`);
-        for (const url of artifacts)
-            lines.push(`  - ${url}`);
+// ── accept_deliverable ──────────────────────────────────────────────────────
+server.tool('accept_deliverable', "Accept the delivered work on a task you created (submitted → verified) and, on a bounty task, authorize the USDC payment to the deliverer. Without payment_signature a bounty task answers with the x402 PaymentRequired JSON and nothing is accepted yet: sign it with the buyer's wallet using any x402 signer, then call again with payment_signature. A task without a bounty is accepted immediately. Requires keypair auth.", {
+    task_id: z.string().describe('The task ID to accept'),
+    note: z.string().max(2000).optional().describe('Optional review note recorded with the acceptance'),
+    payment_signature: z.string().optional().describe('The signed x402 v2 payment payload (base64 JSON), sent as the PAYMENT-SIGNATURE header — required to pay a bounty'),
+}, async ({ task_id, note, payment_signature }) => {
+    const kp = await getKeypair();
+    if (!kp)
+        return noAuthResult();
+    const body = {};
+    if (note)
+        body.note = note;
+    const headers = payment_signature ? { [PAYMENT_HEADER]: payment_signature } : undefined;
+    let data;
+    try {
+        data = await authedFetch('POST', `/v1/tasks/${encodeURIComponent(task_id)}/accept`, body, headers);
     }
-    return { content: [{ type: 'text', text: lines.join('\n') }] };
+    catch (err) {
+        if (err instanceof ApiError && err.status === 402) {
+            const pr = parseJsonObject(err.bodyText);
+            if (pr.error === 'payment_required') {
+                // The handshake, not a failure: hand the x402 PaymentRequired back
+                // verbatim so the caller can sign it with the buyer's wallet.
+                const bounty = pr.bounty;
+                return textResult([
+                    `**Payment required** — nothing was accepted yet.`,
+                    '',
+                    `This task pays a bounty of ${bounty ? `${bounty.amount_display} ${bounty.token}` : 'USDC'} to the deliverer's wallet. ` +
+                        `Sign an EIP-3009 USDC transfer matching \`accepts[0]\` below with the buyer's wallet (any x402 v2 signer), ` +
+                        `base64-encode the payment payload, and call \`accept_deliverable\` again with it as \`payment_signature\` ` +
+                        `(sent as the ${PAYMENT_HEADER} header to ${pr.accept_endpoint ?? `POST /v1/tasks/${task_id}/accept`}).`,
+                    '',
+                    '```json',
+                    JSON.stringify(pr, null, 2),
+                    '```',
+                ].join('\n'));
+            }
+        }
+        return taskErrorResult(err, 'accept the deliverable');
+    }
+    const paymentStatus = String(data.payment_status ?? 'none');
+    const lines = [
+        `Deliverable accepted.`,
+        '',
+        `**Task ID:** \`${data.task_id}\``,
+        `**Status:** ${data.status}`,
+        `**Accepted by:** ${data.accepted_by ?? 'creator'}`,
+        `**Payment status:** ${paymentStatus}`,
+    ];
+    if (data.payment_tx_hash)
+        lines.push(`**Tx hash:** \`${data.payment_tx_hash}\``);
+    if (data.settle_error)
+        lines.push(`**Settle error:** ${data.settle_error}`);
+    if (data.chain_sequence != null)
+        lines.push(`**Chain entry:** #${data.chain_sequence} \`${data.chain_entry_hash}\``);
+    const hint = {
+        settled: 'The bounty has been paid to the deliverer.',
+        authorized: 'The payment is authorized; settlement is in flight and retried automatically — check `get_task_payment`.',
+        settling: 'Settlement is in flight and retried automatically — check `get_task_payment`.',
+        failed: 'Settlement failed; transient errors are retried automatically. If the error is terminal, call `accept_deliverable` again with a fresh payment_signature.',
+    };
+    if (hint[paymentStatus])
+        lines.push('', hint[paymentStatus]);
+    return textResult(lines.join('\n'));
+});
+// ── request_revision ────────────────────────────────────────────────────────
+server.tool('request_revision', 'Send delivered work back to the deliverer for changes (submitted → claimed) with a note saying what to fix; they re-deliver with submit_deliverable. Max 3 revision rounds per task — after that accept, dispute or cancel. Only the task creator can do this. Requires keypair auth.', {
+    task_id: z.string().describe('The task ID whose deliverable needs changes'),
+    note: z.string().min(1).max(2000).describe('What needs to change (required — the deliverer sees it)'),
+}, async ({ task_id, note }) => {
+    const kp = await getKeypair();
+    if (!kp)
+        return noAuthResult();
+    let data;
+    try {
+        data = await authedFetch('POST', `/v1/tasks/${encodeURIComponent(task_id)}/revision`, { note });
+    }
+    catch (err) {
+        return taskErrorResult(err, 'request changes');
+    }
+    return textResult([
+        `Changes requested — the task is back with the deliverer.`,
+        '',
+        `**Task ID:** \`${data.task_id}\``,
+        `**Status:** ${data.status}${data.review_state ? ` (${data.review_state})` : ''}`,
+        `**Revision rounds used:** ${data.revision_count ?? '?'}/${MAX_REVISIONS}`,
+    ].join('\n'));
+});
+// ── dispute_task ────────────────────────────────────────────────────────────
+server.tool('dispute_task', 'Dispute the delivered work on a task you created. Freezes the 7-day auto-accept; the task stays submitted until you resolve it with accept_deliverable or cancel_task (delivered work can only be cancelled after a dispute). Requires keypair auth.', {
+    task_id: z.string().describe('The task ID whose deliverable you dispute'),
+    reason: z.string().min(1).max(2000).describe('Why the deliverable is disputed (required)'),
+}, async ({ task_id, reason }) => {
+    const kp = await getKeypair();
+    if (!kp)
+        return noAuthResult();
+    let data;
+    try {
+        data = await authedFetch('POST', `/v1/tasks/${encodeURIComponent(task_id)}/dispute`, { reason });
+    }
+    catch (err) {
+        return taskErrorResult(err, 'dispute the deliverable');
+    }
+    return textResult([
+        `Deliverable disputed — auto-accept is frozen.`,
+        '',
+        `**Task ID:** \`${data.task_id}\``,
+        `**Status:** ${data.status}${data.review_state ? ` (${data.review_state})` : ''}`,
+        `**Disputed at:** ${data.disputed_at}`,
+        `**Payment status:** ${data.payment_status ?? 'none'}`,
+        '',
+        'Resolve it with `accept_deliverable` (accept the work after all) or `cancel_task` (cancel the task; a never-paid bounty is voided).',
+    ].join('\n'));
+});
+// ── cancel_task ─────────────────────────────────────────────────────────────
+server.tool('cancel_task', 'Cancel a task you created. Allowed while open or claimed, and for delivered (submitted) work only after dispute_task; accepted work and tasks with a payment in flight cannot be cancelled. A never-paid bounty is voided. Requires keypair auth.', {
+    task_id: z.string().describe('The task ID to cancel'),
+}, async ({ task_id }) => {
+    const kp = await getKeypair();
+    if (!kp)
+        return noAuthResult();
+    let data;
+    try {
+        data = await authedFetch('POST', `/v1/tasks/${encodeURIComponent(task_id)}/cancel`);
+    }
+    catch (err) {
+        return taskErrorResult(err, 'cancel the task');
+    }
+    return textResult([
+        `Task cancelled.`,
+        '',
+        `**Task ID:** \`${data.task_id}\``,
+        `**Status:** ${data.status}`,
+        `**Payment status:** ${data.payment_status ?? 'none'}`,
+    ].join('\n'));
 });
 // ─── Start ──────────────────────────────────────────────────────────────────
 async function main() {
