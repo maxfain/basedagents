@@ -180,6 +180,37 @@ export interface Agent {
   last_seen?: string;
 }
 
+/** Raw body of `POST /v1/register/complete` (no nested `agent`). */
+interface RegisterCompleteResponse {
+  agent_id: string;
+  status: Agent['status'];
+  chain_sequence: number;
+  entry_hash: string;
+  profile_url: string;
+  badge_url: string;
+  embed_markdown?: string;
+  embed_html?: string;
+  message?: string;
+  webhook_secret?: string;
+  bootstrap_mode?: boolean;
+  first_verification?: { target_id: string; target_endpoint: string | null; deadline: string };
+}
+
+/**
+ * What `register()` resolves to: a full {@link Agent} (so `.id`/`.status`/`.name`
+ * work) plus the registration-only extras the API returns once — the webhook
+ * secret, the chain entry, the badge/profile URLs, and the first-verification
+ * assignment. Keep `webhook_secret`; it is shown only at registration.
+ */
+export interface RegisteredAgent extends Agent {
+  chain_sequence: number;
+  entry_hash: string;
+  profile_url: string;
+  badge_url: string;
+  webhook_secret?: string;
+  first_verification?: { target_id: string; target_endpoint: string | null; deadline: string };
+}
+
 /**
  * `GET /v1/agents/:id/reputation`. Peer-verification components are weighted
  * into `raw_score`; `task_completion` (accepted deliveries vs disputed-then-
@@ -639,7 +670,7 @@ export class RegistryClient {
     keypair: AgentKeypair,
     profile: RegisterProfile,
     options?: { onProgress?: (attempts: number) => void }
-  ): Promise<Agent> {
+  ): Promise<RegisteredAgent> {
     const b58pubkey = base58Encode(keypair.publicKey);
 
     // 1. Init
@@ -660,8 +691,10 @@ export class RegistryClient {
     const signature = await ed.signAsync(challengeBytes, keypair.privateKey);
     const b64sig = btoa(String.fromCharCode(...signature));
 
-    // 4. Complete
-    const result = await this.fetchJson<{ agent: Agent }>('/v1/register/complete', {
+    // 4. Complete. The API responds with { agent_id, status, chain_sequence, … }
+    // — NOT a nested `agent` — so build the RegisteredAgent from the profile we
+    // sent plus the identifiers the server assigned.
+    const result = await this.fetchJson<RegisterCompleteResponse>('/v1/register/complete', {
       method: 'POST',
       body: JSON.stringify({
         challenge_id: init.challenge_id,
@@ -672,7 +705,31 @@ export class RegistryClient {
       }),
     });
 
-    return result.agent;
+    return {
+      id: result.agent_id,
+      name: profile.name,
+      description: profile.description,
+      status: result.status,
+      reputation_score: 0,
+      verification_count: 0,
+      capabilities: profile.capabilities,
+      protocols: profile.protocols,
+      homepage: profile.homepage,
+      contact_endpoint: profile.contact_endpoint,
+      organization: profile.organization,
+      organization_url: profile.organization_url,
+      logo_url: profile.logo_url,
+      version: profile.version,
+      tags: profile.tags,
+      skills: profile.skills,
+      created_at: new Date().toISOString(),
+      chain_sequence: result.chain_sequence,
+      entry_hash: result.entry_hash,
+      profile_url: result.profile_url,
+      badge_url: result.badge_url,
+      webhook_secret: result.webhook_secret,
+      first_verification: result.first_verification,
+    };
   }
 
   // ── Agent Lookup ──
