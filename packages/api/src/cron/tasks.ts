@@ -87,7 +87,7 @@ export async function runTaskCron(db: DBAdapter, env: Bindings, nowIso: string =
   for (const row of stale) {
     try {
       const res = await db.run(
-        `UPDATE tasks SET payment_status = 'expired', settle_next_at = NULL, last_settle_error = 'authorization_expired'
+        `UPDATE tasks SET payment_status = 'expired', settle_next_at = NULL, last_settle_error = 'authorization_expired', last_settle_class = 'expired'
          WHERE task_id = ? AND payment_status = ? AND settle_broadcast = 0`,
         row.task_id, row.payment_status,
       );
@@ -122,7 +122,7 @@ export async function runTaskCron(db: DBAdapter, env: Bindings, nowIso: string =
   for (const { task_id } of capped) {
     try {
       const res = await db.run(
-        `UPDATE tasks SET settle_next_at = NULL, last_settle_error = 'unknown_outcome_manual'
+        `UPDATE tasks SET settle_next_at = NULL, last_settle_error = 'unknown_outcome_manual', last_settle_class = 'unknown'
          WHERE task_id = ? AND payment_status = 'failed' AND settle_broadcast = 1 AND settle_next_at IS NOT NULL`,
         task_id,
       );

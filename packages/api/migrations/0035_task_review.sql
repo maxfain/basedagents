@@ -56,6 +56,7 @@ CREATE TABLE tasks (
   settle_next_at TEXT,
   settled_at TEXT,
   last_settle_error TEXT,
+  last_settle_class TEXT,                                -- settled|pending|transient|terminal|insufficient|expired|config|unknown (payments/settle.ts)
   CHECK ((creator_agent_id IS NULL) <> (creator_owner_id IS NULL))
 );
 

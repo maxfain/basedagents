@@ -625,6 +625,79 @@ describe('x402 Payment Integration (sign-at-accept)', () => {
       expect(row.payment_tx_hash).toBeNull();
     });
 
+    it('re-signing is refused after a transient outcome whose free text contains validation keywords (review finding)', async () => {
+      // After our broadcast the facilitator answered with transport text that happens to
+      // contain words like "signature"/"blocked"/"mismatch". Only the STRUCTURED class may
+      // unlock a second signature — never the error string.
+      facilitator.settleOutcomes.push({ kind: 'unavailable', cause: 'server', http: 503, detail: 'HTTP 503: upstream request blocked (signature mismatch)' });
+      const { taskId, requirements } = await deliveredPaidTask();
+      expect((await accept(taskId, paymentHeaderFor(requirements))).status).toBe(200);
+      const row = await taskRow(taskId);
+      expect(row.payment_status).toBe('failed');
+      expect(row.last_settle_class).toBe('transient');
+      expect(row.settle_broadcast).toBe(1);
+
+      facilitator.settleOutcomes.length = 0;
+      const again = await accept(taskId, paymentHeaderFor(requirements));
+      expect(again.status).toBe(409);
+      expect((await again.json() as Record<string, unknown>).error).toBe('settlement_in_progress');
+      expect(facilitator.settleCalls.length).toBe(1);
+      expect((await taskRow(taskId)).payment_nonce).toBe(row.payment_nonce);
+    });
+
+    it('an unreadable stored payload after our broadcast is handed to a human, not re-signed', async () => {
+      facilitator.settleOutcomes.push({ kind: 'rejected', reason: 'settle_exact_evm_transaction_confirmation_timed_out', http: 400 });
+      const { taskId, requirements } = await deliveredPaidTask();
+      expect((await accept(taskId, paymentHeaderFor(requirements))).status).toBe(200);
+      // Simulate a key rotation: the ciphertext can no longer be decrypted on retry.
+      await db.run(`UPDATE tasks SET payment_signature = 'garbage', settle_next_at = ? WHERE task_id = ?`, new Date().toISOString(), taskId);
+      const { settleTask } = await import('./settle.js');
+      const r = await settleTask(db, { PAYMENT_ENCRYPTION_KEY: TEST_ENC_KEY } as never, taskId, 'cron');
+      expect(r).toMatchObject({ skipped: false, error: 'stored_payload_unreadable_after_broadcast' });
+      const row = await taskRow(taskId);
+      expect(row.last_settle_class).toBe('unknown');
+      expect(row.settle_next_at).toBeNull();
+      const again = await accept(taskId, paymentHeaderFor(requirements));
+      expect(again.status).toBe(409);
+    });
+
+    it('authorizing a task the timer already accepted keeps accepted_by=auto and adds no second acceptance entry', async () => {
+      const { taskId, requirements } = await deliveredPaidTask();
+      // The cron accepted it first (T5); the buyer then pays.
+      await db.run(`UPDATE tasks SET status = 'verified', accepted_by = 'auto', verified_at = ?, auto_release_at = NULL WHERE task_id = ?`, new Date().toISOString(), taskId);
+      const res = await accept(taskId, paymentHeaderFor(requirements));
+      expect(res.status).toBe(200);
+      const data = await res.json() as Record<string, unknown>;
+      expect(data.accepted_by).toBe('auto');
+      expect(data.payment_status).toBe('settled');
+      expect(data.chain_sequence).toBeNull();
+      const chain = await db.all<{ entry_type: string }>(`SELECT entry_type FROM chain WHERE entry_type = 'task_verified'`);
+      expect(chain.length).toBe(0);
+      const funnel = await db.all<{ event: string; provider: string | null }>(`SELECT event, provider FROM funnel_events WHERE funnel_id = ? AND event = 'task_accepted'`, taskId);
+      expect(funnel.length).toBe(0);
+    });
+
+    it('PAYMENT-RESPONSE carries the x402 SettleResponse wire shape', async () => {
+      const { taskId, requirements } = await deliveredPaidTask();
+      const res = await accept(taskId, paymentHeaderFor(requirements));
+      const decoded = JSON.parse(Buffer.from(res.headers.get('PAYMENT-RESPONSE')!, 'base64').toString('utf8')) as Record<string, unknown>;
+      expect(decoded.success).toBe(true);
+      expect(decoded.transaction).toBe(TEST_TX);
+      expect(decoded.network).toBe('eip155:8453');
+      expect(decoded).not.toHaveProperty('kind');
+    });
+
+    it('a legacy bounty on an unsupported network cannot be paid and does not crash', async () => {
+      const { taskId } = await deliveredPaidTask();
+      await db.run(`UPDATE tasks SET bounty_network = 'base' WHERE task_id = ?`, taskId);
+      const payment = await app.request(`/v1/tasks/${taskId}/payment`);
+      expect(payment.status).toBe(200);
+      expect((await payment.json() as Record<string, unknown>).requirements_unavailable_reason).toBe('unsupported_network');
+      const res = await accept(taskId);
+      expect(res.status).toBe(409);
+      expect((await res.json() as Record<string, unknown>).error).toBe('bounty_unsupported_network');
+    });
+
     it('notifies the deliverer of acceptance and of settlement separately', async () => {
       await db.run('UPDATE agents SET webhook_url = ? WHERE id = ?', 'https://deliverer.example.com/hook', claimer.agentId);
       const { taskId, requirements } = await deliveredPaidTask();

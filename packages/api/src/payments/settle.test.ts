@@ -308,7 +308,7 @@ describe('payments/settle.ts', () => {
         settle_broadcast: 1, settle_attempts: 1, settled_at: null,
       });
       expect(ev.map((e) => e.event_type)).toEqual(['settle_failed']);
-      expect(ev[0].details).toEqual({ error: 'nonce_conflict', retryable: false, trigger: 'accept' });
+      expect(ev[0].details).toEqual({ error: 'nonce_conflict', class: 'terminal', retryable: false, trigger: 'accept' });
       expect(await chainEntries()).toEqual([]);
       expect(await funnelRows()).toEqual([]);
 
@@ -356,16 +356,19 @@ describe('payments/settle.ts', () => {
       expect(result).toMatchObject({ skipped: false, payment_status: 'failed', error: 'insufficient_funds' });
       expect(r).toMatchObject({ payment_status: 'failed', last_settle_error: 'insufficient_funds', payment_settled: 0 });
       expectNear(r.settle_next_at, isoPlus(NOW, 10 * 60_000));
-      expect(ev[0]).toEqual({ event_type: 'settle_failed', details: { error: 'insufficient_funds', retryable: true, trigger: 'accept' } });
+      expect(ev[0]).toEqual({ event_type: 'settle_failed', details: { error: 'insufficient_funds', class: 'insufficient', retryable: true, trigger: 'accept' } });
       expect(webhookEvents().filter((h) => h.type === 'task.payment_failed').map((h) => h.body.reason)).toEqual(['insufficient_funds', 'insufficient_funds']);
     });
 
-    it('rejected insufficient_funds with the authorization expiring within 15 minutes → failed, no retry', async () => {
+    it('rejected insufficient_funds with the authorization expiring within 15 minutes → failed, one retry just after validBefore (never stuck)', async () => {
       const outcome: SettleOutcome = { kind: 'rejected', reason: 'insufficient_funds', http: 400 };
-      const { row: r, events: ev } = await runWith(outcome, { payment_expires_at: isoPlus(NOW, 10 * 60_000) });
+      const expiresAt = isoPlus(NOW, 10 * 60_000);
+      const { row: r, events: ev } = await runWith(outcome, { payment_expires_at: expiresAt });
 
-      expect(r).toMatchObject({ payment_status: 'failed', last_settle_error: 'insufficient_funds', settle_next_at: null });
-      expect(ev[0].details).toMatchObject({ retryable: false });
+      expect(r).toMatchObject({ payment_status: 'failed', last_settle_error: 'insufficient_funds', last_settle_class: 'insufficient' });
+      // The post-expiry attempt turns into the facilitator's definitive `_valid_before` → expired, which unlocks re-signing.
+      expectNear(r.settle_next_at, isoPlus(expiresAt, 60_000));
+      expect(ev[0].details).toMatchObject({ retryable: true, class: 'insufficient' });
     });
 
     it('rejected …transaction_confirmation_timed_out → transient: retry after settleBackoffMs(1) = 2 minutes', async () => {
@@ -376,7 +379,7 @@ describe('payments/settle.ts', () => {
       expect(r).toMatchObject({ payment_status: 'failed', last_settle_error: outcome.reason, settle_attempts: 1, settle_broadcast: 1 });
       expectNear(r.settle_next_at, isoPlus(NOW, settleBackoffMs(1)));
       expectNear(r.settle_next_at, isoPlus(NOW, 2 * 60_000));
-      expect(ev[0].details).toEqual({ error: outcome.reason, retryable: true, trigger: 'accept' });
+      expect(ev[0].details).toEqual({ error: outcome.reason, class: 'transient', retryable: true, trigger: 'accept' });
       // Transient outcomes do not notify anyone.
       expect(webhookEvents()).toEqual([]);
     });
@@ -396,7 +399,7 @@ describe('payments/settle.ts', () => {
 
       expect(result).toMatchObject({ skipped: false, payment_status: 'failed', error: outcome.reason });
       expect(r).toMatchObject({ payment_status: 'failed', settle_next_at: null, last_settle_error: outcome.reason, payment_settled: 0 });
-      expect(ev[0].details).toEqual({ error: outcome.reason, retryable: false, trigger: 'accept' });
+      expect(ev[0].details).toEqual({ error: outcome.reason, class: 'terminal', retryable: false, trigger: 'accept' });
       expect(webhookEvents().filter((h) => h.type === 'task.payment_failed')).toHaveLength(2);
     });
 
@@ -411,7 +414,7 @@ describe('payments/settle.ts', () => {
       expect(result).toMatchObject({ skipped: false, payment_status: 'failed', error });
       expect(r).toMatchObject({ payment_status: 'failed', last_settle_error: error, settle_broadcast: 1, settle_attempts: 1 });
       expectNear(r.settle_next_at, isoPlus(NOW, delay));
-      expect(ev[0].details).toEqual({ error, retryable: true, trigger: 'accept' });
+      expect(ev[0].details).toEqual({ error, class: 'transient', retryable: true, trigger: 'accept' });
       // Our infrastructure trouble is never reported to the parties.
       expect(webhookEvents()).toEqual([]);
     });
@@ -527,11 +530,11 @@ describe('payments/settle.ts', () => {
       expect(result).toEqual({ skipped: true, reason: 'expired' });
       expect(f.settleCalls).toHaveLength(0);
       expect(await row(taskId)).toMatchObject({
-        payment_status: 'expired', settle_next_at: null, last_settle_error: 'authorization_expired',
-        settle_attempts: 0, settle_broadcast: 0, settle_started_at: null, status: 'verified',
+        payment_status: 'expired', settle_next_at: null, last_settle_error: 'authorization_expired', last_settle_class: 'expired',
+        settle_attempts: 1, settle_broadcast: 0, settle_started_at: NOW, status: 'verified',
       });
       const ev = await events(taskId);
-      expect(ev).toEqual([{ event_type: 'expired', details: { reason: 'authorization_expired', trigger: 'settle' } }]);
+      expect(ev).toEqual([{ event_type: 'expired', details: { reason: 'authorization_expired', trigger: 'accept' } }]);
       const failed = webhookEvents().filter((h) => h.type === 'task.payment_failed');
       expect(failed.map((h) => h.url).sort()).toEqual([CREATOR_HOOK, DELIVERER_HOOK].sort());
       expect(failed[0].body).toMatchObject({ task_id: taskId, reason: 'expired' });

@@ -75,6 +75,8 @@ export interface TaskRow {
   settle_next_at: string | null;
   settled_at: string | null;
   last_settle_error: string | null;
+  /** Structured outcome class of the last settle attempt (payments/settle.ts SettleClass); the re-auth guard reads THIS, never the free-text error. */
+  last_settle_class: string | null;
 }
 
 /** Buyer review window: a delivered task is auto-accepted after this long (N3). */
@@ -309,12 +311,17 @@ export async function acceptUnpaidGate(
   return res.changes === 1;
 }
 
-/** T5: submitted → verified by the timer; a dispute freezes it. */
+/**
+ * T5: submitted → verified by the timer; a dispute freezes it. The timer is
+ * part of the predicate: a re-delivery made after the cron's SELECT re-arms
+ * `auto_release_at` and must get its own 7 days.
+ */
 export async function autoAcceptGate(db: DBAdapter, taskId: string, nowIso: string): Promise<boolean> {
   const res = await db.run(
     `UPDATE tasks SET status = 'verified', verified_at = ?, accepted_by = 'auto', auto_release_at = NULL
-     WHERE task_id = ? AND status = 'submitted' AND disputed_at IS NULL`,
-    nowIso, taskId,
+     WHERE task_id = ? AND status = 'submitted' AND disputed_at IS NULL
+       AND auto_release_at IS NOT NULL AND auto_release_at <= ?`,
+    nowIso, taskId, nowIso,
   );
   return res.changes === 1;
 }

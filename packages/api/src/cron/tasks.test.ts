@@ -392,8 +392,8 @@ describe('cron/tasks.ts runTaskCron', () => {
 
       expect(summary).toMatchObject({ settle_attempted: 1, settled: 0, expired: 0 });
       expect(f.settleCalls).toHaveLength(0);
-      expect(await row(taskId)).toMatchObject({ payment_status: 'expired', settle_next_at: null, settle_attempts: 0 });
-      expect(await events(taskId)).toEqual([{ event_type: 'expired', details: { reason: 'authorization_expired', trigger: 'settle' } }]);
+      expect(await row(taskId)).toMatchObject({ payment_status: 'expired', settle_next_at: null, settle_attempts: 1, last_settle_class: 'expired' });
+      expect(await events(taskId)).toEqual([{ event_type: 'expired', details: { reason: 'authorization_expired', trigger: 'cron' } }]);
     });
   });
 
@@ -670,6 +670,19 @@ describe('cron/tasks.ts runTaskCron', () => {
       expect((await row(sweepId)).payment_status).toBe('expired');
       expect((await row(recoverId)).settle_next_at).toBe(NOW);
       expect((await row(capId)).last_settle_error).toBe('unknown_outcome_manual');
+    });
+  });
+
+  describe('7. autoAcceptGate predicate (review finding)', () => {
+    it('does not accept a task whose timer was re-armed after the cron SELECT', async () => {
+      const { autoAcceptGate } = await import('../tasks/service.js');
+      const taskId = generatePublicId('task');
+      await seedTask({ task_id: taskId, status: 'submitted', auto_release_at: isoPlus(NOW, 6 * 24 * 60 * 60_000) });
+      expect(await autoAcceptGate(db, taskId, NOW)).toBe(false);
+      expect(await row(taskId)).toMatchObject({ status: 'submitted' });
+      await db.run(`UPDATE tasks SET auto_release_at = ? WHERE task_id = ?`, isoPlus(NOW, -1), taskId);
+      expect(await autoAcceptGate(db, taskId, NOW)).toBe(true);
+      expect(await row(taskId)).toMatchObject({ status: 'verified', accepted_by: 'auto' });
     });
   });
 });

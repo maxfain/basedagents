@@ -25,9 +25,9 @@ import { generatePublicId } from '../lib/ids.js';
 import { paymentProviderFor } from '../payments/index.js';
 import { encryptPaymentSignature } from '../payments/crypto.js';
 import {
-  decodePaymentHeader, buildRequirements, buildPaymentRequired, encodeB64Json, localPrechecks, PaymentMalformed,
+  decodePaymentHeader, buildRequirements, buildPaymentRequired, encodeB64Json, localPrechecks, PaymentMalformed, isNetwork,
 } from '../payments/x402.js';
-import { settleTask, isTerminalValidation } from '../payments/settle.js';
+import { settleTask, reauthPermitted, wireSettleResponse, REAUTH_CLASSES } from '../payments/settle.js';
 import {
   type Actor, type TaskRow, loadTask, creatorMatches, logPaymentEvent, recordFunnel, taskChainEntry, hashCanonical,
   agentTarget, creatorTarget, sendWebhook, recomputeReputation, publicTaskShape, paymentView, bountyView,
@@ -41,8 +41,6 @@ const PAYMENT_HEADER = 'PAYMENT-SIGNATURE';
 /** Accepted for one release; logged so the deprecation is visible (D8). */
 const LEGACY_PAYMENT_HEADER = 'X-PAYMENT-SIGNATURE';
 const WALLET_RE = /^0x[0-9a-fA-F]{40}$/;
-/** Bound as the re-auth predicate value when the last error is NOT a terminal validation: never equals a real reason. */
-const NEVER_MATCHES = 'never';
 
 const AcceptBodySchema = z.object({ note: z.string().max(2000).optional() }).passthrough();
 const RevisionBodySchema = z.object({ note: z.string().min(1).max(2000) }).passthrough();
@@ -279,8 +277,9 @@ tasks.get('/:id/payment', async (c) => {
 
   let requirements: ReturnType<typeof buildRequirements> | null = null;
   let paymentRequired: ReturnType<typeof buildPaymentRequired> | null = null;
-  let unavailableReason: 'no_bounty' | 'not_claimed' | 'payee_wallet_missing' | null = null;
+  let unavailableReason: 'no_bounty' | 'unsupported_network' | 'not_claimed' | 'payee_wallet_missing' | null = null;
   if (!task.bounty_amount) unavailableReason = 'no_bounty';
+  else if (!isNetwork(task.bounty_network)) unavailableReason = 'unsupported_network';
   else if (!task.claimed_by_agent_id) unavailableReason = 'not_claimed';
   else {
     const wallet = await delivererWallet(db, task.claimed_by_agent_id);
@@ -594,6 +593,10 @@ async function handleAccept(c: Ctx, deprecatedAlias: boolean): Promise<Response>
   }
 
   // ─── Bounty task ───
+  if (!isNetwork(task.bounty_network)) {
+    // A pre-0035 row declared on a network the facilitator does not support; it can only be cancelled.
+    return c.json({ error: 'bounty_unsupported_network', message: `This bounty is on ${task.bounty_network}, which cannot be settled; cancel the task or contact support.`, network: task.bounty_network }, 409);
+  }
   const provider = paymentProviderFor(c.env);
   const rawHeader = paymentHeader(c);
   const wallet = await delivererWallet(db, task.claimed_by_agent_id);
@@ -641,9 +644,9 @@ async function handleAccept(c: Ctx, deprecatedAlias: boolean): Promise<Response>
   }
 
   // Re-authorization guard (N11): a payload that may have reached the chain is
-  // never replaced unless the facilitator gave a definitive negative.
-  const reauthAllowed = task.settle_broadcast === 0 || task.payment_status === 'expired' || isTerminalValidation(task.last_settle_error);
-  if (!['pending', 'failed', 'expired'].includes(task.payment_status) || !reauthAllowed) {
+  // never replaced unless the facilitator gave a definitive negative. Decided
+  // on the structured settle class only (payments/settle.ts reauthPermitted).
+  if (!reauthPermitted(task)) {
     return c.json({
       error: 'settlement_in_progress',
       message: 'A previous authorization for this task is still being settled; check GET /v1/tasks/:id/payment.',
@@ -670,25 +673,34 @@ async function handleAccept(c: Ctx, deprecatedAlias: boolean): Promise<Response>
   const encrypted = await encryptPaymentSignature(rawHeader, encKey);
   const auth = payload.payload.authorization;
   const expiresAt = new Date(Number(auth.validBefore) * 1000).toISOString();
-  const wasSubmitted = task.status === 'submitted';
 
-  // THE GATE (T4-P): acceptance + authorization in ONE statement.
-  let changes = 0;
-  try {
-    const res = await db.run(
-      `UPDATE tasks SET
+  // THE GATE (T4-P): acceptance + authorization in ONE statement. Two
+  // predicates are tried in turn so we KNOW which edge we consumed: the
+  // submitted→verified edge (this call is the acceptance) or the
+  // verified→verified edge (authorizing a task the timer or an earlier call
+  // already accepted). The pre-read is not trusted for that — the cron may
+  // have auto-accepted while the facilitator verify was in flight.
+  const gateSql = (statusPredicate: string) => `
+      UPDATE tasks SET
          status = 'verified', verified_at = COALESCE(verified_at, ?), accepted_by = COALESCE(accepted_by, 'creator'),
          review_note = COALESCE(?, review_note), auto_release_at = NULL,
          payment_signature = ?, payment_requirements = ?, payment_payer = ?, payment_nonce = ?, payment_expires_at = ?,
          payment_verified = 1, payment_status = 'authorized', settle_attempts = 0, settle_broadcast = 0,
-         settle_started_at = NULL, settle_next_at = ?, last_settle_error = NULL
-       WHERE task_id = ? AND status IN ('submitted','verified')
+         settle_started_at = NULL, settle_next_at = ?, last_settle_error = NULL, last_settle_class = NULL
+       WHERE task_id = ? AND ${statusPredicate}
          AND payment_status IN ('pending','failed','expired')
-         AND (settle_broadcast = 0 OR payment_status = 'expired' OR last_settle_error = ?)`,
-      now, note, encrypted, JSON.stringify(requirements), verify.payer ?? auth.from, auth.nonce.toLowerCase(), expiresAt, now,
-      taskId, isTerminalValidation(task.last_settle_error) ? task.last_settle_error : NEVER_MATCHES,
-    );
-    changes = res.changes;
+         AND (settle_broadcast = 0 OR payment_status = 'expired' OR last_settle_class IN (${REAUTH_CLASSES.map((cls) => `'${cls}'`).join(',')}))`;
+  const gateParams = [now, note, encrypted, JSON.stringify(requirements), verify.payer ?? auth.from, auth.nonce.toLowerCase(), expiresAt, now, taskId];
+  let wasSubmitted = false;
+  let changes = 0;
+  try {
+    const first = await db.run(gateSql(`status = 'submitted'`), ...gateParams);
+    if (first.changes === 1) {
+      wasSubmitted = true;
+      changes = 1;
+    } else {
+      changes = (await db.run(gateSql(`status = 'verified'`), ...gateParams)).changes;
+    }
   } catch (err) {
     if (/UNIQUE/i.test(String(err))) {
       return c.json({ error: 'authorization_reused', message: 'This authorization nonce was already used for another task.' }, 409);
@@ -710,7 +722,7 @@ async function handleAccept(c: Ctx, deprecatedAlias: boolean): Promise<Response>
 
   const settle = await settleTask(db, c.env, taskId, 'accept', now);
   const after = (await loadTask(db, taskId)) as TaskRow;
-  if (!settle.skipped && settle.facilitator) c.header('PAYMENT-RESPONSE', encodeB64Json(settle.facilitator));
+  if (!settle.skipped && settle.facilitator) c.header('PAYMENT-RESPONSE', encodeB64Json(wireSettleResponse(settle.facilitator, task.bounty_network)));
 
   const body: Record<string, unknown> = {
     ok: true, task_id: taskId, status: 'verified', accepted_by: after.accepted_by,
