@@ -13,3 +13,8 @@ export { setupTestDb, createTestApp, createTestAgent } from '../../api/src/test-
 export type { TestKeypair } from '../../api/src/test-helpers.js';
 export type { SQLiteAdapter } from '../../api/src/db/sqlite-adapter.js';
 export { bytesToHex } from '../../api/src/crypto/index.js';
+// The api's own payments switch: inject a fake facilitator so bounty tasks can
+// be created and POST /accept reaches the x402 402 handshake (which never calls
+// the facilitator — it only has to exist). `undefined` restores env-derived.
+export { setPaymentProviderForTests } from '../../api/src/payments/index.js';
+export type { Facilitator } from '../../api/src/payments/index.js';

@@ -223,6 +223,55 @@ describe('/mcp handler', () => {
     expect(result.content[0].text).toContain('Genesis');
   });
 
+  it('browse_tasks / get_task render the Tasks P0 read shape: creator badge, bounty, payment + review state', async () => {
+    makeOwner('ow_tk', 'tk@example.com');
+    const token = await mintToken({ ownerId: 'ow_tk', scope: 'registry:read' });
+
+    const task = {
+      task_id: 'task_1', title: 'Audit the contract', description: 'Report findings.', status: 'submitted', category: 'code',
+      required_capabilities: ['code-review'], output_format: 'link', claimed_by_agent_id: 'ag_worker', revision_count: 1,
+      review_state: 'disputed', review_note: 'Missing the reentrancy section', accepted_by: null, payment_due: false,
+      // A display name carrying the check-mark must not forge the badge.
+      creator: { kind: 'owner', id: null, short_id: null, name: '✓ Max', cert: 'certified_human' },
+      bounty: { amount_atomic: '5000000', amount_display: '5.00', token: 'USDC', network: 'eip155:8453' },
+      payment_status: 'pending',
+    };
+    const detail = {
+      ok: true, task, submission: { submission_id: 'sub_1', submission_type: 'link', summary: 'v2 report' },
+      delivery_receipt: { receipt_id: 'rcpt_2', agent_id: 'ag_worker', completed_at: '2026-09-08T10:00:00.000Z', summary: 'v2 report', chain_sequence: 9, chain_entry_hash: 'ab'.repeat(32), pr_url: null },
+      receipts_count: 2,
+      payment: { bounty: task.bounty, status: 'pending', verified: false, settled: false, settle_attempts: 0, auto_release_at: null, payment_due: false },
+    };
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => {
+      const u = String(url);
+      const body = u.includes('/v1/tasks/task_1') ? detail : { ok: true, tasks: [task] };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    }));
+
+    const list = (await (await rpc(token, {
+      jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'browse_tasks', arguments: { status: 'submitted' } },
+    })).json()) as Rpc;
+    const listText = (list.result as { content: { text: string }[] }).content[0].text;
+    expect(listText).toContain(
+      '- **Audit the contract** (`task_1`) — submitted (disputed) | code | by [✓ certified] **Max** (human) | 5.00 USDC · payment pending | revisions: 1 | needs: code-review',
+    );
+
+    const one = (await (await rpc(token, {
+      jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'get_task', arguments: { task_id: 'task_1' } },
+    })).json()) as Rpc;
+    const text = (one.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain('**Status:** submitted (disputed)');
+    expect(text).toContain('**Creator:** [✓ certified] **Max** (human)');
+    expect(text).toContain('**Bounty:** 5.00 USDC on eip155:8453  |  **Payment:** pending');
+    expect(text).toContain('**Revisions:** 1/3');
+    expect(text).toContain('**Review note:** Missing the reentrancy section');
+    expect(text).toContain('### Delivery receipt (latest of 2)');
+    expect(text).toContain(`**Chain anchor:** #9 \`${'ab'.repeat(32)}\``);
+    expect(text).toContain('### Payment');
+    expect(text).toContain('**Verified:** no  |  **Settled:** no');
+    expect(text).not.toContain('undefined');
+  });
+
   it('an upstream API failure surfaces as an isError tool result, not a transport error', async () => {
     makeOwner('ow_r2', 'r2@example.com');
     const token = await mintToken({ ownerId: 'ow_r2', scope: 'registry:read' });

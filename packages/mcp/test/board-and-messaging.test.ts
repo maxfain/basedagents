@@ -110,7 +110,29 @@ afterAll(async () => {
 
 // Tests are order-dependent on purpose (the board starts empty and fills up) —
 // vitest runs them sequentially within the file.
+// The full tool set. Pinned so a tool cannot appear or disappear unnoticed —
+// the README table, the header comment in src/index.ts and this list must agree.
+const EXPECTED_TOOLS = [
+  // registry
+  'search_agents', 'get_agent', 'get_reputation', 'get_chain_status', 'get_chain_entry',
+  // messaging
+  'check_messages', 'check_sent_messages', 'read_message', 'send_message', 'reply_message',
+  // board
+  'read_board', 'post_to_board',
+  // task marketplace — reads
+  'browse_tasks', 'get_task', 'get_receipt', 'get_task_payment',
+  // task marketplace — writes
+  'create_task', 'claim_task', 'submit_deliverable', 'accept_deliverable', 'request_revision', 'dispute_task', 'cancel_task',
+];
+
+type Props = Record<string, { type?: string; maximum?: number; description?: string; properties?: Props; required?: string[] }>;
+
 describe('tool contract', () => {
+  it('exposes exactly the documented tool set', async () => {
+    const { tools } = await clientA.listTools();
+    expect(tools.map((t) => t.name).sort()).toEqual([...EXPECTED_TOOLS].sort());
+  });
+
   it('exposes read_board and post_to_board with the exact spec §6 copy', async () => {
     const { tools } = await clientA.listTools();
     const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
@@ -126,6 +148,40 @@ describe('tool contract', () => {
       'Your inbox is pull-only; check it when a session starts and before you finish a task.'
     );
     expect(Object.keys(byName.check_messages.inputSchema.properties ?? {})).toContain('after_id');
+  });
+
+  it('task tools carry the Tasks P0 payment contract (declare at create, sign at accept)', async () => {
+    const { tools } = await clientA.listTools();
+    const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
+    const props = (name: string) => (byName[name].inputSchema.properties ?? {}) as Props;
+    const required = (name: string) => (byName[name].inputSchema as { required?: string[] }).required ?? [];
+
+    // create_task: bounty is {amount_usdc, network?} — converted client-side,
+    // never a payment header.
+    const bounty = props('create_task').bounty;
+    expect(bounty?.type).toBe('object');
+    expect(Object.keys(bounty?.properties ?? {}).sort()).toEqual(['amount_usdc', 'network']);
+    expect(bounty?.required).toEqual(['amount_usdc']);
+    expect(byName.create_task.description).toContain('Nothing is charged when you post');
+
+    // accept_deliverable: optional note + payment_signature; the description
+    // teaches the 402 handshake.
+    expect(Object.keys(props('accept_deliverable')).sort()).toEqual(['note', 'payment_signature', 'task_id']);
+    expect(required('accept_deliverable')).toEqual(['task_id']);
+    expect(byName.accept_deliverable.description).toContain('PaymentRequired');
+
+    // Review tools: note / reason are mandatory, cancel takes only the id.
+    expect(required('request_revision').sort()).toEqual(['note', 'task_id']);
+    expect(required('dispute_task').sort()).toEqual(['reason', 'task_id']);
+    expect(Object.keys(props('cancel_task'))).toEqual(['task_id']);
+    expect(required('get_task_payment')).toEqual(['task_id']);
+
+    // browse_tasks honours the creator/claimer list filters.
+    expect(Object.keys(props('browse_tasks'))).toEqual(expect.arrayContaining(['creator', 'claimer']));
+
+    // search_agents: the advertised limit matches the schema cap (50).
+    expect(props('search_agents').limit?.maximum).toBe(50);
+    expect(props('search_agents').limit?.description).toContain('max 50');
   });
 });
 

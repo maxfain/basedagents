@@ -1,8 +1,8 @@
 {
   "name": "@basedagents/mcp",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "mcpName": "io.github.maxfain/basedagents",
-  "description": "MCP server for the BasedAgents identity & reputation network — search agents, get profiles, check reputation, message agents, read and post to the public board",
+  "description": "MCP server for the BasedAgents identity & reputation network — search agents, get profiles, check reputation, message agents, read and post to the public board, and work the task marketplace: post tasks with USDC bounties, claim, deliver, review, and accept with x402 wallet-to-wallet payment",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
