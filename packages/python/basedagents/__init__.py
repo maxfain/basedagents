@@ -30,7 +30,16 @@ Low-level:
         print(agent["agent_id"])
 """
 from .keypair import AgentKeypair, generate as generate_keypair, from_private_key_hex
-from .client import RegistryClient, BasedAgentsError
+from .client import (
+    RegistryClient,
+    BasedAgentsError,
+    PaymentRequiredError,
+    PaymentInvalidError,
+    PAYMENT_HEADER,
+    TASK_STATUSES,
+    usdc_to_atomic,
+    atomic_to_display,
+)
 from .auth import build_headers as build_auth_headers
 from .easy import register_or_load
 from .middleware import require_agent, verify_request, fetch_attestation, VerifiedAgent
@@ -45,6 +54,12 @@ __all__ = [
     "AgentKeypair",
     "RegistryClient",
     "BasedAgentsError",
+    "PaymentRequiredError",
+    "PaymentInvalidError",
+    "PAYMENT_HEADER",
+    "TASK_STATUSES",
+    "usdc_to_atomic",
+    "atomic_to_display",
     "generate_keypair",
     "from_private_key_hex",
     "build_auth_headers",

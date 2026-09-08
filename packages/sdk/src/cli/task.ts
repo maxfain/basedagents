@@ -1,39 +1,31 @@
 /**
- * basedagents task <id>
- *
- * Show detailed info about a single task.
+ * basedagents task <id>          Show detailed info about a single task.
+ * basedagents task create ...    Alias of `basedagents tasks post ...`.
  */
 
-import { RegistryClient } from '../index.js';
+import { RegistryClient, DEFAULT_API_URL } from '../index.js';
+import { tasksPost, statusColor } from './tasks.js';
 
 // ─── ANSI ───
 const R = '\x1b[0m';
 const bold   = (s: string) => `\x1b[1m${s}${R}`;
 const dim    = (s: string) => `\x1b[2m${s}${R}`;
 const red    = (s: string) => `\x1b[31m${s}${R}`;
-const green  = (s: string) => `\x1b[32m${s}${R}`;
 const yellow = (s: string) => `\x1b[33m${s}${R}`;
 const cyan   = (s: string) => `\x1b[36m${s}${R}`;
-
-const API_URL = process.env.BASEDAGENTS_API_URL ?? 'https://api.basedagents.ai';
 
 function row(label: string, value: string, labelWidth = 18): string {
   return `  ${dim(label.padEnd(labelWidth))} ${value}`;
 }
 
-function statusColor(status: string): string {
-  switch (status) {
-    case 'open':      return green(status);
-    case 'claimed':   return yellow(status);
-    case 'submitted': return cyan(status);
-    case 'verified':  return green(status);
-    case 'cancelled': return red(status);
-    default:          return status;
-  }
-}
-
 export async function task(args: string[]): Promise<void> {
-  const apiUrl = args.includes('--api') ? args[args.indexOf('--api') + 1] : API_URL;
+  if (args[0] === 'create') {
+    // `task create` is the singular spelling of `tasks post`.
+    await tasksPost(args.slice(1));
+    return;
+  }
+
+  const apiUrl = args.includes('--api') ? args[args.indexOf('--api') + 1] : DEFAULT_API_URL;
   const jsonMode = args.includes('--json');
 
   const positional = args.filter((a, i) =>
@@ -50,6 +42,7 @@ Show detailed information about a task.
 ${bold('Usage:')}
   basedagents task task_abc123
   basedagents task task_abc123 --json
+  basedagents task create --title "..." --description "..."   (same as: tasks post)
 
 ${bold('Options:')}
   --json        Output raw JSON
@@ -72,19 +65,28 @@ ${bold('Options:')}
 
     console.log('');
     console.log('─'.repeat(56));
-    console.log(` ${bold(t.title)}  ${statusColor(t.status)}`);
+    console.log(` ${bold(t.title)}  ${statusColor(t.status)}${t.review_state ? dim(` [${t.review_state}]`) : ''}`);
     console.log('─'.repeat(56));
     console.log('');
 
     console.log(row('Task ID', cyan(t.task_id)));
-    console.log(row('Creator', t.creator_agent_id));
+    const creator = t.creator ?? { kind: 'agent', id: t.creator_agent_id, short_id: null, name: null, cert: 'none' };
+    const creatorLabel = creator.kind === 'owner'
+      ? `${creator.name ?? 'a person'} ${dim('(human)')}`
+      : `${creator.name ? `${creator.name} ` : ''}${dim(creator.id ?? '')}`;
+    console.log(row('Posted by', `${creatorLabel}${creator.cert !== 'none' ? ` ${dim(`[${creator.cert}]`)}` : ''}`));
     console.log(row('Status', statusColor(t.status)));
     if (t.category) console.log(row('Category', t.category));
     if (t.claimed_by_agent_id) console.log(row('Claimed by', t.claimed_by_agent_id));
     console.log(row('Created', t.created_at.slice(0, 10)));
     if (t.claimed_at) console.log(row('Claimed at', t.claimed_at.slice(0, 10)));
-    if (t.submitted_at) console.log(row('Submitted at', t.submitted_at.slice(0, 10)));
-    if (t.verified_at) console.log(row('Verified at', t.verified_at.slice(0, 10)));
+    if (t.submitted_at) console.log(row('Delivered at', t.submitted_at.slice(0, 10)));
+    if (t.verified_at) console.log(row('Accepted at', `${t.verified_at.slice(0, 10)}${t.accepted_by ? dim(` (by ${t.accepted_by})`) : ''}`));
+    if (t.cancelled_at) console.log(row('Cancelled at', t.cancelled_at.slice(0, 10)));
+    if (t.revision_count) console.log(row('Revisions', `${t.revision_count} of 3`));
+    if (t.disputed_at) console.log(row('Disputed at', t.disputed_at.slice(0, 10)));
+    if (t.review_note) console.log(row('Review note', t.review_note.slice(0, 80)));
+    if (t.auto_release_at && t.status === 'submitted') console.log(row('Auto-accept at', t.auto_release_at));
     console.log('');
 
     // Description
@@ -102,14 +104,16 @@ ${bold('Options:')}
     console.log('');
 
     // Bounty
-    if (t.bounty_amount) {
+    if (t.bounty) {
       console.log('─'.repeat(56));
       console.log(` ${bold('Bounty')}`);
       console.log('─'.repeat(56));
-      console.log(row('Amount', yellow(`${t.bounty_amount} ${t.bounty_token ?? 'USDC'}`)));
-      if (t.bounty_network) console.log(row('Network', t.bounty_network));
+      console.log(row('Amount', yellow(`${t.bounty.amount_display} ${t.bounty.token}`)));
+      console.log(row('Network', t.bounty.network));
       console.log(row('Payment status', t.payment_status));
+      if (t.payment_due) console.log(row('Payment due', yellow('accepted, not paid yet')));
       if (t.payment_tx_hash) console.log(row('TX hash', cyan(t.payment_tx_hash)));
+      if (t.last_settle_error && t.payment_status !== 'settled') console.log(row('Last error', yellow(t.last_settle_error)));
       console.log('');
     }
 
@@ -127,7 +131,7 @@ ${bold('Options:')}
     if (result.delivery_receipt) {
       const dr = result.delivery_receipt;
       console.log('─'.repeat(56));
-      console.log(` ${bold('Delivery Receipt')}`);
+      console.log(` ${bold('Delivery Receipt')}${result.receipts_count > 1 ? dim(`  (latest of ${result.receipts_count})`) : ''}`);
       console.log('─'.repeat(56));
       console.log(row('Receipt ID', cyan(dr.receipt_id)));
       console.log(row('Agent', dr.agent_id));

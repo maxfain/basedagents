@@ -6,7 +6,7 @@
  */
 
 import { scan, type ScanReport, type Finding } from '../scanner/index.js';
-import { RegistryClient } from '../index.js';
+import { RegistryClient, DEFAULT_API_URL } from '../index.js';
 
 // ─── Colors ───
 
@@ -19,7 +19,7 @@ const yellow = (s: string) => `\x1b[33m${s}${R}`;
 const cyan   = (s: string) => `\x1b[36m${s}${R}`;
 const orange = (s: string) => `\x1b[38;5;208m${s}${R}`;
 
-const API_URL = process.env.BASEDAGENTS_API_URL ?? 'https://api.basedagents.ai';
+const API_URL = DEFAULT_API_URL;
 
 // ─── Display Helpers ───
 
