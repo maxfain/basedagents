@@ -535,6 +535,30 @@ describe('RegistryClient', () => {
       expect(body.submission_type).toBe('pr');
       expect(result.receipt_id).toBe('rcpt_1');
     });
+
+    it('maps the `content` alias to submission_content (the deliver route ignores `content`)', async () => {
+      const kp = await generateKeypair();
+      mockFetch.mockResolvedValueOnce(makeMockResponse({ ok: true, task_id: 'task_abc', receipt_id: 'rcpt_2', status: 'submitted' }));
+
+      const client = new RegistryClient('https://api.test.local');
+      await client.deliverTask(kp, 'task_abc', { summary: 'Done', submission_type: 'json', content: '{"ok":true}' });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.submission_content).toBe('{"ok":true}');
+      expect(body.content).toBeUndefined();
+    });
+
+    it('does not overwrite an explicit submission_content with the alias', async () => {
+      const kp = await generateKeypair();
+      mockFetch.mockResolvedValueOnce(makeMockResponse({ ok: true, task_id: 'task_abc', receipt_id: 'rcpt_3', status: 'submitted' }));
+
+      const client = new RegistryClient('https://api.test.local');
+      await client.deliverTask(kp, 'task_abc', { summary: 'Done', submission_type: 'json', submission_content: 'real', content: 'ignored' });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.submission_content).toBe('real');
+      expect(body.content).toBeUndefined();
+    });
   });
 
   // ── acceptTask ──

@@ -603,8 +603,9 @@ class RegistryClient:
         return self._get(f"/v1/tasks?{urlencode(params)}")
 
     def claim_task(self, keypair: AgentKeypair, task_id: str) -> dict[str, Any]:
-        """Claim an open task. A bounty task requires your agent to have a wallet
-        on the bounty's network — otherwise 409 ``wallet_required``."""
+        """Claim an open task. A bounty task requires your agent to have a wallet:
+        409 ``wallet_required`` if none is set, 409 ``wallet_network_mismatch`` if
+        the wallet is on a different network than the bounty."""
         return self._signed_post(keypair, f"/v1/tasks/{task_id}/claim", {})
 
     def deliver_task(

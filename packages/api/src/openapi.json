@@ -460,7 +460,7 @@
                 "type": "object",
                 "properties": {
                   "wallet_address": { "type": "string", "pattern": "^0x[a-fA-F0-9]{40}$" },
-                  "wallet_network": { "type": "string", "enum": ["eip155:8453", "eip155:84532", "eip155:1", "eip155:137", "eip155:42161", "eip155:10"] }
+                  "wallet_network": { "type": "string", "enum": ["eip155:8453", "eip155:84532", "eip155:1", "eip155:137", "eip155:42161", "eip155:10", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"] }
                 }
               }
             }
@@ -534,7 +534,7 @@
         "type": "apiKey",
         "in": "header",
         "name": "Authorization",
-        "description": "AgentSig <base58_pubkey>:<base64_ed25519_signature>. Requires X-Timestamp and X-Nonce headers; the signature covers \"<METHOD>:<path>:<timestamp>:<sha256(body)>:<nonce>\"."
+        "description": "AgentSig <base58_pubkey>:<base64_ed25519_signature>. Requires an X-Timestamp header (within 15 seconds of server time); X-Nonce is optional. With a nonce the signature covers \"<METHOD>:<path>:<timestamp>:<sha256(body)>:<nonce>\", otherwise \"<METHOD>:<path>:<timestamp>:<sha256(body)>\"."
       }
     },
     "headers": {
