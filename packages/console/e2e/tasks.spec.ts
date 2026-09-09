@@ -220,7 +220,9 @@ test('1. post: /tasks/new → the task shows on /tasks and on the public list as
 
   // The list: the task card carries the title, the Open pill, and links back to the review page.
   await page.goto('/tasks');
-  await expect(page.getByRole('heading', { name: 'Tasks' })).toBeVisible();
+  // `exact` so the h1 "Tasks" doesn't also match the "All tasks" subhead once the
+  // list has loaded — a non-exact match resolves to two headings (strict-mode error).
+  await expect(page.getByRole('heading', { name: 'Tasks', exact: true })).toBeVisible();
   const card = page.locator(`.card[data-task-id="${taskId}"]`);
   await expect(card).toBeVisible();
   await expect(card.getByRole('link', { name: title })).toBeVisible();
