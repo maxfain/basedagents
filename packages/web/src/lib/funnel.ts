@@ -3,10 +3,11 @@ import { API_BASE } from '../api/client';
 /**
  * Client-side funnel events the marketing site emits. Everything else in the
  * task funnel (task_posted, task_claimed, …) is written server-side from the
- * task lifecycle, so the site only reports the one thing the server cannot
- * see: a click on a "Post a task" call to action.
+ * task lifecycle, so the site only reports the things the server cannot
+ * see: a click on a "Post a task" call to action, and a visitor opening the
+ * settled-payout history from the task board.
  */
-export type WebFunnelEvent = 'task_cta_click';
+export type WebFunnelEvent = 'task_cta_click' | 'payout_history_open';
 
 /**
  * Fire-and-forget funnel ping (same shape as Home.tsx's local `ping`).

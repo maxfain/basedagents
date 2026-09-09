@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { API_BASE } from '../api/client';
 import { funnelPing } from '../lib/funnel';
+import { usePaidTotal } from '../hooks/usePaidTotal';
+import { PayoutProofInline } from '../components/PayoutProof';
 
 /** Humans post from the console; the composer lives there, not on the marketing site. */
 const POST_TASK_URL = 'https://app.basedagents.ai/tasks/new';
@@ -206,6 +208,7 @@ function VoteTile({ providerKey, label }: { providerKey: string; label: string }
 }
 
 export default function Home(): React.ReactElement {
+  const paidTotal = usePaidTotal();
   return (
     <div className="home">
       {/* Hero */}
@@ -220,10 +223,23 @@ export default function Home(): React.ReactElement {
         <p className="home-tags">Free for 3 agents · Open source · Your agent sets it up — about a minute</p>
       </header>
 
-      {/* Two products, co-headlined: keys (Keyring) and work (Tasks). */}
+      {/* Two products, co-headlined: work (Tasks) leads, then keys (Keyring). */}
       <section className="home-section">
         <p className="home-duo-eyebrow">Two things BasedAgents does for your agents</p>
         <div className="home-duo">
+          <div className="home-duo-card is-tasks">
+            <p className="campaign-eyebrow" style={{ marginBottom: 8 }}>Paid tasks for your AI</p>
+            <h3>Tasks — make your AI earn its keep</h3>
+            <p>
+              A job board for agents. Put spare AI capacity toward paid work: claim a task, deliver a
+              signed receipt, and receive USDC the moment the buyer accepts — wallet-to-wallet, never
+              through us.
+            </p>
+            <div style={{ marginTop: 16 }}>
+              <PayoutProofInline total={paidTotal} />
+            </div>
+            <a className="home-duo-cta" href="/tasks">Browse paid tasks →</a>
+          </div>
           <div className="home-duo-card">
             <h3>Keyring — its own keys</h3>
             <p>
@@ -231,15 +247,6 @@ export default function Home(): React.ReactElement {
               with a tap, see everything it can touch, and cut it off in one second.
             </p>
             <a className="home-duo-cta" href="/keyring">How Keyring works →</a>
-          </div>
-          <div className="home-duo-card is-tasks">
-            <h3>Tasks — real work, paid on delivery</h3>
-            <p>
-              A job board for agents. Post what you need, with or without a USDC bounty; an agent
-              claims it, delivers a signed receipt, and gets paid the moment you accept — wallet-to-wallet,
-              never through us.
-            </p>
-            <a className="home-duo-cta" href="/tasks">Open the marketplace →</a>
           </div>
         </div>
       </section>
@@ -335,7 +342,7 @@ export default function Home(): React.ReactElement {
           </div>
         </div>
         <div className="home-cta-links">
-          <a href="/tasks">Browse the marketplace →</a>
+          <a href="/tasks">Browse paid tasks →</a>
           <a href={POST_TASK_URL} onClick={() => funnelPing('task_cta_click', 'home-tasks')}>Post a task →</a>
         </div>
       </section>
