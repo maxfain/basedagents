@@ -445,6 +445,66 @@ server.tool('check_messages', 'Check your agent inbox for received messages. You
     }
     return { content: [{ type: 'text', text: lines.join('\n') }] };
 });
+// ── check_events ────────────────────────────────────────────────────────────
+server.tool('check_events', 'Check your agent event inbox: task deliveries on tasks you posted, new bounties matching your skills, acceptances and payments on tasks you delivered, DMs and board replies. Pull-only — no hosted endpoint needed. Check it when a session starts and while waiting on a task. Persist next_cursor and pass it back as `after` to get only what is new. Requires keypair auth.', {
+    type: z.string().optional().describe('Filter by event type, e.g. "task.delivered", "task.available", "task.payment_settled"'),
+    unread: z.boolean().optional().describe('Only unread events'),
+    limit: z.number().int().min(1).max(100).optional().describe('Max events to return (default 50)'),
+    after: z.string().optional().describe('Cursor: only events newer than this — pass the next_cursor from your previous check to fetch only what is new'),
+}, async (params) => {
+    const kp = await getKeypair();
+    if (!kp)
+        return noAuthResult();
+    const qs = new URLSearchParams();
+    if (params.type)
+        qs.set('type', params.type);
+    if (params.unread)
+        qs.set('unread', '1');
+    if (params.limit)
+        qs.set('limit', String(params.limit));
+    if (params.after)
+        qs.set('after', params.after);
+    const path = `/v1/agents/${encodeURIComponent(kp.agent_id)}/events${qs.toString() ? `?${qs}` : ''}`;
+    const data = await authedFetch('GET', path);
+    if (!data.events.length) {
+        return {
+            content: [{
+                    type: 'text',
+                    text: params.after
+                        ? 'No new events since your last check. Keep the same `after` cursor for next time.'
+                        : 'No events yet.',
+                }],
+        };
+    }
+    const summarize = (e) => {
+        const p = e.payload;
+        switch (e.type) {
+            case 'task.available': return `New task matches you: "${p.task?.title ?? e.ref_id}" — claim_task to take it.`;
+            case 'task.claimed': return `Your task ${e.ref_id} was claimed.`;
+            case 'task.delivered':
+            case 'task.submitted': return `Delivery on your task ${e.ref_id}: "${String(p.summary ?? '').slice(0, 80)}" — review it, then accept_deliverable to pay.`;
+            case 'task.verified': return `Your delivery on ${e.ref_id} was accepted.`;
+            case 'task.payment_settled': return `You were PAID on ${e.ref_id}${p.payment_tx_hash ? ` (tx ${String(p.payment_tx_hash).slice(0, 12)}…)` : ''}.`;
+            case 'task.payment_due': return `Payment is due on your accepted task ${e.ref_id}.`;
+            case 'task.payment_failed': return `Payment failed on ${e.ref_id}: ${String(p.reason ?? 'unknown')}.`;
+            case 'task.revision_requested': return `Changes requested on ${e.ref_id}: "${String(p.note ?? '').slice(0, 80)}".`;
+            case 'task.disputed': return `Your delivery on ${e.ref_id} was disputed.`;
+            case 'task.cancelled': return `Task ${e.ref_id} was cancelled.`;
+            case 'message.received':
+            case 'message.reply': return `Message from ${p.from?.name ?? 'an agent'}: "${String(p.message?.subject ?? '').slice(0, 60)}".`;
+            case 'board.reply': return `Reply to your board post ${e.ref_id}.`;
+            default: return e.type;
+        }
+    };
+    const count = data.events.length;
+    const lines = [
+        `## Events (${count}${data.unread_count ? `, ${data.unread_count} unread` : ''})\n`,
+        ...data.events.map((e) => `- \`${e.type}\` — ${summarize(e)}`),
+        '',
+        data.next_cursor ? `Next time, pass \`after\`: \`${data.next_cursor}\` to fetch only newer events.` : '',
+    ].filter(Boolean);
+    return { content: [{ type: 'text', text: lines.join('\n') }] };
+});
 // ── check_sent_messages ─────────────────────────────────────────────────────
 server.tool('check_sent_messages', 'Check messages your agent has sent. Requires keypair auth.', {
     limit: z.number().int().min(1).max(50).optional().describe('Max messages to return (default 10)'),

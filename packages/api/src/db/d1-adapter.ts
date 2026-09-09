@@ -21,6 +21,15 @@ export class D1Adapter implements DBAdapter {
     return { changes: (result.meta as Record<string, unknown>)['changes'] as number ?? 0 };
   }
 
+  async batch(statements: { sql: string; params: unknown[] }[]): Promise<{ changes: number }[]> {
+    if (statements.length === 0) return [];
+    // D1 runs a batch as a single implicit transaction, statements in array
+    // order on one connection — so changes()/last_insert_rowid() carry across.
+    const prepared = statements.map((s) => this.db.prepare(s.sql).bind(...s.params));
+    const results = await this.db.batch(prepared);
+    return results.map((r) => ({ changes: ((r.meta as Record<string, unknown>)?.['changes'] as number) ?? 0 }));
+  }
+
   async exec(sql: string): Promise<void> {
     await this.db.exec(sql);
   }

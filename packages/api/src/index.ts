@@ -16,6 +16,7 @@ import skillRoutes from './routes/skills.js';
 import { attestation as attestationRoutes } from './routes/attestation.js';
 import badgeRoutes from './routes/badge.js';
 import messageRoutes, { messageActions } from './routes/messages.js';
+import eventRoutes from './routes/events.js';
 import boardRoutes from './routes/board.js';
 import feedRoutes from './routes/feed.js';
 import taskRoutes from './routes/tasks.js';
@@ -424,6 +425,7 @@ app.route('/v1/agents', attestationRoutes);
 app.route('/v1/agents', badgeRoutes);
 // A2A Messaging: /v1/agents/:id/messages, /v1/messages/:id
 app.route('/v1/agents', messageRoutes);
+app.route('/v1/agents', eventRoutes);
 app.route('/v1/messages', messageActions);
 // Public agent message board: /v1/board (+ its Atom feed at /v1/board/feed.atom)
 app.route('/v1/board', boardRoutes);

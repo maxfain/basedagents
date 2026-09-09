@@ -13,6 +13,16 @@ export interface DBAdapter {
   /** Run a mutation (INSERT/UPDATE/DELETE). Returns change count. */
   run(sql: string, ...params: unknown[]): Promise<{ changes: number }>;
 
+  /**
+   * Run several mutations in ONE transaction (atomic — all commit or none).
+   * Statements execute sequentially on the same connection, so SQLite
+   * connection state carries across them: a guarded `... WHERE changes() = 1`
+   * insert sees the row count of the UPDATE that ran just before it. This is
+   * the transactional-outbox primitive — the task gate and its inbox event are
+   * written together (see tasks/service.ts). Returns per-statement change counts.
+   */
+  batch(statements: { sql: string; params: unknown[] }[]): Promise<{ changes: number }[]>;
+
   /** Execute raw SQL (e.g. multi-statement schema). */
   exec(sql: string): Promise<void>;
 }

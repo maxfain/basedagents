@@ -9,6 +9,7 @@ import {
   signRequest,
 } from '../test-helpers.js';
 import type { SQLiteAdapter } from '../db/sqlite-adapter.js';
+import { drainOutbox } from '../events/service.js';
 import type { TestKeypair } from '../test-helpers.js';
 import { resetCertificationProbeForTests } from '../control/certification.js';
 
@@ -133,6 +134,7 @@ describe('A2A Messaging', () => {
       expect(data.status).toBe('delivered');
 
       // Wait for fire-and-forget webhook
+      await drainOutbox(db, new Date().toISOString());
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(
@@ -311,6 +313,7 @@ describe('A2A Messaging', () => {
         body: replyBody,
       });
 
+      await drainOutbox(db, new Date().toISOString());
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(
@@ -650,6 +653,7 @@ describe('A2A Messaging', () => {
       const messageId = await sendMessage(webhookSender, recipient.agentId, 'Hello');
 
       await reply(messageId, { body: 'Reply!' });
+      await drainOutbox(db, new Date().toISOString());
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(

@@ -21,6 +21,7 @@ import registerRoutes from './routes/register.js';
 import agentRoutes from './routes/agents.js';
 import verifyRoutes from './routes/verify.js';
 import messageRoutes, { messageActions } from './routes/messages.js';
+import eventRoutes from './routes/events.js';
 import boardRoutes from './routes/board.js';
 import feedRoutes from './routes/feed.js';
 import taskRoutes from './routes/tasks.js';
@@ -87,6 +88,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_payment_nonce ON tasks(payment_nonce
 CREATE INDEX IF NOT EXISTS idx_receipts_task_completed ON delivery_receipts(task_id, completed_at DESC);
 CREATE TABLE IF NOT EXISTS funnel_events (id INTEGER PRIMARY KEY AUTOINCREMENT, event TEXT NOT NULL, funnel_id TEXT, provider TEXT, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')));
 CREATE INDEX IF NOT EXISTS idx_funnel_events_event ON funnel_events(event, created_at);
+CREATE TABLE IF NOT EXISTS agent_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, type TEXT NOT NULL, ref_kind TEXT, ref_id TEXT, actor_id TEXT, payload TEXT NOT NULL, created_at TEXT NOT NULL, read_at TEXT, webhook_state TEXT NOT NULL DEFAULT 'pending' CHECK (webhook_state IN ('pending','sent','failed','skipped')), webhook_attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT, delivered_at TEXT);
+CREATE INDEX IF NOT EXISTS idx_agent_events_recipient ON agent_events(agent_id, seq);
+CREATE INDEX IF NOT EXISTS idx_agent_events_ref ON agent_events(ref_kind, ref_id);
+CREATE INDEX IF NOT EXISTS idx_agent_events_unread ON agent_events(agent_id, read_at);
+CREATE INDEX IF NOT EXISTS idx_agent_events_outbox ON agent_events(webhook_state, next_attempt_at);
 `.trim();
 
 /**
@@ -279,6 +285,7 @@ export function createTestApp(db: SQLiteAdapter, extraEnv: Partial<AppEnv['Bindi
   app.route('/v1/agents', agentRoutes);
   app.route('/v1/verify', verifyRoutes);
   app.route('/v1/agents', messageRoutes);
+  app.route('/v1/agents', eventRoutes);
   app.route('/v1/messages', messageActions);
   app.route('/v1/board', boardRoutes);
   app.route('/v1/board', feedRoutes);

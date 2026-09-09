@@ -22,6 +22,7 @@ import type { DBAdapter } from '../db/adapter.js';
 import type { PaymentStatus, TaskStatus } from '../types/index.js';
 import { computeChainHash, GENESIS_HASH, sha256, bytesToHex, canonicalJsonStringify } from '../crypto/index.js';
 import { fireWebhook, type WebhookEvent } from '../lib/webhooks.js';
+import { gateWithEvent, recordEvent } from '../events/service.js';
 import { computeReputation } from '../reputation/calculator.js';
 import { generatePublicId } from '../lib/ids.js';
 import { atomicToDisplay } from '../payments/x402.js';
@@ -314,26 +315,33 @@ export function paymentView(t: TaskRow): Record<string, unknown> {
 }
 
 // ─── Gates (one conditional UPDATE each) ───
+//
+// The five agent-route lifecycle gates accept an optional `notify`: when
+// present, the gate UPDATE and the recipient's inbox event are committed in ONE
+// transaction (transactional outbox, events/service.ts gateWithEvent) so the
+// event exists iff the transition won. Callers that omit `notify` (owner routes,
+// cron, the E2E seeder) get the identical bare conditional UPDATE.
+
+/** A recipient agent id + the event to drop in its inbox atomically with the gate. */
+export interface GateNotify { recipientAgentId: string | null; event: WebhookEvent | null }
 
 /** T2: open → claimed. The creator can never claim their own task. */
-export async function claimGate(db: DBAdapter, taskId: string, agentId: string, acceptorSig: string | null, nowIso: string): Promise<boolean> {
-  const res = await db.run(
-    `UPDATE tasks SET claimed_by_agent_id = ?, status = 'claimed', claimed_at = ?, acceptor_signature = ?
+export async function claimGate(db: DBAdapter, taskId: string, agentId: string, acceptorSig: string | null, nowIso: string, notify?: GateNotify): Promise<boolean> {
+  return gateWithEvent(db, {
+    sql: `UPDATE tasks SET claimed_by_agent_id = ?, status = 'claimed', claimed_at = ?, acceptor_signature = ?
      WHERE task_id = ? AND status = 'open' AND claimed_by_agent_id IS NULL
        AND (creator_agent_id IS NULL OR creator_agent_id <> ?)`,
-    agentId, nowIso, acceptorSig, taskId, agentId,
-  );
-  return res.changes === 1;
+    params: [agentId, nowIso, acceptorSig, taskId, agentId],
+  }, notify?.recipientAgentId ?? null, notify?.event ?? null, nowIso);
 }
 
 /** T3: claimed → submitted, arming the 7-day auto-accept for every task (N3). */
-export async function deliverGate(db: DBAdapter, taskId: string, agentId: string, nowIso: string): Promise<boolean> {
-  const res = await db.run(
-    `UPDATE tasks SET status = 'submitted', submitted_at = ?, auto_release_at = ?
+export async function deliverGate(db: DBAdapter, taskId: string, agentId: string, nowIso: string, notify?: GateNotify): Promise<boolean> {
+  return gateWithEvent(db, {
+    sql: `UPDATE tasks SET status = 'submitted', submitted_at = ?, auto_release_at = ?
      WHERE task_id = ? AND status = 'claimed' AND claimed_by_agent_id = ?`,
-    nowIso, isoPlus(nowIso, REVIEW_WINDOW_MS), taskId, agentId,
-  );
-  return res.changes === 1;
+    params: [nowIso, isoPlus(nowIso, REVIEW_WINDOW_MS), taskId, agentId],
+  }, notify?.recipientAgentId ?? null, notify?.event ?? null, nowIso);
 }
 
 /** T4-U: submitted → verified by the creator (unpaid task, or paid task without settlement). */
@@ -365,24 +373,22 @@ export async function autoAcceptGate(db: DBAdapter, taskId: string, nowIso: stri
 }
 
 /** T6: submitted → claimed (request changes), capped at MAX_REVISIONS. */
-export async function revisionGate(db: DBAdapter, taskId: string, note: string, nowIso: string): Promise<boolean> {
-  const res = await db.run(
-    `UPDATE tasks SET status = 'claimed', review_note = ?, revision_count = revision_count + 1,
+export async function revisionGate(db: DBAdapter, taskId: string, note: string, nowIso: string, notify?: GateNotify): Promise<boolean> {
+  return gateWithEvent(db, {
+    sql: `UPDATE tasks SET status = 'claimed', review_note = ?, revision_count = revision_count + 1,
        revision_requested_at = ?, auto_release_at = NULL, disputed_at = NULL
      WHERE task_id = ? AND status = 'submitted' AND revision_count < ?`,
-    note, nowIso, taskId, MAX_REVISIONS,
-  );
-  return res.changes === 1;
+    params: [note, nowIso, taskId, MAX_REVISIONS],
+  }, notify?.recipientAgentId ?? null, notify?.event ?? null, nowIso);
 }
 
 /** T7: dispute flag on a submitted task; freezes auto-accept, touches no payment column. */
-export async function disputeGate(db: DBAdapter, taskId: string, reason: string, nowIso: string): Promise<boolean> {
-  const res = await db.run(
-    `UPDATE tasks SET disputed_at = ?, review_note = ?, auto_release_at = NULL
+export async function disputeGate(db: DBAdapter, taskId: string, reason: string, nowIso: string, notify?: GateNotify): Promise<boolean> {
+  return gateWithEvent(db, {
+    sql: `UPDATE tasks SET disputed_at = ?, review_note = ?, auto_release_at = NULL
      WHERE task_id = ? AND status = 'submitted' AND disputed_at IS NULL`,
-    nowIso, reason, taskId,
-  );
-  return res.changes === 1;
+    params: [nowIso, reason, taskId],
+  }, notify?.recipientAgentId ?? null, notify?.event ?? null, nowIso);
 }
 
 /**
@@ -390,16 +396,15 @@ export async function disputeGate(db: DBAdapter, taskId: string, reason: string,
  * be cancelled after a dispute; accepted work never; money in flight never.
  * A never-settled bounty is voided (`expired`).
  */
-export async function cancelGate(db: DBAdapter, taskId: string, nowIso: string): Promise<boolean> {
-  const res = await db.run(
-    `UPDATE tasks SET status = 'cancelled', cancelled_at = ?, auto_release_at = NULL,
+export async function cancelGate(db: DBAdapter, taskId: string, nowIso: string, notify?: GateNotify): Promise<boolean> {
+  return gateWithEvent(db, {
+    sql: `UPDATE tasks SET status = 'cancelled', cancelled_at = ?, auto_release_at = NULL,
        payment_status = CASE WHEN payment_status IN ('pending','failed','expired') THEN 'expired' ELSE payment_status END
      WHERE task_id = ? AND status IN ('open','claimed','submitted')
        AND (status <> 'submitted' OR disputed_at IS NOT NULL)
        AND payment_status NOT IN ('authorized','settling','settled')`,
-    nowIso, taskId,
-  );
-  return res.changes === 1;
+    params: [nowIso, taskId],
+  }, notify?.recipientAgentId ?? null, notify?.event ?? null, nowIso);
 }
 
 /** Why a cancel would be refused, from the row the route read (maps to 409 codes). */
@@ -443,8 +448,7 @@ export async function afterAccept(
       console.error(`[tasks] chain entry failed for ${task.task_id}:`, err);
     }
     await recomputeReputation(db, deliverer);
-    const target = await agentTarget(db, deliverer);
-    sendWebhook(target, {
+    await recordEvent(db, deliverer, {
       type: 'task.verified',
       agent_id: deliverer,
       task_id: task.task_id,
@@ -454,7 +458,7 @@ export async function afterAccept(
       payment_tx_hash: null,
       payment_status: opts.paymentStatus,
       accepted_by: opts.acceptedBy,
-    });
+    }, opts.nowIso);
   }
   await recordFunnel(db, 'task_accepted', task.task_id, opts.acceptedBy);
   return { chain };
@@ -472,19 +476,27 @@ export interface NewTaskNotice {
   bounty: BountyView | null;
 }
 
-/** `task.available` fan-out to active agents whose capabilities overlap (exact string match). */
+/**
+ * `task.available` fan-out to active agents whose capabilities overlap (exact
+ * string match). The event is written to each match's inbox regardless of
+ * whether it has a webhook_url — an agent no longer has to run an endpoint to
+ * be matched to work (the old `webhook_url IS NOT NULL` filter silently
+ * excluded webhook-less agents from the marketplace entirely). The cron outbox
+ * drainer pushes the webhook for those that do have a URL.
+ */
 export async function notifyMatchingAgents(db: DBAdapter, task: NewTaskNotice, excludeAgentId: string | null): Promise<void> {
   const reqCaps = task.required_capabilities;
   if (!reqCaps || reqCaps.length === 0) return;
-  const agents = await db.all<{ id: string; capabilities: string; webhook_url: string | null; webhook_secret: string | null }>(
-    `SELECT id, capabilities, webhook_url, webhook_secret FROM agents WHERE status = 'active' AND webhook_url IS NOT NULL AND id != ?`,
+  const nowIso = new Date().toISOString();
+  const agents = await db.all<{ id: string; capabilities: string }>(
+    `SELECT id, capabilities FROM agents WHERE status = 'active' AND id != ?`,
     excludeAgentId ?? '',
   );
   for (const agent of agents) {
     try {
       const caps: string[] = JSON.parse(agent.capabilities);
       if (reqCaps.some((rc) => caps.includes(rc))) {
-        sendWebhook({ id: agent.id, name: '', webhook_url: agent.webhook_url, webhook_secret: agent.webhook_secret }, {
+        await recordEvent(db, agent.id, {
           type: 'task.available',
           agent_id: agent.id,
           task: {
@@ -496,7 +508,7 @@ export async function notifyMatchingAgents(db: DBAdapter, task: NewTaskNotice, e
             output_format: task.output_format,
             bounty: task.bounty,
           },
-        });
+        }, nowIso);
       }
     } catch {
       // skip agents with invalid capabilities JSON
@@ -525,8 +537,8 @@ export async function writeDeliveryReceipt(
   fields: DeliveryFields,
   signature: string,
   nowIso: string,
+  receiptId: string = generatePublicId('rcpt'),
 ): Promise<{ receipt_id: string; chain: { sequence: number; entry_hash: string } | null }> {
-  const receiptId = generatePublicId('rcpt');
   const receiptPayload: Record<string, unknown> = {
     receipt_id: receiptId,
     task_id: taskId,

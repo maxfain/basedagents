@@ -22,6 +22,17 @@ export class SQLiteAdapter implements DBAdapter {
     return { changes: result.changes };
   }
 
+  async batch(statements: { sql: string; params: unknown[] }[]): Promise<{ changes: number }[]> {
+    if (statements.length === 0) return [];
+    // better-sqlite3 transactions are synchronous + atomic; statements run on
+    // the one connection so changes() carries across (verified: a guarded
+    // `... WHERE changes() = 1` insert sees the prior UPDATE's row count).
+    const tx = this.db.transaction((stmts: { sql: string; params: unknown[] }[]) =>
+      stmts.map((s) => ({ changes: this.db.prepare(s.sql).run(...s.params).changes })),
+    );
+    return tx(statements);
+  }
+
   async exec(sql: string): Promise<void> {
     this.db.exec(sql);
   }
