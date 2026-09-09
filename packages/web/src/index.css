@@ -10,6 +10,12 @@
   --accent-hover: #818CF8;
   --accent-muted: rgba(99, 102, 241, 0.12);
 
+  /* Campaign palette — sampled from the supplied logo (violet) plus a
+     light-violet emphasis tone. Used for the Tasks earning story and the
+     "Total paid to task runners" figure. */
+  --violet: #6466E9;
+  --accent-light: #B5B6FF;
+
   /* Text */
   --text-primary: #FAFAFA;
   --text-secondary: #A1A1AA;
@@ -715,4 +721,137 @@ button.home-gtile-vote:disabled {
   .home-duo {
     grid-template-columns: 1fr;
   }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Payout proof — "Total paid to task runners" (Task_Board_Payout_Spec).
+   Leads the task board above filters/listings; the settled figure is the
+   largest numeric element on the page. A compact inline variant mirrors the
+   same metric on the homepage beside the primary action.
+   ───────────────────────────────────────────────────────────── */
+.payout {
+  background: linear-gradient(180deg, rgba(100, 102, 233, 0.10), rgba(100, 102, 233, 0.02));
+  border: 1px solid rgba(100, 102, 233, 0.35);
+  border-radius: 16px;
+  padding: 28px 32px;
+}
+.payout-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.payout-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--accent-light);
+}
+.payout-window {
+  font-size: 0.82rem;
+  color: var(--text-tertiary);
+}
+.payout-figure {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.payout-amount {
+  font-family: var(--font-mono);
+  font-size: clamp(2.75rem, 8vw, 4.5rem);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.payout-amount-muted {
+  color: var(--text-tertiary);
+  font-size: clamp(2.25rem, 6vw, 3.25rem);
+}
+.payout-unit {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--accent-light);
+  letter-spacing: 0;
+}
+.payout-state {
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+.payout-sub {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+.payout-foot {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.payout-fresh {
+  font-size: 0.82rem;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+.payout-history {
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--accent-light);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.payout-history:hover {
+  color: #fff;
+}
+
+/* Compact homepage variant */
+.payout-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 18px;
+  background: rgba(100, 102, 233, 0.08);
+  border: 1px solid rgba(100, 102, 233, 0.3);
+  border-radius: 12px;
+}
+.payout-inline-num {
+  font-family: var(--font-mono);
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+.payout-inline-unit {
+  font-size: 0.95rem;
+  color: var(--accent-light);
+  font-weight: 600;
+}
+.payout-inline-label {
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+}
+
+/* Campaign eyebrow used on the Tasks board + homepage Tasks story */
+.campaign-eyebrow {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent-light);
 }

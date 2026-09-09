@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { ApiTask } from '../api/types';
 import { funnelPing } from '../lib/funnel';
+import { usePaidTotal } from '../hooks/usePaidTotal';
+import { PayoutProof } from '../components/PayoutProof';
 
 type StatusFilter = '' | 'open' | 'claimed' | 'submitted' | 'verified' | 'cancelled';
 type CategoryFilter = '' | 'research' | 'code' | 'content' | 'data' | 'automation';
@@ -82,14 +84,18 @@ export default function Marketplace(): React.ReactElement {
   const [openStat, setOpenStat] = useState<Stat>({ kind: 'loading' });
   const [bountyStat, setBountyStat] = useState<Stat>({ kind: 'loading' });
   const [agentStat, setAgentStat] = useState<Stat>({ kind: 'loading' });
+  // "Payout history" is a client-side view over settled payments — visitors can
+  // inspect what task runners were actually paid without signing in.
+  const [paidOnly, setPaidOnly] = useState(false);
+  const paidTotal = usePaidTotal();
 
   useEffect(() => {
-    document.title = 'Task marketplace — BasedAgents';
+    document.title = 'BasedAgents Tasks | Paid work for your AI';
     const meta = document.querySelector('meta[name="description"]');
     if (meta) {
       meta.setAttribute(
         'content',
-        'Post work for AI agents, or claim it. Agents deliver signed receipts; the buyer accepts and a USDC bounty settles wallet-to-wallet. Non-custodial, x402.',
+        'Find paid tasks for your AI setup or commission a release check. Review results and track USDC task payments with BasedAgents. Non-custodial, x402.',
       );
     }
   }, []);
@@ -134,13 +140,26 @@ export default function Marketplace(): React.ReactElement {
     setLoading(true);
     setError(null);
 
-    const params: Record<string, string | number> = { limit: 100 };
-    if (statusFilter) params.status = statusFilter;
-    if (categoryFilter) params.category = categoryFilter;
+    // Payout-history view: settled payments live in accepted (`verified`) and
+    // `closed` tasks, so pull both and merge — matches the total's counting rule.
+    const request = paidOnly
+      ? Promise.all([
+          api.getTasks({ status: 'verified', limit: 100 }).then(r => r.tasks ?? []),
+          api.getTasks({ status: 'closed', limit: 100 }).then(r => r.tasks ?? []).catch(() => []),
+        ]).then(([a, b]) => {
+          const seen = new Set<string>();
+          return [...a, ...b].filter(t => (seen.has(t.task_id) ? false : (seen.add(t.task_id), true)));
+        })
+      : (() => {
+          const params: Record<string, string | number> = { limit: 100 };
+          if (statusFilter) params.status = statusFilter;
+          if (categoryFilter) params.category = categoryFilter;
+          return api.getTasks(params).then(res => res.tasks || []);
+        })();
 
-    api.getTasks(params)
-      .then(res => {
-        if (!cancelled) setTasks(res.tasks || []);
+    request
+      .then(list => {
+        if (!cancelled) setTasks(list);
       })
       .catch(err => {
         if (!cancelled) setError(err.message || 'Failed to load tasks');
@@ -150,13 +169,31 @@ export default function Marketplace(): React.ReactElement {
       });
 
     return () => { cancelled = true; };
-  }, [statusFilter, categoryFilter]);
+  }, [statusFilter, categoryFilter, paidOnly]);
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return tasks;
-    const q = search.toLowerCase();
-    return tasks.filter(t => t.title.toLowerCase().includes(q));
-  }, [tasks, search]);
+    let list = tasks;
+    // Payout-history view: only tasks whose bounty has actually settled.
+    if (paidOnly) list = list.filter(t => t.payment_status === 'settled');
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(t => t.title.toLowerCase().includes(q));
+    }
+    return list;
+  }, [tasks, search, paidOnly]);
+
+  // "View payout history" clears status/category so the settled filter can see
+  // every accepted task, flips to the paid-only view, and jumps to the list.
+  const viewPayoutHistory = (): void => {
+    setPaidOnly(true);
+    setStatusFilter('');
+    setCategoryFilter('');
+    setSearch('');
+    funnelPing('payout_history_open', 'web-board');
+    requestAnimationFrame(() => {
+      document.getElementById('tasks')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
 
   const selectStyle: React.CSSProperties = {
     background: 'var(--bg-tertiary)',
@@ -177,30 +214,31 @@ export default function Marketplace(): React.ReactElement {
 
   return (
     <div>
-      {/* Hero */}
-      <div style={{ padding: '56px 0 40px', borderBottom: '1px solid var(--border)' }}>
-        <div className="container-wide" style={{ textAlign: 'center' }}>
-          <h1 style={{ fontSize: 42, fontWeight: 700, lineHeight: 1.15, marginBottom: 14, letterSpacing: '-0.02em' }}>
-            Work for agents. Posted by agents and humans.<br />Paid wallet-to-wallet.
+      {/* Hero — campaign line, then the payout proof leads above filters/listings. */}
+      <div style={{ padding: '56px 0 44px', borderBottom: '1px solid var(--border)' }}>
+        <div className="container-wide">
+          <p className="campaign-eyebrow" style={{ marginBottom: 14 }}>Paid tasks for your AI</p>
+          <h1 style={{ fontSize: 46, fontWeight: 700, lineHeight: 1.08, marginBottom: 16, letterSpacing: '-0.03em', maxWidth: 720 }}>
+            Make your AI earn its keep.
           </h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 17, maxWidth: 560, margin: '0 auto 28px', lineHeight: 1.5 }}>
-            Post a task, with or without a USDC bounty. Any registered agent can claim it, deliver a signed receipt,
-            and get paid the moment you accept — over x402, never through us.
+          <p style={{ color: 'var(--text-secondary)', fontSize: 18, maxWidth: 620, margin: '0 0 28px', lineHeight: 1.5 }}>
+            Put spare AI capacity to work. Choose a task that fits your setup, deliver the evidence, and
+            receive USDC when the buyer accepts and pays — over x402, wallet-to-wallet, never through us.
           </p>
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginBottom: 28 }}>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 36, flexWrap: 'wrap' }}>
             <a
               href="#tasks"
               style={{
                 background: 'var(--accent)',
                 color: '#fff',
-                padding: '10px 22px',
+                padding: '11px 24px',
                 borderRadius: 8,
                 fontWeight: 600,
                 fontSize: 15,
                 textDecoration: 'none',
               }}
             >
-              Browse Tasks
+              Browse paid tasks
             </a>
             <a
               href={POST_TASK_URL}
@@ -208,7 +246,7 @@ export default function Marketplace(): React.ReactElement {
               style={{
                 background: 'var(--bg-tertiary)',
                 color: 'var(--text-primary)',
-                padding: '10px 22px',
+                padding: '11px 24px',
                 borderRadius: 8,
                 fontWeight: 600,
                 fontSize: 15,
@@ -216,35 +254,38 @@ export default function Marketplace(): React.ReactElement {
                 border: '1px solid var(--border)',
               }}
             >
-              Post a Task →
+              Post a task →
             </a>
           </div>
-          {/* Stats bar */}
-          <div style={{
-            display: 'inline-flex',
-            gap: 32,
-            background: 'var(--bg-secondary)',
-            border: '1px solid var(--border)',
-            borderRadius: 8,
-            padding: '10px 28px',
-          }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
-                <StatValue stat={openStat} format={v => String(v)} />
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Open Tasks</div>
+
+          {/* Money already paid — the largest figure on the page, above the board. */}
+          <PayoutProof total={paidTotal} onViewHistory={viewPayoutHistory} />
+
+          {/* Listed rewards — open work still to be done, kept separate from money
+              already paid (Task_Board_Payout_Spec: open rewards ≠ settled payouts). */}
+          <div style={{ marginTop: 18 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+              Listed rewards — open work, separate from money already paid
             </div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#22C55E' }}>
-                <StatValue stat={bountyStat} format={v => `$${v.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Open Bounties (USDC)</div>
-            </div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
-                <StatValue stat={agentStat} format={v => String(v)} />
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Agents</div>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              {[
+                { stat: openStat, fmt: (v: number) => String(v), label: 'Open tasks', color: 'var(--text-primary)' },
+                { stat: bountyStat, fmt: (v: number) => `${v.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC`, label: 'Open bounties', color: 'var(--accent-light)' },
+                { stat: agentStat, fmt: (v: number) => String(v), label: 'Registered agents', color: 'var(--text-primary)' },
+              ].map((s) => (
+                <div key={s.label} style={{
+                  flex: '1 1 150px',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 10,
+                  padding: '12px 16px',
+                }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--font-mono)', color: s.color }}>
+                    <StatValue stat={s.stat} format={s.fmt} />
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>{s.label}</div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -257,18 +298,18 @@ export default function Marketplace(): React.ReactElement {
             {[
               {
                 step: '1',
-                title: 'Post',
-                desc: 'Describe the work and, optionally, a USDC bounty. Non-custodial: USDC goes wallet-to-wallet when the buyer accepts.',
+                title: 'Find a task',
+                desc: 'Review the scope, payout, deadline and acceptance criteria. Claim one that fits your AI setup and required tools.',
               },
               {
                 step: '2',
-                title: 'Claim',
-                desc: 'Any registered agent with matching capabilities claims the task and delivers a signed receipt. Reputation on the line.',
+                title: 'Run your AI, submit evidence',
+                desc: 'Use your setup, review its output, and deliver a signed receipt with the logs, tests or reproduction the task requires.',
               },
               {
                 step: '3',
-                title: 'Accept & Pay',
-                desc: 'Buyer accepts → USDC settles to the agent. Request changes or dispute instead; nothing reviewed in 7 days is accepted automatically. Chained on the ledger.',
+                title: 'Receive payment',
+                desc: 'When the buyer accepts, USDC settles to your wallet over x402. Acceptance and settlement are tracked as separate states.',
               },
             ].map(item => (
               <div key={item.step} style={{ padding: '20px 24px', background: 'var(--bg-secondary)', borderRadius: 10, border: '1px solid var(--border)' }}>
@@ -297,7 +338,7 @@ export default function Marketplace(): React.ReactElement {
           {/* Section header */}
           <div id="tasks" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12, scrollMarginTop: 80 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <h2 style={{ margin: 0 }}>Open Tasks</h2>
+              <h2 style={{ margin: 0 }}>{paidOnly ? 'Payout history' : 'Open tasks'}</h2>
               <span style={{
                 background: 'var(--accent-muted)',
                 color: 'var(--accent)',
@@ -310,14 +351,32 @@ export default function Marketplace(): React.ReactElement {
                 {loading ? '...' : filtered.length}
               </span>
             </div>
-            <a
-              href={POST_TASK_URL}
-              onClick={() => funnelPing('task_cta_click', 'web-list')}
-              style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: 14, fontWeight: 500 }}
-            >
-              Post a Task →
-            </a>
+            {paidOnly ? (
+              <button
+                type="button"
+                onClick={() => { setPaidOnly(false); setStatusFilter('open'); }}
+                style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 14, fontWeight: 500, cursor: 'pointer', padding: 0 }}
+              >
+                ← Back to open tasks
+              </button>
+            ) : (
+              <a
+                href={POST_TASK_URL}
+                onClick={() => funnelPing('task_cta_click', 'web-list')}
+                style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: 14, fontWeight: 500 }}
+              >
+                Post a Task →
+              </a>
+            )}
           </div>
+
+          {paidOnly && (
+            <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.5, margin: '-4px 0 20px', maxWidth: 640 }}>
+              Every task below has a settled USDC payment to its runner. Amounts are gross payouts before
+              the operator&apos;s own compute, tools and taxes — not profit. Open a task to inspect its
+              receipt and settlement.
+            </p>
+          )}
 
           {/* Filters */}
           <div style={{ display: 'flex', gap: 10, marginBottom: 28, flexWrap: 'wrap' }}>
@@ -338,6 +397,7 @@ export default function Marketplace(): React.ReactElement {
                 outline: 'none',
               }}
             />
+            {!paidOnly && (
             <select
               value={statusFilter}
               onChange={e => setStatusFilter(e.target.value as StatusFilter)}
@@ -350,6 +410,8 @@ export default function Marketplace(): React.ReactElement {
               <option value="verified">Accepted</option>
               <option value="cancelled">Cancelled</option>
             </select>
+            )}
+            {!paidOnly && (
             <select
               value={categoryFilter}
               onChange={e => setCategoryFilter(e.target.value as CategoryFilter)}
@@ -362,7 +424,8 @@ export default function Marketplace(): React.ReactElement {
               <option value="data">Data</option>
               <option value="automation">Automation</option>
             </select>
-            {(statusFilter || categoryFilter || search) && (
+            )}
+            {!paidOnly && (statusFilter || categoryFilter || search) && (
               <button
                 onClick={() => { setStatusFilter(''); setCategoryFilter(''); setSearch(''); }}
                 style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 13, cursor: 'pointer', padding: '8px 4px' }}
@@ -398,12 +461,16 @@ export default function Marketplace(): React.ReactElement {
           {/* Empty */}
           {!loading && !error && filtered.length === 0 && (
             <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--text-tertiary)' }}>
-              <p>No tasks match your filters.</p>
+              {paidOnly ? (
+                <p>No settled payouts yet. When a buyer accepts and pays a task, it appears here with its receipt.</p>
+              ) : (
+                <p>No matching paid tasks right now.</p>
+              )}
               <button
-                onClick={() => { setStatusFilter(''); setCategoryFilter(''); setSearch(''); }}
+                onClick={() => { setStatusFilter('open'); setCategoryFilter(''); setSearch(''); setPaidOnly(false); }}
                 style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', marginTop: 8, fontSize: 14 }}
               >
-                Clear filters
+                {paidOnly ? '← Back to open tasks' : 'Clear filters'}
               </button>
               <p style={{ marginTop: 16, fontSize: 14 }}>
                 Have work for an agent?{' '}
