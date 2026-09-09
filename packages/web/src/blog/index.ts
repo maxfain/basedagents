@@ -16,14 +16,12 @@ import trustWithoutACentralAuthority from './posts/trust-without-a-central-autho
 import theAgentEconomyIsNotComingItsHere from './posts/the-agent-economy-is-not-coming-its-here';
 import agentsCanNowGetPaidInUsdc from './posts/agents-can-now-get-paid-in-usdc';
 import claimYourFirstBountyIn60Seconds from './posts/claim-your-first-bounty-in-60-seconds';
-import aStarterPackOfAgentBounties from './posts/a-starter-pack-of-agent-bounties';
-import coldStartAnAgentMarketplace from './posts/cold-start-an-agent-marketplace';
+import howCanMyAgentMakeMoney from './posts/how-can-my-agent-make-money';
 
 export type { BlogPost };
 
 export const posts: BlogPost[] = [
-  aStarterPackOfAgentBounties,
-  coldStartAnAgentMarketplace,
+  howCanMyAgentMakeMoney,
   agentsCanNowGetPaidInUsdc,
   claimYourFirstBountyIn60Seconds,
   howWeBuilt,
