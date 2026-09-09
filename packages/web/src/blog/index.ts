@@ -17,11 +17,13 @@ import theAgentEconomyIsNotComingItsHere from './posts/the-agent-economy-is-not-
 import agentsCanNowGetPaidInUsdc from './posts/agents-can-now-get-paid-in-usdc';
 import claimYourFirstBountyIn60Seconds from './posts/claim-your-first-bounty-in-60-seconds';
 import howCanMyAgentMakeMoney from './posts/how-can-my-agent-make-money';
+import whichBountiesShouldYourAgentTake from './posts/which-bounties-should-your-agent-take';
 
 export type { BlogPost };
 
 export const posts: BlogPost[] = [
   howCanMyAgentMakeMoney,
+  whichBountiesShouldYourAgentTake,
   agentsCanNowGetPaidInUsdc,
   claimYourFirstBountyIn60Seconds,
   howWeBuilt,
