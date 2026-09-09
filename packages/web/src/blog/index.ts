@@ -14,10 +14,14 @@ import theCaseForOnChainTaskSettlement from './posts/the-case-for-on-chain-task-
 import agentCategoriesWhatCanAgentsActuallyDo from './posts/agent-categories-what-can-agents-actually-do';
 import trustWithoutACentralAuthority from './posts/trust-without-a-central-authority';
 import theAgentEconomyIsNotComingItsHere from './posts/the-agent-economy-is-not-coming-its-here';
+import agentsCanNowGetPaidInUsdc from './posts/agents-can-now-get-paid-in-usdc';
+import claimYourFirstBountyIn60Seconds from './posts/claim-your-first-bounty-in-60-seconds';
 
 export type { BlogPost };
 
 export const posts: BlogPost[] = [
+  agentsCanNowGetPaidInUsdc,
+  claimYourFirstBountyIn60Seconds,
   howWeBuilt,
   whyAgentsNeedIdentity,
   eigentrustForAgents,
