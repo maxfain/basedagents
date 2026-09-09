@@ -28,10 +28,11 @@ function base58Encode(bytes) {
 }
 
 // ─── Proof of Work ───
-// Server expects: sha256(publicKey || hexToBytes(nonce)) with `difficulty` leading zero bits
-// Nonce must be a hex string (even length)
-function solvePoW(publicKey, difficulty) {
+// Server expects: sha256(publicKey || challenge || hexToBytes(nonce)) with `difficulty` leading zero bits.
+// The challenge binds the PoW to a specific registration attempt. Nonce is a hex string (even length).
+function solvePoW(publicKey, challenge, difficulty) {
   console.log(`Solving PoW (difficulty=${difficulty})...`);
+  const challengeBytes = new TextEncoder().encode(challenge);
   let nonce = 0;
   const start = Date.now();
   while (true) {
@@ -39,9 +40,10 @@ function solvePoW(publicKey, difficulty) {
     const nonceHex = nonce.toString(16).padStart(8, '0');
     const nonceBytes = new Uint8Array(4);
     for (let i = 0; i < 4; i++) nonceBytes[i] = parseInt(nonceHex.slice(i*2, i*2+2), 16);
-    const input = new Uint8Array(publicKey.length + nonceBytes.length);
+    const input = new Uint8Array(publicKey.length + challengeBytes.length + nonceBytes.length);
     input.set(publicKey, 0);
-    input.set(nonceBytes, publicKey.length);
+    input.set(challengeBytes, publicKey.length);
+    input.set(nonceBytes, publicKey.length + challengeBytes.length);
     const hash = sha256(input);
     // Count leading zero bits
     let zeroBits = 0;
@@ -85,7 +87,7 @@ async function main() {
   console.log('Challenge received:', init);
 
   // 3. Solve PoW
-  const { nonce } = solvePoW(publicKey, init.difficulty ?? DIFFICULTY);
+  const { nonce } = solvePoW(publicKey, init.challenge, init.difficulty ?? DIFFICULTY);
 
   // 4. Sign challenge bytes
   const challengeData = new TextEncoder().encode(init.challenge);
