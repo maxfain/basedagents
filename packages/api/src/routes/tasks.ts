@@ -18,16 +18,12 @@ import type { Context } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../types/index.js';
 import { CreateTaskSchema, SubmitDeliverableSchema, DeliverTaskSchema, TaskQuerySchema } from '../types/index.js';
-import type { DBAdapter } from '../db/adapter.js';
 import { agentAuth } from '../middleware/auth.js';
 import { bytesToHex } from '../crypto/index.js';
 import { generatePublicId } from '../lib/ids.js';
 import { paymentProviderFor } from '../payments/index.js';
-import { encryptPaymentSignature } from '../payments/crypto.js';
-import {
-  decodePaymentHeader, buildRequirements, buildPaymentRequired, encodeB64Json, localPrechecks, PaymentMalformed, isNetwork,
-} from '../payments/x402.js';
-import { settleTask, reauthPermitted, wireSettleResponse, REAUTH_CLASSES } from '../payments/settle.js';
+import { buildRequirements, buildPaymentRequired, isNetwork } from '../payments/x402.js';
+import { acceptBountyTask, delivererWallet } from '../payments/accept.js';
 import {
   type Actor, type TaskRow, loadTask, creatorMatches, logPaymentEvent, recordFunnel,
   creatorTarget, recomputeReputation, publicTaskShape, paymentView, bountyView, creatorSqlParts,
@@ -66,15 +62,6 @@ function paymentHeader(c: Ctx): string | undefined {
   const legacy = c.req.header(LEGACY_PAYMENT_HEADER);
   if (legacy) console.warn(`[payments] ${LEGACY_PAYMENT_HEADER} is deprecated; send ${PAYMENT_HEADER}`);
   return legacy;
-}
-
-async function delivererWallet(db: DBAdapter, agentId: string | null): Promise<{ address: string; network: string | null } | null> {
-  if (!agentId) return null;
-  const row = await db.get<{ wallet_address: string | null; wallet_network: string | null }>(
-    'SELECT wallet_address, wallet_network FROM agents WHERE id = ?', agentId,
-  );
-  if (!row?.wallet_address || !WALLET_RE.test(row.wallet_address)) return null;
-  return { address: row.wallet_address, network: row.wallet_network };
 }
 
 /**
@@ -506,7 +493,6 @@ async function handleAccept(c: Ctx, deprecatedAlias: boolean): Promise<Response>
   }
 
   const now = new Date().toISOString();
-  const bountyOut = bountyView(task);
   const alreadyPaidOrInFlight = ['authorized', 'settling', 'settled'].includes(task.payment_status);
 
   // Idempotent re-accept: nothing to do, nothing to charge.
@@ -534,146 +520,12 @@ async function handleAccept(c: Ctx, deprecatedAlias: boolean): Promise<Response>
     });
   }
 
-  // ─── Bounty task ───
-  if (!isNetwork(task.bounty_network)) {
-    // A pre-0035 row declared on a network the facilitator does not support; it can only be cancelled.
-    return c.json({ error: 'bounty_unsupported_network', message: `This bounty is on ${task.bounty_network}, which cannot be settled; cancel the task or contact support.`, network: task.bounty_network }, 409);
-  }
-  const provider = paymentProviderFor(c.env);
-  const rawHeader = paymentHeader(c);
-  const wallet = await delivererWallet(db, task.claimed_by_agent_id);
-
-  if (!rawHeader) {
-    if (!provider) return c.json({ error: 'payments_unavailable', message: 'Payments are not enabled on this registry.' }, 503);
-    if (!wallet) return c.json({ error: 'payee_wallet_missing', message: 'The deliverer has no wallet on record; they must set one before the bounty can be paid.' }, 409);
-    const requirements = buildRequirements(task, wallet.address, c.env);
-    const paymentRequired = buildPaymentRequired(task, requirements);
-    c.header('PAYMENT-REQUIRED', encodeB64Json(paymentRequired));
-    return c.json({
-      error: 'payment_required',
-      message: `Sign an EIP-3009 USDC transfer of ${bountyOut?.amount_display} USDC to the deliverer's wallet and retry with the ${PAYMENT_HEADER} header.`,
-      ...paymentRequired,
-      task_id: taskId,
-      bounty: bountyOut,
-      accept_endpoint: `POST /v1/tasks/${taskId}/accept`,
-      payment_header: PAYMENT_HEADER,
-    }, 402);
-  }
-
-  if (!wallet) return c.json({ error: 'payee_wallet_missing', message: 'The deliverer has no wallet on record; they must set one before the bounty can be paid.' }, 409);
-  const requirements = buildRequirements(task, wallet.address, c.env);
-
-  let payload: ReturnType<typeof decodePaymentHeader>;
-  try {
-    payload = decodePaymentHeader(rawHeader);
-  } catch (err) {
-    return c.json({
-      error: 'payment_malformed',
-      message: 'The payment header is not a valid x402 v2 payment payload.',
-      detail: err instanceof PaymentMalformed ? err.detail : String(err),
-      payment_requirements: requirements,
-    }, 400);
-  }
-
-  const nowSec = Math.floor(Date.parse(now) / 1000);
-  const pre = localPrechecks(payload, requirements, nowSec);
-  if (!pre.ok) {
-    return c.json({
-      error: 'payment_invalid', reason: pre.reason, expected: pre.expected, got: pre.got,
-      message: "The signed authorization does not match this task's payment requirements.",
-      payment_requirements: requirements,
-    }, 402);
-  }
-
-  // Re-authorization guard (N11): a payload that may have reached the chain is
-  // never replaced unless the facilitator gave a definitive negative. Decided
-  // on the structured settle class only (payments/settle.ts reauthPermitted).
-  if (!reauthPermitted(task)) {
-    return c.json({
-      error: 'settlement_in_progress',
-      message: 'A previous authorization for this task is still being settled; check GET /v1/tasks/:id/payment.',
-      payment_status: task.payment_status,
-    }, 409);
-  }
-
-  if (!provider) return c.json({ error: 'payments_unavailable', message: 'Payments are not enabled on this registry.' }, 503);
-
-  const verify = await provider.verify(payload, requirements);
-  if (verify.kind === 'invalid') {
-    return c.json({
-      error: verify.reason === 'insufficient_funds' ? 'insufficient_funds' : 'payment_invalid',
-      reason: verify.reason, message: verify.message ?? 'The facilitator rejected the authorization.', payer: verify.payer ?? null,
-      payment_requirements: requirements,
-    }, 402);
-  }
-  if (verify.kind === 'unavailable') {
-    if (verify.cause === 'auth') console.error('[payments] CDP auth rejected — check CDP_API_KEY_ID/CDP_API_KEY_SECRET');
-    return c.json({ error: 'facilitator_unavailable', cause: verify.cause, message: 'The payment facilitator is unavailable; retry shortly.' }, 503);
-  }
-
-  const encKey = c.env?.PAYMENT_ENCRYPTION_KEY as string; // guaranteed by paymentProviderFor
-  const encrypted = await encryptPaymentSignature(rawHeader, encKey);
-  const auth = payload.payload.authorization;
-  const expiresAt = new Date(Number(auth.validBefore) * 1000).toISOString();
-
-  // THE GATE (T4-P): acceptance + authorization in ONE statement. Two
-  // predicates are tried in turn so we KNOW which edge we consumed: the
-  // submitted→verified edge (this call is the acceptance) or the
-  // verified→verified edge (authorizing a task the timer or an earlier call
-  // already accepted). The pre-read is not trusted for that — the cron may
-  // have auto-accepted while the facilitator verify was in flight.
-  const gateSql = (statusPredicate: string) => `
-      UPDATE tasks SET
-         status = 'verified', verified_at = COALESCE(verified_at, ?), accepted_by = COALESCE(accepted_by, 'creator'),
-         review_note = COALESCE(?, review_note), auto_release_at = NULL,
-         payment_signature = ?, payment_requirements = ?, payment_payer = ?, payment_nonce = ?, payment_expires_at = ?,
-         payment_verified = 1, payment_status = 'authorized', settle_attempts = 0, settle_broadcast = 0,
-         settle_started_at = NULL, settle_next_at = ?, last_settle_error = NULL, last_settle_class = NULL
-       WHERE task_id = ? AND ${statusPredicate}
-         AND payment_status IN ('pending','failed','expired')
-         AND (settle_broadcast = 0 OR payment_status = 'expired' OR last_settle_class IN (${REAUTH_CLASSES.map((cls) => `'${cls}'`).join(',')}))`;
-  const gateParams = [now, note, encrypted, JSON.stringify(requirements), verify.payer ?? auth.from, auth.nonce.toLowerCase(), expiresAt, now, taskId];
-  let wasSubmitted = false;
-  let changes = 0;
-  try {
-    const first = await db.run(gateSql(`status = 'submitted'`), ...gateParams);
-    if (first.changes === 1) {
-      wasSubmitted = true;
-      changes = 1;
-    } else {
-      changes = (await db.run(gateSql(`status = 'verified'`), ...gateParams)).changes;
-    }
-  } catch (err) {
-    if (/UNIQUE/i.test(String(err))) {
-      return c.json({ error: 'authorization_reused', message: 'This authorization nonce was already used for another task.' }, 409);
-    }
-    throw err;
-  }
-  if (changes !== 1) {
-    return c.json({ error: 'conflict', message: 'Task changed while you were accepting it; reload and retry. Your signature was not used.' }, 409);
-  }
-
-  const fresh = (await loadTask(db, taskId)) as TaskRow;
-  let side: { chain: { sequence: number; entry_hash: string } | null } = { chain: null };
-  if (wasSubmitted) {
-    side = await afterAccept(db, fresh, { acceptedBy: 'creator', by: actor, nowIso: now, paymentStatus: 'authorized' });
-  }
-  await logPaymentEvent(db, taskId, 'authorized', {
-    payer: verify.payer ?? auth.from, nonce: auth.nonce, valid_before: expiresAt, amount_atomic: task.bounty_amount, pay_to: wallet.address, trigger: 'accept',
-  }, now);
-
-  const settle = await settleTask(db, c.env, taskId, 'accept', now);
-  const after = (await loadTask(db, taskId)) as TaskRow;
-  if (!settle.skipped && settle.facilitator) c.header('PAYMENT-RESPONSE', encodeB64Json(wireSettleResponse(settle.facilitator, task.bounty_network)));
-
-  const body: Record<string, unknown> = {
-    ok: true, task_id: taskId, status: 'verified', accepted_by: after.accepted_by,
-    payment_status: after.payment_status,
-    chain_sequence: side.chain?.sequence ?? null, chain_entry_hash: side.chain?.entry_hash ?? null,
-  };
-  if (after.payment_tx_hash) body.payment_tx_hash = after.payment_tx_hash;
-  if (after.payment_status !== 'settled' && after.last_settle_error) body.settle_error = after.last_settle_error;
-  return c.json(body);
+  // ─── Bounty task ─── (shared money path — see payments/accept.ts)
+  const outcome = await acceptBountyTask(db, c.env, task, {
+    note, rawHeader: paymentHeader(c) ?? null, actor, nowIso: now,
+  });
+  for (const [k, v] of Object.entries(outcome.headers ?? {})) c.header(k, v);
+  return c.json(outcome.body, outcome.status);
 }
 
 tasks.post('/:id/accept', agentAuth, (c) => handleAccept(c, false));

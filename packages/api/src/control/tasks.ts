@@ -41,9 +41,11 @@ import { generatePublicId } from '../lib/ids.js';
 import { sanitizeDisplayName } from '../lib/display-name.js';
 import {
   type Actor, type TaskRow, loadTask, creatorMatches, logPaymentEvent, recordFunnel, publicTaskShape, paymentView,
-  creatorSqlParts, recomputeReputation, notifyMatchingAgents,
+  creatorSqlParts, recomputeReputation, notifyMatchingAgents, bountyView,
   acceptUnpaidGate, revisionGate, disputeGate, cancelGate, cancelRefusal, afterAccept, MAX_REVISIONS,
 } from '../tasks/service.js';
+import { paymentProviderFor } from '../payments/index.js';
+import { acceptBountyTask } from '../payments/accept.js';
 import { recordEvent } from '../events/service.js';
 
 const textEncoder = new TextEncoder();
@@ -77,7 +79,7 @@ async function readJson(c: Ctx): Promise<{ ok: true; body: Record<string, unknow
 }
 
 const Ceremony = { nonce: z.string().min(1).optional(), assertion: AssertionSchema.optional() };
-const OwnerCreateSchema = CreateTaskSchema.omit({ bounty: true }).extend(Ceremony).strict();
+const OwnerCreateSchema = CreateTaskSchema.extend(Ceremony).strict();
 const AcceptSchema = z.object({ note: z.string().max(2000).optional(), ...Ceremony }).strict();
 const RevisionSchema = z.object({ note: z.string().min(1).max(2000), ...Ceremony }).strict();
 const DisputeSchema = z.object({ reason: z.string().min(1).max(2000), ...Ceremony }).strict();
@@ -161,9 +163,6 @@ app.post('/tasks', ownerSession, async (c) => {
   const db = c.get('db');
   const json = await readJson(c);
   if (!json.ok) return err(c, 400, 'bad_request', 'invalid JSON body');
-  if (json.body.bounty !== undefined) {
-    return err(c, 400, 'bounty_unavailable', 'Paid tasks are agent-to-agent in this release; post the task without a bounty.');
-  }
   const parsed = OwnerCreateSchema.safeParse(json.body);
   if (!parsed.success) return c.json({ error: 'bad_request', message: 'validation failed', details: parsed.error.flatten() }, 400);
 
@@ -171,25 +170,41 @@ app.post('/tasks', ownerSession, async (c) => {
   if (!limit.allowed) return err(c, 429, 'rate_limited', `Too many tasks in the last hour (${OWNER_TASK_HOURLY.max} per hour)`);
 
   const { nonce, assertion, ...fields } = parsed.data;
+  const bounty = fields.bounty;
+  // A human-posted bounty is authorized when they accept the delivery (they
+  // sign the EIP-3009 transfer in their browser wallet). Refuse up front if
+  // the facilitator is not configured, so the poster never faces a bounty they
+  // cannot settle.
+  if (bounty && !paymentProviderFor(c.env)) {
+    return err(c, 503, 'payments_unavailable', 'Bounties are not enabled on this registry yet. Post the task without a bounty.');
+  }
   const cer = await ceremony(c, ownerId, `task.create:${sha256hex(canonicalJsonStringify(fields as Record<string, unknown>))}`, { nonce, assertion });
   if (!cer.ok) return cer.res;
 
   const taskId = generatePublicId('task');
   const now = new Date().toISOString();
   const reqCaps = fields.required_capabilities ?? null;
+  const paymentStatus = bounty ? 'pending' : 'none';
   await db.run(
     `INSERT INTO tasks (task_id, creator_agent_id, creator_owner_id, creator_kind, creator_assertion_id, title, description, category,
-       required_capabilities, expected_output, output_format, status, created_at, payment_status)
-     VALUES (?, NULL, ?, 'owner', ?, ?, ?, ?, ?, ?, ?, 'open', ?, 'none')`,
+       required_capabilities, expected_output, output_format, status, created_at, bounty_amount, bounty_token, bounty_network, payment_status)
+     VALUES (?, NULL, ?, 'owner', ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`,
     taskId, ownerId, cer.assertionId, fields.title, fields.description, fields.category ?? null,
     reqCaps ? JSON.stringify(reqCaps) : null, fields.expected_output ?? null, fields.output_format, now,
+    bounty?.amount ?? null, bounty?.token ?? null, bounty?.network ?? null, paymentStatus,
   );
+  if (bounty) {
+    await logPaymentEvent(db, taskId, 'bounty_declared', { amount_atomic: bounty.amount, token: bounty.token, network: bounty.network }, now);
+  }
   await recordFunnel(db, 'task_posted', taskId, 'human');
+  const bountyOut = bountyView({ bounty_amount: bounty?.amount ?? null, bounty_token: bounty?.token ?? null, bounty_network: bounty?.network ?? null });
   await notifyMatchingAgents(db, {
     task_id: taskId, title: fields.title, description: fields.description, category: fields.category ?? null,
-    required_capabilities: reqCaps, output_format: fields.output_format, bounty: null,
+    required_capabilities: reqCaps, output_format: fields.output_format, bounty: bountyOut,
   }, null);
-  return c.json({ ok: true, task_id: taskId, status: 'open' });
+  const response: Record<string, unknown> = { ok: true, task_id: taskId, status: 'open', payment_status: paymentStatus };
+  if (bountyOut) response.bounty = bountyOut;
+  return c.json(response);
 });
 
 const StatusQuery = z.enum(['open', 'claimed', 'submitted', 'verified', 'cancelled', 'all']).optional();
@@ -264,9 +279,33 @@ app.post('/tasks/:id/accept', ownerSession, async (c) => {
     return c.json({ ok: true, task_id: taskId, status: 'verified', accepted_by: task.accepted_by });
   }
   if (task.status !== 'submitted') return err(c, 409, 'invalid_state', `Task is ${task.status}; only delivered work can be accepted`, { status: task.status });
-  if (task.bounty_amount) return err(c, 409, 'bounty_unsupported', 'Paid tasks are reviewed through the agent API in this release');
-
   const note = parsed.data.note ?? null;
+
+  // ─── Bounty task: the human authorizes the USDC transfer with their browser
+  // wallet (EIP-3009), sent as the PAYMENT-SIGNATURE header. Same money path as
+  // the agent route (payments/accept.ts). Without the header we return the x402
+  // challenge (requirements) so the console can sign; with it we verify + settle.
+  //
+  // The wallet signature IS the money authority and is WYSIWYS at the wallet —
+  // the owner approves the exact amount + recipient in their wallet UI, and a
+  // stolen session cookie cannot forge it. The registry's passkey ceremony is
+  // therefore OPTIONAL here (same speech/authority split as the board post): it
+  // runs and is recorded on the paid task only when the console sends a
+  // nonce+assertion, as an extra provenance attestation.
+  if (task.bounty_amount) {
+    const rawHeader = c.req.header('PAYMENT-SIGNATURE') ?? c.req.header('X-PAYMENT-SIGNATURE') ?? null;
+    const nowIso = new Date().toISOString();
+    let assertionId: string | null = null;
+    if (rawHeader) {
+      const cer = await ceremony(c, ownerId, `task.accept:${taskId}:${sha256hex(note ?? '')}`, parsed.data);
+      if (!cer.ok) return cer.res;
+      assertionId = cer.assertionId;
+    }
+    const outcome = await acceptBountyTask(db, c.env, task, { note, rawHeader, actor, nowIso, assertionId });
+    for (const [k, v] of Object.entries(outcome.headers ?? {})) c.header(k, v);
+    return c.json(outcome.body, outcome.status);
+  }
+
   const cer = await ceremony(c, ownerId, `task.accept:${taskId}:${sha256hex(note ?? '')}`, parsed.data);
   if (!cer.ok) return cer.res;
 

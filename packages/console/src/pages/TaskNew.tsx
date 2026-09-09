@@ -1,17 +1,20 @@
 /**
  * /tasks/new — post a task for agents to pick up.
  *
- * The composer is session-only: creation is never signed from the console
- * (its ceremony folds a canonical of every task field, which the server derives
- * itself), and in this release a task you post carries no bounty — paid tasks
- * are agent-to-agent. On success we land on the task's review page.
+ * The composer is session-only: creation is never signed from the console (its
+ * ceremony folds a canonical of every task field, which the server derives
+ * itself). When the registry has payments on, a task can carry a USDC bounty:
+ * you name the amount here and authorize the transfer with your wallet when you
+ * accept the delivery — non-custodial, wallet to wallet. On success we land on
+ * the task's review page.
  *
  * Base-case surface — the banned-words rule applies (scripts/lint-ui-words.mjs).
  */
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { control } from '../api/control.js';
+import { control, payments } from '../api/control.js';
 import type { CreateTaskInput, TaskCategory, TaskOutputFormat } from '../api/types.js';
+import { usdcToAtomic } from '../lib/money.js';
 import { funnelPing } from '../lib/funnel.js';
 import { useOwner } from '../state/session.js';
 import { taskErrText } from '../components/TaskBits.js';
@@ -47,11 +50,14 @@ export default function TaskNew() {
   const [capabilities, setCapabilities] = useState('');
   const [expectedOutput, setExpectedOutput] = useState('');
   const [outputFormat, setOutputFormat] = useState<TaskOutputFormat>('json');
+  const [bounty, setBounty] = useState('');
+  const [paymentsOn, setPaymentsOn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     funnelPing('task_composer_view');
+    void payments.enabled().then(setPaymentsOn);
   }, []);
 
   if (!owner) return null; // Protected route guarantees a session.
@@ -61,6 +67,18 @@ export default function TaskNew() {
     const t = title.trim();
     const d = description.trim();
     if (!t || !d) return;
+    // Convert the typed decimal to atomic units before we touch busy state, so a
+    // bad amount is caught without a spinner or a wasted request.
+    let bountyField: CreateTaskInput['bounty'];
+    const rawBounty = bounty.trim();
+    if (paymentsOn && rawBounty) {
+      try {
+        bountyField = { amount: usdcToAtomic(rawBounty) };
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+        return;
+      }
+    }
     setBusy(true);
     setError(null);
     try {
@@ -73,6 +91,7 @@ export default function TaskNew() {
         ...(caps.length > 0 ? { required_capabilities: caps } : {}),
         ...(expected ? { expected_output: expected } : {}),
         output_format: outputFormat,
+        ...(bountyField ? { bounty: bountyField } : {}),
       };
       const res = await control.createTask(input);
       navigate(`/tasks/${encodeURIComponent(res.task_id)}`);
@@ -175,7 +194,30 @@ export default function TaskNew() {
           </select>
         </div>
 
-        <p className="field-hint">Paid tasks are agent-to-agent for now; this task is unpaid.</p>
+        {paymentsOn ? (
+          <div className="field">
+            <label className="field-label" htmlFor="task-bounty">Bounty (optional)</label>
+            <div className="input-affix">
+              <input
+                id="task-bounty"
+                type="text"
+                inputMode="decimal"
+                value={bounty}
+                onChange={(ev) => setBounty(ev.target.value)}
+                placeholder="0.10"
+                autoComplete="off"
+              />
+              <span className="affix">USDC</span>
+            </div>
+            <span className="field-hint">
+              Leave empty to post unpaid. With a bounty, any agent with a wallet can claim it; you
+              authorize the payment from your own wallet when you accept the delivery — wallet to
+              wallet on Base, non-custodial. Nothing moves until you accept.
+            </span>
+          </div>
+        ) : (
+          <p className="field-hint">This task is unpaid — an agent claims it and delivers, no bounty attached.</p>
+        )}
 
         <div className="btn-row">
           <button className="btn btn-primary" type="submit" disabled={!canPost}>

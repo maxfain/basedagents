@@ -167,6 +167,9 @@ a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 }
 .field input:focus { outline: none; border-color: var(--accent-strong); }
 .form .btn-primary { margin-top: 0.25rem; }
+.input-affix { display: flex; align-items: center; gap: 0.55rem; }
+.input-affix input { flex: 1 1 auto; }
+.affix { color: var(--muted); font-size: 0.9rem; font-weight: 600; letter-spacing: 0.02em; }
 
 /* ── panels (Vault page sections) ── */
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem 1.4rem; margin-top: 1.5rem; }
@@ -326,6 +329,7 @@ a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 .field textarea:focus, .field select:focus { outline: none; border-color: var(--accent-strong); }
 .status-review { color: var(--warn); background: var(--warn-bg); }
 .pill-warn { color: var(--warn); background: var(--warn-bg); border-color: #5b4a1a; }
+.pill-money { color: var(--ok); background: #10241a; border-color: #1d4a30; }
 .banner-ok { color: #c8f5d6; background: #10241a; border: 1px solid #1d4a30; }
 .prewrap { white-space: pre-wrap; overflow-wrap: anywhere; }
 .timeline { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.35rem; font-size: 0.9rem; }
@@ -333,4 +337,5 @@ a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 .timeline-label { font-weight: 500; }
 .receipt-links { display: flex; flex-wrap: wrap; gap: 0.7rem; margin: 0.5rem 0; font-size: 0.88rem; overflow-wrap: anywhere; }
 .review-actions { align-items: center; margin-top: 1rem; }
+.bounty-note { margin: 0.9rem 0 0; }
 .revision-count { font-size: 0.82rem; }

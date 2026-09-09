@@ -109,6 +109,15 @@ jobs:
       - name: Build keyring dist
         run: npm run build:dist --workspace=packages/keyring
 
+      # Playwright downloads its own Chromium build from its CDN; `--with-deps`
+      # only needs Ubuntu's own shared libs. The runner image ships a Google
+      # Chrome apt source that intermittently serves a Packages.gz whose hash
+      # mismatches its InRelease, which makes the apt-get update inside
+      # `--with-deps` exit non-zero and reds the whole E2E job. Drop that unused
+      # third-party source so a Google CDN hiccup can't block CI.
+      - name: Drop flaky Google Chrome apt source
+        run: sudo rm -f /etc/apt/sources.list.d/google-chrome*.list /etc/apt/sources.list.d/google-chrome*.sources
+
       - name: Install Chromium
         run: npx playwright install chromium --with-deps
         working-directory: packages/console

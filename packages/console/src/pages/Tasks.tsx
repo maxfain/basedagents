@@ -25,6 +25,7 @@ function TaskCard({ task }: { task: OwnerTask }) {
         <div className="card-title">
           <Link to={href} className="card-title-link">{task.title}</Link>
           <TaskStatusPill task={task} />
+          {task.bounty && <span className="pill pill-money">{task.bounty.amount_display} {task.bounty.token}</span>}
           <TaskReviewPills task={task} />
         </div>
         <div className="card-meta">

@@ -16,11 +16,12 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { control, ControlApiError } from '../api/control.js';
+import { control, payments, ControlApiError } from '../api/control.js';
 import type { SignedAction } from '../api/control.js';
-import type { OwnerTaskDetail, OwnerTaskReceipt } from '../api/types.js';
+import type { OwnerTaskDetail, OwnerTaskReceipt, TaskPaymentResponse } from '../api/types.js';
 import { sha256hex } from '../lib/action.js';
 import { runAction } from '../lib/ceremony.js';
+import { signBountyPayment, walletAvailable } from '../lib/wallet.js';
 import { useOwner } from '../state/session.js';
 import {
   MAX_REVISIONS,
@@ -32,6 +33,22 @@ import {
 } from '../components/TaskBits.js';
 
 const MAX_NOTE = 2_000;
+
+/** Why a claimed bounty isn't ready to pay yet (GET /payment's reason). */
+function payUnavailableText(reason: TaskPaymentResponse['requirements_unavailable_reason']): string {
+  switch (reason) {
+    case 'not_claimed':
+      return 'No agent has claimed this task yet, so there is nobody to pay.';
+    case 'payee_wallet_missing':
+      return 'The agent that delivered has no wallet on record, so the bounty cannot be paid. Ask them to set one.';
+    case 'unsupported_network':
+      return 'This bounty is on a network the registry cannot settle. Contact support.';
+    case 'no_bounty':
+      return 'This task has no bounty to pay.';
+    default:
+      return 'The payment details for this task are not available right now. Reload and try again.';
+  }
+}
 
 interface Milestone {
   key: string;
@@ -152,9 +169,21 @@ export default function TaskReview() {
 
   async function onAccept(): Promise<void> {
     const text = note.trim();
+    const bounty = detail?.task.bounty ?? null;
     await run('accept', async () => {
-      const signed = await sign(`task.accept:${taskId}:${sha256hex(text)}`);
-      await control.acceptTask(taskId, text ? text : undefined, signed);
+      if (bounty) {
+        // Paid: fetch the server's x402 requirements, sign the USDC transfer in
+        // the wallet, then accept with the PAYMENT-SIGNATURE header. The wallet
+        // signature is the money authority; the passkey ceremony stays optional.
+        const pay = await payments.requirements(taskId);
+        if (!pay.requirements) throw new Error(payUnavailableText(pay.requirements_unavailable_reason));
+        const { header } = await signBountyPayment(pay.requirements);
+        const signed = await sign(`task.accept:${taskId}:${sha256hex(text)}`);
+        await control.acceptTask(taskId, text ? text : undefined, signed, header);
+      } else {
+        const signed = await sign(`task.accept:${taskId}:${sha256hex(text)}`);
+        await control.acceptTask(taskId, text ? text : undefined, signed);
+      }
     });
   }
 
@@ -225,6 +254,12 @@ export default function TaskReview() {
   const cancellable = task.status === 'open' || task.status === 'claimed' || (reviewing && disputed);
   const revisionsLeft = Math.max(0, MAX_REVISIONS - (task.revision_count ?? 0));
   const capabilities = task.required_capabilities ?? [];
+  const bounty = task.bounty;
+  const paid = task.payment_status === 'settled';
+  const accepting = busy === 'accept';
+  const acceptLabel = bounty
+    ? (accepting ? 'Paying…' : `Accept & Pay ${bounty.amount_display} ${bounty.token}`)
+    : (accepting ? 'Accepting…' : 'Accept');
 
   return (
     <div className="page">
@@ -234,6 +269,7 @@ export default function TaskReview() {
           <div className="card-meta">
             <TaskStatusPill task={task} />
             <TaskReviewPills task={task} />
+            {bounty && <span className="pill pill-money">{bounty.amount_display} {bounty.token}</span>}
             {task.category && <span className="pill">{task.category}</span>}
             <code className="muted" title={task.task_id}>{task.task_id}</code>
           </div>
@@ -248,6 +284,8 @@ export default function TaskReview() {
           Accepted on {fmtDate(task.verified_at)}
           {task.accepted_by === 'auto' && ' — accepted automatically after 7 days without a review.'}
           {task.accepted_by !== 'auto' && '.'}
+          {bounty && paid && ` The ${bounty.amount_display} ${bounty.token} bounty was paid to the deliverer's wallet.`}
+          {bounty && !paid && ` Payment of ${bounty.amount_display} ${bounty.token} is ${task.payment_status}.`}
         </div>
       )}
       {task.status === 'cancelled' && (
@@ -279,6 +317,12 @@ export default function TaskReview() {
           <span className="kv-key">Output format</span>
           <span>{task.output_format === 'link' ? 'Link' : 'JSON'}</span>
         </div>
+        {bounty && (
+          <div className="kv">
+            <span className="kv-key">Bounty</span>
+            <span>{bounty.amount_display} {bounty.token} <span className="muted">— paid to the deliverer's wallet when you accept</span></span>
+          </div>
+        )}
         {capabilities.length > 0 && (
           <div className="chips">
             {capabilities.map((c) => <span key={c} className="chip">{c}</span>)}
@@ -327,10 +371,18 @@ export default function TaskReview() {
               </div>
             </div>
           )}
+          {reviewing && bounty && (
+            <p className="field-hint bounty-note">
+              Accepting pays the {bounty.amount_display} {bounty.token} bounty. Your browser wallet
+              will ask you to sign a one-time USDC transfer to the deliverer — the exact amount and
+              recipient are shown by the wallet. BasedAgents never holds the funds.
+              {!walletAvailable() && ' No browser wallet is connected here; install one to pay.'}
+            </p>
+          )}
           <div className="btn-row review-actions">
             {reviewing && (
               <button className="btn btn-primary" onClick={() => void onAccept()} disabled={busy !== null}>
-                {busy === 'accept' ? 'Accepting…' : 'Accept'}
+                {acceptLabel}
               </button>
             )}
             {reviewing && !disputed && (
