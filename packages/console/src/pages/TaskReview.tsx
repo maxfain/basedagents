@@ -144,12 +144,30 @@ export default function TaskReview() {
     void load();
   }, [load]);
 
-  /** The passkey half of a review, when the account has one; nothing otherwise. */
+  /**
+   * The passkey half of a review, when THIS session can produce one. A passkey
+   * signature is an optional provenance upgrade — the server authorizes these
+   * actions on the signed-in session alone — so gate on `session_method`, not
+   * `has_passkey`: only prompt when this session was itself signed in with a
+   * passkey (then it's provably on this device). A session signed in by email
+   * still acts on the session alone; it just isn't additionally signed. This is
+   * what keeps you from being locked out of your own task when your only passkey
+   * lives on another device.
+   */
   async function sign(actionType: string): Promise<SignedAction | undefined> {
-    if (!owner?.has_passkey) return undefined;
+    if (owner?.session_method !== 'passkey') return undefined;
     // The canonical is {action_type, owner_id, nonce} — the content lives in
     // the action string itself, so there are no extra params to mirror.
-    return runAction(owner.owner_id, actionType, {});
+    try {
+      return await runAction(owner.owner_id, actionType, {});
+    } catch (err) {
+      // The WebAuthn step failed (no credential on this device, dismissed, or
+      // timed out) — the browser throws a DOMException. Fall back to the session
+      // so an unreachable passkey can't block you from acting on your own task.
+      // A WYSIWYS/verification failure is a plain Error and must still hard-stop.
+      if (err instanceof DOMException) return undefined;
+      throw err;
+    }
   }
 
   async function run(kind: string, fn: () => Promise<unknown>): Promise<void> {
