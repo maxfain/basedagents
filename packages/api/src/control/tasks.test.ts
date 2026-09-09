@@ -11,6 +11,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Hono } from 'hono';
 import type { AppEnv } from '../types/index.js';
+import { drainOutbox } from '../events/service.js';
 import { setupTestDb, createTestAgent, signRequest, type TestKeypair } from '../test-helpers.js';
 import type { SQLiteAdapter } from '../db/sqlite-adapter.js';
 import { ControlStore } from './store.js';
@@ -262,6 +263,7 @@ describe('Owner task routes', () => {
     void hooked;
     const { cookie } = await ownerSession();
     const taskId = await compose(cookie);
+    await drainOutbox(db, new Date().toISOString());
     await new Promise((r) => setTimeout(r, 10));
     const calls = mockFetch.mock.calls.filter((call: unknown[]) => call[0] === 'https://hooked.example.com/events');
     expect(calls.length).toBe(1);

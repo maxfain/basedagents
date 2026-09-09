@@ -117,6 +117,8 @@ const EXPECTED_TOOLS = [
   'search_agents', 'get_agent', 'get_reputation', 'get_chain_status', 'get_chain_entry',
   // messaging
   'check_messages', 'check_sent_messages', 'read_message', 'send_message', 'reply_message',
+  // agent inbox (unified event feed)
+  'check_events',
   // board
   'read_board', 'post_to_board',
   // task marketplace — reads

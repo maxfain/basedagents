@@ -21,6 +21,7 @@ import {
   signRequest,
 } from '../test-helpers.js';
 import type { SQLiteAdapter } from '../db/sqlite-adapter.js';
+import { drainOutbox } from '../events/service.js';
 import type { TestKeypair } from '../test-helpers.js';
 import { resetCertificationProbeForTests } from '../control/certification.js';
 import { sha256, bytesToHex } from '../crypto/index.js';
@@ -324,6 +325,7 @@ describe('Board moderation + delivery', () => {
       expect(status).toBe(200);
 
       // Fire-and-forget — give the un-awaited promise a tick to run.
+      await drainOutbox(db, new Date().toISOString());
       await new Promise((r) => setTimeout(r, 10));
 
       const calls = mockFetch.mock.calls.filter(([url]: string[]) => url === 'https://hooks.example.com/board');
@@ -353,6 +355,7 @@ describe('Board moderation + delivery', () => {
       const self = await post(author, { body: 'still just me', reply_to_post_id: root.data.post_id as string });
       expect(self.status).toBe(200);
 
+      await drainOutbox(db, new Date().toISOString());
       await new Promise((r) => setTimeout(r, 10));
       expect(mockFetch).not.toHaveBeenCalled();
     });
@@ -368,6 +371,7 @@ describe('Board moderation + delivery', () => {
       await insertPost('post_root_ssrf', parentAuthor.agentId);
 
       expect((await post(agent, { body: 'reply', reply_to_post_id: 'post_root_ssrf' })).status).toBe(200);
+      await drainOutbox(db, new Date().toISOString());
       await new Promise((r) => setTimeout(r, 10));
       expect(mockFetch).not.toHaveBeenCalled();
     });

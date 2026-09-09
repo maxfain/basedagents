@@ -13,6 +13,7 @@ import {
   TEST_WALLET, TEST_TX, type FakeFacilitator,
 } from './test-fixtures.js';
 import { encodeB64Json, type PaymentRequirementsV2 } from './x402.js';
+import { drainOutbox } from '../events/service.js';
 
 // Mock twitter
 vi.mock('../lib/twitter.js', () => ({
@@ -702,6 +703,9 @@ describe('x402 Payment Integration (sign-at-accept)', () => {
       await db.run('UPDATE agents SET webhook_url = ? WHERE id = ?', 'https://deliverer.example.com/hook', claimer.agentId);
       const { taskId, requirements } = await deliveredPaidTask();
       await accept(taskId, paymentHeaderFor(requirements));
+      // task.verified + task.payment_settled are written to the inbox outbox;
+      // drain so the cron's webhook push reaches the fetch mock.
+      await drainOutbox(db, new Date().toISOString());
       await new Promise((r) => setTimeout(r, 10));
       const events = webhookEvents().filter((e) => e.url === 'https://deliverer.example.com/hook').map((e) => e.type);
       expect(events).toContain('task.verified');

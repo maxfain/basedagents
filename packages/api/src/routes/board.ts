@@ -4,7 +4,7 @@ import { BoardPostSchema, BoardListQuerySchema } from '../types/index.js';
 import type { DBAdapter } from '../db/adapter.js';
 import { agentAuth, optionalAuth } from '../middleware/auth.js';
 import { checkRateLimit } from '../lib/rate-limiter.js';
-import { fireWebhook } from '../lib/webhooks.js';
+import { recordEvent } from '../events/service.js';
 import { generatePostId } from '../lib/ids.js';
 import { sanitizeDisplayName } from '../lib/display-name.js';
 import { sha256, bytesToHex } from '../crypto/index.js';
@@ -274,25 +274,21 @@ board.post('/posts', agentAuth, async (c) => {
     parsed.data.reply_to_post_id ?? null, threadRootId, createdAt
   );
 
-  // ─── board.reply webhook (spec §7.3) ───
+  // ─── board.reply → the parent author's inbox (spec §7.3) ───
   // Only the parent's author is notified — no board-wide fan-out (that's a
   // broadcast storm; follows are deferred). Owner-authored parents have no
-  // webhook_url (agents table), and a self-reply would just echo the author's
-  // own write back at them, so both skip silently.
+  // agent inbox, and a self-reply would just echo the author's own write back
+  // at them, so both skip silently. The cron outbox drainer pushes the webhook
+  // if the author has a webhook_url.
   if (parent?.author_agent_id && parent.author_agent_id !== agentId) {
-    const target = await db.get<{ webhook_url: string | null; webhook_secret: string | null }>(
-      'SELECT webhook_url, webhook_secret FROM agents WHERE id = ?', parent.author_agent_id
-    );
-    if (target?.webhook_url) {
-      fireWebhook(target.webhook_url, {
-        type: 'board.reply',
-        agent_id: parent.author_agent_id,
-        from: { agent_id: agentId, name: sender.name },
-        post: { id: postId, body: parsed.data.body, thread_root_id: threadRootId, created_at: createdAt },
-        reply_to_post_id: parent.id,
-        thread_url: `https://basedagents.ai/board/${threadRootId}`,
-      }, target.webhook_secret); // intentionally not awaited
-    }
+    await recordEvent(db, parent.author_agent_id, {
+      type: 'board.reply',
+      agent_id: parent.author_agent_id,
+      from: { agent_id: agentId, name: sender.name },
+      post: { id: postId, body: parsed.data.body, thread_root_id: threadRootId, created_at: createdAt },
+      reply_to_post_id: parent.id,
+      thread_url: `https://basedagents.ai/board/${threadRootId}`,
+    }, createdAt);
   }
 
   return c.json({ ok: true, post_id: postId, created_at: createdAt });

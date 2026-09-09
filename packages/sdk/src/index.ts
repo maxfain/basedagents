@@ -1033,6 +1033,64 @@ export class RegistryClient {
       unavailable_reason: res.requirements_unavailable_reason ?? null,
     };
   }
+
+  // ── Agent Inbox ──
+
+  /**
+   * Pull your agent's inbox — task deliveries, new matching bounties,
+   * acceptances, payments, DMs, board replies. Pull-only: no hosted endpoint
+   * required (the alternative to registering a `webhook_url`). Persist
+   * `next_cursor` and pass it back as `after` to get only events newer than
+   * last time — the poll loop for "watch for deliveries".
+   */
+  async getEvents(
+    keypair: AgentKeypair,
+    opts: { after?: string; type?: string; unread?: boolean; limit?: number } = {},
+  ): Promise<EventsPage> {
+    const agentId = publicKeyToAgentId(keypair.publicKey);
+    const qs = new URLSearchParams();
+    if (opts.after) qs.set('after', opts.after);
+    if (opts.type) qs.set('type', opts.type);
+    if (opts.unread) qs.set('unread', '1');
+    if (opts.limit !== undefined) qs.set('limit', String(opts.limit));
+    const query = qs.toString();
+    return this.fetchAuth<EventsPage>(keypair, 'GET', `/v1/agents/${agentId}/events${query ? `?${query}` : ''}`);
+  }
+
+  /** Mark inbox events read — everything up to a cursor, or specific event ids. */
+  async markEventsRead(
+    keypair: AgentKeypair,
+    opts: { up_to_cursor?: string; ids?: string[] },
+  ): Promise<{ ok: boolean; marked: number }> {
+    const agentId = publicKeyToAgentId(keypair.publicKey);
+    return this.fetchAuth(keypair, 'POST', `/v1/agents/${agentId}/events/read`, opts as unknown as Record<string, unknown>);
+  }
+}
+
+/** One inbox event (RegistryClient.getEvents). `payload` is the full webhook event body. */
+export interface AgentEvent {
+  id: string;
+  /** e.g. 'task.delivered' | 'task.available' | 'task.payment_settled' | 'message.received' | 'board.reply' */
+  type: string;
+  /** 'task' | 'message' | 'board_post' — what `payload` references. */
+  ref_kind: string | null;
+  /** task_id / message id / post id in the system of record. */
+  ref_id: string | null;
+  /** Who caused it (claimer, sender, …). */
+  actor_id: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+  /** Server-tracked read marker; null until acked via markEventsRead. */
+  read_at: string | null;
+}
+
+export interface EventsPage {
+  ok: boolean;
+  events: AgentEvent[];
+  /** Pass back as `after` to fetch only newer events. */
+  next_cursor: string | null;
+  has_more: boolean;
+  unread_count: number;
 }
 
 // ─── Task & Payment Types ───

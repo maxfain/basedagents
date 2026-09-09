@@ -10,6 +10,7 @@ import type { SQLiteAdapter } from '../db/sqlite-adapter.js';
 import type { Bindings } from '../types/index.js';
 import type { SettleOutcome } from './cdp-facilitator.js';
 import { settleTask, applySettleOutcome, settleBackoffMs, type SettleTrigger } from './settle.js';
+import { drainOutbox } from '../events/service.js';
 import { setPaymentProviderForTests } from './index.js';
 import { encryptPaymentSignature } from './crypto.js';
 import { buildRequirements, type PaymentRequirementsV2 } from './x402.js';
@@ -190,6 +191,9 @@ describe('payments/settle.ts', () => {
     }
     const { taskId, requirements } = await seedPaidTask(seed);
     const result = await settleTask(db, env, taskId, trigger, NOW);
+    // Payment events are now written to the inbox outbox and pushed by the cron
+    // drainer — drain here so the fire-and-forget webhook reaches the fetch mock.
+    await drainOutbox(db, NOW);
     await flush();
     const after = await row(taskId);
     expect(after.status).toBe('verified'); // (g) settlement never touches tasks.status
@@ -525,6 +529,7 @@ describe('payments/settle.ts', () => {
       const { taskId } = await seedPaidTask({ payment_expires_at: isoPlus(NOW, 20_000) });
 
       const result = await settleTask(db, env, taskId, 'accept', NOW);
+      await drainOutbox(db, NOW);
       await flush();
 
       expect(result).toEqual({ skipped: true, reason: 'expired' });

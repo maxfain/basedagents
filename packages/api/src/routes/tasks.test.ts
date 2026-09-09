@@ -6,6 +6,7 @@ import {
   signRequest,
 } from '../test-helpers.js';
 import type { SQLiteAdapter } from '../db/sqlite-adapter.js';
+import { drainOutbox } from '../events/service.js';
 import type { TestKeypair } from '../test-helpers.js';
 
 // Mock twitter
@@ -187,6 +188,7 @@ describe('Task Marketplace', () => {
         body,
       });
 
+      await drainOutbox(db, new Date().toISOString());
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(
@@ -415,6 +417,7 @@ describe('Task Marketplace', () => {
       const taskId = await createTask(webhookCreator);
       await claimTask(claimer, taskId);
 
+      await drainOutbox(db, new Date().toISOString());
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(
@@ -492,6 +495,7 @@ describe('Task Marketplace', () => {
       await claimTask(claimer, taskId);
       await submitDeliverable(claimer, taskId);
 
+      await drainOutbox(db, new Date().toISOString());
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(
@@ -600,6 +604,7 @@ describe('Task Marketplace', () => {
         headers: { ...headers },
       });
 
+      await drainOutbox(db, new Date().toISOString());
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(
@@ -696,6 +701,7 @@ describe('Task Marketplace', () => {
         headers: { ...headers },
       });
 
+      await drainOutbox(db, new Date().toISOString());
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(
@@ -883,6 +889,7 @@ describe('Task Marketplace', () => {
       await claimTask(claimer, taskId);
       await deliverTask(claimer, taskId);
 
+      await drainOutbox(db, new Date().toISOString());
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(
@@ -976,6 +983,7 @@ describe('Task Marketplace', () => {
         headers: { ...headers },
       });
 
+      await drainOutbox(db, new Date().toISOString());
       await new Promise(r => setTimeout(r, 10));
 
       const webhookCalls = mockFetch.mock.calls.filter(
@@ -1172,6 +1180,7 @@ describe('Task Marketplace', () => {
       const winner = a.status === 200 ? claimer.agentId : other.agentId;
       expect(row!.claimed_by_agent_id).toBe(winner);
 
+      await drainOutbox(db, new Date().toISOString());
       await new Promise(r => setTimeout(r, 10));
       const claimedCalls = mockFetch.mock.calls.filter((call: unknown[]) => {
         const [url, opts] = call as [string, { body: string }];

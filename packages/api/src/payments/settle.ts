@@ -30,8 +30,9 @@ import { decryptPaymentSignature } from './crypto.js';
 import { decodePaymentHeader, PaymentRequirementsV2, SETTLE_PRECHECK_SLACK } from './x402.js';
 import {
   loadTask, logPaymentEvent, recordFunnel, taskChainEntry, hashCanonical,
-  agentTarget, creatorTarget, sendWebhook, isoPlus, type TaskRow,
+  agentTarget, creatorTarget, isoPlus, type TaskRow,
 } from '../tasks/service.js';
+import { recordEvent } from '../events/service.js';
 
 export type SettleTrigger = 'accept' | 'cron';
 
@@ -122,14 +123,15 @@ export function wireSettleResponse(o: SettleOutcome, network: string | null): Re
   }
 }
 
-async function paymentWebhooks(db: DBAdapter, task: TaskRow, event: 'task.payment_settled' | 'task.payment_failed', extra: Record<string, unknown>): Promise<void> {
+async function paymentWebhooks(db: DBAdapter, task: TaskRow, event: 'task.payment_settled' | 'task.payment_failed', extra: Record<string, unknown>, now: string): Promise<void> {
   const targets = [await agentTarget(db, task.claimed_by_agent_id), await creatorTarget(db, task)];
   for (const t of targets) {
     if (!t) continue;
+    // Persist to the recipient's inbox; the cron outbox drainer pushes the webhook.
     if (event === 'task.payment_settled') {
-      sendWebhook(t, { type: event, agent_id: t.id, task_id: task.task_id, payment_tx_hash: (extra.tx_hash as string | null) ?? null, amount_atomic: task.bounty_amount, network: task.bounty_network });
+      await recordEvent(db, t.id, { type: event, agent_id: t.id, task_id: task.task_id, payment_tx_hash: (extra.tx_hash as string | null) ?? null, amount_atomic: task.bounty_amount, network: task.bounty_network }, now);
     } else {
-      sendWebhook(t, { type: event, agent_id: t.id, task_id: task.task_id, reason: String(extra.reason ?? 'unknown') });
+      await recordEvent(db, t.id, { type: event, agent_id: t.id, task_id: task.task_id, reason: String(extra.reason ?? 'unknown') }, now);
     }
   }
 }
@@ -169,7 +171,7 @@ export async function settleTask(
     );
     if (res.changes === 1) {
       await logPaymentEvent(db, taskId, 'expired', { reason: 'authorization_expired', trigger }, nowIso);
-      await paymentWebhooks(db, task, 'task.payment_failed', { reason: 'expired' });
+      await paymentWebhooks(db, task, 'task.payment_failed', { reason: 'expired' }, nowIso);
     }
     return { skipped: true, reason: 'expired' };
   }
@@ -256,7 +258,7 @@ export async function applySettleOutcome(
         console.error(`[payments] chain entry failed for ${taskId}:`, err);
       }
     }
-    await paymentWebhooks(db, task, 'task.payment_settled', { tx_hash: txHash });
+    await paymentWebhooks(db, task, 'task.payment_settled', { tx_hash: txHash }, nowIso);
     await recordFunnel(db, 'task_paid', taskId, trigger);
     return { skipped: false, payment_status: 'settled', tx_hash: txHash, error: null, facilitator: outcome };
   };
@@ -269,7 +271,7 @@ export async function applySettleOutcome(
     );
     if (res.changes !== 1) return { skipped: true, reason: 'not_due' };
     await logPaymentEvent(db, taskId, 'settle_failed', { error, class: cls, retryable: nextAt !== null, trigger }, nowIso);
-    if (opts.webhook) await paymentWebhooks(db, task, 'task.payment_failed', { reason: error });
+    if (opts.webhook) await paymentWebhooks(db, task, 'task.payment_failed', { reason: error }, nowIso);
     if (opts.level === 'error') console.error(`[payments] ${taskId}: ${error}`);
     return { skipped: false, payment_status: 'failed', tx_hash: task.payment_tx_hash, error, facilitator: outcome };
   };
@@ -282,7 +284,7 @@ export async function applySettleOutcome(
     );
     if (res.changes !== 1) return { skipped: true, reason: 'not_due' };
     await logPaymentEvent(db, taskId, 'expired', { reason: 'authorization_expired', trigger }, nowIso);
-    await paymentWebhooks(db, task, 'task.payment_failed', { reason: 'expired' });
+    await paymentWebhooks(db, task, 'task.payment_failed', { reason: 'expired' }, nowIso);
     return { skipped: false, payment_status: 'expired', tx_hash: null, error: 'authorization_expired', facilitator: outcome };
   };
 

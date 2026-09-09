@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../types/index.js';
 import { SendMessageSchema, MessageQuerySchema } from '../types/index.js';
 import { agentAuth } from '../middleware/auth.js';
-import { fireWebhook } from '../lib/webhooks.js';
+import { recordEvent } from '../events/service.js';
 import { checkRateLimit } from '../lib/rate-limiter.js';
 import { certificationTablesPresent, certifiedExistsSql } from '../control/certification.js';
 
@@ -94,22 +94,21 @@ messages.post('/:id/messages', agentAuth, async (c) => {
     createdAt, createdAt, expiresAt
   );
 
-  // Webhook delivery
-  if (recipient.webhook_url) {
-    fireWebhook(recipient.webhook_url, {
-      type: 'message.received',
-      agent_id: recipientId,
-      from: { agent_id: senderId, name: sender.name },
-      message: {
-        id: messageId,
-        type: parsed.data.type,
-        subject,
-        body: parsed.data.body,
-        sent_at: createdAt,
-      },
-      reply_url: `https://api.basedagents.ai/v1/messages/${messageId}/reply`,
-    }, recipient.webhook_secret); // intentionally not awaited
-  }
+  // Inbox: persist the event (pull) — the cron outbox drainer pushes the
+  // webhook to the recipient if it has a webhook_url.
+  await recordEvent(db, recipientId, {
+    type: 'message.received',
+    agent_id: recipientId,
+    from: { agent_id: senderId, name: sender.name },
+    message: {
+      id: messageId,
+      type: parsed.data.type,
+      subject,
+      body: parsed.data.body,
+      sent_at: createdAt,
+    },
+    reply_url: `https://api.basedagents.ai/v1/messages/${messageId}/reply`,
+  }, createdAt);
 
   return c.json({
     ok: true,
@@ -375,23 +374,21 @@ messageActions.post('/:id/reply', agentAuth, async (c) => {
     createdAt, originalMessageId
   );
 
-  // Deliver reply webhook
-  if (deliveryUrl) {
-    fireWebhook(deliveryUrl, {
-      type: 'message.reply',
-      agent_id: original.from_agent_id,
-      from: { agent_id: agentId, name: replier.name },
-      message: {
-        id: replyId,
-        type: parsed.data.type,
-        subject,
-        body: parsed.data.body,
-        sent_at: createdAt,
-      },
-      reply_to_message_id: originalMessageId,
-      reply_url: `https://api.basedagents.ai/v1/messages/${replyId}/reply`,
-    }, originalSender?.webhook_secret); // intentionally not awaited
-  }
+  // Inbox: persist the reply event; the cron outbox drainer pushes the webhook.
+  await recordEvent(db, original.from_agent_id, {
+    type: 'message.reply',
+    agent_id: original.from_agent_id,
+    from: { agent_id: agentId, name: replier.name },
+    message: {
+      id: replyId,
+      type: parsed.data.type,
+      subject,
+      body: parsed.data.body,
+      sent_at: createdAt,
+    },
+    reply_to_message_id: originalMessageId,
+    reply_url: `https://api.basedagents.ai/v1/messages/${replyId}/reply`,
+  }, createdAt);
 
   return c.json({
     ok: true,

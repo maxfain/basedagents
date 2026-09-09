@@ -17,8 +17,9 @@ import type { Bindings } from '../types/index.js';
 import { paymentProviderFor } from '../payments/index.js';
 import { settleTask, UNKNOWN_OUTCOME_MAX_MS } from '../payments/settle.js';
 import {
-  loadTask, autoAcceptGate, afterAccept, logPaymentEvent, agentTarget, creatorTarget, sendWebhook, isoPlus,
+  loadTask, autoAcceptGate, afterAccept, logPaymentEvent, agentTarget, creatorTarget, isoPlus,
 } from '../tasks/service.js';
+import { recordEvent, drainOutbox } from '../events/service.js';
 
 export interface TaskCronSummary {
   auto_accepted: number;
@@ -51,7 +52,7 @@ export async function runTaskCron(db: DBAdapter, env: Bindings, nowIso: string =
       if (task.bounty_amount) {
         await logPaymentEvent(db, task_id, 'auto_accepted', { payment_status: task.payment_status }, nowIso);
         const creator = await creatorTarget(db, task);
-        sendWebhook(creator, { type: 'task.payment_due', agent_id: creator?.id ?? '', task_id, amount_atomic: task.bounty_amount });
+        if (creator) await recordEvent(db, creator.id, { type: 'task.payment_due', agent_id: creator.id, task_id, amount_atomic: task.bounty_amount }, nowIso);
       }
     } catch (err) {
       console.error(`[cron] auto-accept failed for ${task_id}:`, err);
@@ -97,7 +98,7 @@ export async function runTaskCron(db: DBAdapter, env: Bindings, nowIso: string =
       const task = await loadTask(db, row.task_id);
       if (task) {
         for (const t of [await agentTarget(db, task.claimed_by_agent_id), await creatorTarget(db, task)]) {
-          if (t) sendWebhook(t, { type: 'task.payment_failed', agent_id: t.id, task_id: task.task_id, reason: 'expired' });
+          if (t) await recordEvent(db, t.id, { type: 'task.payment_failed', agent_id: t.id, task_id: task.task_id, reason: 'expired' }, nowIso);
         }
       }
     } catch (err) {
@@ -133,6 +134,15 @@ export async function runTaskCron(db: DBAdapter, env: Bindings, nowIso: string =
     } catch (err) {
       console.error(`[cron] unknown-outcome cap failed for ${task_id}:`, err);
     }
+  }
+
+  // 6. Agent Inbox outbox: push pending inbox events to recipients' webhooks
+  // (with retry/backoff). The inbox itself is written synchronously at event
+  // time; this is the optional push layer.
+  try {
+    await drainOutbox(db, nowIso, 200);
+  } catch (err) {
+    console.error('[cron] outbox drain failed:', err);
   }
 
   return summary;

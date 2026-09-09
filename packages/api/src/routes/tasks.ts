@@ -30,7 +30,7 @@ import {
 import { settleTask, reauthPermitted, wireSettleResponse, REAUTH_CLASSES } from '../payments/settle.js';
 import {
   type Actor, type TaskRow, loadTask, creatorMatches, logPaymentEvent, recordFunnel,
-  agentTarget, creatorTarget, sendWebhook, recomputeReputation, publicTaskShape, paymentView, bountyView, creatorSqlParts,
+  creatorTarget, recomputeReputation, publicTaskShape, paymentView, bountyView, creatorSqlParts,
   claimGate, deliverGate, acceptUnpaidGate, revisionGate, disputeGate, cancelGate, cancelRefusal, afterAccept,
   notifyMatchingAgents, writeDeliveryReceipt, MAX_REVISIONS,
 } from '../tasks/service.js';
@@ -349,12 +349,15 @@ tasks.post('/:id/claim', agentAuth, async (c) => {
   }
 
   const now = new Date().toISOString();
-  if (!(await claimGate(db, taskId, agentId, agentSigFromHeader(c), now))) {
+  // Notify the creator's inbox atomically with winning the claim (transactional outbox).
+  const creator = await creatorTarget(db, task);
+  const claimed = await claimGate(db, taskId, agentId, agentSigFromHeader(c), now, {
+    recipientAgentId: creator?.id ?? null,
+    event: { type: 'task.claimed', agent_id: creator?.id ?? '', task_id: taskId, claimed_by: { agent_id: agentId, name: agent.name } },
+  });
+  if (!claimed) {
     return c.json({ error: 'conflict', message: 'Task is not open for claiming' }, 409);
   }
-
-  const creator = await creatorTarget(db, task);
-  sendWebhook(creator, { type: 'task.claimed', agent_id: creator?.id ?? '', task_id: taskId, claimed_by: { agent_id: agentId, name: agent.name } });
   await recordFunnel(db, 'task_claimed', taskId, null);
 
   return c.json({ ok: true, task_id: taskId, status: 'claimed' });
@@ -385,18 +388,24 @@ tasks.post('/:id/deliver', agentAuth, async (c) => {
   }
 
   const now = new Date().toISOString();
-  if (!(await deliverGate(db, taskId, agentId, now))) {
+  // Pre-generate the receipt id so the creator's task.delivered inbox event can
+  // be committed atomically with the deliver gate (transactional outbox), then
+  // reused by the receipt write below.
+  const receiptId = generatePublicId('rcpt');
+  const creator = await creatorTarget(db, task);
+  const deliverer = await db.get<{ name: string }>('SELECT name FROM agents WHERE id = ?', agentId);
+  const delivered = await deliverGate(db, taskId, agentId, now, {
+    recipientAgentId: creator?.id ?? null,
+    event: {
+      type: 'task.delivered', agent_id: creator?.id ?? '', task_id: taskId,
+      delivered_by: { agent_id: agentId, name: deliverer?.name ?? '' }, summary: parsed.data.summary, receipt_id: receiptId,
+    },
+  });
+  if (!delivered) {
     return c.json({ error: 'conflict', message: 'Task is no longer claimed by you', status: task.status }, 409);
   }
 
-  const { receipt_id: receiptId, chain: chainEntry } = await writeDeliveryReceipt(db, taskId, agentId, parsed.data, agentSigFromHeader(c) ?? '', now);
-
-  const creator = await creatorTarget(db, task);
-  const deliverer = await db.get<{ name: string }>('SELECT name FROM agents WHERE id = ?', agentId);
-  sendWebhook(creator, {
-    type: 'task.delivered', agent_id: creator?.id ?? '', task_id: taskId,
-    delivered_by: { agent_id: agentId, name: deliverer?.name ?? '' }, summary: parsed.data.summary, receipt_id: receiptId,
-  });
+  const { chain: chainEntry } = await writeDeliveryReceipt(db, taskId, agentId, parsed.data, agentSigFromHeader(c) ?? '', now, receiptId);
   await recordFunnel(db, 'task_delivered', taskId, null);
 
   return c.json({
@@ -435,7 +444,16 @@ tasks.post('/:id/submit', agentAuth, async (c) => {
   }
 
   const now = new Date().toISOString();
-  if (!(await deliverGate(db, taskId, agentId, now))) {
+  const creator = await creatorTarget(db, task);
+  const submitter = await db.get<{ name: string }>('SELECT name FROM agents WHERE id = ?', agentId);
+  const submitted = await deliverGate(db, taskId, agentId, now, {
+    recipientAgentId: creator?.id ?? null,
+    event: {
+      type: 'task.submitted', agent_id: creator?.id ?? '', task_id: taskId,
+      submitted_by: { agent_id: agentId, name: submitter?.name ?? '' }, summary: parsed.data.summary,
+    },
+  });
+  if (!submitted) {
     return c.json({ error: 'conflict', message: 'Task is no longer claimed by you', status: task.status }, 409);
   }
 
@@ -449,13 +467,6 @@ tasks.post('/:id/submit', agentAuth, async (c) => {
   } catch (err) {
     console.error(`[tasks] submission write failed for ${taskId} after the status gate:`, err);
   }
-
-  const creator = await creatorTarget(db, task);
-  const submitter = await db.get<{ name: string }>('SELECT name FROM agents WHERE id = ?', agentId);
-  sendWebhook(creator, {
-    type: 'task.submitted', agent_id: creator?.id ?? '', task_id: taskId,
-    submitted_by: { agent_id: agentId, name: submitter?.name ?? '' }, summary: parsed.data.summary,
-  });
   await recordFunnel(db, 'task_delivered', taskId, null);
 
   return c.json({ ok: true, submission_id: submissionId, task_id: taskId, status: 'submitted', revision_count: task.revision_count });
@@ -690,12 +701,14 @@ tasks.post('/:id/revision', agentAuth, async (c) => {
   if (task.revision_count >= MAX_REVISIONS) return c.json({ error: 'max_revisions', message: `This task already had ${MAX_REVISIONS} revision rounds; accept, dispute or cancel it.` }, 409);
 
   const now = new Date().toISOString();
-  if (!(await revisionGate(db, taskId, parsed.data.note, now))) {
+  const revisionCount = task.revision_count + 1;
+  const revised = await revisionGate(db, taskId, parsed.data.note, now, {
+    recipientAgentId: task.claimed_by_agent_id,
+    event: { type: 'task.revision_requested', agent_id: task.claimed_by_agent_id ?? '', task_id: taskId, note: parsed.data.note, revision_count: revisionCount },
+  });
+  if (!revised) {
     return c.json({ error: 'conflict', message: 'Task changed while you were reviewing it' }, 409);
   }
-  const revisionCount = task.revision_count + 1;
-  const deliverer = await agentTarget(db, task.claimed_by_agent_id);
-  sendWebhook(deliverer, { type: 'task.revision_requested', agent_id: deliverer?.id ?? '', task_id: taskId, note: parsed.data.note, revision_count: revisionCount });
   await recordFunnel(db, 'task_revision_requested', taskId, null);
 
   return c.json({ ok: true, task_id: taskId, status: 'claimed', review_state: 'revision_requested', revision_count: revisionCount });
@@ -723,12 +736,14 @@ tasks.post('/:id/dispute', agentAuth, async (c) => {
   if (task.disputed_at) return c.json({ error: 'already_disputed', message: 'This deliverable is already disputed', disputed_at: task.disputed_at }, 409);
 
   const now = new Date().toISOString();
-  if (!(await disputeGate(db, taskId, parsed.data.reason, now))) {
+  const disputed = await disputeGate(db, taskId, parsed.data.reason, now, {
+    recipientAgentId: task.claimed_by_agent_id,
+    event: { type: 'task.disputed', agent_id: task.claimed_by_agent_id ?? '', task_id: taskId, reason: parsed.data.reason },
+  });
+  if (!disputed) {
     return c.json({ error: 'conflict', message: 'Task changed while you were reviewing it' }, 409);
   }
   await logPaymentEvent(db, taskId, 'disputed', { reason: parsed.data.reason, disputed_by: agentId, payment_status: task.payment_status }, now);
-  const deliverer = await agentTarget(db, task.claimed_by_agent_id);
-  sendWebhook(deliverer, { type: 'task.disputed', agent_id: deliverer?.id ?? '', task_id: taskId, reason: parsed.data.reason });
   await recordFunnel(db, 'task_disputed', taskId, null);
 
   return c.json({ ok: true, task_id: taskId, status: 'submitted', review_state: 'disputed', disputed_at: now, payment_status: task.payment_status });
@@ -764,15 +779,17 @@ tasks.post('/:id/cancel', agentAuth, async (c) => {
   }
 
   const now = new Date().toISOString();
-  if (!(await cancelGate(db, taskId, now))) {
+  const cancelled = await cancelGate(db, taskId, now, {
+    recipientAgentId: task.claimed_by_agent_id,
+    event: { type: 'task.cancelled', agent_id: task.claimed_by_agent_id ?? '', task_id: taskId },
+  });
+  if (!cancelled) {
     return c.json({ error: 'conflict', message: 'Task changed while you were cancelling it' }, 409);
   }
 
   if (task.bounty_amount && ['pending', 'failed'].includes(task.payment_status)) {
     await logPaymentEvent(db, taskId, 'expired', { reason: 'task_cancelled', cancel_reason: reason }, now);
   }
-  const claimer = await agentTarget(db, task.claimed_by_agent_id);
-  sendWebhook(claimer, { type: 'task.cancelled', agent_id: claimer?.id ?? '', task_id: taskId });
   if (task.disputed_at && task.claimed_by_agent_id) await recomputeReputation(db, task.claimed_by_agent_id);
   await recordFunnel(db, 'task_cancelled', taskId, null);
 

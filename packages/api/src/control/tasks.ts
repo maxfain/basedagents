@@ -41,9 +41,10 @@ import { generatePublicId } from '../lib/ids.js';
 import { sanitizeDisplayName } from '../lib/display-name.js';
 import {
   type Actor, type TaskRow, loadTask, creatorMatches, logPaymentEvent, recordFunnel, publicTaskShape, paymentView,
-  creatorSqlParts, agentTarget, sendWebhook, recomputeReputation, notifyMatchingAgents,
+  creatorSqlParts, recomputeReputation, notifyMatchingAgents,
   acceptUnpaidGate, revisionGate, disputeGate, cancelGate, cancelRefusal, afterAccept, MAX_REVISIONS,
 } from '../tasks/service.js';
+import { recordEvent } from '../events/service.js';
 
 const textEncoder = new TextEncoder();
 function sha256hex(input: string): string {
@@ -303,8 +304,7 @@ app.post('/tasks/:id/revision', ownerSession, async (c) => {
   if (!(await revisionGate(db, taskId, parsed.data.note, now))) return err(c, 409, 'conflict', 'Task changed while you were reviewing it');
   if (cer.assertionId) await db.run('UPDATE tasks SET review_assertion_id = ? WHERE task_id = ?', cer.assertionId, taskId);
   const revisionCount = task.revision_count + 1;
-  const deliverer = await agentTarget(db, task.claimed_by_agent_id);
-  sendWebhook(deliverer, { type: 'task.revision_requested', agent_id: deliverer?.id ?? '', task_id: taskId, note: parsed.data.note, revision_count: revisionCount });
+  if (task.claimed_by_agent_id) await recordEvent(db, task.claimed_by_agent_id, { type: 'task.revision_requested', agent_id: task.claimed_by_agent_id, task_id: taskId, note: parsed.data.note, revision_count: revisionCount }, now);
   await recordFunnel(db, 'task_revision_requested', taskId, null);
   return c.json({ ok: true, task_id: taskId, status: 'claimed', review_state: 'revision_requested', revision_count: revisionCount });
 });
@@ -331,8 +331,7 @@ app.post('/tasks/:id/dispute', ownerSession, async (c) => {
   if (!(await disputeGate(db, taskId, parsed.data.reason, now))) return err(c, 409, 'conflict', 'Task changed while you were reviewing it');
   if (cer.assertionId) await db.run('UPDATE tasks SET review_assertion_id = ? WHERE task_id = ?', cer.assertionId, taskId);
   await logPaymentEvent(db, taskId, 'disputed', { reason: parsed.data.reason, disputed_by: 'owner', payment_status: task.payment_status }, now);
-  const deliverer = await agentTarget(db, task.claimed_by_agent_id);
-  sendWebhook(deliverer, { type: 'task.disputed', agent_id: deliverer?.id ?? '', task_id: taskId, reason: parsed.data.reason });
+  if (task.claimed_by_agent_id) await recordEvent(db, task.claimed_by_agent_id, { type: 'task.disputed', agent_id: task.claimed_by_agent_id, task_id: taskId, reason: parsed.data.reason }, now);
   await recordFunnel(db, 'task_disputed', taskId, null);
   return c.json({ ok: true, task_id: taskId, status: 'submitted', review_state: 'disputed', disputed_at: now });
 });
@@ -365,8 +364,7 @@ app.post('/tasks/:id/cancel', ownerSession, async (c) => {
 
   const now = new Date().toISOString();
   if (!(await cancelGate(db, taskId, now))) return err(c, 409, 'conflict', 'Task changed while you were cancelling it');
-  const claimer = await agentTarget(db, task.claimed_by_agent_id);
-  sendWebhook(claimer, { type: 'task.cancelled', agent_id: claimer?.id ?? '', task_id: taskId });
+  if (task.claimed_by_agent_id) await recordEvent(db, task.claimed_by_agent_id, { type: 'task.cancelled', agent_id: task.claimed_by_agent_id, task_id: taskId }, now);
   if (task.disputed_at && task.claimed_by_agent_id) await recomputeReputation(db, task.claimed_by_agent_id);
   await recordFunnel(db, 'task_cancelled', taskId, null);
   return c.json({ ok: true, task_id: taskId, status: 'cancelled' });

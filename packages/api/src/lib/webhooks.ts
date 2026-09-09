@@ -172,6 +172,39 @@ async function hmacSha256Hex(secret: string, payload: string): Promise<string> {
  * If a webhookSecret is provided, the request includes:
  *   X-BasedAgents-Signature: sha256=<hmac_hex>
  */
+/**
+ * POST a webhook and report whether it landed (2xx). Same signing + SSRF guard
+ * + 5s timeout as fireWebhook, but returns a boolean so the outbox drainer
+ * (events/service.ts) can retry with backoff. Never throws.
+ */
+export async function deliverWebhook(url: string, event: WebhookEvent, webhookSecret?: string | null): Promise<boolean> {
+  if (!isSafeUrl(url)) {
+    console.error(`[webhook] blocked delivery to unsafe URL (event: ${event.type})`);
+    return false;
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const body = JSON.stringify(event);
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-BasedAgents-Event': event.type,
+      'User-Agent': 'BasedAgents-Webhook/1.0',
+    };
+    if (webhookSecret) {
+      const hmac = await hmacSha256Hex(webhookSecret, body);
+      headers['X-BasedAgents-Signature'] = `sha256=${hmac}`;
+    }
+    const res = await fetch(url, { method: 'POST', headers, body, signal: controller.signal });
+    return res.ok;
+  } catch (err) {
+    console.error(`[webhook] delivery failed to ${url} (event: ${event.type}):`, err);
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function fireWebhook(url: string, event: WebhookEvent, webhookSecret?: string | null): Promise<void> {
   // Defense in depth: webhook URLs are validated at registration/update time,
   // but re-validate at delivery time so rows stored before validation existed
