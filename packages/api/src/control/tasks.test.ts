@@ -16,6 +16,11 @@ import { setupTestDb, createTestAgent, signRequest, type TestKeypair } from '../
 import type { SQLiteAdapter } from '../db/sqlite-adapter.js';
 import { ControlStore } from './store.js';
 import { resetCertificationProbeForTests } from './certification.js';
+import {
+  enablePaymentsForTests, disablePaymentsForTests, resetPaymentsForTests, paymentHeaderFor,
+  TEST_WALLET, TEST_TX, type FakeFacilitator,
+} from '../payments/test-fixtures.js';
+import type { PaymentRequirementsV2 } from '../payments/x402.js';
 import { sha256, bytesToHex } from '../crypto/index.js';
 import ownerTaskRoutes from './tasks.js';
 import taskRoutes from '../routes/tasks.js';
@@ -58,10 +63,10 @@ describe('Owner task routes', () => {
     return { ownerId, cookie: `ba_owner_session=${token}` };
   }
 
-  async function ownerPost(path: string, body: unknown, cookie?: string): Promise<Response> {
+  async function ownerPost(path: string, body: unknown, cookie?: string, extraHeaders: Record<string, string> = {}): Promise<Response> {
     return app.request(path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) },
+      headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}), ...extraHeaders },
       body: JSON.stringify(body),
     });
   }
@@ -108,7 +113,7 @@ describe('Owner task routes', () => {
     agent = await createTestAgent(db, { status: 'active', capabilities: ['code'] });
   });
 
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { resetPaymentsForTests(); vi.unstubAllGlobals(); });
 
   it('requires a session → 401', async () => {
     expect((await ownerPost('/v1/owner/tasks', { title: 'x', description: 'y' })).status).toBe(401);
@@ -132,12 +137,113 @@ describe('Owner task routes', () => {
     expect(funnel).toEqual([{ event: 'task_posted', provider: 'human' }]);
   });
 
-  it('rejects a bounty → 400 bounty_unavailable, and unknown fields', async () => {
+  it('rejects unknown fields at the schema (strict)', async () => {
+    const { cookie } = await ownerSession();
+    expect((await ownerPost('/v1/owner/tasks', { title: 'x', description: 'y', evil: 1 }, cookie)).status).toBe(400);
+  });
+
+  it('refuses a bounty when payments are not enabled → 503 payments_unavailable', async () => {
+    disablePaymentsForTests();
     const { cookie } = await ownerSession();
     const res = await ownerPost('/v1/owner/tasks', { title: 'x', description: 'y', bounty: { amount: '5000000' } }, cookie);
-    expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toBe('bounty_unavailable');
-    expect((await ownerPost('/v1/owner/tasks', { title: 'x', description: 'y', evil: 1 }, cookie)).status).toBe(400);
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: string }).error).toBe('payments_unavailable');
+  });
+
+  it('composes a bounty task when payments are enabled: stores the bounty, payment_status=pending, declares it', async () => {
+    enablePaymentsForTests();
+    const { cookie } = await ownerSession();
+    const res = await ownerPost('/v1/owner/tasks', {
+      title: 'Paid task', description: 'do it', category: 'code',
+      bounty: { amount: '100000', token: 'USDC', network: 'eip155:8453' },
+    }, cookie);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { task_id: string; payment_status: string; bounty: { amount_atomic: string; amount_display: string } };
+    expect(body.payment_status).toBe('pending');
+    expect(body.bounty.amount_atomic).toBe('100000');
+    expect(body.bounty.amount_display).toBe('0.10');
+
+    const row = await db.get<Record<string, unknown>>('SELECT * FROM tasks WHERE task_id = ?', body.task_id);
+    expect(row!.bounty_amount).toBe('100000');
+    expect(row!.bounty_token).toBe('USDC');
+    expect(row!.bounty_network).toBe('eip155:8453');
+    expect(row!.payment_status).toBe('pending');
+    const funnel = await db.all<{ event: string }>('SELECT event FROM funnel_events WHERE funnel_id = ?', body.task_id);
+    expect(funnel.map((f) => f.event)).toEqual(['task_posted']);
+    const pay = await db.all<{ event_type: string }>('SELECT event_type FROM payment_events WHERE task_id = ? ORDER BY created_at', body.task_id);
+    expect(pay.map((p) => p.event_type)).toEqual(['bounty_declared']);
+  });
+
+  // ─── Owner accept-and-pay (x402, sign-at-accept) ───
+  describe('accepting a delivered bounty and paying it', () => {
+    let facilitator: FakeFacilitator;
+
+    async function deliveredBounty(cookie: string): Promise<{ taskId: string; requirements: PaymentRequirementsV2 }> {
+      // The deliverer needs a receiving wallet on file (the bounty's payTo).
+      await db.run('UPDATE agents SET wallet_address = ?, wallet_network = ? WHERE id = ?', TEST_WALLET, 'eip155:8453', agent.agentId);
+      const taskId = await compose(cookie, { bounty: { amount: '100000', token: 'USDC', network: 'eip155:8453' } });
+      await claimAndDeliver(taskId);
+      // Pull the x402 requirements from the 402 challenge (no header → challenge).
+      const challenge = await ownerPost(`/v1/owner/tasks/${taskId}/accept`, { note: 'looks good' }, cookie);
+      expect(challenge.status).toBe(402);
+      const header = challenge.headers.get('PAYMENT-REQUIRED')!;
+      const decoded = JSON.parse(Buffer.from(header, 'base64').toString('utf8')) as { accepts: PaymentRequirementsV2[] };
+      expect(decoded.accepts[0].payTo).toBe(TEST_WALLET);
+      return { taskId, requirements: decoded.accepts[0] };
+    }
+
+    beforeEach(() => { facilitator = enablePaymentsForTests(); });
+
+    it('without a payment header → 402 challenge, task still submitted, facilitator untouched', async () => {
+      const { cookie } = await ownerSession();
+      await db.run('UPDATE agents SET wallet_address = ? WHERE id = ?', TEST_WALLET, agent.agentId);
+      const taskId = await compose(cookie, { bounty: { amount: '100000' } });
+      await claimAndDeliver(taskId);
+      const res = await ownerPost(`/v1/owner/tasks/${taskId}/accept`, {}, cookie);
+      expect(res.status).toBe(402);
+      const data = (await res.json()) as { error: string };
+      expect(data.error).toBe('payment_required');
+      const row = await db.get<Record<string, unknown>>('SELECT status, payment_status FROM tasks WHERE task_id = ?', taskId);
+      expect(row!.status).toBe('submitted');
+      expect(row!.payment_status).toBe('pending');
+      expect(facilitator.verifyCalls.length).toBe(0);
+    });
+
+    it('with a valid wallet signature → verified + settled in one call', async () => {
+      const { cookie, ownerId } = await ownerSession();
+      const { taskId, requirements } = await deliveredBounty(cookie);
+      const res = await ownerPost(`/v1/owner/tasks/${taskId}/accept`, { note: 'ship it' }, cookie, {
+        'PAYMENT-SIGNATURE': paymentHeaderFor(requirements),
+      });
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as { status: string; accepted_by: string; payment_status: string; payment_tx_hash: string };
+      expect(data.status).toBe('verified');
+      expect(data.accepted_by).toBe('creator');
+      expect(data.payment_status).toBe('settled');
+      expect(data.payment_tx_hash).toBe(TEST_TX);
+      expect(res.headers.get('PAYMENT-RESPONSE')).not.toBeNull();
+
+      const row = await db.get<Record<string, unknown>>('SELECT * FROM tasks WHERE task_id = ?', taskId);
+      expect(row!.status).toBe('verified');
+      expect(row!.review_note).toBe('ship it');
+      expect(row!.payment_status).toBe('settled');
+      expect(row!.payment_tx_hash).toBe(TEST_TX);
+      expect(row!.creator_owner_id).toBe(ownerId);
+      expect(facilitator.verifyCalls.length).toBe(1);
+      expect(facilitator.settleCalls.length).toBe(1);
+    });
+
+    it('refuses to pay when the deliverer removed their wallet after claiming → 409 payee_wallet_missing', async () => {
+      const { cookie } = await ownerSession();
+      // Claim requires a wallet, so set one, then clear it before the owner pays.
+      await db.run('UPDATE agents SET wallet_address = ? WHERE id = ?', TEST_WALLET, agent.agentId);
+      const taskId = await compose(cookie, { bounty: { amount: '100000' } });
+      await claimAndDeliver(taskId);
+      await db.run('UPDATE agents SET wallet_address = NULL WHERE id = ?', agent.agentId);
+      const res = await ownerPost(`/v1/owner/tasks/${taskId}/accept`, {}, cookie);
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toBe('payee_wallet_missing');
+    });
   });
 
   it('enforces the creator XOR at the schema level', async () => {
