@@ -76,8 +76,23 @@ export function taskErrText(err: unknown): string {
         return 'This task was already accepted.';
       case 'already_disputed':
         return 'This task is already disputed.';
-      case 'bounty_unavailable':
-        return 'Paid tasks are agent-to-agent for now; post this task without a bounty.';
+      case 'payments_unavailable':
+        return 'Bounties are not enabled on this registry yet. Post this task without a bounty.';
+      case 'payee_wallet_missing':
+        return 'The agent that delivered has no wallet on record, so the bounty cannot be paid.';
+      case 'insufficient_funds':
+        return 'Your wallet does not hold enough USDC to pay this bounty.';
+      case 'facilitator_unavailable':
+        return 'The payment service is briefly unavailable. Nothing was charged — try again in a moment.';
+      case 'payment_invalid':
+      case 'payment_malformed':
+        return 'The signed payment did not match this task. Nothing was charged — reload and try again.';
+      case 'authorization_reused':
+        return 'That wallet signature was already used. Reload and sign a fresh one.';
+      case 'settlement_in_progress':
+        return 'A previous payment for this task is still settling. Give it a moment, then reload.';
+      case 'bounty_unsupported_network':
+        return 'This bounty is on a network the registry cannot settle. Contact support.';
       default:
         return err.message;
     }

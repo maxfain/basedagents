@@ -195,7 +195,50 @@ export interface OwnerTaskReceipt {
   chain_entry_hash?: string | null;
 }
 
-/** Input to POST /v1/owner/tasks (no bounty — human-posted tasks are unpaid in this release). */
+/**
+ * A task's declared bounty, as the API renders it (tasks/service.ts bountyView):
+ * the atomic-unit amount, a display decimal, and the token + network it settles on.
+ */
+export interface Bounty {
+  amount_atomic: string;
+  amount_display: string;
+  token: string;
+  network: string;
+}
+
+/**
+ * x402 v2 payment requirements — exactly what the buyer's wallet signs, served
+ * by GET /v1/tasks/:id/payment once the task is claimed and the deliverer has a
+ * wallet on file. Rebuilt server-side from the task row; the console never
+ * constructs it.
+ */
+export interface PaymentRequirementsV2 {
+  scheme: 'exact';
+  network: string;
+  asset: string;
+  amount: string;
+  payTo: string;
+  maxTimeoutSeconds: number;
+  extra: { name: string; version: string };
+}
+
+/** GET /v1/tasks/:id/payment (public — no session). */
+export interface TaskPaymentResponse {
+  ok: true;
+  payment: Record<string, unknown> & { pay_to: string | null };
+  requirements: PaymentRequirementsV2 | null;
+  /** Why `requirements` is null, when it is. */
+  requirements_unavailable_reason?: 'no_bounty' | 'unsupported_network' | 'not_claimed' | 'payee_wallet_missing';
+  accept_endpoint: string;
+  payment_header: string;
+  events: Array<{ id: string; event_type: string; details: unknown; created_at: string }>;
+}
+
+/**
+ * Input to POST /v1/owner/tasks. A `bounty` (atomic USDC units) makes it a paid
+ * task — the poster authorizes the transfer with their wallet when they accept
+ * the delivery. Requires payments to be enabled on the registry.
+ */
 export interface CreateTaskInput {
   title: string;
   description: string;
@@ -203,6 +246,7 @@ export interface CreateTaskInput {
   required_capabilities?: string[];
   expected_output?: string;
   output_format?: TaskOutputFormat;
+  bounty?: { amount: string; token?: 'USDC'; network?: string };
 }
 
 /**
@@ -231,8 +275,8 @@ export interface OwnerTask {
   cancelled_at: string | null;
   claimed_by_agent_id: string | null;
   creator: TaskCreator;
-  /** Always null for your tasks in this release (no bounty control in the composer). */
-  bounty: unknown | null;
+  /** The declared bounty, or null for an unpaid task. */
+  bounty: Bounty | null;
   payment_status: string;
   review_state: TaskReviewState;
   payment_due: boolean;

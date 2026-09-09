@@ -134,7 +134,8 @@ interface Draft {
 async function postTask(page: Page, draft: Draft): Promise<string> {
   await page.goto('/tasks/new');
   await expect(page.getByRole('heading', { name: 'Post a task' })).toBeVisible();
-  await expect(page.getByText('Paid tasks are agent-to-agent for now; this task is unpaid.')).toBeVisible();
+  // Payments are off in E2E, so the composer shows the unpaid note (no bounty field).
+  await expect(page.getByText('This task is unpaid', { exact: false })).toBeVisible();
   await page.getByLabel('Title').fill(draft.title);
   await page.getByLabel('Description').fill(draft.description);
   await page.getByLabel('Category').selectOption('code');

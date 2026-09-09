@@ -28,6 +28,8 @@ import type {
   OwnerTaskDetail,
   CreateTaskInput,
   TaskStatus,
+  Bounty,
+  TaskPaymentResponse,
 } from './types.js';
 import type { RegistrationResult } from '../lib/webauthn.js';
 
@@ -50,11 +52,13 @@ export class ControlApiError extends Error {
 /** The optional passkey half of a session-or-signed mutation (boardPost, tasks). */
 export type SignedAction = { nonce: string; assertion: OwnerAssertion };
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
+  const headers: Record<string, string> = { ...(extraHeaders ?? {}) };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
   const res = await fetch(`${OWNER}${path}`, {
     method,
     credentials: 'include',
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
@@ -263,18 +267,30 @@ export const control = {
   createTask(
     input: CreateTaskInput,
     signed?: SignedAction,
-  ): Promise<{ ok: true; task_id: string; status: 'open' }> {
+  ): Promise<{ ok: true; task_id: string; status: 'open'; payment_status: string; bounty?: Bounty }> {
     return request('POST', '/tasks', { ...input, ...(signed ?? {}) });
   },
+  /**
+   * Accept a delivered task. For a bounty task, `paymentHeader` is the
+   * base64 x402 PAYMENT-SIGNATURE the poster's wallet produced (see
+   * lib/wallet.ts); the server verifies it and settles the USDC. Omitting it on
+   * a bounty task answers 402 with the requirements to sign.
+   */
   acceptTask(
     taskId: string,
     note?: string,
     signed?: SignedAction,
-  ): Promise<{ ok: true; task_id: string; status: 'verified'; accepted_by: 'creator' }> {
-    return request('POST', `/tasks/${encodeURIComponent(taskId)}/accept`, {
-      ...(note !== undefined ? { note } : {}),
-      ...(signed ?? {}),
-    });
+    paymentHeader?: string,
+  ): Promise<{
+    ok: true; task_id: string; status: 'verified'; accepted_by: 'creator';
+    payment_status?: string; payment_tx_hash?: string;
+  }> {
+    return request(
+      'POST',
+      `/tasks/${encodeURIComponent(taskId)}/accept`,
+      { ...(note !== undefined ? { note } : {}), ...(signed ?? {}) },
+      paymentHeader ? { 'PAYMENT-SIGNATURE': paymentHeader } : undefined,
+    );
   },
   requestTaskRevision(
     taskId: string,
@@ -336,5 +352,25 @@ export const board = {
   },
   thread(postId: string): Promise<{ post: BoardPost; thread: BoardPost[] }> {
     return publicRequest(`/v1/board/posts/${encodeURIComponent(postId)}`);
+  },
+};
+
+/**
+ * Public payment reads (not /v1/owner — no session). The x402 requirements a
+ * poster's wallet signs, and whether this registry has bounties turned on.
+ */
+export const payments = {
+  /** The x402 requirements + audit trail for a task (requirements is null until claimed with a payee wallet). */
+  requirements(taskId: string): Promise<TaskPaymentResponse> {
+    return publicRequest(`/v1/tasks/${encodeURIComponent(taskId)}/payment`);
+  },
+  /** Whether the registry can settle bounties right now (facilitator configured). */
+  async enabled(): Promise<boolean> {
+    try {
+      const r = await publicRequest<{ payments_enabled?: boolean }>('/.well-known/x402');
+      return r.payments_enabled === true;
+    } catch {
+      return false;
+    }
   },
 };
