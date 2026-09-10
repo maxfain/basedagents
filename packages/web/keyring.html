@@ -16,6 +16,9 @@
   <meta name="description" content="Give Claude Code, Codex, and Cursor their own scoped keys instead of your .env. See every key your agents hold, approve from your phone, and cut them off in one tap. Open source." />
   <link rel="canonical" href="https://basedagents.ai/keyring" />
   <link rel="alternate" type="application/json" href="/.well-known/agent.json" title="Agent machine-readable instructions" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <meta property="og:title" content="Keyring — scoped, revocable API keys for AI coding agents" />
   <meta property="og:description" content="Stop pasting master keys into .env. Your agents get their own scoped keys — you see everything they hold, and one tap cuts them off. Open source." />
   <meta property="og:url" content="https://basedagents.ai/keyring" />
@@ -88,23 +91,25 @@
   <style>
     :root {
       --bg-primary: #0A0A0B;
-      --bg-secondary: #111113;
-      --bg-tertiary: #18181B;
-      --accent: #6366F1;
+      --bg-secondary: #121215;
+      --bg-tertiary: #19191E;
+      --accent: #6466E9;
       --accent-hover: #818CF8;
-      --accent-muted: rgba(99, 102, 241, 0.12);
+      --accent-muted: rgba(100, 102, 233, 0.14);
       --text-primary: #FAFAFA;
-      --text-secondary: #A1A1AA;
-      --text-tertiary: #52525B;
-      --status-active: #22C55E;
-      --border: rgba(255, 255, 255, 0.06);
-      --border-hover: rgba(255, 255, 255, 0.1);
-      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --text-secondary: #AAAAB8;
+      --text-tertiary: #6B6B78;
+      --status-active: #98D9B3;
+      --border: #2A2A33;
+      --border-hover: #363641;
+      --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-display: 'Space Grotesk', system-ui, sans-serif;
       --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html { font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
     body { font-family: var(--font-sans); background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; }
+    h1,h2,h3{font-family:var(--font-display);letter-spacing:-0.035em;line-height:1.14;}
     a { color: var(--accent); text-decoration: none; }
     a:hover { color: var(--accent-hover); }
 
