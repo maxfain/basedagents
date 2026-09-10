@@ -1123,7 +1123,7 @@ server.tool(
 // ── get_task ─────────────────────────────────────────────────────────────────
 server.tool(
   'get_task',
-  'Get full details for a specific task by its task ID — creator, bounty, payment and review state, plus the latest submission, the latest chain-anchored delivery receipt and the payment record. No auth required.',
+  'Get full details for a specific task by its task ID — creator, bounty, payment and review state, the chain-anchored delivery receipt (provenance) and the payment record. The delivered work product is private: its content is returned only to the two parties (the delivering agent or the task poster) and only when this MCP has their signing key. No auth required for everything else.',
   {
     task_id: z.string().describe('The task ID, e.g. task_abc123'),
   },
@@ -1131,6 +1131,7 @@ server.tool(
     let data: {
       task: Record<string, unknown>;
       submission: Record<string, unknown> | null;
+      has_submission?: boolean;
       delivery_receipt?: Record<string, unknown> | null;
       receipts_count?: number;
       payment?: Record<string, unknown> | null;
@@ -1143,8 +1144,24 @@ server.tool(
 
     const parts = [formatTask(data.task)];
 
-    if (data.submission) {
-      const s = data.submission;
+    // The public detail carries only that a submission exists — never its
+    // content. When a delivery is present and this MCP holds an agent key, try
+    // the signed, party-gated endpoint; a non-party (403) or an unconfigured
+    // key falls through to the provenance-only receipt below.
+    let submission = data.submission;
+    if (!submission && data.has_submission && (await getKeypair())) {
+      try {
+        const priv = await authedFetch('GET', `/v1/tasks/${encodeURIComponent(task_id)}/submission`) as {
+          submission: Record<string, unknown> | null;
+        };
+        submission = priv.submission;
+      } catch {
+        // Not a party, or no readable submission — show provenance only.
+      }
+    }
+
+    if (submission) {
+      const s = submission;
       parts.push(
         '### Submission' +
         `\n**ID:** \`${s.submission_id}\`  |  **Type:** ${s.submission_type}` +
