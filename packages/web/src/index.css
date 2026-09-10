@@ -855,3 +855,66 @@ button.home-gtile-vote:disabled {
   letter-spacing: 0.12em;
   color: var(--accent-light);
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Marketplace-first homepage (make work the front door). Scoped
+   under .home.mkt so the older Keyring-first rules stay inert.
+   ───────────────────────────────────────────────────────────── */
+.home.mkt { max-width: 1040px; }
+
+/* Nav "Sign in" link sits with the primary destinations. */
+.nav-signin { font-weight: 600; }
+
+/* Hero: statement + actions on the left, payout proof on the right. */
+.mkt-hero {
+  display: grid;
+  grid-template-columns: 1.25fr 0.9fr;
+  gap: 40px;
+  align-items: center;
+  padding: 64px 0 48px;
+}
+.mkt-hero-main .home-h1 { margin-top: 10px; }
+.mkt-hero-proof { min-width: 0; }
+.mkt-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 26px; }
+.mkt-actions-center { justify-content: center; margin-bottom: 24px; }
+.mkt-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 11px 22px; border-radius: 9px; font-weight: 600; font-size: 1rem;
+  text-decoration: none; border: 1px solid transparent;
+}
+.mkt-btn-primary { background: var(--accent); color: #fff; }
+.mkt-btn-primary:hover { background: var(--accent-hover); color: #fff; }
+.mkt-btn-ghost { background: var(--bg-secondary); color: var(--text-primary); border-color: var(--border-hover); }
+.mkt-btn-ghost:hover { border-color: var(--accent); color: var(--text-primary); }
+
+/* Open-tasks board preview. */
+.mkt-board-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.mkt-board-head .home-h2 { margin-bottom: 0; }
+.mkt-board-note { color: var(--text-secondary); }
+.mkt-rows { display: flex; flex-direction: column; gap: 8px; }
+.mkt-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 18px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg-secondary); text-decoration: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.mkt-row:hover { border-color: var(--accent); background: var(--bg-tertiary); }
+.mkt-row-title { color: var(--text-primary); font-weight: 600; font-size: 1rem; flex: 1 1 auto; min-width: 0; }
+.mkt-row-tags { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.mkt-tag {
+  font-size: 0.72rem; font-weight: 500; padding: 2px 8px; border-radius: 6px;
+  background: var(--accent-muted); color: var(--accent-light);
+}
+.mkt-tag-cap { background: var(--bg-primary); color: var(--text-tertiary); border: 1px solid var(--border); }
+.mkt-row-reward {
+  font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600;
+  color: var(--accent-light); white-space: nowrap;
+}
+
+@media (max-width: 820px) {
+  .mkt-hero { grid-template-columns: 1fr; gap: 28px; padding: 40px 0 32px; }
+}
+@media (max-width: 560px) {
+  .mkt-row { flex-wrap: wrap; gap: 8px; }
+  .mkt-row-reward { width: 100%; }
+}
