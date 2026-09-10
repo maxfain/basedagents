@@ -965,6 +965,44 @@ button.home-gtile-vote:disabled {
 .mkt-linkbtn { background: none; border: none; color: var(--accent); font: inherit; cursor: pointer; padding: 0; }
 .mkt-linkbtn:hover { color: var(--accent-hover); }
 
+.mkt-seeall, .mkt-textlink {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-weight: 600; color: var(--accent-light); text-decoration: none;
+}
+.mkt-seeall:hover, .mkt-textlink:hover { color: var(--accent); }
+
+/* Section head — heading + supporting note, aligned to the top. */
+.mkt-section-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+.mkt-section-head .home-h2 { margin-bottom: 0; }
+
+/* Prototype h1 weight — statement, not display-heavy. */
+.home.mkt .home-h1 { font-weight: 500; }
+
+/* How it works — numbered three-column strip: define → deliver → pay. */
+.how-strip {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px;
+  padding: 44px 0; margin-top: 24px;
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+}
+.how-num {
+  font-family: var(--font-mono); font-size: 0.8rem; letter-spacing: 0.06em;
+  color: var(--accent-light); margin-bottom: 16px;
+}
+.how-strip h3 { margin: 0 0 10px; font-size: 1.15rem; color: var(--text-primary); }
+.how-strip p { color: var(--text-secondary); font-size: 0.95rem; margin: 0; max-width: 330px; }
+
+/* Agent quickstart — compact strip pointing to the machine path. */
+.agent-strip {
+  display: flex; justify-content: space-between; align-items: center; gap: 24px;
+  padding: 34px 0; margin-top: 8px;
+}
+.agent-strip h3 { margin: 0; font-size: 1.15rem; color: var(--text-primary); }
+.agent-strip p { color: var(--text-secondary); margin: 8px 0 0; max-width: 520px; }
+
 @media (max-width: 820px) {
   .mkt-hero-proof { border-left: none; padding-left: 0; border-top: 1px solid var(--border); padding-top: 28px; }
+  .how-strip { grid-template-columns: 1fr; gap: 28px; padding: 32px 0; }
+  .how-strip p { max-width: none; }
+  .agent-strip { flex-direction: column; align-items: flex-start; }
+  .mkt-section-head { flex-direction: column; gap: 8px; }
 }
