@@ -331,16 +331,16 @@ describe('Task Marketplace', () => {
       expect(data.submission).toBeNull();
     });
 
-    it('includes submission when submitted', async () => {
+    it('exposes only that a submission exists — the payload stays private', async () => {
       const taskId = await createTask(creator);
       await claimTask(claimer, taskId);
       await submitDeliverable(claimer, taskId);
 
       const res = await app.request(`/v1/tasks/${taskId}`);
-      const data = await res.json() as { task: Record<string, unknown>; submission: Record<string, unknown> };
+      const data = await res.json() as { task: Record<string, unknown>; submission: unknown; has_submission: boolean };
       expect(data.task.status).toBe('submitted');
-      expect(data.submission).not.toBeNull();
-      expect(data.submission.summary).toBe('Task completed successfully');
+      expect(data.submission).toBeNull();
+      expect(data.has_submission).toBe(true);
     });
 
     it('nonexistent task → 404', async () => {
@@ -791,9 +791,11 @@ describe('Task Marketplace', () => {
 
       // 6. Check final state
       const detailRes = await app.request(`/v1/tasks/${taskId}`);
-      const detailData = await detailRes.json() as { task: Record<string, unknown>; submission: Record<string, unknown> };
+      const detailData = await detailRes.json() as { task: Record<string, unknown>; submission: unknown; has_submission: boolean };
       expect(detailData.task.status).toBe('verified');
-      expect(detailData.submission).not.toBeNull();
+      // Public read: the payload is private, only its existence is exposed.
+      expect(detailData.submission).toBeNull();
+      expect(detailData.has_submission).toBe(true);
     });
   });
 
@@ -921,8 +923,8 @@ describe('Task Marketplace', () => {
     });
   });
 
-  describe('GET /v1/tasks/:id/receipt — Get delivery receipt', () => {
-    it('returns full receipt with agent public key', async () => {
+  describe('GET /v1/tasks/:id/receipt — Get delivery receipt (provenance only)', () => {
+    it('returns provenance + agent public key, but never the private payload', async () => {
       const taskId = await createTask(creator);
       await claimTask(claimer, taskId);
       await deliverTask(claimer, taskId);
@@ -934,17 +936,50 @@ describe('Task Marketplace', () => {
       expect(data.receipt.receipt_id).toBeDefined();
       expect(data.receipt.task_id).toBe(taskId);
       expect(data.receipt.agent_id).toBe(claimer.agentId);
-      expect(data.receipt.summary).toBe('Delivered the work');
       expect(data.receipt.agent_public_key).toBeDefined();
       expect(data.receipt.chain_sequence).toBeDefined();
       expect(data.receipt.chain_entry_hash).toBeDefined();
       expect(data.receipt.signature).toBeDefined();
+      expect(data.receipt.content_private).toBe(true);
+      // The payload never appears on the public receipt.
+      expect(data.receipt.summary).toBeUndefined();
+      expect(data.receipt.submission_content).toBeUndefined();
+      expect(data.receipt.artifact_urls).toBeUndefined();
     });
 
     it('returns 404 for task with no receipt', async () => {
       const taskId = await createTask(creator);
       const res = await app.request(`/v1/tasks/${taskId}/receipt`);
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe('GET /v1/tasks/:id/submission — private payload (parties only)', () => {
+    it('gives the payload to the runner and the poster, 403 to others, 401 anonymous', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+      await deliverTask(claimer, taskId, { summary: 'private summary', submission_content: '{"secret":1}' });
+      const path = `/v1/tasks/${taskId}/submission`;
+
+      // The delivering agent can read its own submission.
+      const asClaimer = await app.request(path, { headers: await signRequest(claimer, 'GET', path) });
+      expect(asClaimer.status).toBe(200);
+      const cd = await asClaimer.json() as { submission: { content: string } | null; receipts: Array<{ summary?: string; submission_content?: string }> };
+      expect(cd.receipts[0].summary).toBe('private summary');
+      expect(cd.receipts[0].submission_content).toBe('{"secret":1}');
+
+      // The poster (creator agent) can read it too.
+      const asCreator = await app.request(path, { headers: await signRequest(creator, 'GET', path) });
+      expect(asCreator.status).toBe(200);
+
+      // A third, unrelated agent cannot.
+      const stranger = await createTestAgent(db, { status: 'active', capabilities: ['code'] });
+      const asStranger = await app.request(path, { headers: await signRequest(stranger, 'GET', path) });
+      expect(asStranger.status).toBe(403);
+
+      // Unauthenticated is rejected by agentAuth.
+      const anon = await app.request(path);
+      expect(anon.status).toBe(401);
     });
   });
 
@@ -1030,11 +1065,13 @@ describe('Task Marketplace', () => {
       const detailRes = await app.request(`/v1/tasks/${taskId}`);
       const detailData = await detailRes.json() as {
         task: Record<string, unknown>;
-        submission: Record<string, unknown>;
+        submission: unknown;
+        has_submission: boolean;
         delivery_receipt: Record<string, unknown>;
       };
       expect(detailData.task.status).toBe('verified');
-      expect(detailData.submission).not.toBeNull();
+      expect(detailData.submission).toBeNull();
+      expect(detailData.has_submission).toBe(true);
       expect(detailData.delivery_receipt).not.toBeNull();
     });
   });
@@ -1263,11 +1300,11 @@ describe('Task Marketplace', () => {
 
       const second = await deliverTask(claimer, taskId, { summary: 'Now with tests' });
       expect(second.status).toBe(200);
-      const receipts = await (await app.request(`/v1/tasks/${taskId}/receipts`)).json() as { receipts: Array<{ summary: string }> };
+      // Public receipts: two rows, provenance only — no payload leaks.
+      const receipts = await (await app.request(`/v1/tasks/${taskId}/receipts`)).json() as { receipts: Array<Record<string, unknown>> };
       expect(receipts.receipts.length).toBe(2);
-      expect(receipts.receipts[0].summary).toBe('Now with tests');
-      const latest = await (await app.request(`/v1/tasks/${taskId}/receipt`)).json() as { receipt: { summary: string } };
-      expect(latest.receipt.summary).toBe('Now with tests');
+      expect(receipts.receipts.every((r) => r.content_private === true && r.summary === undefined)).toBe(true);
+      expect(receipts.receipts[0].receipt_id).not.toBe(receipts.receipts[1].receipt_id);
     });
 
     it('caps revisions at 3 → 409 max_revisions', async () => {

@@ -56,7 +56,7 @@ import type { Context } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../types/index.js';
 import { ControlStore } from './store.js';
-import { ownerIdFromVaultPubkey } from './identity.js';
+import { ownerIdFromVaultPubkey, randomBuyerOwnerId } from './identity.js';
 import { ownerSession, mintSession } from './routes.js';
 import { daemonAuth } from './approvals.js';
 import { agentAuthAllowUnregistered } from '../middleware/auth.js';
@@ -160,6 +160,7 @@ function linkCanonical(vaultPublicKey: string, agentId: string, agentPublicKey: 
 // email is optional when the link code carries a start-code-attached address.
 const ClaimSubmitSchema = z.object({ email: z.string().email().optional() });
 const TokenSchema = z.object({ token: z.string().min(1) });
+const BuyerStartSchema = z.object({ start_code: z.string().min(1) });
 const EmailLoginSchema = z.object({ email: z.string().email() });
 const InviteSchema = z.object({ email: z.string().email() });
 
@@ -634,6 +635,50 @@ app.post('/start/finish', async (c) => {
     start_code: startCode,
     start_code_expires_in_seconds: START_CODE_TTL_SECONDS,
   });
+});
+
+// ── Browser buyer signup (post/hire without an agent) ──
+//
+// A first-time visitor who wants to HIRE — post a task, review the result — not
+// run an agent. They have no vault (nothing to seal) and never will; the
+// account exists to own tasks and, on the first post, hold a passkey. Authorized
+// by the single-use `start_code` that /start/finish minted after the magic-link
+// click, so the email is already proven controlled. This CONSUMES the start
+// code: a person is hiring OR setting up an agent, and this path is the former.
+// No enumeration risk — the code is unguessable and bound to the clicked email.
+app.post('/start/buyer', async (c) => {
+  let body: unknown;
+  try {
+    body = await parseJson(c);
+  } catch {
+    return err(c, 400, 'bad_request', 'invalid JSON body');
+  }
+  const parsed = BuyerStartSchema.safeParse(body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'a start code is required');
+
+  const store = getStore(c);
+  const consumed = await store.consumeMagicLinkToken(sha256hex(parsed.data.start_code), 'start_code', nowIso());
+  if (!consumed?.email) return err(c, 401, 'unauthorized', 'invalid or expired start code');
+  const email = consumed.email;
+
+  // Idempotent: if this email already has an account (operator or a buyer who
+  // clicked twice), sign into it rather than minting a duplicate.
+  let owner = await store.getOwnerByEmail(email);
+  let created = false;
+  if (!owner) {
+    try {
+      owner = await store.createOwner({ ownerId: randomBuyerOwnerId(), email });
+      created = true;
+    } catch {
+      // Lost a create race on the UNIQUE(email) — fall back to the winner's row.
+      owner = await store.getOwnerByEmail(email);
+    }
+    if (owner && created) await store.setEmailVerified(owner.id);
+  }
+  if (!owner) return err(c, 409, 'conflict', 'could not create the account — try again');
+
+  await mintSession(c, owner.id, { method: 'email' });
+  return c.json({ owner_id: owner.id, created });
 });
 
 // ── Agent-first entry: invite_owner ──

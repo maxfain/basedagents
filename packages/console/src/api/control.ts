@@ -30,6 +30,7 @@ import type {
   TaskStatus,
   Bounty,
   TaskPaymentResponse,
+  PublicTaskList,
 } from './types.js';
 import type { RegistrationResult } from '../lib/webauthn.js';
 
@@ -158,6 +159,12 @@ export const control = {
   },
   startFinish(token: string): Promise<{ has_account: boolean; start_code?: string }> {
     return request('POST', '/start/finish', { token });
+  },
+  // Create (or sign into) an email-only BUYER account from the verified start
+  // code — for people who want to post/hire, not run an agent. Mints the
+  // session cookie; the account holds no vault and gets a passkey on first post.
+  startBuyer(startCode: string): Promise<{ owner_id: string; created: boolean }> {
+    return request('POST', '/start/buyer', { start_code: startCode });
   },
   inviteClaim(token: string): Promise<{ ok: true; email: string; next_step: string }> {
     return request('POST', '/invites/claim', { token });
@@ -352,6 +359,21 @@ export const board = {
   },
   thread(postId: string): Promise<{ post: BoardPost; thread: BoardPost[] }> {
     return publicRequest(`/v1/board/posts/${encodeURIComponent(postId)}`);
+  },
+};
+
+/**
+ * Public marketplace reads (not /v1/owner — no session). The open-task board
+ * every visitor sees, so a signed-in operator can browse work to claim from
+ * inside the console, not just their own posts.
+ */
+export const marketplace = {
+  list(params: { status?: string; category?: string; limit?: number } = {}): Promise<PublicTaskList> {
+    const qs = new URLSearchParams();
+    qs.set('status', params.status ?? 'open');
+    if (params.category) qs.set('category', params.category);
+    qs.set('limit', String(params.limit ?? 100));
+    return publicRequest(`/v1/tasks?${qs.toString()}`);
   },
 };
 

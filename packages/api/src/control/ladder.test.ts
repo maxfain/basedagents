@@ -506,6 +506,55 @@ describe('the /start browser door (Get started)', () => {
   });
 });
 
+describe('the /start/buyer door (hire without an agent)', () => {
+  const codeHash = (code: string) => bytesToHex(sha256(te.encode(code)));
+  async function startCodeFor(email: string): Promise<string> {
+    sentEmails = [];
+    expect((await post('/v1/owner/start/email', { email })).status).toBe(200);
+    const finish = await post('/v1/owner/start/finish', { token: lastMagicToken() });
+    const body = (await finish.json()) as { start_code?: string };
+    return body.start_code!;
+  }
+
+  it('creates a vault-less buyer owner from the start code and mints a session', async () => {
+    const code = await startCodeFor('buyer@example.com');
+    const res = await post('/v1/owner/start/buyer', { start_code: code });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { owner_id: string; created: boolean };
+    expect(body.created).toBe(true);
+    expect(body.owner_id).toMatch(/^ow_/);
+    expect(res.headers.get('set-cookie')).toMatch(/ba_owner_session=/);
+
+    const owner = await store.getOwnerByEmail('buyer@example.com');
+    expect(owner?.id).toBe(body.owner_id);
+    expect(owner?.email_verified).toBe(1);
+    // A buyer never binds a vault.
+    expect(await store.getActiveVaultKey(body.owner_id)).toBeNull();
+  });
+
+  it('is idempotent: a start code for an email that already has an account signs into it', async () => {
+    const email = 'existing@example.com';
+    const existing = await store.createOwner({ ownerId: 'ow_existingbuyer', email });
+    // Mint a start code directly (the front door returns has_account:true for a
+    // known email, so a code only reaches this path via a create race).
+    const code = 'st_reuse_owner';
+    await store.createMagicLinkToken({ tokenHash: codeHash(code), purpose: 'start_code', email, ttlSeconds: 3600 });
+    const res = await post('/v1/owner/start/buyer', { start_code: code });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { owner_id: string; created: boolean };
+    expect(body.owner_id).toBe(existing.id);
+    expect(body.created).toBe(false);
+  });
+
+  it('rejects a bogus or reused start code → 401', async () => {
+    expect((await post('/v1/owner/start/buyer', { start_code: 'st_bogus' })).status).toBe(401);
+    const code = await startCodeFor('once@example.com');
+    expect((await post('/v1/owner/start/buyer', { start_code: code })).status).toBe(200);
+    // single-use
+    expect((await post('/v1/owner/start/buyer', { start_code: code })).status).toBe(401);
+  });
+});
+
 describe('the start code: browser-door email rides the prompt into the claim', () => {
   /** /start email → magic-link click → the start code the console would render. */
   async function startCodeFor(email: string): Promise<string> {

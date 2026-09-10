@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { base64urlToBytes, bytesToBase64url } from './webauthn.js';
-import { actionChallenge, sha256hex } from './action.js';
+import { actionChallenge, sha256hex, canonicalJsonStringify } from './action.js';
 
 function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
@@ -55,5 +55,27 @@ describe('sha256hex (content-bound action strings) parity', () => {
     // must reproduce the server's derivation byte for byte or the review fails WYSIWYS.
     expect(sha256hex('')).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
     expect(sha256hex('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  });
+});
+
+describe('canonicalJsonStringify (must byte-match the control plane)', () => {
+  it('sorts object keys recursively and matches the server’s RFC 8785 subset', () => {
+    expect(canonicalJsonStringify({ b: 1, a: 2 })).toBe('{"a":2,"b":1}');
+    expect(canonicalJsonStringify({ z: { y: 1, x: 2 }, a: [3, 2, 1] })).toBe('{"a":[3,2,1],"z":{"x":2,"y":1}}');
+    // Key ORDER in the source object must not change the output.
+    const a = canonicalJsonStringify({ title: 't', description: 'd', output_format: 'json' });
+    const b = canonicalJsonStringify({ output_format: 'json', description: 'd', title: 't' });
+    expect(a).toBe(b);
+    expect(a).toBe('{"description":"d","output_format":"json","title":"t"}');
+  });
+
+  it('produces the exact task.create action type the server re-derives', () => {
+    // The console signs `task.create:<sha256hex(canonicalJsonStringify(fields))>`;
+    // the server recomputes the same from the fields it parses.
+    const fields = { title: 'Check the quickstart', description: 'Run it clean', output_format: 'json' as const };
+    const actionType = `task.create:${sha256hex(canonicalJsonStringify(fields))}`;
+    expect(actionType).toBe(
+      `task.create:${sha256hex('{"description":"Run it clean","output_format":"json","title":"Check the quickstart"}')}`,
+    );
   });
 });

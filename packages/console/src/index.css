@@ -1,20 +1,23 @@
 :root {
-  --bg: #0b0d12;
-  --panel: #141821;
-  --panel-2: #1b2130;
-  --border: #262d3d;
-  --text: #e6e9ef;
-  --muted: #8b93a7;
-  --accent: #6ea8fe;
-  --accent-strong: #4c8dff;
-  --danger: #ff6b6b;
+  /* Aligned to the marketing site + redesign prototype: near-black surfaces,
+     violet accent, DM Sans body with a Space Grotesk display face. */
+  --bg: #0A0A0B;
+  --panel: #121215;
+  --panel-2: #19191E;
+  --border: #2A2A33;
+  --text: #FAFAFA;
+  --muted: #AAAAB8;
+  --accent: #B5B6FF;
+  --accent-strong: #6466E9;
+  --danger: #EFAAAA;
   --danger-bg: #2a1518;
-  --warn: #f0b429;
+  --warn: #EDCA86;
   --warn-bg: #2a2411;
-  --ok: #4ade80;
+  --ok: #98D9B3;
   --radius: 12px;
   --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --sans: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  --sans: 'DM Sans', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  --display: 'Space Grotesk', 'DM Sans', system-ui, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -24,10 +27,12 @@ html, body, #root { height: 100%; }
 body {
   margin: 0;
   font-family: var(--sans);
-  background: radial-gradient(1200px 600px at 50% -10%, #131a2b 0%, var(--bg) 60%);
+  background: radial-gradient(1200px 600px at 50% -10%, #16161f 0%, var(--bg) 60%);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
 }
+
+h1, h2, h3 { font-family: var(--display); letter-spacing: -0.03em; line-height: 1.16; }
 
 code { font-family: var(--mono); font-size: 0.9em; }
 .muted { color: var(--muted); }
@@ -44,7 +49,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
   transition: background 0.15s, border-color 0.15s, opacity 0.15s;
 }
 .btn:disabled { opacity: 0.55; cursor: default; }
-.btn-primary { background: var(--accent-strong); color: #05122e; border-color: var(--accent-strong); }
+.btn-primary { background: var(--accent-strong); color: #ffffff; border-color: var(--accent-strong); }
 .btn-primary:not(:disabled):hover { background: var(--accent); }
 .btn-ghost { background: transparent; color: var(--text); border-color: var(--border); }
 .btn-ghost:not(:disabled):hover { background: var(--panel-2); }
@@ -108,12 +113,12 @@ code { font-family: var(--mono); font-size: 0.9em; }
 }
 .card-main { min-width: 0; }
 .card-title { font-weight: 600; font-size: 1.05rem; display: flex; align-items: center; gap: 0.6rem; }
-.pill { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); background: #12203c; border: 1px solid #24406e; border-radius: 999px; padding: 0.1rem 0.5rem; }
+.pill { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); background: #1c1a2e; border: 1px solid #363657; border-radius: 999px; padding: 0.1rem 0.5rem; }
 .card-meta { color: var(--muted); font-size: 0.85rem; margin-top: 0.35rem; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
 .card-meta .dot { opacity: 0.5; }
-.card-note { margin: 0.6rem 0 0; color: #c3cad9; font-style: italic; }
+.card-note { margin: 0.6rem 0 0; color: #dcdce8; font-style: italic; }
 .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.75rem; }
-.chip { font-size: 0.78rem; color: #cfd6e6; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 0.2rem 0.55rem; }
+.chip { font-size: 0.78rem; color: #e6e6f0; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 0.2rem 0.55rem; }
 .card-actions { display: flex; flex-direction: column; gap: 0.5rem; flex-shrink: 0; }
 
 /* ── empty state ── */
@@ -180,7 +185,7 @@ a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 .code-block {
   font-family: var(--mono); font-size: 0.82rem; line-height: 1.6;
   background: var(--bg); border: 1px solid var(--border); border-radius: 9px;
-  padding: 0.8rem 1rem; overflow-x: auto; color: #cfd6e6;
+  padding: 0.8rem 1rem; overflow-x: auto; color: #e6e6f0;
 }
 .code-block-select { user-select: all; font-size: 1rem; letter-spacing: 0.04em; }
 .auth-sep { color: var(--muted); margin: 0 0.5rem; }
@@ -249,6 +254,8 @@ a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 .start-or { margin-top: 0.75rem; }
 .start-or code, .start-preview code { color: var(--text); }
 .start-preview { margin-top: 1.5rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; font-size: 0.9rem; }
+.start-hire { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border); }
+.start-hire .field-hint { margin-bottom: 0.6rem; }
 .start-tags { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
 
 .agent-card .chips { margin-top: 1rem; }
@@ -267,11 +274,11 @@ a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 
 /* Stale-tab guard (App.tsx): fixed, top, above everything — a tab running an
    old bundle is invisibly wrong everywhere, so the fix must be visible anywhere. */
-.stale-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; gap: 14px; padding: 10px 16px; background: var(--bg-secondary, #111113); border-bottom: 1px solid var(--accent, #6366F1); font-size: 0.9rem; }
+.stale-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; gap: 14px; padding: 10px 16px; background: var(--bg-secondary, #121215); border-bottom: 1px solid var(--accent, #6466E9); font-size: 0.9rem; }
 
 /* Per-key Rotate button inside a "Can use" chip (Home cards). */
-.chip-action { margin-left: 8px; padding: 1px 8px; font-size: 0.78rem; border-radius: 6px; border: 1px solid var(--border, rgba(255,255,255,0.12)); background: transparent; color: var(--accent, #6366F1); cursor: pointer; }
-.chip-action:hover:not(:disabled) { border-color: var(--accent, #6366F1); }
+.chip-action { margin-left: 8px; padding: 1px 8px; font-size: 0.78rem; border-radius: 6px; border: 1px solid var(--border, rgba(255,255,255,0.12)); background: transparent; color: var(--accent, #6466E9); cursor: pointer; }
+.chip-action:hover:not(:disabled) { border-color: var(--accent, #6466E9); }
 .chip-action:disabled { opacity: 0.6; cursor: default; }
 .chip-action-danger { color: var(--danger, #ef4444); }
 .chip-action-danger:hover:not(:disabled) { border-color: var(--danger, #ef4444); }
@@ -328,8 +335,22 @@ a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 }
 .field textarea:focus, .field select:focus { outline: none; border-color: var(--accent-strong); }
 .status-review { color: var(--warn); background: var(--warn-bg); }
+/* Task lifecycle statuses on the browse board. */
+.status-open { color: var(--ok); background: #10241a; }
+.status-claimed { color: var(--warn); background: var(--warn-bg); }
+.status-submitted { color: var(--accent); background: #1c1a2e; }
+.status-verified { color: #c4b5fd; background: #221a3a; }
+.status-closed, .status-cancelled { color: var(--muted); background: var(--panel-2); }
 .pill-warn { color: var(--warn); background: var(--warn-bg); border-color: #5b4a1a; }
 .pill-money { color: var(--ok); background: #10241a; border-color: #1d4a30; }
+/* Inline filter row (browse board): bare inputs/selects, not .field-wrapped. */
+.form-row { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 1.25rem 0; }
+.explore-filters input { flex: 1 1 220px; }
+.explore-filters input, .explore-filters select {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font: inherit; font-size: 0.9rem; padding: 0.5rem 0.7rem;
+}
+.explore-filters input:focus, .explore-filters select:focus { outline: none; border-color: var(--accent-strong); }
 .banner-ok { color: #c8f5d6; background: #10241a; border: 1px solid #1d4a30; }
 .prewrap { white-space: pre-wrap; overflow-wrap: anywhere; }
 .timeline { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.35rem; font-size: 0.9rem; }
@@ -339,3 +360,22 @@ a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 .review-actions { align-items: center; margin-top: 1rem; }
 .bounty-note { margin: 0.9rem 0 0; }
 .revision-count { font-size: 0.82rem; }
+
+/* ── Overview action queue ("Needs you") ── */
+.needs-you { margin: 0.5rem 0 1.5rem; }
+.queue { list-style: none; padding: 0; margin: 0.75rem 0 0; display: grid; gap: 0.5rem; }
+.queue-item {
+  display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+  padding: 0.7rem 0.9rem; border: 1px solid var(--border); border-radius: 10px; background: var(--panel);
+}
+.queue-tag {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;
+  border-radius: 6px; padding: 0.15rem 0.5rem; white-space: nowrap;
+}
+.queue-tag-pay { color: var(--ok); background: #10241a; }
+.queue-tag-review { color: var(--accent); background: #1c1a2e; }
+.queue-tag-access { color: var(--warn); background: var(--warn-bg); }
+.queue-title { font-weight: 600; color: var(--text); text-decoration: none; flex: 1 1 auto; min-width: 0; }
+.queue-title:hover { text-decoration: underline; }
+.queue-amount { font-family: var(--mono); font-size: 0.85rem; color: var(--ok); white-space: nowrap; }
+.queue-meta { font-size: 0.82rem; }

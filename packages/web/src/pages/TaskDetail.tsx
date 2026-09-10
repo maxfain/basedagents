@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api/client';
-import type { ApiTask, ApiTaskSubmission, ApiDeliveryReceipt, ApiTaskPayment, ApiPaymentStatus } from '../api/types';
+import type { ApiTask, ApiDeliveryReceipt, ApiTaskPayment, ApiPaymentStatus } from '../api/types';
 import { STATUS_LABELS, bountyLabel } from './Marketplace';
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
@@ -105,7 +105,9 @@ const valueStyle: React.CSSProperties = {
 export default function TaskDetail(): React.ReactElement {
   const { id } = useParams<{ id: string }>();
   const [task, setTask] = useState<ApiTask | null>(null);
-  const [submission, setSubmission] = useState<ApiTaskSubmission | null>(null);
+  // The delivered payload is private to the buyer and the runner; the public
+  // detail only tells us a submission EXISTS, plus provenance-only receipts.
+  const [hasSubmission, setHasSubmission] = useState(false);
   const [receipts, setReceipts] = useState<ApiDeliveryReceipt[]>([]);
   const [payment, setPayment] = useState<ApiTaskPayment | null>(null);
   const [loading, setLoading] = useState(true);
@@ -121,7 +123,7 @@ export default function TaskDetail(): React.ReactElement {
       .then(async res => {
         if (cancelled) return;
         setTask(res.task);
-        setSubmission(res.submission || null);
+        setHasSubmission(!!res.has_submission);
         setPayment(res.payment ?? null);
         const latest = res.delivery_receipt ? [res.delivery_receipt] : [];
         // A revision round adds a receipt; list them all when there is more than one.
@@ -604,40 +606,14 @@ export default function TaskDetail(): React.ReactElement {
           </div>
         </div>
 
-        {/* Submission */}
-        {submission && (
+        {/* The delivered result is private to the two parties. */}
+        {hasSubmission && (
           <div style={sectionStyle}>
-            <div style={{ ...labelStyle, color: '#3B82F6' }}>Submission</div>
-            <div style={{ marginTop: 8 }}>
-              <div style={labelStyle}>Summary</div>
-              <div style={{ ...valueStyle, marginBottom: 12 }}>{submission.summary}</div>
-
-              <div style={labelStyle}>Type</div>
-              <div style={{ ...valueStyle, fontFamily: 'var(--font-mono)', marginBottom: 12 }}>{submission.submission_type}</div>
-
-              <div style={labelStyle}>Content</div>
-              {submission.submission_type === 'link' ? (
-                <a href={submission.content} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', fontSize: 14, wordBreak: 'break-all' }}>
-                  {submission.content}
-                </a>
-              ) : (
-                <pre style={{
-                  background: 'var(--bg-primary)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 6,
-                  padding: 14,
-                  fontSize: 13,
-                  color: 'var(--text-secondary)',
-                  fontFamily: 'var(--font-mono)',
-                  overflow: 'auto',
-                  maxHeight: 300,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  margin: 0,
-                }}>
-                  {tryFormatJson(submission.content)}
-                </pre>
-              )}
+            <div style={{ ...labelStyle, color: '#3B82F6' }}>Result delivered</div>
+            <div style={{ ...valueStyle, marginTop: 8 }}>
+              The result and any artifacts are private to the buyer and the runner. The buyer reviews
+              them in their workspace; the delivering agent can read them through the signed API. The
+              verifiable delivery receipt below confirms a signed delivery happened.
             </div>
           </div>
         )}
@@ -675,8 +651,10 @@ function ReceiptCard({ receipt, title }: { receipt: ApiDeliveryReceipt; title: s
           </div>
         </div>
 
-        <div style={labelStyle}>Summary</div>
-        <div style={{ ...valueStyle, marginBottom: 12 }}>{receipt.summary}</div>
+        <div style={{ ...valueStyle, marginBottom: 12, color: 'var(--text-tertiary)' }}>
+          The delivered result is private — visible to the buyer and the runner. This receipt is the
+          public, verifiable proof of delivery.
+        </div>
 
         {receipt.commit_hash && (
           <div style={{ marginBottom: 10 }}>
@@ -731,12 +709,4 @@ function ReceiptCard({ receipt, title }: { receipt: ApiDeliveryReceipt; title: s
       </div>
     </div>
   );
-}
-
-function tryFormatJson(content: string): string {
-  try {
-    return JSON.stringify(JSON.parse(content), null, 2);
-  } catch {
-    return content;
-  }
 }

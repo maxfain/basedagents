@@ -183,6 +183,28 @@ function parseReceipt(receipt: Record<string, unknown>): Record<string, unknown>
 }
 
 /**
+ * The PUBLIC view of a delivery receipt: provenance only. The delivered work
+ * product (summary, submission_content, artifact_urls, pr_url, commit_hash) is
+ * private to the two parties — the buyer who posted the task (via the owner
+ * console) and the delivering agent (via GET /:id/submission, signed). What
+ * stays public is enough to independently verify that a signed delivery
+ * happened: who delivered, when, its type, the signature and the chain entry.
+ */
+function publicReceiptShape(receipt: Record<string, unknown>): Record<string, unknown> {
+  return {
+    receipt_id: receipt.receipt_id,
+    task_id: receipt.task_id,
+    agent_id: receipt.agent_id,
+    submission_type: receipt.submission_type,
+    completed_at: receipt.completed_at,
+    chain_sequence: receipt.chain_sequence ?? null,
+    chain_entry_hash: receipt.chain_entry_hash ?? null,
+    signature: receipt.signature ?? null,
+    content_private: true,
+  };
+}
+
+/**
  * GET /v1/tasks/:id/receipt — Latest delivery receipt (public)
  */
 tasks.get('/:id/receipt', async (c) => {
@@ -195,22 +217,23 @@ tasks.get('/:id/receipt', async (c) => {
   if (!receipt) {
     return c.json({ error: 'not_found', message: 'No delivery receipt found for this task' }, 404);
   }
-  parseReceipt(receipt);
+  const shaped = publicReceiptShape(receipt);
 
-  // Include agent's public key for independent verification
+  // Include agent's public key so the public signature can be independently verified.
   const agent = await db.get<{ public_key: Uint8Array }>('SELECT public_key FROM agents WHERE id = ?', receipt.agent_id);
   if (agent) {
     const pkBytes = agent.public_key instanceof Uint8Array
       ? agent.public_key
       : new Uint8Array(Object.values(agent.public_key as Record<string, number>));
-    receipt.agent_public_key = bytesToHex(pkBytes);
+    shaped.agent_public_key = bytesToHex(pkBytes);
   }
 
-  return c.json({ ok: true, receipt });
+  return c.json({ ok: true, receipt: shaped });
 });
 
 /**
- * GET /v1/tasks/:id/receipts — Every delivery receipt, newest first (public)
+ * GET /v1/tasks/:id/receipts — Every delivery receipt, newest first (public,
+ * provenance only — the payload is private; see GET /:id/submission).
  */
 tasks.get('/:id/receipts', async (c) => {
   const taskId = c.req.param('id') as string;
@@ -220,7 +243,7 @@ tasks.get('/:id/receipts', async (c) => {
   const rows = await db.all<Record<string, unknown>>(
     'SELECT * FROM delivery_receipts WHERE task_id = ? ORDER BY completed_at DESC', taskId,
   );
-  return c.json({ ok: true, receipts: rows.map(parseReceipt) });
+  return c.json({ ok: true, receipts: rows.map(publicReceiptShape) });
 });
 
 /**
@@ -278,21 +301,54 @@ tasks.get('/:id', async (c) => {
   const task = row as unknown as TaskRow;
 
   const submission = await db.get<Record<string, unknown>>(
-    'SELECT * FROM submissions WHERE task_id = ? ORDER BY created_at DESC LIMIT 1', taskId,
+    'SELECT submission_id, task_id, agent_id, submission_type, created_at FROM submissions WHERE task_id = ? ORDER BY created_at DESC LIMIT 1', taskId,
   );
   const receipt = await db.get<Record<string, unknown>>(
     'SELECT * FROM delivery_receipts WHERE task_id = ? ORDER BY completed_at DESC LIMIT 1', taskId,
   );
   const receiptsCount = await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM delivery_receipts WHERE task_id = ?', taskId);
 
+  // The delivered work product is PRIVATE to the buyer and the runner. The
+  // public detail carries only that a submission exists (`has_submission`) and
+  // a provenance-only receipt — never the content. The parties read the payload
+  // through the owner console (buyer) or GET /:id/submission (agent).
   return c.json({
     ok: true,
     task: publicTaskShape(row),
-    submission: submission ?? null,
-    delivery_receipt: receipt ? parseReceipt(receipt) : null,
+    submission: null,
+    has_submission: !!submission,
+    delivery_receipt: receipt ? publicReceiptShape(receipt) : null,
     receipts_count: receiptsCount?.n ?? 0,
     payment: paymentView(task),
   });
+});
+
+/**
+ * GET /v1/tasks/:id/submission — the PRIVATE delivered work product (signed).
+ * Only the two parties may read it: the delivering agent (claimed_by_agent_id)
+ * or the agent that posted the task (creator_agent_id). Human buyers read the
+ * same content through the owner console (GET /v1/owner/tasks/:id). Everyone
+ * else gets 403 — the public task detail exposes provenance only.
+ */
+tasks.get('/:id/submission', agentAuth, async (c) => {
+  const agentId = c.get('agentId') as string;
+  const taskId = c.req.param('id') as string;
+  const db = c.get('db');
+
+  const task = await loadTask(db, taskId);
+  if (!task) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
+  const isParty = task.claimed_by_agent_id === agentId || task.creator_agent_id === agentId;
+  if (!isParty) {
+    return c.json({ error: 'forbidden', message: 'Only the task poster or the delivering agent can read the submission' }, 403);
+  }
+
+  const submission = await db.get<Record<string, unknown>>(
+    'SELECT * FROM submissions WHERE task_id = ? ORDER BY created_at DESC LIMIT 1', taskId,
+  );
+  const rows = await db.all<Record<string, unknown>>(
+    'SELECT * FROM delivery_receipts WHERE task_id = ? ORDER BY completed_at DESC', taskId,
+  );
+  return c.json({ ok: true, submission: submission ?? null, receipts: rows.map(parseReceipt) });
 });
 
 /**

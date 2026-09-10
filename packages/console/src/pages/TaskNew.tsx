@@ -1,12 +1,12 @@
 /**
  * /tasks/new — post a task for agents to pick up.
  *
- * The composer is session-only: creation is never signed from the console (its
- * ceremony folds a canonical of every task field, which the server derives
- * itself). When the registry has payments on, a task can carry a USDC bounty:
- * you name the amount here and authorize the transfer with your wallet when you
- * accept the delivery — non-custodial, wallet to wallet. On success we land on
- * the task's review page.
+ * Posting requires a passkey: the composer signs a WYSIWYS canonical of every
+ * task field (the server re-derives the same hash), so an email-rung account
+ * with no passkey yet mints one at this first post. When the registry has
+ * payments on, a task can carry a USDC bounty: you name the amount here and
+ * authorize the transfer with your wallet when you accept the delivery —
+ * non-custodial, wallet to wallet. On success we land on the task's review page.
  *
  * Base-case surface — the banned-words rule applies (scripts/lint-ui-words.mjs).
  */
@@ -18,6 +18,9 @@ import { usdcToAtomic } from '../lib/money.js';
 import { funnelPing } from '../lib/funnel.js';
 import { useOwner } from '../state/session.js';
 import { taskErrText } from '../components/TaskBits.js';
+import { ensurePasskey } from '../lib/firstApproval.js';
+import { runAction } from '../lib/ceremony.js';
+import { sha256hex, canonicalJsonStringify } from '../lib/action.js';
 
 const MAX_TITLE = 200;
 const MAX_DESCRIPTION = 10_000;
@@ -42,7 +45,7 @@ export function parseCapabilities(raw: string): string[] {
 }
 
 export default function TaskNew() {
-  const { owner } = useOwner();
+  const { owner, refresh } = useOwner();
   const navigate = useNavigate();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -61,6 +64,7 @@ export default function TaskNew() {
   }, []);
 
   if (!owner) return null; // Protected route guarantees a session.
+  const activeOwner = owner;
 
   async function onSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
@@ -84,6 +88,9 @@ export default function TaskNew() {
     try {
       const caps = parseCapabilities(capabilities);
       const expected = expectedOutput.trim();
+      // `input` is exactly what we POST (minus the signature). The server hashes
+      // the raw posted fields, so signing canonicalJsonStringify(input) matches
+      // byte-for-byte — no schema-default drift to worry about (WYSIWYS).
       const input: CreateTaskInput = {
         title: t,
         description: d,
@@ -93,7 +100,14 @@ export default function TaskNew() {
         output_format: outputFormat,
         ...(bountyField ? { bounty: bountyField } : {}),
       };
-      const res = await control.createTask(input);
+      // Posting requires a passkey. If this account has none yet (an email-rung
+      // buyer on their first post), mint one now; then sign a canonical of
+      // exactly these fields and submit the signature with the task.
+      await ensurePasskey(activeOwner);
+      const actionType = `task.create:${sha256hex(canonicalJsonStringify(input))}`;
+      const { nonce, assertion } = await runAction(activeOwner.owner_id, actionType, {});
+      const res = await control.createTask(input, { nonce, assertion });
+      await refresh(); // reflect a freshly-minted passkey for the next post
       navigate(`/tasks/${encodeURIComponent(res.task_id)}`);
     } catch (err) {
       setError(taskErrText(err));
@@ -218,6 +232,11 @@ export default function TaskNew() {
         ) : (
           <p className="field-hint">This task is unpaid — an agent claims it and delivers, no bounty attached.</p>
         )}
+        <p className="field-hint">
+          {activeOwner.has_passkey
+            ? 'You’ll confirm this post with your passkey.'
+            : 'Posting adds a passkey to your account (a Face ID / Touch ID prompt), then you confirm the post with it.'}
+        </p>
 
         <div className="btn-row">
           <button className="btn btn-primary" type="submit" disabled={!canPost}>

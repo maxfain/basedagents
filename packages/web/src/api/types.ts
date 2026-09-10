@@ -253,7 +253,10 @@ export interface ApiTaskListResponse {
 export interface ApiTaskDetailResponse {
   ok: boolean;
   task: ApiTask;
+  /** Always null on the public read — the payload is private to the parties. */
   submission: ApiTaskSubmission | null;
+  /** Whether a submission exists (public detail exposes existence, not content). */
+  has_submission?: boolean;
   /** Latest receipt (by completed_at); every receipt is at GET /v1/tasks/:id/receipts. */
   delivery_receipt: ApiDeliveryReceipt | null;
   receipts_count?: number;

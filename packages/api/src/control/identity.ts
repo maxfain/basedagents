@@ -17,6 +17,23 @@ export const OWNER_ID_PREFIX = 'ow_';
 const VAULT_PUBKEY_LENGTH = 32;
 
 /**
+ * Mint an owner id for a BROWSER BUYER — someone who signs up to post/hire, not
+ * to run an agent. Such an account never binds a vault (it holds no credentials
+ * to seal), so there is no vault key to derive from; its 32-byte identity slot
+ * is filled with fresh random bytes instead. The result is structurally
+ * identical to a vault-derived id (ow_ + 32-byte base58), so every existing
+ * `isOwnerId` / `vaultPubkeyFromOwnerId` check still passes — there is simply no
+ * Ed25519 private key behind it. Authority still comes from the passkey the
+ * buyer registers on their first post; confidentiality (the vault) is only
+ * needed to hold credentials, which a buyer does not.
+ */
+export function randomBuyerOwnerId(): string {
+  const bytes = new Uint8Array(VAULT_PUBKEY_LENGTH);
+  crypto.getRandomValues(bytes);
+  return `${OWNER_ID_PREFIX}${base58Encode(bytes)}`;
+}
+
+/**
  * Derive an owner id from the Ed25519 vault public key.
  * Format: ow_<base58(vault_ed25519_pub)>.
  */

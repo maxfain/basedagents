@@ -13,6 +13,28 @@ export function sha256hex(input: string): string {
 }
 
 /**
+ * Canonical JSON (RFC 8785 subset): recursively sorts object keys. This MUST
+ * match the control plane's `canonicalJsonStringify` (packages/api/src/crypto)
+ * byte for byte — the task-create action folds `sha256hex(canonicalJsonStringify
+ * (fields))` into its action type, and the server re-derives the same hash from
+ * the fields it receives. A drift here makes every post fail WYSIWYS.
+ */
+export function canonicalJsonStringify(value: unknown): string {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'boolean' || typeof value === 'number') return JSON.stringify(value);
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map(canonicalJsonStringify).join(',') + ']';
+  if (typeof value === 'object') {
+    const keys = Object.keys(value as Record<string, unknown>).sort();
+    const pairs = keys.map(
+      (k) => JSON.stringify(k) + ':' + canonicalJsonStringify((value as Record<string, unknown>)[k]),
+    );
+    return '{' + pairs.join(',') + '}';
+  }
+  return JSON.stringify(value);
+}
+
+/**
  * The action hash a passkey signs: base64url(sha256(utf8(canonical))).
  *
  * This MUST match the control plane's actionChallenge and the daemon's

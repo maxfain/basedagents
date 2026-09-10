@@ -147,15 +147,16 @@ describe('E2E Smoke — Full Agent Lifecycle', () => {
     expect(submitData.submission_id).toMatch(/^sub_/);
     expect(submitData.status).toBe('submitted');
 
-    // Task detail includes submission
+    // Public task detail exposes that a submission exists, not its content.
     const afterSubmitDetail = await app.request(`/v1/tasks/${taskId}`);
     const afterSubmitData = await afterSubmitDetail.json() as {
       task: Record<string, unknown>;
-      submission: Record<string, unknown> | null;
+      submission: unknown;
+      has_submission: boolean;
     };
     expect(afterSubmitData.task.status).toBe('submitted');
-    expect(afterSubmitData.submission).not.toBeNull();
-    expect(afterSubmitData.submission!.summary).toBe('Smoke test deliverable');
+    expect(afterSubmitData.submission).toBeNull();
+    expect(afterSubmitData.has_submission).toBe(true);
 
     // ── Step 6: Verify deliverable (Alice verifies) ────────────────────
     const verifyHeaders = await signRequest(alice, 'POST', `/v1/tasks/${taskId}/verify`);

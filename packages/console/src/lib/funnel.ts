@@ -8,7 +8,7 @@
 import { API_BASE } from '../api/control.js';
 
 export function funnelPing(
-  event: 'passkey_created' | 'provider_connected' | 'email_door' | 'task_composer_view',
+  event: 'passkey_created' | 'provider_connected' | 'email_door' | 'task_composer_view' | 'buyer_start',
   provider?: string,
 ): void {
   try {

@@ -277,13 +277,14 @@ test('2. login, both rungs: magic link → look session (email); passkey → ful
   await page.goto('/home');
   await expect(page).toHaveURL(/\/login/);
 
-  // Rung 1 — email magic link. Uniform "check your email", token from outbox.
+  // Rung 1 — email magic link. The sign-in email door is unified with /start,
+  // so a returning owner's link now lands on /start#t= (which signs them
+  // straight in). Uniform "check your email", token from outbox.
   await page.getByLabel('Email').fill(init.email);
   await page.getByRole('button', { name: 'Email me a sign-in link' }).click();
   await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
-  const token = await magicToken(init.email, '/login');
-  await page.goto('/signup'); // leave /login: #t= alone would be a fragment-only (no-reload) navigation
-  await page.goto(`/login#t=${token}`);
+  const token = await magicToken(init.email, '/start');
+  await page.goto(`/start#t=${token}`); // real load from /login (different path)
   await expect(page).toHaveURL(/\/home/, { timeout: 20_000 });
   expect((await me(page)).session_method).toBe('email');
 

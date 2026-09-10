@@ -13,9 +13,13 @@
  *
  * Base-case surface — the banned-words rule applies (scripts/lint-ui-words.mjs).
  */
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { control } from '../api/control.js';
+import type { OwnerTask } from '../api/types.js';
 import { useOwner } from '../state/session.js';
 import { askPhrase } from '../lib/outcomes.js';
+import { fmtDate } from '../components/TaskBits.js';
 import AddAgentGuide from '../components/AddAgentGuide.js';
 import {
   agentDisplayName,
@@ -37,15 +41,20 @@ export default function Home() {
   if (!owner) return null; // Protected route guarantees a session.
   const agents = owner.delegations.filter((d) => d.status === 'active');
   const killed = recentlyKilled(owner.delegations);
+  const pendingAsks = requests.filter((r) => r.status === 'pending').length;
 
   return (
     <div className="page">
       <div className="page-head">
-        <h1>Your agents</h1>
+        <h1>Overview</h1>
         <button className="btn btn-ghost" onClick={() => void load()} disabled={busy !== null}>
           Refresh
         </button>
       </div>
+
+      {/* "What needs me?" — ordered by consequence: money owed, then work to
+          review, then access requests blocking an agent. */}
+      <NeedsYou pendingAsks={pendingAsks} />
 
       {error && <div className="banner banner-error">{error}</div>}
       {atLimit && (
@@ -62,9 +71,15 @@ export default function Home() {
         </div>
       )}
 
+      <h2 className="page-subhead" id="agents">Your agents</h2>
       {agents.length === 0 ? (
         <div className="empty empty-guide">
-          <p>No agent is connected to this account yet.</p>
+          <p>No agent is connected to this account yet — you don&rsquo;t need one to post work.</p>
+          <div className="btn-row" style={{ justifyContent: 'center', marginBottom: '1rem' }}>
+            <Link to="/tasks/new" className="btn btn-primary">Post a task</Link>
+            <Link to="/explore" className="btn btn-ghost">Browse open tasks</Link>
+          </div>
+          <p className="muted">Or link an agent to run work and manage its keys:</p>
           <AddAgentGuide />
         </div>
       ) : (
@@ -241,5 +256,60 @@ export default function Home() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * The action queue: what needs the human, ordered by consequence — money owed,
+ * then deliveries to review, then access requests blocking an agent. Renders
+ * nothing while loading or when the queue is empty (the sections below carry
+ * the rest), so a caught-up account isn't shown an empty box.
+ */
+function NeedsYou({ pendingAsks }: { pendingAsks: number }) {
+  const [tasks, setTasks] = useState<OwnerTask[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    control.tasks('all')
+      .then((r) => { if (!cancelled) setTasks(r.tasks); })
+      .catch(() => { if (!cancelled) setTasks([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (tasks === null) return null;
+  const paymentDue = tasks.filter((t) => t.payment_due);
+  const awaitingReview = tasks.filter((t) => t.needs_review);
+  if (paymentDue.length === 0 && awaitingReview.length === 0 && pendingAsks === 0) return null;
+
+  return (
+    <section className="needs-you">
+      <h2 className="page-subhead" style={{ marginTop: 0 }}>Needs you</h2>
+      <ul className="queue">
+        {paymentDue.map((t) => (
+          <li key={`pay-${t.task_id}`} className="queue-item">
+            <span className="queue-tag queue-tag-pay">Payment due</span>
+            <Link to={`/tasks/${encodeURIComponent(t.task_id)}`} className="queue-title">{t.title}</Link>
+            {t.bounty && <span className="queue-amount">{t.bounty.amount_display} {t.bounty.token}</span>}
+            <Link to={`/tasks/${encodeURIComponent(t.task_id)}`} className="btn btn-primary btn-sm">Pay</Link>
+          </li>
+        ))}
+        {awaitingReview.map((t) => (
+          <li key={`rev-${t.task_id}`} className="queue-item">
+            <span className="queue-tag queue-tag-review">Awaiting review</span>
+            <Link to={`/tasks/${encodeURIComponent(t.task_id)}`} className="queue-title">{t.title}</Link>
+            {t.latest_receipt && <span className="muted queue-meta">delivered {fmtDate(t.latest_receipt.completed_at)}</span>}
+            <Link to={`/tasks/${encodeURIComponent(t.task_id)}`} className="btn btn-primary btn-sm">Review</Link>
+          </li>
+        ))}
+        {pendingAsks > 0 && (
+          <li className="queue-item">
+            <span className="queue-tag queue-tag-access">Access</span>
+            <a href="#agents" className="queue-title">
+              {pendingAsks} access request{pendingAsks === 1 ? '' : 's'} from your agents
+            </a>
+            <a href="#agents" className="btn btn-ghost btn-sm">Review below</a>
+          </li>
+        )}
+      </ul>
+    </section>
   );
 }
