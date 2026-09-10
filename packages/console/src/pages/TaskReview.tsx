@@ -295,7 +295,10 @@ export default function TaskReview() {
         <Link to="/tasks" className="btn btn-ghost">Back to tasks</Link>
       </div>
 
-      {error && <div className="banner banner-error">{error}</div>}
+      {/* When the review actions are on screen, the error shows next to the
+          buttons (below) so a wallet/accept failure isn't stranded at the top of
+          a long task page — out of view from where you clicked. */}
+      {error && !(reviewing || cancellable) && <div className="banner banner-error">{error}</div>}
 
       {task.status === 'verified' && (
         <div className="banner banner-ok" data-testid="task-accepted">
@@ -394,9 +397,18 @@ export default function TaskReview() {
               Accepting pays the {bounty.amount_display} {bounty.token} bounty. Your browser wallet
               will ask you to sign a one-time USDC transfer to the deliverer — the exact amount and
               recipient are shown by the wallet. BasedAgents never holds the funds.
-              {!walletAvailable() && ' No browser wallet is connected here; install one to pay.'}
             </p>
           )}
+          {reviewing && bounty && !walletAvailable() && (
+            <div className="banner banner-warn" role="status">
+              No browser wallet is connected in this browser, so this bounty can't be paid here yet.
+              Install one (e.g. MetaMask, Coinbase Wallet, or Rabby), unlock the wallet you want to pay
+              from, and reload this page — then Accept &amp; Pay will prompt it to sign.
+            </div>
+          )}
+          {/* Action errors (wallet declined, payment rejected, conflict…) show
+              right here at the buttons, not only at the page top. */}
+          {error && <div className="banner banner-error" role="alert">{error}</div>}
           <div className="btn-row review-actions">
             {reviewing && (
               <button className="btn btn-primary" onClick={() => void onAccept()} disabled={busy !== null}>

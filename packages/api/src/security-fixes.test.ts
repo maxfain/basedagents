@@ -10,9 +10,12 @@ import type { SQLiteAdapter } from './db/sqlite-adapter.js';
 import { fireWebhook } from './lib/webhooks.js';
 import scanRoutes from './routes/scan.js';
 
-// ── MED-1: Clock skew tightened to ±15s ──────────────────────────────
+// ── AgentSig clock skew window: ±60s ─────────────────────────────────
+// Widened from ±15s (was too tight — real agents with mild clock skew or
+// network latency hit spurious 401s). Still fully covered by the 120s replay
+// guard, so no replay gap opens.
 
-describe('MED-1: Clock skew ±15s', () => {
+describe('AgentSig clock skew ±60s', () => {
   let db: SQLiteAdapter;
   let app: ReturnType<typeof createTestApp>;
   let agent: Awaited<ReturnType<typeof createTestAgent>>;
@@ -28,12 +31,10 @@ describe('MED-1: Clock skew ±15s', () => {
     vi.unstubAllGlobals();
   });
 
-  it('rejects timestamp 20s in the past via agentAuth (PATCH profile)', async () => {
-    // Craft a request with a stale timestamp (20s old)
+  it('rejects a timestamp 70s in the past via agentAuth (PATCH profile)', async () => {
     const body = JSON.stringify({ description: 'test' });
     const headers = await signRequest(agent, 'PATCH', `/v1/agents/${agent.agentId}/profile`, body);
-    // Override the timestamp to be 20s old
-    headers['X-Timestamp'] = String(Math.floor(Date.now() / 1000) - 20);
+    headers['X-Timestamp'] = String(Math.floor(Date.now() / 1000) - 70);
 
     const res = await app.request(`/v1/agents/${agent.agentId}/profile`, {
       method: 'PATCH',
@@ -42,13 +43,13 @@ describe('MED-1: Clock skew ±15s', () => {
     });
     expect(res.status).toBe(401);
     const data = await res.json() as { message: string };
-    expect(data.message).toContain('15 seconds');
+    expect(data.message).toContain('60 seconds');
   });
 
-  it('rejects timestamp 16s in the future via agentAuth', async () => {
+  it('rejects a timestamp 70s in the future via agentAuth', async () => {
     const body = JSON.stringify({ description: 'test' });
     const headers = await signRequest(agent, 'PATCH', `/v1/agents/${agent.agentId}/profile`, body);
-    headers['X-Timestamp'] = String(Math.floor(Date.now() / 1000) + 16);
+    headers['X-Timestamp'] = String(Math.floor(Date.now() / 1000) + 70);
 
     const res = await app.request(`/v1/agents/${agent.agentId}/profile`, {
       method: 'PATCH',
@@ -57,11 +58,30 @@ describe('MED-1: Clock skew ±15s', () => {
     });
     expect(res.status).toBe(401);
     const data = await res.json() as { message: string };
-    expect(data.message).toContain('15 seconds');
+    expect(data.message).toContain('60 seconds');
   });
 
-  it('accepts timestamp within ±14s', async () => {
-    // signRequest uses current timestamp so it's within window
+  it('lets a 40s-old timestamp past the window that ±15s would have rejected', async () => {
+    // 40s old is inside the new ±60s window, so the middleware moves past the
+    // window check to verify the signature — which was signed over the current
+    // timestamp and so now mismatches → "Invalid signature", NOT "out of range".
+    // Reaching the signature check at all proves the window accepted 40s.
+    const body = JSON.stringify({ description: 'test' });
+    const headers = await signRequest(agent, 'PATCH', `/v1/agents/${agent.agentId}/profile`, body);
+    headers['X-Timestamp'] = String(Math.floor(Date.now() / 1000) - 40);
+
+    const res = await app.request(`/v1/agents/${agent.agentId}/profile`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body,
+    });
+    expect(res.status).toBe(401);
+    const msg = (await res.json() as { message: string }).message;
+    expect(msg).toContain('Invalid signature');
+    expect(msg).not.toContain('out of range');
+  });
+
+  it('accepts a current timestamp', async () => {
     const body = JSON.stringify({ description: 'still valid' });
     const headers = await signRequest(agent, 'PATCH', `/v1/agents/${agent.agentId}/profile`, body);
     const res = await app.request(`/v1/agents/${agent.agentId}/profile`, {

@@ -68,11 +68,16 @@ function makeAgentAuth(allowUnregistered: boolean) {
     return c.json({ error: 'unauthorized', message: 'Missing X-Timestamp header' }, 401);
   }
 
-  // Verify timestamp is within 15 seconds (MED-1: tightened from 30s)
+  // Verify timestamp is within 60 seconds of the server clock. 15s was too tight
+  // in practice — real agents with mild clock skew or network latency hit
+  // spurious 401s (e.g. deliver failing while a retry to submit succeeds). 60s
+  // stays fully covered by replay protection: a used signature is remembered for
+  // 120s (below), which is >= any signature's ±60s validity span, so widening
+  // the window opens no replay gap.
   const now = Math.floor(Date.now() / 1000);
   const ts = parseInt(timestamp, 10);
-  if (isNaN(ts) || Math.abs(now - ts) > 15) {
-    return c.json({ error: 'unauthorized', message: 'Timestamp out of range (must be within 15 seconds)' }, 401);
+  if (isNaN(ts) || Math.abs(now - ts) > 60) {
+    return c.json({ error: 'unauthorized', message: 'Timestamp out of range (must be within 60 seconds)' }, 401);
   }
 
   // Compute body hash
@@ -195,7 +200,7 @@ export const optionalAuth = createMiddleware<AppEnv>(async (c, next) => {
       if (!timestamp) { await next(); return; }
       const ts = parseInt(timestamp, 10);
       const now = Math.floor(Date.now() / 1000);
-      if (isNaN(ts) || Math.abs(now - ts) > 15) { await next(); return; }
+      if (isNaN(ts) || Math.abs(now - ts) > 60) { await next(); return; }
 
       // Hono caches the body after first read, so this is safe for downstream handlers (MED-3)
       const body = await c.req.text();
