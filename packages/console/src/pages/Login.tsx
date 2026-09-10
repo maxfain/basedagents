@@ -17,6 +17,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { control, ControlApiError } from '../api/control.js';
 import { getAssertion, passkeysSupported } from '../lib/webauthn.js';
 import { useOwner } from '../state/session.js';
+import { takeIntent } from '../lib/intent.js';
 import { AuthBrand } from '../components/AuthBrand.js';
 
 function errText(err: unknown): string {
@@ -47,7 +48,7 @@ export default function Login() {
       .loginEmailFinish(token)
       .then(async () => {
         await refresh();
-        navigate('/home', { replace: true });
+        navigate(takeIntent() ?? '/home', { replace: true });
       })
       .catch(() => {
         setBusy(null);
@@ -85,7 +86,7 @@ export default function Login() {
       });
       await control.loginFinish(assertion);
       await refresh();
-      navigate('/home', { replace: true });
+      navigate(takeIntent() ?? '/home', { replace: true });
     } catch (err) {
       setError(errText(err));
     } finally {

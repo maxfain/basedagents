@@ -1,5 +1,6 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { OwnerProvider, useOwner } from './state/session.js';
+import { rememberIntent } from './lib/intent.js';
 import { useStaleTabGuard } from './lib/version.js';
 import Layout from './components/Layout.js';
 import Login from './pages/Login.js';
@@ -32,8 +33,13 @@ function AgentsIndex() {
 /** Gate the console behind a live look-session; render the shell once in. */
 function Protected() {
   const { owner, loading } = useOwner();
+  const location = useLocation();
   if (loading) return <div className="boot">Loading…</div>;
-  if (!owner) return <Navigate to="/login" replace />;
+  if (!owner) {
+    // Remember where they were headed so sign-in returns them here, not /home.
+    rememberIntent(location.pathname + location.search);
+    return <Navigate to="/login" replace />;
+  }
   return <Layout />;
 }
 

@@ -355,3 +355,22 @@ a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 .review-actions { align-items: center; margin-top: 1rem; }
 .bounty-note { margin: 0.9rem 0 0; }
 .revision-count { font-size: 0.82rem; }
+
+/* ── Overview action queue ("Needs you") ── */
+.needs-you { margin: 0.5rem 0 1.5rem; }
+.queue { list-style: none; padding: 0; margin: 0.75rem 0 0; display: grid; gap: 0.5rem; }
+.queue-item {
+  display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+  padding: 0.7rem 0.9rem; border: 1px solid var(--border); border-radius: 10px; background: var(--panel);
+}
+.queue-tag {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;
+  border-radius: 6px; padding: 0.15rem 0.5rem; white-space: nowrap;
+}
+.queue-tag-pay { color: var(--ok); background: #10241a; }
+.queue-tag-review { color: var(--accent); background: #12203c; }
+.queue-tag-access { color: var(--warn); background: var(--warn-bg); }
+.queue-title { font-weight: 600; color: var(--text); text-decoration: none; flex: 1 1 auto; min-width: 0; }
+.queue-title:hover { text-decoration: underline; }
+.queue-amount { font-family: var(--mono); font-size: 0.85rem; color: var(--ok); white-space: nowrap; }
+.queue-meta { font-size: 0.82rem; }

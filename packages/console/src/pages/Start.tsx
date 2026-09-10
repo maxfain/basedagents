@@ -23,6 +23,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { control, ControlApiError } from '../api/control.js';
 import { useOwner } from '../state/session.js';
+import { takeIntent } from '../lib/intent.js';
 import { AgentSetupPrompt } from '../components/AgentSetup.js';
 import { AuthNav } from '../components/AuthNav.js';
 import { funnelPing } from '../lib/funnel.js';
@@ -106,7 +107,7 @@ export default function Start() {
       .then(async ({ has_account, start_code }) => {
         if (has_account) {
           await refresh();
-          navigate('/home', { replace: true });
+          navigate(takeIntent() ?? '/home', { replace: true });
         } else {
           // First-time visitor → hand the command to the agent. The start
           // code inside it carries the just-verified email to the final step,
