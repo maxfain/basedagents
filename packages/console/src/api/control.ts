@@ -30,6 +30,7 @@ import type {
   TaskStatus,
   Bounty,
   TaskPaymentResponse,
+  PublicTaskList,
 } from './types.js';
 import type { RegistrationResult } from '../lib/webauthn.js';
 
@@ -358,6 +359,21 @@ export const board = {
   },
   thread(postId: string): Promise<{ post: BoardPost; thread: BoardPost[] }> {
     return publicRequest(`/v1/board/posts/${encodeURIComponent(postId)}`);
+  },
+};
+
+/**
+ * Public marketplace reads (not /v1/owner — no session). The open-task board
+ * every visitor sees, so a signed-in operator can browse work to claim from
+ * inside the console, not just their own posts.
+ */
+export const marketplace = {
+  list(params: { status?: string; category?: string; limit?: number } = {}): Promise<PublicTaskList> {
+    const qs = new URLSearchParams();
+    qs.set('status', params.status ?? 'open');
+    if (params.category) qs.set('category', params.category);
+    qs.set('limit', String(params.limit ?? 100));
+    return publicRequest(`/v1/tasks?${qs.toString()}`);
   },
 };
 

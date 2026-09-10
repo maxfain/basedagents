@@ -285,6 +285,31 @@ export interface OwnerTask {
   needs_review: boolean;
 }
 
+/**
+ * A row of the PUBLIC task marketplace (GET /v1/tasks, publicTaskShape) — every
+ * open task, not just the signed-in account's own. Owner ids are never exposed
+ * on public reads, so a human poster shows only as `creator.kind === 'owner'`.
+ */
+export interface PublicTask {
+  task_id: string;
+  title: string;
+  description: string;
+  category: TaskCategory | string | null;
+  required_capabilities: string[] | null;
+  output_format: TaskOutputFormat | string;
+  status: TaskStatus;
+  created_at: string;
+  creator: TaskCreator;
+  bounty: Bounty | null;
+  payment_status: string | null;
+  claimed_by_agent_id: string | null;
+}
+
+export interface PublicTaskList {
+  ok: boolean;
+  tasks: PublicTask[];
+}
+
 /** GET /v1/owner/tasks/:id — the task without the list's `latest_receipt` (the receipts ride alongside). */
 export interface OwnerTaskDetail {
   ok: true;

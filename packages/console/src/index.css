@@ -330,8 +330,22 @@ a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 }
 .field textarea:focus, .field select:focus { outline: none; border-color: var(--accent-strong); }
 .status-review { color: var(--warn); background: var(--warn-bg); }
+/* Task lifecycle statuses on the browse board. */
+.status-open { color: var(--ok); background: #10241a; }
+.status-claimed { color: var(--warn); background: var(--warn-bg); }
+.status-submitted { color: var(--accent); background: #12203c; }
+.status-verified { color: #c4b5fd; background: #221a3a; }
+.status-closed, .status-cancelled { color: var(--muted); background: var(--panel-2); }
 .pill-warn { color: var(--warn); background: var(--warn-bg); border-color: #5b4a1a; }
 .pill-money { color: var(--ok); background: #10241a; border-color: #1d4a30; }
+/* Inline filter row (browse board): bare inputs/selects, not .field-wrapped. */
+.form-row { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 1.25rem 0; }
+.explore-filters input { flex: 1 1 220px; }
+.explore-filters input, .explore-filters select {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font: inherit; font-size: 0.9rem; padding: 0.5rem 0.7rem;
+}
+.explore-filters input:focus, .explore-filters select:focus { outline: none; border-color: var(--accent-strong); }
 .banner-ok { color: #c8f5d6; background: #10241a; border: 1px solid #1d4a30; }
 .prewrap { white-space: pre-wrap; overflow-wrap: anywhere; }
 .timeline { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.35rem; font-size: 0.9rem; }
