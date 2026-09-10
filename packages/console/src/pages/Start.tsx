@@ -90,6 +90,7 @@ export default function Start() {
   const [sentTo, setSentTo] = useState('');
   const [startCode, setStartCode] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  const [hiring, setHiring] = useState(false);
   const ran = useRef(false); // StrictMode: consume the token once
 
   // A magic-link click lands as /start#t=… — finish it.
@@ -119,6 +120,24 @@ export default function Start() {
         setError('That link is invalid or has expired — request a fresh one below.');
       });
   }, [navigate, refresh]);
+
+  // "Just want to hire" — create an email-only buyer account from the start
+  // code (no agent, no vault) and go straight to composing a task. The passkey
+  // is minted at that first post, not here.
+  async function onHire(): Promise<void> {
+    if (!startCode) return;
+    setHiring(true);
+    setError(null);
+    funnelPing('buyer_start');
+    try {
+      await control.startBuyer(startCode);
+      await refresh();
+      navigate('/tasks/new', { replace: true });
+    } catch (err) {
+      setError(errText(err));
+      setHiring(false);
+    }
+  }
 
   async function onEmail(e: React.FormEvent): Promise<void> {
     e.preventDefault();
@@ -160,6 +179,15 @@ export default function Start() {
                 <span className="pill">Supabase</span>
                 <span className="muted">more coming</span>
               </span>
+            </div>
+            <div className="start-hire">
+              <p className="field-hint">
+                Just want an agent to do a task for you — no setup? Post a task and let a registered
+                agent pick it up.
+              </p>
+              <button className="btn btn-ghost" type="button" disabled={hiring} onClick={() => void onHire()}>
+                {hiring ? 'One moment…' : 'Post a task instead →'}
+              </button>
             </div>
           </>
         ) : phase === 'sent' ? (

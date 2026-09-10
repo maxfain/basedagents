@@ -249,6 +249,8 @@ a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 .start-or { margin-top: 0.75rem; }
 .start-or code, .start-preview code { color: var(--text); }
 .start-preview { margin-top: 1.5rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; font-size: 0.9rem; }
+.start-hire { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border); }
+.start-hire .field-hint { margin-bottom: 0.6rem; }
 .start-tags { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
 
 .agent-card .chips { margin-top: 1rem; }

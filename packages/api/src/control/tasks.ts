@@ -17,13 +17,14 @@
  *   POST /v1/owner/tasks/:id/dispute     {reason}
  *   POST /v1/owner/tasks/:id/cancel
  *
- * Authority model (D3): every route sits behind `ownerSession`; the WYSIWYS
- * passkey ceremony is OPTIONAL, exactly like the owner board post — an
- * unpaid review is speech-class under CONTROL_PLANE.md ("speech = optional,
- * authority = required"). When both `nonce` and `assertion` are present the
- * ceremony runs and the assertion id is stored for provenance; half-signed is
- * refused. The day human-posted bounties arrive ("money ⇒ required
- * ceremony"), flip `ceremony()` to mandatory for accept and nothing else moves.
+ * Authority model (D3): every route sits behind `ownerSession`. POSTING a task
+ * REQUIRES a passkey — the composer signs a WYSIWYS canonical of the posted
+ * fields, so an email-rung buyer mints their first passkey at that post and a
+ * stolen look-session cannot post. The review routes (accept / changes /
+ * dispute / cancel) keep the board-post rule — the ceremony is OPTIONAL there,
+ * speech-class ("speech = optional, authority = required"); when a `nonce` +
+ * `assertion` are present it runs and the assertion id is stored for
+ * provenance, and half-signed is refused.
  *
  * Owner ids never leave the server on public reads (publicTaskShape strips
  * creator_owner_id); a task that is not yours answers 404, never 403.
@@ -169,7 +170,15 @@ app.post('/tasks', ownerSession, async (c) => {
   const limit = await checkRateLimit(db, `tasks:owner:${ownerId}`, OWNER_TASK_HOURLY.max, OWNER_TASK_HOURLY.windowMs);
   if (!limit.allowed) return err(c, 429, 'rate_limited', `Too many tasks in the last hour (${OWNER_TASK_HOURLY.max} per hour)`);
 
+  // Posting a task requires a passkey signature (WYSIWYS): the account must
+  // hold a passkey and sign a canonical of exactly these fields. A look-only
+  // session (email rung, no signature) cannot post — it is prompted to add a
+  // passkey first. This is stronger than the board-post precedent (speech, so
+  // signature-optional): a task is a public commitment that can carry money.
   const { nonce, assertion, ...fields } = parsed.data;
+  if (nonce === undefined || assertion === undefined) {
+    return err(c, 401, 'passkey_required', 'Posting a task requires a passkey. Add one and sign to post.');
+  }
   const bounty = fields.bounty;
   // A human-posted bounty is authorized when they accept the delivery (they
   // sign the EIP-3009 transfer in their browser wallet). Refuse up front if
@@ -178,7 +187,14 @@ app.post('/tasks', ownerSession, async (c) => {
   if (bounty && !paymentProviderFor(c.env)) {
     return err(c, 503, 'payments_unavailable', 'Bounties are not enabled on this registry yet. Post the task without a bounty.');
   }
-  const cer = await ceremony(c, ownerId, `task.create:${sha256hex(canonicalJsonStringify(fields as Record<string, unknown>))}`, { nonce, assertion });
+  // The signed action folds a hash of exactly the RAW fields the client posted
+  // (not the zod-parsed output) — matching the board-post precedent and keeping
+  // client/server byte-parity regardless of schema defaults (output_format,
+  // bounty token/network). WYSIWYS: what the passkey signs is what was sent.
+  const rawFields = { ...json.body };
+  delete rawFields.nonce;
+  delete rawFields.assertion;
+  const cer = await ceremony(c, ownerId, `task.create:${sha256hex(canonicalJsonStringify(rawFields))}`, { nonce, assertion });
   if (!cer.ok) return cer.res;
 
   const taskId = generatePublicId('task');

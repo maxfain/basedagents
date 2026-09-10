@@ -159,6 +159,12 @@ export const control = {
   startFinish(token: string): Promise<{ has_account: boolean; start_code?: string }> {
     return request('POST', '/start/finish', { token });
   },
+  // Create (or sign into) an email-only BUYER account from the verified start
+  // code — for people who want to post/hire, not run an agent. Mints the
+  // session cookie; the account holds no vault and gets a passkey on first post.
+  startBuyer(startCode: string): Promise<{ owner_id: string; created: boolean }> {
+    return request('POST', '/start/buyer', { start_code: startCode });
+  },
   inviteClaim(token: string): Promise<{ ok: true; email: string; next_step: string }> {
     return request('POST', '/invites/claim', { token });
   },

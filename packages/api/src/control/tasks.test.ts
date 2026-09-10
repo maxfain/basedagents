@@ -21,7 +21,10 @@ import {
   TEST_WALLET, TEST_TX, type FakeFacilitator,
 } from '../payments/test-fixtures.js';
 import type { PaymentRequirementsV2 } from '../payments/x402.js';
-import { sha256, bytesToHex } from '../crypto/index.js';
+import { sha256, bytesToHex, canonicalJsonStringify } from '../crypto/index.js';
+import { isoCBOR } from '@simplewebauthn/server/helpers';
+import { base64urlEncode, base64urlDecode, actionChallenge } from './webauthn.js';
+import { armActionChallenge } from './routes.js';
 import ownerTaskRoutes from './tasks.js';
 import taskRoutes from '../routes/tasks.js';
 import agentRoutes from '../routes/agents.js';
@@ -39,6 +42,65 @@ vi.mock('../skills/resolver.js', () => ({
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'migrations');
 const sha256hex = (s: string) => bytesToHex(sha256(new TextEncoder().encode(s)));
 
+// ─── minimal WebAuthn authenticator (mirrors ladder.test.ts) so we can forge
+//     the passkey assertion that posting a task now requires ───
+const te = new TextEncoder();
+const RP_ID = 'basedagents.ai';
+const ORIGIN = 'https://app.basedagents.ai';
+type CborType = Parameters<typeof isoCBOR.encode>[0];
+function concat(...arrs: Uint8Array[]): Uint8Array<ArrayBuffer> {
+  const out = new Uint8Array(arrs.reduce((n, a) => n + a.length, 0));
+  let off = 0;
+  for (const a of arrs) { out.set(a, off); off += a.length; }
+  return out;
+}
+function u32be(n: number): Uint8Array<ArrayBuffer> {
+  return new Uint8Array([(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff]);
+}
+function rawToDer(raw: Uint8Array): Uint8Array<ArrayBuffer> {
+  const enc = (part: Uint8Array): number[] => {
+    let i = 0;
+    while (i < part.length - 1 && part[i] === 0) i++;
+    const body = part[i] & 0x80 ? [0, ...Array.from(part.slice(i))] : Array.from(part.slice(i));
+    return [0x02, body.length, ...body];
+  };
+  const r = enc(raw.slice(0, 32));
+  const s = enc(raw.slice(32));
+  return new Uint8Array([0x30, r.length + s.length, ...r, ...s]);
+}
+async function signDer(privateKey: CryptoKey, message: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
+  const raw = await globalThis.crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, privateKey, message);
+  return rawToDer(new Uint8Array(raw));
+}
+class Authenticator {
+  private counter = 0;
+  private constructor(private privateKey: CryptoKey, readonly cose: Uint8Array, readonly credentialId: string) {}
+  static async create(): Promise<Authenticator> {
+    const kp = await globalThis.crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+    const jwk = await globalThis.crypto.subtle.exportKey('jwk', kp.publicKey);
+    const cose = isoCBOR.encode(
+      new Map<number, number | Uint8Array>([[1, 2], [3, -7], [-1, 1], [-2, base64urlDecode(jwk.x!)], [-3, base64urlDecode(jwk.y!)]]) as CborType,
+    );
+    const rawId = new Uint8Array(16);
+    globalThis.crypto.getRandomValues(rawId);
+    return new Authenticator(kp.privateKey, cose as Uint8Array, base64urlEncode(rawId));
+  }
+  async assert(challenge: string): Promise<{ credentialId: string; authenticatorData: string; clientDataJSON: string; signature: string }> {
+    this.counter += 1;
+    const rpIdHash = sha256(te.encode(RP_ID));
+    const authData = concat(rpIdHash, new Uint8Array([0x05]), u32be(this.counter));
+    const clientDataJSON = JSON.stringify({ type: 'webauthn.get', challenge, origin: ORIGIN, crossOrigin: false });
+    const cdjBytes = te.encode(clientDataJSON);
+    const der = await signDer(this.privateKey, concat(authData, sha256(cdjBytes)));
+    return {
+      credentialId: this.credentialId,
+      authenticatorData: base64urlEncode(authData),
+      clientDataJSON: base64urlEncode(cdjBytes),
+      signature: base64urlEncode(der),
+    };
+  }
+}
+
 describe('Owner task routes', () => {
   let db: SQLiteAdapter;
   let app: Hono<AppEnv>;
@@ -54,13 +116,36 @@ describe('Owner task routes', () => {
   }
 
   let ownerSeq = 0;
-  /** An active owner with an email-rung session; returns the Cookie header value. */
+  // Per-cookie owner + registered passkey, so compose() can sign the create
+  // ceremony that posting now requires. Reset each test in beforeEach.
+  let sessions: Map<string, { ownerId: string; auth: Authenticator }>;
+  /**
+   * An active owner with an email-rung session AND a registered passkey (posting
+   * a task requires a signature). Returns the Cookie header value.
+   */
   async function ownerSession(displayName = 'Max'): Promise<{ ownerId: string; cookie: string }> {
     const ownerId = `ow_test${++ownerSeq}`;
     await db.run(`INSERT INTO owners (id, status, display_name) VALUES (?, 'active', ?)`, ownerId, displayName);
     const token = `tok_${ownerId}_${Math.random().toString(36).slice(2)}`;
     await store.createSession({ ownerId, tokenHash: sha256hex(token), method: 'email', ttlSeconds: 3600 });
-    return { ownerId, cookie: `ba_owner_session=${token}` };
+    const auth = await Authenticator.create();
+    await store.addCredential({ ownerId, credentialId: auth.credentialId, publicKey: auth.cose, counter: 0, backedUp: true });
+    const cookie = `ba_owner_session=${token}`;
+    sessions.set(cookie, { ownerId, auth });
+    return { ownerId, cookie };
+  }
+
+  /** Run the create ceremony for `fields` as the cookie's owner → {nonce, assertion}. */
+  async function signCreate(cookie: string, fields: Record<string, unknown>): Promise<{ nonce: string; assertion: unknown }> {
+    const s = sessions.get(cookie);
+    if (!s) throw new Error('no session for cookie');
+    const nonce = base64urlEncode((() => { const b = new Uint8Array(16); crypto.getRandomValues(b); return b; })());
+    const actionType = `task.create:${sha256hex(canonicalJsonStringify(fields))}`;
+    const canonical = canonicalJsonStringify({ action_type: actionType, owner_id: s.ownerId, nonce });
+    const actionHash = actionChallenge(canonical);
+    await armActionChallenge(db, s.ownerId, actionType, actionHash);
+    const assertion = await s.auth.assert(actionHash);
+    return { nonce, assertion };
   }
 
   async function ownerPost(path: string, body: unknown, cookie?: string, extraHeaders: Record<string, string> = {}): Promise<Response> {
@@ -74,11 +159,20 @@ describe('Owner task routes', () => {
     return app.request(path, { headers: cookie ? { Cookie: cookie } : {} });
   }
 
+  /** Sign `fields` as the cookie's owner and POST them; returns the raw Response. */
+  async function composeRaw(cookie: string, fields: Record<string, unknown>): Promise<Response> {
+    const signed = await signCreate(cookie, fields);
+    return ownerPost('/v1/owner/tasks', { ...fields, ...signed }, cookie);
+  }
+
   async function compose(cookie: string, overrides: Record<string, unknown> = {}): Promise<string> {
-    const res = await ownerPost('/v1/owner/tasks', {
+    // The signature is WYSIWYS over exactly these posted fields (the server
+    // hashes the raw posted body, so no schema-default drift to match).
+    const fields = {
       title: 'Reproduce the quickstart', description: 'Follow README on a clean machine and report where it breaks',
-      category: 'code', required_capabilities: ['code'], ...overrides,
-    }, cookie);
+      category: 'code', required_capabilities: ['code'], output_format: 'json', ...overrides,
+    };
+    const res = await composeRaw(cookie, fields);
     expect(res.status).toBe(200);
     return ((await res.json()) as { task_id: string }).task_id;
   }
@@ -98,6 +192,7 @@ describe('Owner task routes', () => {
     await installControlTables();
     store = new ControlStore(db);
     ownerSeq = 0;
+    sessions = new Map();
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal('fetch', mockFetch);
@@ -130,7 +225,8 @@ describe('Owner task routes', () => {
     expect(row!.payment_status).toBe('none');
 
     const pub = (await (await app.request(`/v1/tasks/${taskId}`)).json()) as { task: Record<string, unknown> };
-    expect(pub.task.creator).toEqual({ kind: 'owner', id: null, short_id: null, name: 'Max F', cert: 'none' });
+    // Posting now requires a passkey, so the poster reads as a certified human.
+    expect(pub.task.creator).toEqual({ kind: 'owner', id: null, short_id: null, name: 'Max F', cert: 'certified_human' });
     expect(pub.task).not.toHaveProperty('creator_owner_id');
     expect(pub.task.creator_agent_id).toBeNull();
     const funnel = await db.all<{ event: string; provider: string }>('SELECT event, provider FROM funnel_events WHERE funnel_id = ?', taskId);
@@ -142,10 +238,27 @@ describe('Owner task routes', () => {
     expect((await ownerPost('/v1/owner/tasks', { title: 'x', description: 'y', evil: 1 }, cookie)).status).toBe(400);
   });
 
+  it('requires a passkey signature to post → 401 passkey_required (session alone is not enough)', async () => {
+    const { cookie } = await ownerSession();
+    const res = await ownerPost('/v1/owner/tasks', { title: 'x', description: 'y', output_format: 'json' }, cookie);
+    expect(res.status).toBe(401);
+    expect(((await res.json()) as { error: string }).error).toBe('passkey_required');
+    // nothing was written
+    expect((await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM tasks'))!.n).toBe(0);
+  });
+
+  it('a signed post records the creator assertion on the task', async () => {
+    const { cookie } = await ownerSession();
+    const taskId = await compose(cookie);
+    const row = await db.get<{ creator_assertion_id: string | null }>('SELECT creator_assertion_id FROM tasks WHERE task_id = ?', taskId);
+    expect(row!.creator_assertion_id).toBeTruthy();
+  });
+
   it('refuses a bounty when payments are not enabled → 503 payments_unavailable', async () => {
     disablePaymentsForTests();
     const { cookie } = await ownerSession();
-    const res = await ownerPost('/v1/owner/tasks', { title: 'x', description: 'y', bounty: { amount: '5000000' } }, cookie);
+    // Signed (posting requires a passkey); the 503 is returned before the ceremony runs.
+    const res = await composeRaw(cookie, { title: 'x', description: 'y', output_format: 'json', bounty: { amount: '5000000' } });
     expect(res.status).toBe(503);
     expect(((await res.json()) as { error: string }).error).toBe('payments_unavailable');
   });
@@ -153,10 +266,10 @@ describe('Owner task routes', () => {
   it('composes a bounty task when payments are enabled: stores the bounty, payment_status=pending, declares it', async () => {
     enablePaymentsForTests();
     const { cookie } = await ownerSession();
-    const res = await ownerPost('/v1/owner/tasks', {
-      title: 'Paid task', description: 'do it', category: 'code',
+    const res = await composeRaw(cookie, {
+      title: 'Paid task', description: 'do it', category: 'code', output_format: 'json',
       bounty: { amount: '100000', token: 'USDC', network: 'eip155:8453' },
-    }, cookie);
+    });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { task_id: string; payment_status: string; bounty: { amount_atomic: string; amount_display: string } };
     expect(body.payment_status).toBe('pending');
