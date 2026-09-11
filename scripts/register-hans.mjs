@@ -22,17 +22,19 @@ function base58Encode(bytes) {
   return chars.join('');
 }
 
-function solvePoW(publicKey, difficulty) {
+function solvePoW(publicKey, challenge, difficulty) {
   console.log(`Solving PoW (difficulty=${difficulty})...`);
+  const challengeBytes = new TextEncoder().encode(challenge);
   let nonce = 0;
   const start = Date.now();
   while (true) {
     const nonceHex = nonce.toString(16).padStart(8, '0');
     const nonceBytes = new Uint8Array(4);
     for (let i = 0; i < 4; i++) nonceBytes[i] = parseInt(nonceHex.slice(i*2, i*2+2), 16);
-    const input = new Uint8Array(publicKey.length + nonceBytes.length);
+    const input = new Uint8Array(publicKey.length + challengeBytes.length + nonceBytes.length);
     input.set(publicKey, 0);
-    input.set(nonceBytes, publicKey.length);
+    input.set(challengeBytes, publicKey.length);
+    input.set(nonceBytes, publicKey.length + challengeBytes.length);
     const hash = sha256(input);
     let zeroBits = 0;
     for (const byte of hash) {
@@ -64,7 +66,7 @@ async function main() {
   if (!initRes.ok) { console.error('Init failed:', init); process.exit(1); }
   console.log('Challenge received:', init.challenge_id);
 
-  const { nonce } = solvePoW(publicKey, init.difficulty ?? DIFFICULTY);
+  const { nonce } = solvePoW(publicKey, init.challenge, init.difficulty ?? DIFFICULTY);
 
   const challengeData = new TextEncoder().encode(init.challenge);
   const signature = await ed.signAsync(challengeData, privateKey);
