@@ -208,6 +208,7 @@ export interface ApiTaskSubmission {
   content: string;
   summary: string;
   created_at: string;
+  published_at?: string | null;
 }
 
 export interface ApiDeliveryReceipt {
@@ -253,10 +254,15 @@ export interface ApiTaskListResponse {
 export interface ApiTaskDetailResponse {
   ok: boolean;
   task: ApiTask;
-  /** Always null on the public read — the payload is private to the parties. */
+  /**
+   * Null on the public read UNLESS the poster published this delivery as a
+   * public sample (`submission_public`), in which case the content is present.
+   */
   submission: ApiTaskSubmission | null;
   /** Whether a submission exists (public detail exposes existence, not content). */
   has_submission?: boolean;
+  /** True when the poster published the delivery — `submission` then carries content. */
+  submission_public?: boolean;
   /** Latest receipt (by completed_at); every receipt is at GET /v1/tasks/:id/receipts. */
   delivery_receipt: ApiDeliveryReceipt | null;
   receipts_count?: number;

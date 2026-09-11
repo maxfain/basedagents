@@ -319,6 +319,14 @@ export const control = {
   ): Promise<{ ok: true; task_id: string; status: 'cancelled' }> {
     return request('POST', `/tasks/${encodeURIComponent(taskId)}/cancel`, { ...(signed ?? {}) });
   },
+  /** Publish (or unpublish) the latest delivery as a public sample. */
+  publishDelivery(
+    taskId: string,
+    publish: boolean,
+    signed?: SignedAction,
+  ): Promise<{ ok: true; task_id: string; submission_public: boolean; published_at: string | null }> {
+    return request('POST', `/tasks/${encodeURIComponent(taskId)}/publish`, { publish, ...(signed ?? {}) });
+  },
 
   // ── Approve ceremony ("signature to act") ──
   approveBegin(requestId: string): Promise<ApproveBeginResponse> {

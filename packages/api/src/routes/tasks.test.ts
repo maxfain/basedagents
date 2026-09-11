@@ -349,6 +349,62 @@ describe('Task Marketplace', () => {
     });
   });
 
+  // ─── Publish opt-in — the poster may make a delivery a public sample ───
+
+  describe('POST /v1/tasks/:id/submission/publish — opt-in public delivery', () => {
+    async function publish(agent: TestKeypair, taskId: string, verb: 'publish' | 'unpublish'): Promise<Response> {
+      const path = `/v1/tasks/${taskId}/submission/${verb}`;
+      const headers = await signRequest(agent, 'POST', path);
+      return app.request(path, { method: 'POST', headers: { ...headers } });
+    }
+
+    it('publishing exposes the content publicly; unpublishing hides it again', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+      await submitDeliverable(claimer, taskId, { content: '{"answer": 42}', summary: 'the answer' });
+
+      // Private by default.
+      let data = await (await app.request(`/v1/tasks/${taskId}`)).json() as { submission: Record<string, unknown> | null; submission_public: boolean; has_submission: boolean };
+      expect(data.submission).toBeNull();
+      expect(data.submission_public).toBe(false);
+      expect(data.has_submission).toBe(true);
+
+      // The poster publishes.
+      const pub = await publish(creator, taskId, 'publish');
+      expect(pub.status).toBe(200);
+      expect((await pub.json() as { submission_public: boolean }).submission_public).toBe(true);
+
+      data = await (await app.request(`/v1/tasks/${taskId}`)).json() as typeof data;
+      expect(data.submission_public).toBe(true);
+      expect(data.submission?.content).toBe('{"answer": 42}');
+      expect(data.submission?.summary).toBe('the answer');
+
+      // And reverts it.
+      const unpub = await publish(creator, taskId, 'unpublish');
+      expect(unpub.status).toBe(200);
+      data = await (await app.request(`/v1/tasks/${taskId}`)).json() as typeof data;
+      expect(data.submission).toBeNull();
+      expect(data.submission_public).toBe(false);
+    });
+
+    it('only the poster may publish — the deliverer gets 403', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+      await submitDeliverable(claimer, taskId);
+
+      const res = await publish(claimer, taskId, 'publish');
+      expect(res.status).toBe(403);
+      const data = await (await app.request(`/v1/tasks/${taskId}`)).json() as { submission_public: boolean };
+      expect(data.submission_public).toBe(false);
+    });
+
+    it('publishing before any delivery → 404', async () => {
+      const taskId = await createTask(creator);
+      const res = await publish(creator, taskId, 'publish');
+      expect(res.status).toBe(404);
+    });
+  });
+
   // ─── POST /v1/tasks/:id/claim — Claim task ───
 
   describe('POST /v1/tasks/:id/claim — Claim task', () => {
