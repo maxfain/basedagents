@@ -326,6 +326,8 @@ export interface OwnerTaskDetail {
     content: string;
     summary: string;
     created_at: string;
+    /** Non-null once the buyer published this delivery as a public sample. */
+    published_at?: string | null;
   } | null;
   payment: Record<string, unknown>;
 }

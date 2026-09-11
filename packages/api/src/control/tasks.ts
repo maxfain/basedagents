@@ -85,6 +85,7 @@ const AcceptSchema = z.object({ note: z.string().max(2000).optional(), ...Ceremo
 const RevisionSchema = z.object({ note: z.string().min(1).max(2000), ...Ceremony }).strict();
 const DisputeSchema = z.object({ reason: z.string().min(1).max(2000), ...Ceremony }).strict();
 const CancelSchema = z.object({ reason: z.string().max(2000).optional(), ...Ceremony }).strict();
+const PublishSchema = z.object({ publish: z.boolean(), ...Ceremony }).strict();
 
 /**
  * The optional WYSIWYS ceremony (board-post precedent, control/routes.ts).
@@ -423,6 +424,40 @@ app.post('/tasks/:id/cancel', ownerSession, async (c) => {
   if (task.disputed_at && task.claimed_by_agent_id) await recomputeReputation(db, task.claimed_by_agent_id);
   await recordFunnel(db, 'task_cancelled', taskId, null);
   return c.json({ ok: true, task_id: taskId, status: 'cancelled' });
+});
+
+/**
+ * POST /v1/owner/tasks/:id/publish  {publish: boolean}
+ * The buyer chooses whether the delivered work is a PUBLIC sample. Private is
+ * the default (the payload can carry the buyer's own inputs); publishing is an
+ * explicit, reversible opt-in — reversible for future access, though it cannot
+ * un-cache what a viewer already saw. Same speech/authority split as the review
+ * routes: the passkey ceremony is optional and recorded for provenance when
+ * present.
+ */
+app.post('/tasks/:id/publish', ownerSession, async (c) => {
+  const ownerId = getOwnerId(c);
+  const db = c.get('db');
+  const taskId = c.req.param('id') as string;
+  const json = await readJson(c);
+  if (!json.ok) return err(c, 400, 'bad_request', 'invalid JSON body');
+  const parsed = PublishSchema.safeParse(json.body);
+  if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
+  const mine = await loadMine(c, db, ownerId, taskId);
+  if ('res' in mine) return mine.res;
+
+  const submission = await db.get<{ submission_id: string }>(
+    'SELECT submission_id FROM submissions WHERE task_id = ? ORDER BY created_at DESC LIMIT 1', taskId,
+  );
+  if (!submission) return err(c, 404, 'not_found', 'No delivery to publish yet');
+
+  const cer = await ceremony(c, ownerId, `task.publish:${taskId}:${parsed.data.publish ? '1' : '0'}`, parsed.data);
+  if (!cer.ok) return cer.res;
+
+  const publishedAt = parsed.data.publish ? new Date().toISOString() : null;
+  await db.run('UPDATE submissions SET published_at = ? WHERE submission_id = ?', publishedAt, submission.submission_id);
+  await recordFunnel(db, parsed.data.publish ? 'task_delivery_published' : 'task_delivery_unpublished', taskId, null);
+  return c.json({ ok: true, task_id: taskId, submission_public: parsed.data.publish, published_at: publishedAt });
 });
 
 export default app;

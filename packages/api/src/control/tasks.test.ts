@@ -461,6 +461,41 @@ describe('Owner task routes', () => {
     expect(rep.tasks_failed).toBeGreaterThan(0);
   });
 
+  it('the buyer publishes the delivery as a public sample, then makes it private again', async () => {
+    const { cookie } = await ownerSession();
+    const taskId = await compose(cookie);
+    await claimAndDeliver(taskId, 'the delivered sample');
+
+    // Private by default on the public detail.
+    let pub = await (await app.request(`/v1/tasks/${taskId}`)).json() as { submission: Record<string, unknown> | null; submission_public: boolean };
+    expect(pub.submission_public).toBe(false);
+    expect(pub.submission).toBeNull();
+
+    // Publish → the content is public.
+    const on = await ownerPost(`/v1/owner/tasks/${taskId}/publish`, { publish: true }, cookie);
+    expect(on.status).toBe(200);
+    expect(((await on.json()) as { submission_public: boolean }).submission_public).toBe(true);
+    pub = await (await app.request(`/v1/tasks/${taskId}`)).json() as typeof pub;
+    expect(pub.submission_public).toBe(true);
+    expect(pub.submission?.summary).toBe('the delivered sample');
+
+    // Unpublish → private again.
+    const off = await ownerPost(`/v1/owner/tasks/${taskId}/publish`, { publish: false }, cookie);
+    expect(off.status).toBe(200);
+    pub = await (await app.request(`/v1/tasks/${taskId}`)).json() as typeof pub;
+    expect(pub.submission_public).toBe(false);
+    expect(pub.submission).toBeNull();
+  });
+
+  it("publish on someone else's task → 404 (not mine)", async () => {
+    const a = await ownerSession('A');
+    const b = await ownerSession('B');
+    const taskId = await compose(a.cookie);
+    await claimAndDeliver(taskId);
+    const res = await ownerPost(`/v1/owner/tasks/${taskId}/publish`, { publish: true }, b.cookie);
+    expect(res.status).toBe(404);
+  });
+
   it('a half-signed ceremony is refused → 400', async () => {
     const { cookie } = await ownerSession();
     const taskId = await compose(cookie);

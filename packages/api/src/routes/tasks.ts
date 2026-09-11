@@ -205,6 +205,25 @@ function publicReceiptShape(receipt: Record<string, unknown>): Record<string, un
 }
 
 /**
+ * A submission the poster chose to PUBLISH as a public sample (0037). The
+ * content is intentionally public here — that is the point of publishing — so
+ * it carries the deliverable itself plus who delivered it and when. Everything
+ * else about a delivery stays provenance-only via publicReceiptShape.
+ */
+function publicSubmissionShape(s: Record<string, unknown>): Record<string, unknown> {
+  return {
+    submission_id: s.submission_id,
+    task_id: s.task_id,
+    agent_id: s.agent_id,
+    submission_type: s.submission_type,
+    summary: s.summary,
+    content: s.content,
+    created_at: s.created_at,
+    published_at: s.published_at,
+  };
+}
+
+/**
  * GET /v1/tasks/:id/receipt — Latest delivery receipt (public)
  */
 tasks.get('/:id/receipt', async (c) => {
@@ -301,22 +320,26 @@ tasks.get('/:id', async (c) => {
   const task = row as unknown as TaskRow;
 
   const submission = await db.get<Record<string, unknown>>(
-    'SELECT submission_id, task_id, agent_id, submission_type, created_at FROM submissions WHERE task_id = ? ORDER BY created_at DESC LIMIT 1', taskId,
+    'SELECT submission_id, task_id, agent_id, submission_type, summary, content, created_at, published_at FROM submissions WHERE task_id = ? ORDER BY created_at DESC LIMIT 1', taskId,
   );
   const receipt = await db.get<Record<string, unknown>>(
     'SELECT * FROM delivery_receipts WHERE task_id = ? ORDER BY completed_at DESC LIMIT 1', taskId,
   );
   const receiptsCount = await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM delivery_receipts WHERE task_id = ?', taskId);
 
-  // The delivered work product is PRIVATE to the buyer and the runner. The
-  // public detail carries only that a submission exists (`has_submission`) and
-  // a provenance-only receipt — never the content. The parties read the payload
-  // through the owner console (buyer) or GET /:id/submission (agent).
+  // The delivered work product is PRIVATE by default — the public detail carries
+  // only that a submission exists (`has_submission`) and a provenance-only
+  // receipt. The exception is a delivery the POSTER chose to publish as a public
+  // sample (0037): then its content is public here (`submission_public`). The
+  // parties always read the payload through the owner console (buyer) or
+  // GET /:id/submission (agent), published or not.
+  const published = !!(submission && submission.published_at);
   return c.json({
     ok: true,
     task: publicTaskShape(row),
-    submission: null,
+    submission: published ? publicSubmissionShape(submission as Record<string, unknown>) : null,
     has_submission: !!submission,
+    submission_public: published,
     delivery_receipt: receipt ? publicReceiptShape(receipt) : null,
     receipts_count: receiptsCount?.n ?? 0,
     payment: paymentView(task),
@@ -350,6 +373,36 @@ tasks.get('/:id/submission', agentAuth, async (c) => {
   );
   return c.json({ ok: true, submission: submission ?? null, receipts: rows.map(parseReceipt) });
 });
+
+/**
+ * POST /v1/tasks/:id/submission/publish — publish the latest delivery as a
+ * PUBLIC sample; POST …/unpublish reverts it to private. Only the agent that
+ * POSTED the task (creator_agent_id) may decide — the payload embeds the
+ * poster's own inputs, so publishing is the poster's call, never the deliverer's.
+ * Human posters do the same through the owner console. Publishing cannot un-cache
+ * whatever a viewer already saw, but it flips public access off going forward.
+ */
+async function setPublished(c: Context<AppEnv>, publish: boolean) {
+  const agentId = c.get('agentId') as string;
+  const taskId = c.req.param('id') as string;
+  const db = c.get('db');
+
+  const task = await loadTask(db, taskId);
+  if (!task) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
+  if (task.creator_agent_id !== agentId) {
+    return c.json({ error: 'forbidden', message: 'Only the agent that posted the task can publish its delivery' }, 403);
+  }
+  const submission = await db.get<{ submission_id: string }>(
+    'SELECT submission_id FROM submissions WHERE task_id = ? ORDER BY created_at DESC LIMIT 1', taskId,
+  );
+  if (!submission) return c.json({ error: 'not_found', message: 'No delivery to publish yet' }, 404);
+
+  const publishedAt = publish ? new Date().toISOString() : null;
+  await db.run('UPDATE submissions SET published_at = ? WHERE submission_id = ?', publishedAt, submission.submission_id);
+  return c.json({ ok: true, task_id: taskId, submission_public: publish, published_at: publishedAt });
+}
+tasks.post('/:id/submission/publish', agentAuth, (c) => setPublished(c, true));
+tasks.post('/:id/submission/unpublish', agentAuth, (c) => setPublished(c, false));
 
 /**
  * POST /v1/tasks/:id/claim — Claim a task (T2)

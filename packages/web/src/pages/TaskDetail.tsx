@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api/client';
-import type { ApiTask, ApiDeliveryReceipt, ApiTaskPayment, ApiPaymentStatus } from '../api/types';
+import type { ApiTask, ApiDeliveryReceipt, ApiTaskPayment, ApiPaymentStatus, ApiTaskSubmission } from '../api/types';
 import { STATUS_LABELS, bountyLabel } from './Marketplace';
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
@@ -106,8 +106,10 @@ export default function TaskDetail(): React.ReactElement {
   const { id } = useParams<{ id: string }>();
   const [task, setTask] = useState<ApiTask | null>(null);
   // The delivered payload is private to the buyer and the runner; the public
-  // detail only tells us a submission EXISTS, plus provenance-only receipts.
+  // detail only tells us a submission EXISTS, plus provenance-only receipts —
+  // UNLESS the poster published it as a public sample, when the content is here.
   const [hasSubmission, setHasSubmission] = useState(false);
+  const [publicSample, setPublicSample] = useState<ApiTaskSubmission | null>(null);
   const [receipts, setReceipts] = useState<ApiDeliveryReceipt[]>([]);
   const [payment, setPayment] = useState<ApiTaskPayment | null>(null);
   const [loading, setLoading] = useState(true);
@@ -124,6 +126,7 @@ export default function TaskDetail(): React.ReactElement {
         if (cancelled) return;
         setTask(res.task);
         setHasSubmission(!!res.has_submission);
+        setPublicSample(res.submission_public && res.submission ? res.submission : null);
         setPayment(res.payment ?? null);
         const latest = res.delivery_receipt ? [res.delivery_receipt] : [];
         // A revision round adds a receipt; list them all when there is more than one.
@@ -606,8 +609,10 @@ export default function TaskDetail(): React.ReactElement {
           </div>
         </div>
 
-        {/* The delivered result is private to the two parties. */}
-        {hasSubmission && (
+        {/* The delivered result: private by default, or a poster-published sample. */}
+        {publicSample ? (
+          <PublicSample submission={publicSample} />
+        ) : hasSubmission && (
           <div style={sectionStyle}>
             <div style={{ ...labelStyle, color: '#3B82F6' }}>Result delivered</div>
             <div style={{ ...valueStyle, marginTop: 8 }}>
@@ -627,6 +632,31 @@ export default function TaskDetail(): React.ReactElement {
           />
         ))}
       </div>
+    </div>
+  );
+}
+
+/** A delivery the poster published as a public sample — the content is meant to be seen. */
+function PublicSample({ submission }: { submission: ApiTaskSubmission }): React.ReactElement {
+  const isLink = submission.submission_type === 'link' && /^https?:\/\//i.test(submission.content.trim());
+  return (
+    <div style={{ ...sectionStyle, borderColor: 'rgba(100, 102, 233, 0.35)' }}>
+      <div style={{ ...labelStyle, color: 'var(--accent-light)' }}>Published sample</div>
+      <div style={{ ...valueStyle, marginTop: 8, marginBottom: 12 }}>
+        The buyer published this delivery as a public sample. {submission.summary}
+      </div>
+      {isLink ? (
+        <a href={submission.content.trim()} target="_blank" rel="noopener noreferrer nofollow" style={{ fontFamily: 'var(--font-mono)', fontSize: 13, wordBreak: 'break-all' }}>
+          {submission.content.trim()}
+        </a>
+      ) : (
+        <pre style={{
+          margin: 0, padding: 14, borderRadius: 10, background: 'var(--bg-primary)',
+          border: '1px solid var(--border)', color: 'var(--text-secondary)',
+          fontFamily: 'var(--font-mono)', fontSize: 12.5, lineHeight: 1.55,
+          whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowX: 'auto',
+        }}>{submission.content}</pre>
+      )}
     </div>
   );
 }

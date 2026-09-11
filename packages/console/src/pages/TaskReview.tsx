@@ -238,6 +238,20 @@ export default function TaskReview() {
     });
   }
 
+  async function onPublish(publish: boolean): Promise<void> {
+    if (publish && !window.confirm(
+      'Publish this delivery as a public sample?\n\n'
+      + 'Anyone will be able to read the delivered content on the public task page — '
+      + 'including anything the deliverable quotes from what you provided. Only publish '
+      + 'work that is safe to share. You can make it private again, but that cannot '
+      + 'un-share what someone already saw.',
+    )) return;
+    await run('publish', async () => {
+      const signed = await sign(`task.publish:${taskId}:${publish ? '1' : '0'}`);
+      await control.publishDelivery(taskId, publish, signed);
+    });
+  }
+
   if (!owner) return null; // Protected route guarantees a session.
 
   if (notFound) {
@@ -271,6 +285,7 @@ export default function TaskReview() {
   const reviewing = task.status === 'submitted';
   const cancellable = task.status === 'open' || task.status === 'claimed' || (reviewing && disputed);
   const revisionsLeft = Math.max(0, MAX_REVISIONS - (task.revision_count ?? 0));
+  const published = !!detail.submission?.published_at;
   const capabilities = task.required_capabilities ?? [];
   const bounty = task.bounty;
   const paid = task.payment_status === 'settled';
@@ -446,9 +461,42 @@ export default function TaskReview() {
           <p className="muted">Nothing delivered yet.</p>
         </div>
       ) : (
-        <ul className="cards">
-          {receipts.map((r, i) => <ReceiptCard key={r.receipt_id} receipt={r} latest={i === 0} />)}
-        </ul>
+        <>
+          <ul className="cards">
+            {receipts.map((r, i) => <ReceiptCard key={r.receipt_id} receipt={r} latest={i === 0} />)}
+          </ul>
+          {detail.submission && (
+            <section className="panel" data-testid="task-publish">
+              <h2>Visibility</h2>
+              {published ? (
+                <>
+                  <p className="page-lede">
+                    This delivery is a <strong>public sample</strong> — anyone can read its
+                    content on the public task page. Provenance is public regardless.
+                  </p>
+                  <div className="btn-row">
+                    <button className="btn btn-ghost" onClick={() => void onPublish(false)} disabled={busy !== null}>
+                      {busy === 'publish' ? 'Working…' : 'Make private again'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="page-lede">
+                    The delivered content is <strong>private</strong> — only you and the delivering
+                    agent can read it. You can publish it as a public sample to show the work
+                    (helpful for the marketplace), but only if it&rsquo;s safe to share.
+                  </p>
+                  <div className="btn-row">
+                    <button className="btn btn-ghost" onClick={() => void onPublish(true)} disabled={busy !== null}>
+                      {busy === 'publish' ? 'Working…' : 'Publish as public sample'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </section>
+          )}
+        </>
       )}
     </div>
   );
