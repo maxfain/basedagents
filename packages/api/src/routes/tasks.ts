@@ -7,11 +7,19 @@
  * side effects after a win. The human-owner route family (control/tasks.ts)
  * shares the same service.
  *
- * Payment model (Tasks P0, spec section 2): a bounty is DECLARED at creation
- * and AUTHORIZED at accept time — the buyer signs an EIP-3009 transfer to the
- * deliverer's wallet only after seeing the work. BasedAgents never holds
- * funds. Payments fail closed: without TASK_PAYMENTS_ENABLED + CDP secrets a
- * bounty task cannot be created and a paid accept answers 503.
+ * Payment model. Two flows share one settlement machine (payments/settle.ts):
+ *   * ESCROW (Tasks P1, the default): the buyer DEPOSITS the bounty into the
+ *     registry's house wallet when posting (the x402 402 handshake happens at
+ *     POST /v1/tasks); the task is claimable once the deposit settled; the
+ *     house RELEASES it to the deliverer on acceptance (buyer or timer) and
+ *     REFUNDS it on cancel. See payments/escrow.ts.
+ *   * SIGN-AT-ACCEPT (`escrow: false`, Tasks P0): the bounty is only DECLARED
+ *     at creation and AUTHORIZED at accept time — the buyer signs an EIP-3009
+ *     transfer to the deliverer's wallet after seeing the work; the registry
+ *     never holds the funds. See payments/accept.ts.
+ * Payments fail closed: without TASK_PAYMENTS_ENABLED + CDP secrets a bounty
+ * task cannot be created and a paid accept answers 503; escrow additionally
+ * needs the house key (ESCROW_WALLET_PRIVATE_KEY) or answers 503.
  */
 import { Hono } from 'hono';
 import type { Context } from 'hono';
@@ -24,9 +32,11 @@ import { generatePublicId } from '../lib/ids.js';
 import { paymentProviderFor } from '../payments/index.js';
 import { buildRequirements, buildPaymentRequired, isNetwork } from '../payments/x402.js';
 import { acceptBountyTask, delivererWallet } from '../payments/accept.js';
+import { fundEscrowTask, acceptEscrowTask, startEscrowLeg, escrowDepositRequirements } from '../payments/escrow.js';
+import { escrowAvailable } from '../payments/house-wallet.js';
 import {
   type Actor, type TaskRow, loadTask, creatorMatches, logPaymentEvent, recordFunnel,
-  creatorTarget, recomputeReputation, publicTaskShape, paymentView, bountyView, creatorSqlParts,
+  creatorTarget, recomputeReputation, publicTaskShape, paymentView, bountyView, creatorSqlParts, escrowView,
   claimGate, deliverGate, acceptUnpaidGate, revisionGate, disputeGate, cancelGate, cancelRefusal, afterAccept,
   notifyMatchingAgents, writeDeliveryReceipt, MAX_REVISIONS,
 } from '../tasks/service.js';
@@ -65,7 +75,14 @@ function paymentHeader(c: Ctx): string | undefined {
 }
 
 /**
- * POST /v1/tasks — Create a task. A bounty is declared here, never paid here.
+ * POST /v1/tasks — Create a task.
+ *
+ * With a bounty and escrow ON (the default whenever the registry has escrow
+ * enabled, or `escrow: true`): the deposit is paid HERE — the first call
+ * answers 402 + PAYMENT-REQUIRED (payTo = the house wallet), the buyer signs
+ * and retries with PAYMENT-SIGNATURE, and the task is created funded. With
+ * `escrow: false` (or no escrow on this registry) a bounty is only declared
+ * here and paid at accept; a payment header is then refused.
  */
 tasks.post('/', agentAuth, async (c) => {
   const creatorId = c.get('agentId') as string;
@@ -85,14 +102,18 @@ tasks.post('/', agentAuth, async (c) => {
     return c.json({ error: 'forbidden', message: 'Agent must be active to create tasks' }, 403);
   }
 
-  if (paymentHeader(c)) {
+  const bounty = parsed.data.bounty;
+  const wantsEscrow = !!bounty && (parsed.data.escrow ?? escrowAvailable(c.env));
+
+  if (paymentHeader(c) && !wantsEscrow) {
     return c.json({
       error: 'payment_not_expected',
-      message: 'Payment is authorized when you accept the deliverable, not when you post the task. Declare the bounty in the body and omit the payment header.',
+      message: bounty
+        ? 'This task does not use escrow: the bounty is authorized when you accept the deliverable. Omit the payment header, or post with "escrow": true to deposit it now.'
+        : 'Payment is authorized when you accept the deliverable, not when you post the task. Declare the bounty in the body and omit the payment header.',
     }, 400);
   }
 
-  const bounty = parsed.data.bounty;
   if (bounty && !paymentProviderFor(c.env)) {
     return c.json({
       error: 'payments_unavailable',
@@ -103,6 +124,22 @@ tasks.post('/', agentAuth, async (c) => {
   const taskId = generatePublicId('task');
   const now = new Date().toISOString();
   const reqCaps = parsed.data.required_capabilities ?? null;
+
+  if (wantsEscrow && bounty) {
+    const outcome = await fundEscrowTask(db, c.env, {
+      kind: 'new',
+      funnel: 'agent',
+      task: {
+        task_id: taskId, creator_agent_id: creatorId, creator_owner_id: null, creator_kind: 'agent', creator_assertion_id: null,
+        proposer_signature: agentSigFromHeader(c), title: parsed.data.title, description: parsed.data.description,
+        category: parsed.data.category ?? null, required_capabilities: reqCaps, expected_output: parsed.data.expected_output ?? null,
+        output_format: parsed.data.output_format, bounty: { amount: bounty.amount, token: bounty.token, network: bounty.network },
+      },
+    }, { rawHeader: paymentHeader(c) ?? null, nowIso: now, actor: { kind: 'agent', agentId: creatorId } });
+    for (const [k, v] of Object.entries(outcome.headers ?? {})) c.header(k, v);
+    return c.json(outcome.body, outcome.status);
+  }
+
   const paymentStatus = bounty ? 'pending' : 'none';
 
   await db.run(
@@ -128,9 +165,30 @@ tasks.post('/', agentAuth, async (c) => {
     required_capabilities: reqCaps, output_format: parsed.data.output_format, bounty: bountyOut,
   }, creatorId);
 
-  const response: Record<string, unknown> = { ok: true, task_id: taskId, status: 'open', payment_status: paymentStatus };
+  const response: Record<string, unknown> = { ok: true, task_id: taskId, status: 'open', payment_status: paymentStatus, escrow: null };
   if (bountyOut) response.bounty = bountyOut;
   return c.json(response);
+});
+
+/**
+ * POST /v1/tasks/:id/fund — Fund (again) an escrow task whose deposit
+ * definitively failed or expired (`escrow.status: unfunded`). Creator only;
+ * the same 402 handshake as posting.
+ */
+tasks.post('/:id/fund', agentAuth, async (c) => {
+  const agentId = c.get('agentId') as string;
+  const taskId = c.req.param('id') as string;
+  const db = c.get('db');
+  const actor: Actor = { kind: 'agent', agentId };
+
+  const task = await loadTask(db, taskId);
+  if (!task) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
+  if (!creatorMatches(task, actor)) return c.json({ error: 'forbidden', message: 'Only the task creator can fund the escrow' }, 403);
+  if (!task.escrow) return c.json({ error: 'invalid_state', message: 'This task does not use escrow; the bounty is paid when you accept the delivery.' }, 409);
+
+  const outcome = await fundEscrowTask(db, c.env, { kind: 'existing', task }, { rawHeader: paymentHeader(c) ?? null, nowIso: new Date().toISOString(), actor });
+  for (const [k, v] of Object.entries(outcome.headers ?? {})) c.header(k, v);
+  return c.json(outcome.body, outcome.status);
 });
 
 /**
@@ -282,9 +340,20 @@ tasks.get('/:id/payment', async (c) => {
 
   let requirements: ReturnType<typeof buildRequirements> | null = null;
   let paymentRequired: ReturnType<typeof buildPaymentRequired> | null = null;
-  let unavailableReason: 'no_bounty' | 'unsupported_network' | 'not_claimed' | 'payee_wallet_missing' | null = null;
+  let unavailableReason: 'no_bounty' | 'unsupported_network' | 'not_claimed' | 'payee_wallet_missing' | 'escrow_held' | 'escrow_funding' | 'escrow_unavailable' | null = null;
   if (!task.bounty_amount) unavailableReason = 'no_bounty';
   else if (!isNetwork(task.bounty_network)) unavailableReason = 'unsupported_network';
+  else if (task.escrow) {
+    // Escrow: the only thing a buyer ever signs is the DEPOSIT (payTo = the
+    // house wallet), and only while it is not held: at post, or again after a
+    // definitive deposit failure (`unfunded`, POST /:id/fund).
+    if (task.escrow_status === 'unfunded') {
+      requirements = escrowDepositRequirements(c.env, task);
+      if (!requirements) unavailableReason = 'escrow_unavailable';
+      else paymentRequired = buildPaymentRequired(task, requirements, undefined, { url: `https://api.basedagents.ai/v1/tasks/${taskId}/fund`, description: `BasedAgents escrow deposit for task ${taskId}` });
+    } else if (task.escrow_status === 'funding') unavailableReason = 'escrow_funding';
+    else unavailableReason = 'escrow_held';
+  }
   else if (!task.claimed_by_agent_id) unavailableReason = 'not_claimed';
   else {
     const wallet = await delivererWallet(db, task.claimed_by_agent_id);
@@ -302,6 +371,7 @@ tasks.get('/:id/payment', async (c) => {
     ...(unavailableReason ? { requirements_unavailable_reason: unavailableReason } : {}),
     ...(paymentRequired ? { payment_required: paymentRequired } : {}),
     accept_endpoint: `POST /v1/tasks/${taskId}/accept`,
+    ...(task.escrow ? { fund_endpoint: `POST /v1/tasks/${taskId}/fund` } : {}),
     payment_header: PAYMENT_HEADER,
     events: events.map((e) => ({ ...e, details: e.details ? JSON.parse(e.details) : null })),
   });
@@ -422,6 +492,15 @@ tasks.post('/:id/claim', agentAuth, async (c) => {
   if (!task) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
   if (creatorMatches(task, actor)) return c.json({ error: 'bad_request', message: 'Cannot claim your own task' }, 400);
   if (task.status !== 'open') return c.json({ error: 'conflict', message: 'Task is not open for claiming' }, 409);
+  if (task.escrow && task.escrow_status !== 'funded') {
+    return c.json({
+      error: 'escrow_not_funded',
+      message: task.escrow_status === 'funding'
+        ? "This task's bounty deposit is still settling into escrow; try again in a moment."
+        : "This task's bounty deposit has not settled into escrow; it cannot be claimed until the buyer funds it.",
+      escrow: escrowView(task),
+    }, 409);
+  }
 
   // A bounty is paid to the claimer's wallet at accept time — require it now,
   // so a buyer never faces a deliverer who cannot be paid.
@@ -602,6 +681,17 @@ async function handleAccept(c: Ctx, deprecatedAlias: boolean): Promise<Response>
   }
 
   const now = new Date().toISOString();
+
+  // ─── Escrow task ─── the deposit is already held; the house pays the deliverer (payments/escrow.ts).
+  if (task.escrow) {
+    if (paymentHeader(c)) {
+      return c.json({ error: 'payment_not_expected', message: 'This task is in escrow: the bounty was deposited when it was posted and is released to the deliverer when you accept. Omit the payment header.' }, 400);
+    }
+    const outcome = await acceptEscrowTask(db, c.env, task, { note, actor, nowIso: now });
+    for (const [k, v] of Object.entries(outcome.headers ?? {})) c.header(k, v);
+    return c.json(outcome.body, outcome.status);
+  }
+
   const alreadyPaidOrInFlight = ['authorized', 'settling', 'settled'].includes(task.payment_status);
 
   // Idempotent re-accept: nothing to do, nothing to charge.
@@ -748,14 +838,23 @@ tasks.post('/:id/cancel', agentAuth, async (c) => {
     return c.json({ error: 'conflict', message: 'Task changed while you were cancelling it' }, 409);
   }
 
-  if (task.bounty_amount && ['pending', 'failed'].includes(task.payment_status)) {
-    await logPaymentEvent(db, taskId, 'expired', { reason: 'task_cancelled', cancel_reason: reason }, now);
+  if (task.escrow && task.escrow_status === 'funded') {
+    // The deposit goes back to the wallet that paid it (house-signed; the cron retries).
+    await logPaymentEvent(db, taskId, 'escrow_refund_requested', { reason: 'task_cancelled', cancel_reason: reason }, now);
+    await startEscrowLeg(db, c.env, taskId, 'refund', 'cancel', now);
+  } else if (task.bounty_amount && ['pending', 'failed'].includes(task.payment_status)) {
+    await logPaymentEvent(db, taskId, 'expired', { reason: 'task_cancelled', cancel_reason: reason, ...(task.escrow ? { escrow: true } : {}) }, now);
   }
   if (task.disputed_at && task.claimed_by_agent_id) await recomputeReputation(db, task.claimed_by_agent_id);
   await recordFunnel(db, 'task_cancelled', taskId, null);
 
   const after = await loadTask(db, taskId);
-  return c.json({ ok: true, task_id: taskId, status: 'cancelled', payment_status: after?.payment_status ?? task.payment_status });
+  const body: Record<string, unknown> = { ok: true, task_id: taskId, status: 'cancelled', payment_status: after?.payment_status ?? task.payment_status };
+  if (after?.escrow) {
+    body.escrow = escrowView(after);
+    if (after.escrow_refund_tx_hash) body.refund_tx_hash = after.escrow_refund_tx_hash;
+  }
+  return c.json(body);
 });
 
 export default tasks;

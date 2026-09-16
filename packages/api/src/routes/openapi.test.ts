@@ -105,9 +105,12 @@ describe('OpenAPI Spec — task route parity with routes/tasks.ts', () => {
     const headerNames = (op: Record<string, unknown>) =>
       ((op.parameters ?? []) as Array<{ name: string; in: string }>).filter(p => p.in === 'header').map(p => p.name);
 
-    // A payment header at create is a 400 on the API — the spec must not advertise one.
-    expect(headerNames(paths['/v1/tasks'].post)).toEqual([]);
+    // Escrow: the deposit is signed at create (402 there too); the legacy header name is never advertised.
+    expect(headerNames(paths['/v1/tasks'].post)).toEqual(['PAYMENT-SIGNATURE']);
     expect(JSON.stringify(paths['/v1/tasks'].post)).not.toContain('X-PAYMENT-SIGNATURE');
+    const create = paths['/v1/tasks'].post as { responses: Record<string, { headers?: Record<string, unknown> }> };
+    expect(Object.keys(create.responses['402'].headers ?? {})).toContain('PAYMENT-REQUIRED');
+    expect(headerNames(paths['/v1/tasks/{id}/fund'].post)).toEqual(['PAYMENT-SIGNATURE']);
     expect(headerNames(paths['/v1/tasks/{id}/accept'].post)).toEqual(['PAYMENT-SIGNATURE']);
 
     expect(paths['/v1/tasks/{id}/verify'].post.deprecated).toBe(true);

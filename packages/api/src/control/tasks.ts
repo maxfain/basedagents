@@ -9,10 +9,11 @@
  * same tasks/service.ts gates the AgentSig routes use, so both families share
  * one state machine and one set of side effects.
  *
- *   POST /v1/owner/tasks                 compose (UNPAID only in this release — D2)
+ *   POST /v1/owner/tasks                 compose; a bounty is ESCROWED here by default (402 handshake, browser wallet)
+ *   POST /v1/owner/tasks/:id/fund        fund an escrow task again after a failed deposit
  *   GET  /v1/owner/tasks?status=         my tasks, newest first, with the latest receipt
  *   GET  /v1/owner/tasks/:id             detail (404 when not mine)
- *   POST /v1/owner/tasks/:id/accept      {note?}
+ *   POST /v1/owner/tasks/:id/accept      {note?} — an escrow task releases the deposit to the deliverer, no wallet needed
  *   POST /v1/owner/tasks/:id/revision    {note}
  *   POST /v1/owner/tasks/:id/dispute     {reason}
  *   POST /v1/owner/tasks/:id/cancel
@@ -47,6 +48,9 @@ import {
 } from '../tasks/service.js';
 import { paymentProviderFor } from '../payments/index.js';
 import { acceptBountyTask } from '../payments/accept.js';
+import { fundEscrowTask, acceptEscrowTask, startEscrowLeg } from '../payments/escrow.js';
+import { escrowAvailable } from '../payments/house-wallet.js';
+import { escrowView } from '../tasks/service.js';
 import { recordEvent } from '../events/service.js';
 
 const textEncoder = new TextEncoder();
@@ -159,7 +163,17 @@ async function receiptsFor(db: DBAdapter, taskIds: string[]): Promise<Map<string
 
 const app = new Hono<AppEnv>();
 
-/** POST /v1/owner/tasks — compose an (unpaid) task. */
+function paymentHeader(c: Ctx): string | null {
+  return c.req.header('PAYMENT-SIGNATURE') ?? c.req.header('X-PAYMENT-SIGNATURE') ?? null;
+}
+
+/**
+ * POST /v1/owner/tasks — compose a task. A bounty is escrowed at post by
+ * default: the first call (no PAYMENT-SIGNATURE) answers the 402 challenge
+ * BEFORE the rate limit and the passkey ceremony run, so the console can sign
+ * the deposit in the browser wallet and then submit the passkey-signed post
+ * with the header; `escrow: false` keeps the pay-at-accept flow.
+ */
 app.post('/tasks', ownerSession, async (c) => {
   const ownerId = getOwnerId(c);
   const db = c.get('db');
@@ -167,6 +181,27 @@ app.post('/tasks', ownerSession, async (c) => {
   if (!json.ok) return err(c, 400, 'bad_request', 'invalid JSON body');
   const parsed = OwnerCreateSchema.safeParse(json.body);
   if (!parsed.success) return c.json({ error: 'bad_request', message: 'validation failed', details: parsed.error.flatten() }, 400);
+
+  const wantsEscrow = !!parsed.data.bounty && (parsed.data.escrow ?? escrowAvailable(c.env));
+  const rawHeader = paymentHeader(c);
+  if (rawHeader && !wantsEscrow) {
+    return err(c, 400, 'payment_not_expected', 'This task does not use escrow: the bounty is paid when you accept the delivery. Omit the payment header.');
+  }
+  if (wantsEscrow && parsed.data.bounty && !rawHeader) {
+    // The stateless challenge: nothing is consumed (no rate-limit slot, no passkey challenge).
+    const b = parsed.data.bounty;
+    const challenge = await fundEscrowTask(db, c.env, {
+      kind: 'new', funnel: 'human',
+      task: {
+        task_id: generatePublicId('task'), creator_agent_id: null, creator_owner_id: ownerId, creator_kind: 'owner', creator_assertion_id: null,
+        proposer_signature: null, title: parsed.data.title, description: parsed.data.description, category: parsed.data.category ?? null,
+        required_capabilities: parsed.data.required_capabilities ?? null, expected_output: parsed.data.expected_output ?? null,
+        output_format: parsed.data.output_format, bounty: { amount: b.amount, token: b.token, network: b.network },
+      },
+    }, { rawHeader: null, nowIso: new Date().toISOString(), actor: { kind: 'owner', ownerId } });
+    for (const [k, v] of Object.entries(challenge.headers ?? {})) c.header(k, v);
+    return c.json(challenge.body, challenge.status);
+  }
 
   const limit = await checkRateLimit(db, `tasks:owner:${ownerId}`, OWNER_TASK_HOURLY.max, OWNER_TASK_HOURLY.windowMs);
   if (!limit.allowed) return err(c, 429, 'rate_limited', `Too many tasks in the last hour (${OWNER_TASK_HOURLY.max} per hour)`);
@@ -201,6 +236,21 @@ app.post('/tasks', ownerSession, async (c) => {
   const taskId = generatePublicId('task');
   const now = new Date().toISOString();
   const reqCaps = fields.required_capabilities ?? null;
+
+  if (wantsEscrow && bounty) {
+    const outcome = await fundEscrowTask(db, c.env, {
+      kind: 'new', funnel: 'human',
+      task: {
+        task_id: taskId, creator_agent_id: null, creator_owner_id: ownerId, creator_kind: 'owner', creator_assertion_id: cer.assertionId,
+        proposer_signature: null, title: fields.title, description: fields.description, category: fields.category ?? null,
+        required_capabilities: reqCaps, expected_output: fields.expected_output ?? null, output_format: fields.output_format,
+        bounty: { amount: bounty.amount, token: bounty.token, network: bounty.network },
+      },
+    }, { rawHeader, nowIso: now, actor: { kind: 'owner', ownerId } });
+    for (const [k, v] of Object.entries(outcome.headers ?? {})) c.header(k, v);
+    return c.json(outcome.body, outcome.status);
+  }
+
   const paymentStatus = bounty ? 'pending' : 'none';
   await db.run(
     `INSERT INTO tasks (task_id, creator_agent_id, creator_owner_id, creator_kind, creator_assertion_id, title, description, category,
@@ -219,9 +269,22 @@ app.post('/tasks', ownerSession, async (c) => {
     task_id: taskId, title: fields.title, description: fields.description, category: fields.category ?? null,
     required_capabilities: reqCaps, output_format: fields.output_format, bounty: bountyOut,
   }, null);
-  const response: Record<string, unknown> = { ok: true, task_id: taskId, status: 'open', payment_status: paymentStatus };
+  const response: Record<string, unknown> = { ok: true, task_id: taskId, status: 'open', payment_status: paymentStatus, escrow: null };
   if (bountyOut) response.bounty = bountyOut;
   return c.json(response);
+});
+
+/** POST /v1/owner/tasks/:id/fund — fund an escrow task again after its deposit failed (same 402 handshake). */
+app.post('/tasks/:id/fund', ownerSession, async (c) => {
+  const ownerId = getOwnerId(c);
+  const db = c.get('db');
+  const taskId = c.req.param('id') as string;
+  const mine = await loadMine(c, db, ownerId, taskId);
+  if ('res' in mine) return mine.res;
+  if (!mine.task.escrow) return err(c, 409, 'invalid_state', 'This task does not use escrow; the bounty is paid when you accept the delivery.');
+  const outcome = await fundEscrowTask(db, c.env, { kind: 'existing', task: mine.task }, { rawHeader: paymentHeader(c), nowIso: new Date().toISOString(), actor: { kind: 'owner', ownerId } });
+  for (const [k, v] of Object.entries(outcome.headers ?? {})) c.header(k, v);
+  return c.json(outcome.body, outcome.status);
 });
 
 const StatusQuery = z.enum(['open', 'claimed', 'submitted', 'verified', 'cancelled', 'all']).optional();
@@ -292,11 +355,25 @@ app.post('/tasks/:id/accept', ownerSession, async (c) => {
   const mine = await loadMine(c, db, ownerId, taskId);
   if ('res' in mine) return mine.res;
   const task = mine.task;
+  const note = parsed.data.note ?? null;
+
+  // ─── Escrow task: the deposit is held; accepting releases it to the deliverer.
+  // No wallet signature is needed (nothing leaves the buyer's wallet now), so
+  // the passkey ceremony stays optional-and-recorded like the unpaid accept;
+  // the buyer's exposure is bounded by the deposit they already made.
+  if (task.bounty_amount && task.escrow) {
+    if (paymentHeader(c)) return err(c, 400, 'payment_not_expected', 'This task is in escrow: the deposit is released to the deliverer when you accept. Omit the payment header.');
+    const cer = await ceremony(c, ownerId, `task.accept:${taskId}:${sha256hex(note ?? '')}`, parsed.data);
+    if (!cer.ok) return cer.res;
+    const outcome = await acceptEscrowTask(db, c.env, task, { note, actor, nowIso: new Date().toISOString(), assertionId: cer.assertionId });
+    for (const [k, v] of Object.entries(outcome.headers ?? {})) c.header(k, v);
+    return c.json(outcome.body, outcome.status);
+  }
+
   if (task.status === 'verified') {
     return c.json({ ok: true, task_id: taskId, status: 'verified', accepted_by: task.accepted_by });
   }
   if (task.status !== 'submitted') return err(c, 409, 'invalid_state', `Task is ${task.status}; only delivered work can be accepted`, { status: task.status });
-  const note = parsed.data.note ?? null;
 
   // ─── Bounty task: the human authorizes the USDC transfer with their browser
   // wallet (EIP-3009), sent as the PAYMENT-SIGNATURE header. Same money path as
@@ -421,9 +498,20 @@ app.post('/tasks/:id/cancel', ownerSession, async (c) => {
   const now = new Date().toISOString();
   if (!(await cancelGate(db, taskId, now))) return err(c, 409, 'conflict', 'Task changed while you were cancelling it');
   if (task.claimed_by_agent_id) await recordEvent(db, task.claimed_by_agent_id, { type: 'task.cancelled', agent_id: task.claimed_by_agent_id, task_id: taskId }, now);
+  if (task.escrow && task.escrow_status === 'funded') {
+    // The deposit goes back to the wallet that paid it (house-signed; the cron retries).
+    await logPaymentEvent(db, taskId, 'escrow_refund_requested', { reason: 'task_cancelled', cancel_reason: parsed.data.reason ?? null }, now);
+    await startEscrowLeg(db, c.env, taskId, 'refund', 'cancel', now);
+  }
   if (task.disputed_at && task.claimed_by_agent_id) await recomputeReputation(db, task.claimed_by_agent_id);
   await recordFunnel(db, 'task_cancelled', taskId, null);
-  return c.json({ ok: true, task_id: taskId, status: 'cancelled' });
+  const after = await loadTask(db, taskId);
+  const body: Record<string, unknown> = { ok: true, task_id: taskId, status: 'cancelled', payment_status: after?.payment_status ?? task.payment_status };
+  if (after?.escrow) {
+    body.escrow = escrowView(after);
+    if (after.escrow_refund_tx_hash) body.refund_tx_hash = after.escrow_refund_tx_hash;
+  }
+  return c.json(body);
 });
 
 /**

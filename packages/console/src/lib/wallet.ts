@@ -1,11 +1,13 @@
 /**
- * Browser wallet signing for task bounties (x402 v2, sign-at-accept).
+ * Browser wallet signing for task bounties (x402 v2).
  *
- * A human accepts a delivered bounty by signing an EIP-3009
- * `TransferWithAuthorization` in their own wallet — the exact amount and
- * recipient shown by the wallet UI. BasedAgents never holds the key or the
- * funds; the signed authorization goes to the API as the PAYMENT-SIGNATURE
- * header, and the facilitator settles it wallet-to-wallet on Base.
+ * A human signs an EIP-3009 `TransferWithAuthorization` in their own wallet —
+ * the exact amount and recipient shown by the wallet UI — either as the
+ * ESCROW DEPOSIT when posting (recipient = the registry's escrow wallet, the
+ * default) or, on a task posted without escrow, as the payment to the agent
+ * when accepting the delivery. BasedAgents never holds the wallet key; the
+ * signed authorization goes to the API as the PAYMENT-SIGNATURE header, and
+ * the facilitator settles it on Base.
  *
  * No web3 library: we speak EIP-1193 (`window.ethereum`) directly and build the
  * EIP-712 payload by hand, so the console bundles nothing extra. The pure

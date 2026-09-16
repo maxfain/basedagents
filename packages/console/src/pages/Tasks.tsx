@@ -15,7 +15,7 @@ import { control } from '../api/control.js';
 import type { OwnerTask } from '../api/types.js';
 import { ensurePasskey } from '../lib/firstApproval.js';
 import { useOwner } from '../state/session.js';
-import { TaskReviewPills, TaskStatusPill, fmtDate, taskErrText } from '../components/TaskBits.js';
+import { EscrowPill, TaskReviewPills, TaskStatusPill, fmtDate, taskErrText } from '../components/TaskBits.js';
 
 function TaskCard({ task }: { task: OwnerTask }) {
   const href = `/tasks/${encodeURIComponent(task.task_id)}`;
@@ -26,6 +26,7 @@ function TaskCard({ task }: { task: OwnerTask }) {
           <Link to={href} className="card-title-link">{task.title}</Link>
           <TaskStatusPill task={task} />
           {task.bounty && <span className="pill pill-money">{task.bounty.amount_display} {task.bounty.token}</span>}
+          <EscrowPill task={task} />
           <TaskReviewPills task={task} />
         </div>
         <div className="card-meta">

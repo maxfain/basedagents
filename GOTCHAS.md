@@ -81,6 +81,33 @@ mainnet is a config default (`X402_EIP712_NAME`, `USD Coin`); if the check
 script or a staging run reports `invalid_exact_evm_token_name_mismatch`, fix
 it with a secret change, not a deploy.
 
+### Escrow is the default the moment `ESCROW_WALLET_PRIVATE_KEY` is set — and it is custodial
+
+With payments on, a valid `ESCROW_WALLET_PRIVATE_KEY` (64 hex secp256k1)
+flips every new bounty task to **escrow** unless the client says
+`escrow: false`: `POST /v1/tasks` starts answering `402` (the deposit to sign,
+`payTo` = the house wallet) instead of creating the task straight away. Older
+clients that post a bounty and expect a `200` will see the 402 — the SDK, CLI,
+MCP and Python client in this repo handle it (`PaymentRequiredError` /
+exit 2 / the `PaymentRequired` text). Until the key is set, an omitted
+`escrow` silently means sign-at-accept and `escrow: true` answers
+`503 escrow_unavailable`; `GET /v1/status` → `escrow` says which.
+
+- The house wallet holds buyers' USDC between post and acceptance. Back the
+  key up offline before the first deposit; without it the deposits can never
+  be released or refunded (a *new* key cannot move an old key's deposits —
+  the leg is refused with `wallet_mismatch` in the log).
+- It needs no ETH (the facilitator broadcasts EIP-3009 transfers), but a
+  release or refund is only as good as its USDC balance. `insufficient_funds`
+  on a house-signed leg means the wallet is short — retried every 10 minutes
+  until the authorization expires, then re-signed by the cron's sweep up to
+  `ESCROW_MAX_LEG_ATTEMPTS` (5) times, then reported as `escrow_stuck`.
+- `TASK_ESCROW_ENABLED = "0"` pauses **new** deposits only; releases and
+  refunds of held deposits keep running (`houseWalletFor` ignores the pause).
+- Holding third-party funds may make the operator a money transmitter in
+  some jurisdictions. SPEC.md "Custody" and SECURITY.md spell out the model;
+  the legal assessment is yours.
+
 ### No `RESEND_API_KEY` means recovery emails go nowhere
 
 Without the secret, `emailSenderFromEnv` falls back to a **log-only sender**:

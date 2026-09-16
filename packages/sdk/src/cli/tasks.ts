@@ -4,7 +4,9 @@
  *   tasks [list] [--status open] [--category code] [--capability x] [--limit n]
  *   tasks post --title T --description D [--category c] [--capabilities a,b]
  *              [--expected-output s] [--format json|link]
- *              [--bounty 5.00 [--network eip155:8453]]
+ *              [--bounty 5.00 [--network eip155:8453] [--no-escrow]
+ *               [--payment-signature <b64>|@file|-]]
+ *   tasks fund <id> [--payment-signature <b64>|@file|-]
  *   tasks claim <id>
  *   tasks deliver <id> --summary S [--pr-url u | --content c | --artifact u1,u2]
  *                 [--type json|link|pr] [--commit <sha>]
@@ -14,10 +16,13 @@
  *   tasks cancel <id>
  *   tasks payment <id>
  *
- * Money: a bounty is DECLARED when you post (nothing is paid) and AUTHORIZED
- * when you accept the deliverable. `tasks accept` on a bounty task without a
- * signature prints the x402 PaymentRequired JSON to stdout and exits 2, so
- * any external x402 signer can produce the payload for a second run.
+ * Money: by default a bounty is DEPOSITED into the registry's escrow wallet
+ * when you post (`tasks post` without a signature prints the x402
+ * PaymentRequired JSON to stdout and exits 2; sign it with any x402 signer
+ * and rerun with --payment-signature) and released to the deliverer when you
+ * accept — `tasks accept` then needs no signature. With --no-escrow the bounty
+ * is only declared at post and `tasks accept` runs the same 402 dance for a
+ * transfer straight to the deliverer's wallet.
  */
 
 import { readFileSync } from 'fs';
@@ -46,7 +51,7 @@ export const ALLOWED_CATEGORIES: readonly string[] = TASK_CATEGORIES;
 export const ALLOWED_FORMATS = ['json', 'link'] as const;
 export const ALLOWED_DELIVERY_TYPES = ['json', 'link', 'pr'] as const;
 
-const SUBCOMMANDS = ['list', 'post', 'claim', 'deliver', 'accept', 'revision', 'dispute', 'cancel', 'payment'] as const;
+const SUBCOMMANDS = ['list', 'post', 'fund', 'claim', 'deliver', 'accept', 'revision', 'dispute', 'cancel', 'payment'] as const;
 type Subcommand = (typeof SUBCOMMANDS)[number];
 
 export function statusColor(status: string): string {
@@ -93,7 +98,7 @@ function keypairOrExit(keypairFile: string | undefined): AgentKeypair {
 }
 
 /** Flags that take no value; every other `--flag` consumes the next token. */
-const BOOLEAN_FLAGS = new Set(['--json', '--help', '-h']);
+const BOOLEAN_FLAGS = new Set(['--json', '--help', '-h', '--no-escrow']);
 
 /**
  * The first positional argument, wherever it sits among the flags —
@@ -137,8 +142,59 @@ export function readPaymentSignature(value: string): string {
   return value.trim();
 }
 
-function bountyLine(t: Pick<Task, 'bounty'>): string {
-  return t.bounty ? yellow(` ${t.bounty.amount_display} ${t.bounty.token}`) : '';
+function bountyLine(t: Pick<Task, 'bounty'> & Partial<Pick<Task, 'escrow'>>): string {
+  if (!t.bounty) return '';
+  return yellow(` ${t.bounty.amount_display} ${t.bounty.token}`) + (t.escrow ? dim(` [escrow: ${t.escrow.status}]`) : '');
+}
+
+/**
+ * A 402 deposit challenge: the whole PaymentRequired goes to STDOUT so it can
+ * be piped into any x402 signer; the human note goes to stderr; exit 2.
+ */
+function exitPaymentRequired(err: PaymentRequiredError, rerun: string): never {
+  console.log(JSON.stringify(err.paymentRequired, null, 2));
+  const req = err.accepts[0];
+  console.error(yellow(`\n  ${err.isEscrowDeposit ? 'Escrow deposit required — the task was not posted yet.' : 'Payment required.'}`));
+  if (req) {
+    console.error(yellow(`  Sign an EIP-3009 transfer of ${err.paymentRequired.bounty?.amount_display ?? req.amount} USDC to ${req.payTo} on ${req.network}`));
+    console.error(yellow(`  (validBefore ≤ now + ${req.maxTimeoutSeconds}s), then rerun ${rerun} with --payment-signature <base64 payload>.\n`));
+  }
+  process.exit(EXIT_PAYMENT_REQUIRED);
+}
+
+function paymentInvalidFail(err: PaymentInvalidError): never {
+  const detail = [err.reason && `reason: ${err.reason}`, err.expected && `expected: ${err.expected}`, err.got && `got: ${err.got}`]
+    .filter(Boolean).join('\n  ');
+  return fail(`Payment signature rejected: ${err.message}${detail ? `\n  ${detail}` : ''}`);
+}
+
+function readSignatureFlag(args: string[]): string | undefined {
+  const sigArg = getFlag(args, '--payment-signature');
+  if (sigArg === undefined) return undefined;
+  let sig: string;
+  try {
+    sig = readPaymentSignature(sigArg);
+  } catch (err) {
+    return fail(`Could not read --payment-signature: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (!sig) return fail('--payment-signature is empty');
+  return sig;
+}
+
+function printEscrowResult(result: { task_id: string; payment_status: string; escrow?: { status: string; deposit_tx_hash: string | null } | null; settle_error?: string }): void {
+  const e = result.escrow;
+  if (!e) return;
+  console.log(row('Escrow', e.status === 'funded' ? green(e.status) : yellow(e.status)));
+  if (e.deposit_tx_hash) console.log(row('Deposit TX', cyan(e.deposit_tx_hash)));
+  if (e.status === 'funded') {
+    console.log(`  ${dim('The bounty is held in escrow and released to the deliverer when you accept the delivery')}`);
+    console.log(`  ${dim(`(basedagents tasks accept ${result.task_id}); cancelling refunds it.`)}`);
+  } else if (e.status === 'funding') {
+    console.log(`  ${dim(`The deposit is still settling; the task becomes claimable once it lands. Follow it with: basedagents tasks payment ${result.task_id}`)}`);
+    if (result.settle_error) console.log(row('Settle error', yellow(result.settle_error)));
+  } else if (e.status === 'unfunded') {
+    console.log(`  ${dim(`The deposit failed for good (${result.settle_error ?? 'see tasks payment'}). Deposit again with: basedagents tasks fund ${result.task_id}`)}`);
+  }
 }
 
 // ─── Help ───
@@ -150,10 +206,11 @@ Post, claim, deliver and review tasks on the registry.
 
 ${bold('Subcommands:')}
   list                       List tasks (default when no subcommand is given)
-  post                       Post a task (optionally with a USDC bounty)
+  post                       Post a task (optionally with a USDC bounty, escrowed by default)
+  fund <id>                  Deposit the bounty again after a failed escrow deposit
   claim <id>                 Claim an open task
   deliver <id>               Deliver a claimed task with a signed receipt
-  accept <id>                Accept a delivered task (authorizes the bounty, if any)
+  accept <id>                Accept a delivered task (releases the escrow, or authorizes a pay-at-accept bounty)
   revision <id>              Send a delivered task back for changes
   dispute <id>               Dispute a delivered task (freezes auto-accept)
   cancel <id>                Cancel a task you posted
@@ -174,8 +231,16 @@ ${bold('post options:')}
   --capabilities a,b         Required capabilities (comma-separated)
   --expected-output <text>   What a good deliverable looks like
   --format json|link         Expected output format (default json)
-  --bounty <usdc>            e.g. 5.00 — declared now, paid when you accept
+  --bounty <usdc>            e.g. 5.00 — deposited into escrow now (default) and
+                             released to the deliverer when you accept
   --network <chain>          ${BOUNTY_NETWORKS.join(' | ')} (default eip155:8453)
+  --no-escrow                Declare the bounty only; pay the deliverer when you accept
+  --payment-signature <v>    The signed escrow deposit (base64 x402 payload; @file, - = stdin).
+                             Without it, an escrow post prints the PaymentRequired JSON
+                             to stdout and exits ${EXIT_PAYMENT_REQUIRED}; sign accepts[0] and rerun.
+
+${bold('fund options:')}
+  --payment-signature <v>    Same as for post — a fresh deposit for an unfunded task
 
 ${bold('deliver options:')}
   --summary <text>           Required
@@ -188,8 +253,9 @@ ${bold('deliver options:')}
 ${bold('accept options:')}
   --note <text>              Acceptance note
   --payment-signature <v>    Base64 x402 payment payload; @file reads a file, - reads stdin.
-                             Without it, a bounty task prints the PaymentRequired
-                             JSON to stdout and exits ${EXIT_PAYMENT_REQUIRED}.
+                             Only for --no-escrow tasks: without it, the API prints the
+                             PaymentRequired JSON to stdout and exits ${EXIT_PAYMENT_REQUIRED}.
+                             An escrow task is released with no signature at all.
 
 ${bold('revision / dispute options:')}
   --note <text>              (revision) what to change — required
@@ -202,7 +268,9 @@ ${bold('Common options:')}
 
 ${bold('Examples:')}
   basedagents tasks --status open
-  basedagents tasks post --title "Summarize paper" --description "..." --bounty 5.00
+  basedagents tasks post --title "Summarize paper" --description "..." --bounty 5.00   # prints the deposit to sign, exit 2
+  basedagents tasks post --title "Summarize paper" --description "..." --bounty 5.00 --payment-signature @deposit.b64
+  basedagents tasks post --title "Summarize paper" --description "..." --bounty 5.00 --no-escrow
   basedagents tasks claim task_abc123
   basedagents tasks deliver task_abc123 --summary "Done" --pr-url https://github.com/o/r/pull/1
   basedagents tasks accept task_abc123                      # prints PaymentRequired, exit 2
@@ -224,6 +292,7 @@ export async function tasks(args: string[]): Promise<void> {
   switch (sub) {
     case 'list':     return tasksList(rest);
     case 'post':     return tasksPost(rest);
+    case 'fund':     return tasksFund(rest);
     case 'claim':    return tasksClaim(rest);
     case 'deliver':  return tasksDeliver(rest);
     case 'accept':   return tasksAccept(rest);
@@ -325,7 +394,11 @@ export async function tasksPost(args: string[]): Promise<void> {
 
   const bounty = getFlag(args, '--bounty');
   const network = getFlag(args, '--network');
+  const noEscrow = args.includes('--no-escrow');
   if (network && !bounty) return fail('--network only makes sense together with --bounty');
+  if (noEscrow && !bounty) return fail('--no-escrow only makes sense together with --bounty');
+  const paymentSignature = readSignatureFlag(args);
+  if (paymentSignature && (!bounty || noEscrow)) return fail('--payment-signature is the escrow deposit: it needs --bounty and is refused with --no-escrow');
   if (bounty) {
     if (network && !(BOUNTY_NETWORKS as readonly string[]).includes(network)) {
       return fail(`Invalid --network value: '${network}'\n  Allowed values: ${BOUNTY_NETWORKS.join(', ')}`);
@@ -337,13 +410,14 @@ export async function tasksPost(args: string[]): Promise<void> {
       return fail(`Invalid --bounty: ${err instanceof Error ? err.message : String(err)}`);
     }
     options.bounty = { amount, token: 'USDC', network: (network ?? 'eip155:8453') as 'eip155:8453' | 'eip155:84532' };
+    if (noEscrow) options.escrow = false;
   }
 
   const kp = keypairOrExit(keypairFile);
   const client = new RegistryClient(apiUrl);
 
   try {
-    const result = await client.createTask(kp, options);
+    const result = await client.createTask(kp, options, { paymentSignature });
     if (jsonMode) {
       console.log(JSON.stringify(result, null, 2));
       return;
@@ -355,12 +429,46 @@ export async function tasksPost(args: string[]): Promise<void> {
     if (result.bounty) {
       console.log(row('Bounty', yellow(`${result.bounty.amount_display} ${result.bounty.token}`) + dim(` on ${result.bounty.network}`)));
       console.log(row('Payment', `${result.payment_status}`));
-      console.log(`  ${dim('Nothing has been paid: the bounty is authorized when you accept the deliverable')}`);
-      console.log(`  ${dim(`(basedagents tasks accept ${result.task_id}).`)}`);
+      if (result.escrow) {
+        printEscrowResult(result);
+      } else {
+        console.log(`  ${dim('Nothing has been paid: the bounty is authorized when you accept the deliverable')}`);
+        console.log(`  ${dim(`(basedagents tasks accept ${result.task_id}).`)}`);
+      }
     }
     console.log('');
   } catch (err) {
+    if (err instanceof PaymentRequiredError) exitPaymentRequired(err, 'the same tasks post');
+    if (err instanceof PaymentInvalidError) paymentInvalidFail(err);
     return apiFail('Failed to post task', err);
+  }
+}
+
+// ─── fund ───
+
+export async function tasksFund(args: string[]): Promise<void> {
+  const { apiUrl, jsonMode, keypairFile } = common(args);
+  const taskId = taskIdOrExit(args, 'basedagents tasks fund <id> [--payment-signature <b64>|@file|-]');
+  const paymentSignature = readSignatureFlag(args);
+  const kp = keypairOrExit(keypairFile);
+  const client = new RegistryClient(apiUrl);
+
+  try {
+    const result = await client.fundTask(kp, taskId, { paymentSignature });
+    if (jsonMode) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    console.log('');
+    console.log(`  ${green('✓')} Deposit submitted`);
+    console.log(row('Task ID', cyan(result.task_id)));
+    console.log(row('Payment', `${result.payment_status}`));
+    printEscrowResult(result);
+    console.log('');
+  } catch (err) {
+    if (err instanceof PaymentRequiredError) exitPaymentRequired(err, `tasks fund ${taskId}`);
+    if (err instanceof PaymentInvalidError) paymentInvalidFail(err);
+    return apiFail('Failed to fund task', err);
   }
 }
 
@@ -447,16 +555,7 @@ export async function tasksAccept(args: string[]): Promise<void> {
   const { apiUrl, jsonMode, keypairFile } = common(args);
   const taskId = taskIdOrExit(args, 'basedagents tasks accept <id> [--note <text>] [--payment-signature <b64>|@file|-]');
   const note = getFlag(args, '--note');
-  const sigArg = getFlag(args, '--payment-signature');
-  let paymentSignature: string | undefined;
-  if (sigArg !== undefined) {
-    try {
-      paymentSignature = readPaymentSignature(sigArg);
-    } catch (err) {
-      return fail(`Could not read --payment-signature: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    if (!paymentSignature) return fail('--payment-signature is empty');
-  }
+  const paymentSignature = readSignatureFlag(args);
 
   const kp = keypairOrExit(keypairFile);
   const client = new RegistryClient(apiUrl);
@@ -473,32 +572,20 @@ export async function tasksAccept(args: string[]): Promise<void> {
     console.log(row('Status', statusColor(result.status)));
     if (result.accepted_by) console.log(row('Accepted by', result.accepted_by));
     console.log(row('Payment', result.payment_status === 'settled' ? green(result.payment_status) : result.payment_status));
+    if (result.escrow) console.log(row('Escrow', result.escrow.status === 'released' ? green(result.escrow.status) : yellow(result.escrow.status)));
     if (result.payment_tx_hash) console.log(row('TX hash', cyan(result.payment_tx_hash)));
     if (result.settle_error) console.log(row('Settle error', yellow(result.settle_error)));
-    if (result.payment_status === 'authorized' || result.payment_status === 'settling') {
+    if (result.escrow && result.escrow.status !== 'released') {
+      console.log(`  ${dim(`The escrow release is retried automatically; follow it with: basedagents tasks payment ${result.task_id}`)}`);
+    } else if (result.payment_status === 'authorized' || result.payment_status === 'settling') {
       console.log(`  ${dim(`Settlement is retried automatically; follow it with: basedagents tasks payment ${result.task_id}`)}`);
     } else if (result.payment_status === 'failed') {
       console.log(`  ${dim(`Settlement failed. Run: basedagents tasks payment ${result.task_id} — if next_settle_at is set it retries automatically; otherwise sign a fresh authorization and re-run tasks accept.`)}`);
     }
     console.log('');
   } catch (err) {
-    if (err instanceof PaymentRequiredError) {
-      // The whole PaymentRequired goes to STDOUT so it can be piped into any
-      // x402 signer; the human note goes to stderr.
-      console.log(JSON.stringify(err.paymentRequired, null, 2));
-      const req = err.accepts[0];
-      console.error(yellow('\n  Payment required to accept this deliverable.'));
-      if (req) {
-        console.error(yellow(`  Sign an EIP-3009 transfer of ${err.paymentRequired.bounty?.amount_display ?? req.amount} USDC to ${req.payTo} on ${req.network}`));
-        console.error(yellow(`  (validBefore ≤ now + ${req.maxTimeoutSeconds}s), then rerun with --payment-signature <base64 payload>.\n`));
-      }
-      process.exit(EXIT_PAYMENT_REQUIRED);
-    }
-    if (err instanceof PaymentInvalidError) {
-      const detail = [err.reason && `reason: ${err.reason}`, err.expected && `expected: ${err.expected}`, err.got && `got: ${err.got}`]
-        .filter(Boolean).join('\n  ');
-      return fail(`Payment signature rejected: ${err.message}${detail ? `\n  ${detail}` : ''}`);
-    }
+    if (err instanceof PaymentRequiredError) exitPaymentRequired(err, `tasks accept ${taskId}`);
+    if (err instanceof PaymentInvalidError) paymentInvalidFail(err);
     return apiFail('Failed to accept task', err);
   }
 }

@@ -416,6 +416,66 @@ class TestCreateTask:
         }
         assert result["payment_status"] == "pending"
 
+    def test_escrow_false_is_sent_and_escrow_omitted_is_left_to_the_server(self):
+        kp = generate_keypair()
+        client, mock_http = make_client_with_mock()
+        mock_http.request.return_value = make_mock_response({"ok": True, "task_id": "t", "status": "open", "payment_status": "pending", "escrow": None})
+        client.create_task(kp, title="T", description="D", bounty={"amount": "5000000"}, escrow=False)
+        assert requested_body(mock_http)["escrow"] is False
+        client.create_task(kp, title="T", description="D", bounty={"amount": "5000000"})
+        assert "escrow" not in requested_body(mock_http, 1)
+        # Without a bounty the flag is meaningless and not sent.
+        client.create_task(kp, title="T", description="D", escrow=True)
+        assert "escrow" not in requested_body(mock_http, 2)
+
+    def test_escrow_402_raises_payment_required_with_the_deposit_to_sign(self):
+        kp = generate_keypair()
+        client, mock_http = make_client_with_mock()
+        body = {
+            **{k: v for k, v in PAYMENT_REQUIRED_BODY.items() if k not in ("task_id", "accept_endpoint")},
+            "resource": {"url": "https://api.basedagents.ai/v1/tasks", "mimeType": "application/json"},
+            "escrow": {"wallet": "0x" + "ee" * 20},
+            "fund_endpoint": "POST /v1/tasks",
+        }
+        resp = make_mock_response(body, 402)
+        resp.headers = {"PAYMENT-REQUIRED": "eyJ4NDAyVmVyc2lvbiI6Mn0="}
+        mock_http.request.return_value = resp
+
+        with pytest.raises(PaymentRequiredError) as exc_info:
+            client.create_task(kp, title="T", description="D", bounty={"amount": "5000000"})
+        err = exc_info.value
+        assert err.status == 402
+        assert err.is_escrow_deposit is True
+        assert err.task_id is None
+        assert err.accepts[0]["amount"] == "5000000"
+        assert PAYMENT_HEADER not in requested_headers(mock_http)
+
+    def test_escrow_deposit_signature_is_sent_as_the_payment_header(self):
+        kp = generate_keypair()
+        client, mock_http = make_client_with_mock()
+        resp = make_mock_response({
+            "ok": True, "task_id": "task_esc", "status": "open", "payment_status": "pending",
+            "escrow": {"status": "funded", "deposit_tx_hash": "0xdead"}, "claimable": True,
+        })
+        resp.headers = {"PAYMENT-RESPONSE": "eyJzdWNjZXNzIjp0cnVlfQ=="}
+        mock_http.request.return_value = resp
+
+        result = client.create_task(kp, title="T", description="D", bounty={"amount": "5000000"}, payment_signature="c2lnbmVk")
+
+        assert requested_headers(mock_http)[PAYMENT_HEADER] == "c2lnbmVk"
+        assert result["escrow"]["status"] == "funded"
+        assert result["payment_response_header"] == "eyJzdWNjZXNzIjp0cnVlfQ=="
+
+    def test_fund_task_posts_the_deposit_again(self):
+        kp = generate_keypair()
+        client, mock_http = make_client_with_mock()
+        mock_http.request.return_value = make_mock_response({"ok": True, "task_id": "task_esc", "status": "open", "payment_status": "pending", "escrow": {"status": "funded"}})
+        result = client.fund_task(kp, "task_esc", payment_signature="c2lnbmVk")
+        assert requested_url(mock_http) == "https://api.test.local/v1/tasks/task_esc/fund"
+        assert requested_headers(mock_http)[PAYMENT_HEADER] == "c2lnbmVk"
+        assert requested_body(mock_http) == {}
+        assert result["escrow"]["status"] == "funded"
+
     def test_unpaid_task_has_no_bounty_key(self):
         kp = generate_keypair()
         client, mock_http = make_client_with_mock()

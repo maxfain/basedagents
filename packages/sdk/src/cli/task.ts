@@ -11,6 +11,7 @@ const R = '\x1b[0m';
 const bold   = (s: string) => `\x1b[1m${s}${R}`;
 const dim    = (s: string) => `\x1b[2m${s}${R}`;
 const red    = (s: string) => `\x1b[31m${s}${R}`;
+const green  = (s: string) => `\x1b[32m${s}${R}`;
 const yellow = (s: string) => `\x1b[33m${s}${R}`;
 const cyan   = (s: string) => `\x1b[36m${s}${R}`;
 
@@ -111,6 +112,12 @@ ${bold('Options:')}
       console.log(row('Amount', yellow(`${t.bounty.amount_display} ${t.bounty.token}`)));
       console.log(row('Network', t.bounty.network));
       console.log(row('Payment status', t.payment_status));
+      if (t.escrow) {
+        console.log(row('Escrow', t.escrow.status === 'released' || t.escrow.status === 'funded' ? green(t.escrow.status) : yellow(t.escrow.status)));
+        if (t.escrow.deposit_tx_hash) console.log(row('Deposit TX', cyan(t.escrow.deposit_tx_hash)));
+        if (t.escrow.release_tx_hash) console.log(row('Release TX', cyan(t.escrow.release_tx_hash)));
+        if (t.escrow.refund_tx_hash) console.log(row('Refund TX', cyan(t.escrow.refund_tx_hash)));
+      }
       if (t.payment_due) console.log(row('Payment due', yellow('accepted, not paid yet')));
       if (t.payment_tx_hash) console.log(row('TX hash', cyan(t.payment_tx_hash)));
       if (t.last_settle_error && t.payment_status !== 'settled') console.log(row('Last error', yellow(t.last_settle_error)));

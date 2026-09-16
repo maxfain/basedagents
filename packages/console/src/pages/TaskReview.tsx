@@ -7,6 +7,12 @@
  *   open | claimed       → Cancel task
  *   verified             → "Accepted on <date>" (+ "accepted automatically" after the 7-day window)
  *
+ * Money: an ESCROW task (the default for bounties) was funded when it was
+ * posted — accepting releases the held deposit to the agent with no wallet
+ * prompt, cancelling refunds it, and a deposit that failed can be redone from
+ * here ("Deposit again"). A task posted without escrow pays at accept: the
+ * browser wallet signs the transfer to the agent then.
+ *
  * Reviews work on your sign-in alone. When the account holds a passkey, each
  * review is also signed: the action string binds the task id and the sha256 of
  * the note you typed (`task.accept:<id>:<sha256hex(note)>`), the server
@@ -16,7 +22,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { control, payments, ControlApiError } from '../api/control.js';
+import { control, payments, ControlApiError, paymentChallengeOf } from '../api/control.js';
 import type { SignedAction } from '../api/control.js';
 import type { OwnerTaskDetail, OwnerTaskReceipt, TaskPaymentResponse } from '../api/types.js';
 import { sha256hex } from '../lib/action.js';
@@ -24,6 +30,7 @@ import { runAction } from '../lib/ceremony.js';
 import { signBountyPayment, walletAvailable } from '../lib/wallet.js';
 import { useOwner } from '../state/session.js';
 import {
+  EscrowPill,
   MAX_REVISIONS,
   TaskReviewPills,
   TaskStatusPill,
@@ -45,6 +52,12 @@ function payUnavailableText(reason: TaskPaymentResponse['requirements_unavailabl
       return 'This bounty is on a network the registry cannot settle. Contact support.';
     case 'no_bounty':
       return 'This task has no bounty to pay.';
+    case 'escrow_held':
+      return 'The bounty is already held in escrow — nothing to sign.';
+    case 'escrow_funding':
+      return 'The deposit is still settling into escrow.';
+    case 'escrow_unavailable':
+      return 'Escrow is not available on this registry right now.';
     default:
       return 'The payment details for this task are not available right now. Reload and try again.';
   }
@@ -59,6 +72,7 @@ interface Milestone {
 /** The task's history in time order, from the timestamps the task carries. */
 function milestones(task: OwnerTaskDetail['task'], claimer: string | null): Milestone[] {
   const out: Milestone[] = [{ key: 'posted', at: task.created_at, label: 'Posted' }];
+  if (task.escrow?.funded_at) out.push({ key: 'funded', at: task.escrow.funded_at, label: 'Bounty deposited in escrow' });
   if (task.claimed_at) out.push({ key: 'claimed', at: task.claimed_at, label: claimer ? `Claimed by ${claimer}` : 'Claimed' });
   if (task.revision_requested_at) out.push({ key: 'revision', at: task.revision_requested_at, label: 'Changes requested' });
   if (task.submitted_at) out.push({ key: 'delivered', at: task.submitted_at, label: 'Delivered' });
@@ -71,6 +85,8 @@ function milestones(task: OwnerTaskDetail['task'], claimer: string | null): Mile
     });
   }
   if (task.cancelled_at) out.push({ key: 'cancelled', at: task.cancelled_at, label: 'Cancelled' });
+  if (task.escrow?.released_at) out.push({ key: 'released', at: task.escrow.released_at, label: 'Bounty released to the agent' });
+  if (task.escrow?.refunded_at) out.push({ key: 'refunded', at: task.escrow.refunded_at, label: 'Deposit refunded' });
   return out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 }
 
@@ -188,8 +204,9 @@ export default function TaskReview() {
   async function onAccept(): Promise<void> {
     const text = note.trim();
     const bounty = detail?.task.bounty ?? null;
+    const escrowed = !!detail?.task.escrow;
     await run('accept', async () => {
-      if (bounty) {
+      if (bounty && !escrowed) {
         // Paid: fetch the server's x402 requirements, sign the USDC transfer in
         // the wallet, then accept with the PAYMENT-SIGNATURE header. The wallet
         // signature is the money authority; the passkey ceremony stays optional.
@@ -231,10 +248,31 @@ export default function TaskReview() {
   }
 
   async function onCancel(): Promise<void> {
-    if (!window.confirm('Cancel this task? Agents can no longer claim or deliver it. This cannot be undone.')) return;
+    const held = detail?.task.escrow?.status === 'funded';
+    const amount = detail?.task.bounty ? `${detail.task.bounty.amount_display} ${detail.task.bounty.token}` : '';
+    const prompt = held
+      ? `Cancel this task? Agents can no longer claim or deliver it, and the ${amount} deposit is refunded to the wallet that paid it. This cannot be undone.`
+      : 'Cancel this task? Agents can no longer claim or deliver it. This cannot be undone.';
+    if (!window.confirm(prompt)) return;
     await run('cancel', async () => {
       const signed = await sign(`task.cancel:${taskId}`);
       await control.cancelTask(taskId, signed);
+    });
+  }
+
+  /** Redo a failed escrow deposit: 402 → wallet signs the deposit → POST /fund with the header. */
+  async function onFundAgain(): Promise<void> {
+    await run('fund', async () => {
+      let challenge: ReturnType<typeof paymentChallengeOf> = null;
+      try {
+        await control.fundTask(taskId);
+      } catch (err) {
+        challenge = paymentChallengeOf(err);
+        if (!challenge) throw err;
+      }
+      if (!challenge) throw new Error('The registry did not ask for the deposit. Reload and try again.');
+      const { header } = await signBountyPayment(challenge.accepts[0]);
+      await control.fundTask(taskId, header);
     });
   }
 
@@ -288,11 +326,15 @@ export default function TaskReview() {
   const published = !!detail.submission?.published_at;
   const capabilities = task.required_capabilities ?? [];
   const bounty = task.bounty;
+  const escrow = task.escrow ?? null;
   const paid = task.payment_status === 'settled';
   const accepting = busy === 'accept';
   const acceptLabel = bounty
-    ? (accepting ? 'Paying…' : `Accept & Pay ${bounty.amount_display} ${bounty.token}`)
+    ? (escrow
+      ? (accepting ? 'Releasing…' : `Accept & release ${bounty.amount_display} ${bounty.token}`)
+      : (accepting ? 'Paying…' : `Accept & Pay ${bounty.amount_display} ${bounty.token}`))
     : (accepting ? 'Accepting…' : 'Accept');
+  const escrowAmount = bounty ? `${bounty.amount_display} ${bounty.token}` : '';
 
   return (
     <div className="page">
@@ -303,6 +345,7 @@ export default function TaskReview() {
             <TaskStatusPill task={task} />
             <TaskReviewPills task={task} />
             {bounty && <span className="pill pill-money">{bounty.amount_display} {bounty.token}</span>}
+            <EscrowPill task={task} />
             {task.category && <span className="pill">{task.category}</span>}
             <code className="muted" title={task.task_id}>{task.task_id}</code>
           </div>
@@ -320,12 +363,34 @@ export default function TaskReview() {
           Accepted on {fmtDate(task.verified_at)}
           {task.accepted_by === 'auto' && ' — accepted automatically after 7 days without a review.'}
           {task.accepted_by !== 'auto' && '.'}
-          {bounty && paid && ` The ${bounty.amount_display} ${bounty.token} bounty was paid to the deliverer's wallet.`}
-          {bounty && !paid && ` Payment of ${bounty.amount_display} ${bounty.token} is ${task.payment_status}.`}
+          {bounty && escrow && escrow.status === 'released' && ` The ${escrowAmount} held in escrow was released to the deliverer's wallet.`}
+          {bounty && escrow && escrow.status !== 'released' && ` The ${escrowAmount} held in escrow is being released to the deliverer (${task.payment_status}); it retries on its own.`}
+          {bounty && !escrow && paid && ` The ${bounty.amount_display} ${bounty.token} bounty was paid to the deliverer's wallet.`}
+          {bounty && !escrow && !paid && ` Payment of ${bounty.amount_display} ${bounty.token} is ${task.payment_status}.`}
         </div>
       )}
       {task.status === 'cancelled' && (
-        <div className="banner banner-warn">Cancelled on {fmtDate(task.cancelled_at)}.</div>
+        <div className="banner banner-warn">
+          Cancelled on {fmtDate(task.cancelled_at)}.
+          {escrow?.status === 'refunded' && ` The ${escrowAmount} deposit was refunded to the wallet that paid it.`}
+          {escrow?.status === 'refunding' && ` The ${escrowAmount} deposit is being refunded (${task.payment_status}); it retries on its own.`}
+        </div>
+      )}
+      {task.status === 'open' && escrow?.status === 'funding' && (
+        <div className="banner banner-warn" role="status">
+          Your {escrowAmount} deposit is still settling into escrow. Agents can claim the task once it lands — reload in a moment.
+        </div>
+      )}
+      {task.status === 'open' && escrow?.status === 'unfunded' && (
+        <div className="banner banner-error" role="alert">
+          Your {escrowAmount} deposit did not go through, so agents cannot claim this task yet.
+          {task.last_settle_error ? ` (${task.last_settle_error})` : ''} Deposit again from your wallet, or cancel the task.
+          <div className="btn-row" style={{ marginTop: 8 }}>
+            <button className="btn btn-primary btn-sm" onClick={() => void onFundAgain()} disabled={busy !== null || !walletAvailable()}>
+              {busy === 'fund' ? 'Depositing…' : 'Deposit again'}
+            </button>
+          </div>
+        </div>
       )}
       {reviewing && disputed && (
         <div className="banner banner-warn">
@@ -356,7 +421,24 @@ export default function TaskReview() {
         {bounty && (
           <div className="kv">
             <span className="kv-key">Bounty</span>
-            <span>{bounty.amount_display} {bounty.token} <span className="muted">— paid to the deliverer's wallet when you accept</span></span>
+            <span>
+              {bounty.amount_display} {bounty.token}{' '}
+              <span className="muted">
+                {escrow
+                  ? '— held in escrow; released to the deliverer when you accept, refunded if you cancel'
+                  : "— paid to the deliverer's wallet when you accept"}
+              </span>
+            </span>
+          </div>
+        )}
+        {escrow && (escrow.deposit_tx_hash || escrow.release_tx_hash || escrow.refund_tx_hash) && (
+          <div className="kv">
+            <span className="kv-key">Escrow</span>
+            <span className="muted">
+              {escrow.deposit_tx_hash && <>deposit <code title={escrow.deposit_tx_hash}>{escrow.deposit_tx_hash.slice(0, 14)}…</code> </>}
+              {escrow.release_tx_hash && <>release <code title={escrow.release_tx_hash}>{escrow.release_tx_hash.slice(0, 14)}…</code> </>}
+              {escrow.refund_tx_hash && <>refund <code title={escrow.refund_tx_hash}>{escrow.refund_tx_hash.slice(0, 14)}…</code></>}
+            </span>
           </div>
         )}
         {capabilities.length > 0 && (
@@ -407,14 +489,20 @@ export default function TaskReview() {
               </div>
             </div>
           )}
-          {reviewing && bounty && (
+          {reviewing && bounty && escrow && (
+            <p className="field-hint bounty-note">
+              Accepting releases the {escrowAmount} held in escrow to the agent that delivered. No
+              wallet prompt — the deposit was made when you posted.
+            </p>
+          )}
+          {reviewing && bounty && !escrow && (
             <p className="field-hint bounty-note">
               Accepting pays the {bounty.amount_display} {bounty.token} bounty. Your browser wallet
               will ask you to sign a one-time USDC transfer to the deliverer — the exact amount and
               recipient are shown by the wallet. BasedAgents never holds the funds.
             </p>
           )}
-          {reviewing && bounty && !walletAvailable() && (
+          {reviewing && bounty && !escrow && !walletAvailable() && (
             <div className="banner banner-warn" role="status">
               No browser wallet is connected in this browser, so this bounty can't be paid here yet.
               Install one (e.g. MetaMask, Coinbase Wallet, or Rabby), unlock the wallet you want to pay

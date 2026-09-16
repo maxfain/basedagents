@@ -8,6 +8,67 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Escrow for task bounties (Tasks P1): the registry holds the bounty from post to acceptance
+
+Bounties are now **escrowed by default**. The buyer deposits the bounty into the
+registry's house wallet when the task is posted, the task is claimable once the
+deposit settled, the registry releases the funds to the deliverer when the
+delivery is accepted — by the buyer or the 7-day timer — and refunds them when
+the task is cancelled. `escrow: false` keeps the previous sign-at-accept flow,
+which stays non-custodial and unchanged.
+
+- **API** (`packages/api`): migration `0038_task_escrow.sql` adds the escrow
+  columns (`escrow`, `escrow_status`, `escrow_leg`, the deposit/release/refund
+  facts, a `UNIQUE` deposit nonce, the sweep index) as plain adds — no rebuild.
+  `payments/house-wallet.ts` derives the house wallet from
+  `ESCROW_WALLET_PRIVATE_KEY` (secp256k1 via `@noble/curves`, keccak via
+  `@noble/hashes`) and signs EIP-3009 `TransferWithAuthorization`s that are
+  byte-compatible with a buyer's wallet payload, so `settleTask` settles every
+  leg the same way; `payments/escrow.ts` holds the deposit handshake
+  (`fundEscrowTask`), the house-signed legs (`startEscrowLeg`), the cron sweep
+  and the escrow accept. `settle.ts` is leg-aware only in its terminal writes
+  (a settled deposit → `funded`, a settled refund → `payment_status: refunded`,
+  a definitive failure → `unfunded` / back to `funded` for the sweep).
+  `POST /v1/tasks` runs the x402 402 handshake for the deposit (payTo = the
+  house wallet) and writes nothing until it verifies; new
+  `POST /v1/tasks/:id/fund` redoes a failed deposit; claim refuses an unfunded
+  escrow task (`409 escrow_not_funded`); accept releases without a header;
+  cancel refunds; the auto-accept releases; the cron gains an escrow sweep
+  (`escrow_swept` / `escrow_stuck`). Every task read carries `escrow` and
+  `claimable`; `GET /v1/tasks/:id/payment` reports `escrow_held | escrow_funding
+  | escrow_unavailable`; `GET /.well-known/x402` advertises `escrow.enabled`
+  and the wallet; `GET /v1/status` reports `escrow`. New inbox/webhook events
+  `task.escrow_funded` and `task.escrow_refunded`. Fail closed: escrow needs
+  payments on **and** a valid house key; `escrow: true` without one answers
+  `503 escrow_unavailable`, an omitted `escrow` falls back to sign-at-accept;
+  `TASK_ESCROW_ENABLED = "0"` pauses new deposits only. Owner routes: the
+  human deposits from the browser wallet at post (the 402 consumes no
+  rate-limit slot or passkey challenge), accepts with no wallet prompt, and
+  can re-fund from the console. 60+ new tests (house wallet vectors, the full
+  escrow flows over HTTP, owner routes, the 0038 schema).
+- **SDK / CLI** (`basedagents`): `createTask` throws `PaymentRequiredError`
+  (`isEscrowDeposit`) for the deposit and takes `{ paymentSignature }`; new
+  `fundTask`; `TaskCreateOptions.escrow`; `EscrowView` on every task read.
+  `tasks post --bounty` prints the deposit to sign and exits 2, `--payment-signature`
+  submits it, `--no-escrow` opts out; new `tasks fund <id>`; `task <id>` shows
+  the escrow record.
+- **MCP**: `create_task` takes `escrow` and `payment_signature` and returns
+  the deposit challenge as text; new `fund_task`; `accept_deliverable`,
+  `cancel_task`, `browse_tasks`, `get_task`, `get_task_payment` show escrow.
+- **Python**: `create_task(escrow=, payment_signature=)` raises
+  `PaymentRequiredError` (`is_escrow_deposit`) for the deposit; new `fund_task`.
+- **Console**: the composer's "Hold the bounty in escrow" box (on by default
+  when the registry offers it) signs the deposit in the browser wallet before
+  the passkey-signed post; the review page accepts an escrow task with no
+  wallet prompt ("Accept & release"), explains refunds on cancel, and offers
+  "Deposit again" after a failed deposit; escrow pills on the task list.
+- **Site / docs**: marketplace and detail pages show the escrow state and the
+  deposit/release/refund transactions; `agent.json`, `openapi.json`,
+  `SPEC.md` (new *Escrow* and *Custody* sections), `README.md`,
+  `packages/api/README.md`, `SECURITY.md`, `GOTCHAS.md` and
+  `scripts/bootstrap-deploy.md` describe both money models and the operator
+  duties that come with holding deposits.
+
 ### Changed — Tasks P0 (6/6): the site and the docs tell the shipped truth (web, docs)
 
 Every public surface that described the old money path — bounty signed at

@@ -21,6 +21,14 @@
  * for humans and must not be able to unlock a second payment.
  *
  * `tasks.status` is never written here.
+ *
+ * Escrow (Tasks P1): the same machine settles every LEG of an escrow task —
+ * the buyer's deposit into the house wallet, the house's release to the
+ * deliverer, the house's refund to the buyer. `tasks.escrow_leg` says which
+ * one the payment columns describe; only the terminal writes differ (a settled
+ * deposit becomes `escrow_status = funded` with the columns cleared for the
+ * next leg; a settled refund is `payment_status = refunded`; a definitive
+ * failure of a house-signed leg drops back to `funded` so the cron re-signs).
  */
 import type { DBAdapter } from '../db/adapter.js';
 import type { Bindings, PaymentStatus } from '../types/index.js';
@@ -30,11 +38,25 @@ import { decryptPaymentSignature } from './crypto.js';
 import { decodePaymentHeader, PaymentRequirementsV2, SETTLE_PRECHECK_SLACK } from './x402.js';
 import {
   loadTask, logPaymentEvent, recordFunnel, taskChainEntry, hashCanonical,
-  agentTarget, creatorTarget, isoPlus, type TaskRow,
+  agentTarget, creatorTarget, isoPlus, notifyMatchingAgents, bountyView, type TaskRow, type EscrowLeg,
 } from '../tasks/service.js';
 import { recordEvent } from '../events/service.js';
 
-export type SettleTrigger = 'accept' | 'cron';
+/** Who started this settle attempt: the accept/fund/cancel route, or the cron. */
+export type SettleTrigger = 'accept' | 'cron' | 'fund' | 'cancel';
+
+/**
+ * Escrow: SET fragment for a DEFINITIVE non-settled end of the current leg —
+ * the custody state returns to solid ground: an `unfunded` deposit the buyer
+ * redoes (POST /fund) or cancels, or `funded` so the cron's sweep re-signs the
+ * release/refund (payments/escrow.ts). Retrying outcomes and post-broadcast
+ * unknowns leave `escrow_status` alone. Empty for a sign-at-accept task.
+ */
+export function escrowLegFailedSql(leg: EscrowLeg | null | undefined): string {
+  if (leg === 'deposit') return `, escrow_status = 'unfunded'`;
+  if (leg === 'release' || leg === 'refund') return `, escrow_status = 'funded'`;
+  return '';
+}
 
 /**
  * What the last settle attempt established:
@@ -150,7 +172,8 @@ export async function settleTask(
   // 1. Claim the settle slot — from here until the outcome write, this caller owns the row.
   const slot = await db.run(
     `UPDATE tasks SET payment_status = 'settling', settle_attempts = settle_attempts + 1, settle_started_at = ?, settle_next_at = NULL
-     WHERE task_id = ? AND status = 'verified' AND payment_status IN ('authorized','failed','settling')
+     WHERE task_id = ? AND (status = 'verified' OR escrow_leg IN ('deposit','refund'))
+       AND payment_status IN ('authorized','failed','settling')
        AND settle_next_at IS NOT NULL AND settle_next_at <= ?`,
     nowIso, taskId, nowIso,
   );
@@ -165,12 +188,12 @@ export async function settleTask(
   //    (Only for rows never broadcast — a broadcast row is resolved by the facilitator.)
   if (task.settle_broadcast === 0 && task.payment_expires_at && task.payment_expires_at <= isoPlus(nowIso, SETTLE_PRECHECK_SLACK * 1000)) {
     const res = await db.run(
-      `UPDATE tasks SET payment_status = 'expired', settle_next_at = NULL, last_settle_error = 'authorization_expired', last_settle_class = 'expired'
+      `UPDATE tasks SET payment_status = 'expired', settle_next_at = NULL, last_settle_error = 'authorization_expired', last_settle_class = 'expired'${escrowLegFailedSql(task.escrow_leg)}
        WHERE task_id = ? AND payment_status = 'settling' AND settle_broadcast = 0`,
       taskId,
     );
     if (res.changes === 1) {
-      await logPaymentEvent(db, taskId, 'expired', { reason: 'authorization_expired', trigger }, nowIso);
+      await logPaymentEvent(db, taskId, 'expired', { reason: 'authorization_expired', trigger, leg: task.escrow_leg ?? undefined }, nowIso);
       await paymentWebhooks(db, task, 'task.payment_failed', { reason: 'expired' }, nowIso);
     }
     return { skipped: true, reason: 'expired' };
@@ -202,7 +225,7 @@ export async function settleTask(
     const neverBroadcast = task.settle_broadcast === 0;
     const error = neverBroadcast ? 'stored_payload_unreadable' : 'stored_payload_unreadable_after_broadcast';
     await db.run(
-      `UPDATE tasks SET payment_status = 'failed', settle_next_at = NULL, last_settle_error = ?, last_settle_class = ?
+      `UPDATE tasks SET payment_status = 'failed', settle_next_at = NULL, last_settle_error = ?, last_settle_class = ?${neverBroadcast ? escrowLegFailedSql(task.escrow_leg) : ''}
        WHERE task_id = ? AND payment_status = 'settling'`,
       error, neverBroadcast ? 'terminal' : 'unknown', taskId,
     );
@@ -240,16 +263,73 @@ export async function applySettleOutcome(
   const attempts = task.settle_attempts;
   const everBroadcastBefore = task.settle_broadcast === 1;
 
-  const settled = async (tx: string | null, inferredFrom?: string): Promise<SettleResult> => {
+  /** Escrow deposit landed in the house wallet: the task is funded and claimable; the payment columns are cleared for the payout leg. */
+  const depositSettled = async (tx: string | null, inferredFrom?: string): Promise<SettleResult> => {
+    // Every right-hand side reads the OLD row (SQLite semantics), so the deposit
+    // facts are copied before the same statement clears their source columns.
     const res = await db.run(
-      `UPDATE tasks SET payment_status = 'settled', payment_settled = 1, payment_tx_hash = COALESCE(?, payment_tx_hash),
-         settled_at = ?, settle_next_at = NULL, last_settle_error = ?, last_settle_class = 'settled'
-       WHERE task_id = ? AND payment_status = 'settling'`,
-      tx, nowIso, inferredFrom ? `settled_inferred_${inferredFrom}` : null, taskId,
+      `UPDATE tasks SET payment_status = 'pending', payment_settled = 0, payment_signature = NULL, payment_requirements = NULL,
+         payment_nonce = NULL, payment_tx_hash = NULL, payment_expires_at = NULL, settled_at = NULL, settle_next_at = NULL,
+         settle_broadcast = 0, last_settle_error = ?, last_settle_class = 'settled',
+         escrow_status = 'funded', escrow_leg = NULL, escrow_funded_at = ?,
+         escrow_deposit_tx_hash = COALESCE(?, payment_tx_hash), escrow_deposit_payer = payment_payer, escrow_deposit_nonce = payment_nonce
+       WHERE task_id = ? AND payment_status = 'settling' AND escrow_leg = 'deposit'`,
+      inferredFrom ? `settled_inferred_${inferredFrom}` : null, nowIso, tx, taskId,
     );
     if (res.changes !== 1) return { skipped: true, reason: 'not_due' };
     const txHash = tx ?? task.payment_tx_hash ?? null;
-    await logPaymentEvent(db, taskId, 'settled', { transaction: txHash, network: task.bounty_network, trigger, ...(inferredFrom ? { inferred_from: inferredFrom } : {}) }, nowIso);
+    await logPaymentEvent(db, taskId, 'escrow_funded', { transaction: txHash, network: task.bounty_network, payer: task.payment_payer, trigger, ...(inferredFrom ? { inferred_from: inferredFrom } : {}) }, nowIso);
+    if (inferredFrom) console.warn(`[escrow] ${taskId}: deposit inferred settled from ${inferredFrom} (tx ${txHash ?? 'unknown'}) — reconcile on-chain`);
+    const creator = await creatorTarget(db, task);
+    if (creator) {
+      await recordEvent(db, creator.id, { type: 'task.escrow_funded', agent_id: creator.id, task_id: taskId, amount_atomic: task.bounty_amount, network: task.bounty_network, deposit_tx_hash: txHash }, nowIso);
+    }
+    // The task is only now claimable, so only now is it advertised (task.available).
+    let reqCaps: string[] | null = null;
+    try { reqCaps = task.required_capabilities ? (JSON.parse(task.required_capabilities) as string[]) : null; } catch { reqCaps = null; }
+    await notifyMatchingAgents(db, {
+      task_id: taskId, title: task.title, description: task.description, category: task.category,
+      required_capabilities: reqCaps, output_format: task.output_format, bounty: bountyView(task),
+    }, task.creator_agent_id);
+    await recordFunnel(db, 'task_escrow_funded', taskId, trigger);
+    return { skipped: false, payment_status: 'pending', tx_hash: txHash, error: null, facilitator: outcome };
+  };
+
+  /** Escrow refund landed in the buyer's wallet. */
+  const refundSettled = async (tx: string | null, inferredFrom?: string): Promise<SettleResult> => {
+    const res = await db.run(
+      `UPDATE tasks SET payment_status = 'refunded', payment_settled = 0, payment_tx_hash = COALESCE(?, payment_tx_hash),
+         settled_at = ?, settle_next_at = NULL, last_settle_error = ?, last_settle_class = 'settled',
+         escrow_status = 'refunded', escrow_refunded_at = ?, escrow_refund_tx_hash = COALESCE(?, payment_tx_hash)
+       WHERE task_id = ? AND payment_status = 'settling' AND escrow_leg = 'refund'`,
+      tx, nowIso, inferredFrom ? `settled_inferred_${inferredFrom}` : null, nowIso, tx, taskId,
+    );
+    if (res.changes !== 1) return { skipped: true, reason: 'not_due' };
+    const txHash = tx ?? task.payment_tx_hash ?? null;
+    await logPaymentEvent(db, taskId, 'escrow_refunded', { transaction: txHash, network: task.bounty_network, refund_to: task.escrow_deposit_payer, trigger, ...(inferredFrom ? { inferred_from: inferredFrom } : {}) }, nowIso);
+    if (inferredFrom) console.warn(`[escrow] ${taskId}: refund inferred settled from ${inferredFrom} (tx ${txHash ?? 'unknown'}) — reconcile on-chain`);
+    const creator = await creatorTarget(db, task);
+    if (creator) {
+      await recordEvent(db, creator.id, { type: 'task.escrow_refunded', agent_id: creator.id, task_id: taskId, amount_atomic: task.bounty_amount, network: task.bounty_network, refund_tx_hash: txHash }, nowIso);
+    }
+    await recordFunnel(db, 'task_refunded', taskId, trigger);
+    return { skipped: false, payment_status: 'refunded', tx_hash: txHash, error: null, facilitator: outcome };
+  };
+
+  const settled = async (tx: string | null, inferredFrom?: string): Promise<SettleResult> => {
+    if (task.escrow_leg === 'deposit') return depositSettled(tx, inferredFrom);
+    if (task.escrow_leg === 'refund') return refundSettled(tx, inferredFrom);
+    const release = task.escrow_leg === 'release';
+    const res = await db.run(
+      `UPDATE tasks SET payment_status = 'settled', payment_settled = 1, payment_tx_hash = COALESCE(?, payment_tx_hash),
+         settled_at = ?, settle_next_at = NULL, last_settle_error = ?, last_settle_class = 'settled'
+         ${release ? `, escrow_status = 'released', escrow_released_at = ?, escrow_release_tx_hash = COALESCE(?, payment_tx_hash)` : ''}
+       WHERE task_id = ? AND payment_status = 'settling'`,
+      tx, nowIso, inferredFrom ? `settled_inferred_${inferredFrom}` : null, ...(release ? [nowIso, tx] : []), taskId,
+    );
+    if (res.changes !== 1) return { skipped: true, reason: 'not_due' };
+    const txHash = tx ?? task.payment_tx_hash ?? null;
+    await logPaymentEvent(db, taskId, 'settled', { transaction: txHash, network: task.bounty_network, trigger, ...(release ? { leg: 'release', from: task.payment_payer } : {}), ...(inferredFrom ? { inferred_from: inferredFrom } : {}) }, nowIso);
     if (inferredFrom) console.warn(`[payments] ${taskId}: settlement inferred from ${inferredFrom} (tx ${txHash ?? 'unknown'}) — reconcile on-chain`);
     if (task.claimed_by_agent_id) {
       try {
@@ -264,27 +344,38 @@ export async function applySettleOutcome(
   };
 
   const failed = async (error: string, cls: SettleClass, nextAt: string | null, opts: { webhook?: boolean; level?: 'warn' | 'error' } = {}): Promise<SettleResult> => {
+    // A terminal answer ends the leg for good (the signature can never land);
+    // an `unknown` one (after our own broadcast) is not definitive and keeps the
+    // escrow state frozen for a human.
+    const definitive = nextAt === null && cls === 'terminal';
     const res = await db.run(
-      `UPDATE tasks SET payment_status = 'failed', settle_next_at = ?, last_settle_error = ?, last_settle_class = ?
+      `UPDATE tasks SET payment_status = 'failed', settle_next_at = ?, last_settle_error = ?, last_settle_class = ?${definitive ? escrowLegFailedSql(task.escrow_leg) : ''}
        WHERE task_id = ? AND payment_status = 'settling'`,
       nextAt, error.slice(0, 500), cls, taskId,
     );
     if (res.changes !== 1) return { skipped: true, reason: 'not_due' };
-    await logPaymentEvent(db, taskId, 'settle_failed', { error, class: cls, retryable: nextAt !== null, trigger }, nowIso);
+    await logPaymentEvent(db, taskId, 'settle_failed', { error, class: cls, retryable: nextAt !== null, trigger, leg: task.escrow_leg ?? undefined }, nowIso);
     if (opts.webhook) await paymentWebhooks(db, task, 'task.payment_failed', { reason: error }, nowIso);
     if (opts.level === 'error') console.error(`[payments] ${taskId}: ${error}`);
+    if (task.escrow_leg === 'release' || task.escrow_leg === 'refund') {
+      // A house-signed leg failing is an operator problem (wrong domain, KYT block, empty house wallet), never the buyer's.
+      console.error(`[escrow] ${taskId}: ${task.escrow_leg} leg ${cls} (${error}) — attempt ${task.escrow_leg_attempts}${definitive ? '; back to funded, the cron re-signs' : ''}`);
+    }
     return { skipped: false, payment_status: 'failed', tx_hash: task.payment_tx_hash, error, facilitator: outcome };
   };
 
   const expired = async (): Promise<SettleResult> => {
     const res = await db.run(
-      `UPDATE tasks SET payment_status = 'expired', settle_next_at = NULL, last_settle_error = 'authorization_expired', last_settle_class = 'expired'
+      `UPDATE tasks SET payment_status = 'expired', settle_next_at = NULL, last_settle_error = 'authorization_expired', last_settle_class = 'expired'${escrowLegFailedSql(task.escrow_leg)}
        WHERE task_id = ? AND payment_status = 'settling'`,
       taskId,
     );
     if (res.changes !== 1) return { skipped: true, reason: 'not_due' };
-    await logPaymentEvent(db, taskId, 'expired', { reason: 'authorization_expired', trigger }, nowIso);
+    await logPaymentEvent(db, taskId, 'expired', { reason: 'authorization_expired', trigger, leg: task.escrow_leg ?? undefined }, nowIso);
     await paymentWebhooks(db, task, 'task.payment_failed', { reason: 'expired' }, nowIso);
+    if (task.escrow_leg === 'release' || task.escrow_leg === 'refund') {
+      console.error(`[escrow] ${taskId}: ${task.escrow_leg} authorization expired unsettled — attempt ${task.escrow_leg_attempts}; back to funded, the cron re-signs`);
+    }
     return { skipped: false, payment_status: 'expired', tx_hash: null, error: 'authorization_expired', facilitator: outcome };
   };
 

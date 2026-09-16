@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api/client';
-import type { ApiTask, ApiDeliveryReceipt, ApiTaskPayment, ApiPaymentStatus, ApiTaskSubmission } from '../api/types';
+import type { ApiTask, ApiDeliveryReceipt, ApiTaskPayment, ApiPaymentStatus, ApiTaskSubmission, ApiEscrowView } from '../api/types';
 import { STATUS_LABELS, bountyLabel } from './Marketplace';
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
@@ -29,12 +29,46 @@ const PAYMENT_COLORS: Record<string, { bg: string; color: string }> = {
   failed: { bg: 'rgba(239, 68, 68, 0.15)', color: '#EF4444' },
   disputed: { bg: 'rgba(239, 68, 68, 0.15)', color: '#EF4444' },
   expired: { bg: 'rgba(113, 113, 122, 0.15)', color: '#71717A' },
+  refunded: { bg: 'rgba(113, 113, 122, 0.15)', color: '#A1A1AA' },
+  // escrow custody states (keyed by escrow.status)
+  funding: { bg: 'rgba(245, 158, 11, 0.15)', color: '#F59E0B' },
+  unfunded: { bg: 'rgba(239, 68, 68, 0.15)', color: '#EF4444' },
+  funded: { bg: 'rgba(56, 189, 248, 0.15)', color: '#38BDF8' },
+  releasing: { bg: 'rgba(245, 158, 11, 0.15)', color: '#F59E0B' },
+  released: { bg: 'rgba(34, 197, 94, 0.15)', color: '#22C55E' },
+  refunding: { bg: 'rgba(245, 158, 11, 0.15)', color: '#F59E0B' },
 };
 
 /**
- * Buyer-facing wording for `payment_status` (Tasks P0, N2). The bounty is
- * declared at creation and only authorized when the buyer accepts, so
- * "pending" means "not yet signed", never "held".
+ * Buyer-facing wording for an ESCROWED bounty: the deposit is held by the
+ * registry from posting until the delivery is accepted (released to the agent)
+ * or the task is cancelled (refunded to the buyer).
+ */
+function escrowWording(e: ApiEscrowView, task: ApiTask, payment: ApiTaskPayment | null): { key: string; label: string; note: string } {
+  switch (e.status) {
+    case 'funding':
+      return { key: 'funding', label: 'Funding escrow', note: "The buyer's deposit is settling into the registry's escrow wallet; the task is claimable once it lands." };
+    case 'unfunded':
+      return { key: 'unfunded', label: 'Deposit failed', note: 'The escrow deposit did not settle; the buyer can deposit again or cancel the task.' };
+    case 'funded':
+      return { key: 'funded', label: 'In escrow', note: 'The bounty is held by the registry and released to the agent when the buyer — or the 7-day timer — accepts the delivery.' };
+    case 'releasing':
+      return { key: 'releasing', label: 'Releasing', note: payment?.next_settle_at || task.payment_status !== 'failed' ? 'Accepted — the escrowed USDC is being transferred to the agent.' : 'Accepted — the last transfer attempt failed; it is retried automatically.' };
+    case 'released':
+      return { key: 'released', label: 'Paid from escrow', note: 'The escrowed USDC was released to the agent on-chain.' };
+    case 'refunding':
+      return { key: 'refunding', label: 'Refunding', note: 'Cancelled — the deposit is being returned to the buyer.' };
+    case 'refunded':
+      return { key: 'refunded', label: 'Refunded', note: "The deposit was returned to the buyer's wallet." };
+    default:
+      return { key: String(e.status), label: String(e.status), note: '' };
+  }
+}
+
+/**
+ * Buyer-facing wording for `payment_status` on a task WITHOUT escrow (Tasks
+ * P0, N2). The bounty is declared at creation and only authorized when the
+ * buyer accepts, so "pending" means "not yet signed", never "held".
  */
 function paymentWording(status: ApiPaymentStatus, task: ApiTask, payment: ApiTaskPayment | null): { label: string; note: string } {
   const due = task.payment_due ?? payment?.payment_due ?? false;
@@ -190,9 +224,14 @@ export default function TaskDetail(): React.ReactElement {
   const reviewState = task.review_state ?? null;
   const revisionCount = task.revision_count ?? 0;
   const bounty = bountyLabel(task);
+  const escrow = task.escrow ?? payment?.escrow ?? null;
   const paymentStatus: ApiPaymentStatus | null = task.payment_status && task.payment_status !== 'none' ? task.payment_status : null;
-  const paymentText = paymentStatus ? paymentWording(paymentStatus, task, payment) : null;
-  const txHash = task.payment_tx_hash ?? payment?.tx_hash ?? null;
+  const escrowText = escrow ? escrowWording(escrow, task, payment) : null;
+  const paymentText = escrowText ?? (paymentStatus ? paymentWording(paymentStatus, task, payment) : null);
+  const paymentColorKey = escrowText ? escrowText.key : paymentStatus;
+  const txHash = escrow
+    ? (escrow.release_tx_hash ?? escrow.refund_tx_hash ?? escrow.deposit_tx_hash ?? null)
+    : (task.payment_tx_hash ?? payment?.tx_hash ?? null);
 
   // Timeline steps
   const normalSteps = ['open', 'claimed', 'submitted', 'verified'] as const;
@@ -342,8 +381,8 @@ export default function TaskDetail(): React.ReactElement {
                     <span style={{ fontSize: 10, opacity: 0.7 }}> ({task.bounty?.network ?? task.bounty_network})</span>
                   )}
                 </span>
-                {paymentStatus && paymentText && (() => {
-                  const pc = PAYMENT_COLORS[paymentStatus] || PAYMENT_COLORS.expired;
+                {paymentColorKey && paymentText && (() => {
+                  const pc = PAYMENT_COLORS[paymentColorKey] || PAYMENT_COLORS.expired;
                   return (
                     <span title={paymentText.note} style={{
                       display: 'inline-block',
@@ -457,9 +496,19 @@ export default function TaskDetail(): React.ReactElement {
                 <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 2 }}>Bounty</div>
                 <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{bounty}</div>
               </div>
+              {escrow && (
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 2 }}>Escrow</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                    {escrow.status}{escrow.wallet ? <span style={{ opacity: 0.7 }}> · {truncateHash(escrow.wallet, 12)}</span> : null}
+                  </div>
+                </div>
+              )}
               {txHash && (
                 <div>
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 2 }}>Transaction</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 2 }}>
+                    {escrow ? (escrow.release_tx_hash ? 'Release' : escrow.refund_tx_hash ? 'Refund' : 'Deposit') : 'Transaction'}
+                  </div>
                   <div style={{ fontSize: 13, color: '#38BDF8', fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>{truncateHash(txHash, 18)}</div>
                 </div>
               )}

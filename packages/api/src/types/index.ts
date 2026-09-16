@@ -124,6 +124,14 @@ export const CreateTaskSchema = z.object({
   expected_output: z.string().max(2000).optional(),
   output_format: z.enum(['json', 'link']).default('json'),
   bounty: BountySchema.optional(),
+  /**
+   * Escrow (Tasks P1): deposit the bounty into the registry's house wallet
+   * when posting; it is released to the deliverer on acceptance and refunded
+   * on cancellation. Omitted → ON whenever the registry has escrow enabled;
+   * `false` keeps the sign-at-accept flow (the buyer pays wallet-to-wallet
+   * when accepting). Ignored without a `bounty`.
+   */
+  escrow: z.boolean().optional(),
 });
 
 export const SubmitDeliverableSchema = z.object({
@@ -159,14 +167,21 @@ export const TaskQuerySchema = z.object({
 /**
  * Payment lifecycle of a bounty task (Tasks P0, N2):
  *   none       no bounty
- *   pending    bounty declared, no authorization yet (sign-at-accept)
- *   authorized buyer's EIP-3009 authorization verified at accept time
+ *   pending    bounty declared, no authorization yet (sign-at-accept), or —
+ *              on an escrow task — the deposit is held and the payout leg
+ *              has not started
+ *   authorized an EIP-3009 authorization was verified (the buyer's at accept
+ *              time, or at post time for an escrow deposit; the house
+ *              wallet's for an escrow release / refund)
  *   settling   a settle call is in flight / the facilitator reported pending
- *   settled    on-chain transfer confirmed by the facilitator
+ *   settled    on-chain transfer to the deliverer confirmed by the facilitator
  *   failed     last settle attempt failed (retryable when settle_next_at is set)
  *   expired    authorization expired or the bounty was voided by a cancel
- * `disputed` and `refunded` are never written any more and stay only so old
- * rows/clients type-check; a dispute is a task flag (tasks.disputed_at).
+ *   refunded   escrow only: the deposit went back to the buyer on-chain
+ * On an escrow task the columns describe the CURRENT leg (tasks.escrow_leg:
+ * deposit | release | refund) and `escrow_status` carries the custody state.
+ * `disputed` is never written any more and stays only so old rows/clients
+ * type-check; a dispute is a task flag (tasks.disputed_at).
  */
 export type PaymentStatus = 'none' | 'pending' | 'authorized' | 'settling' | 'settled' | 'failed' | 'expired' | 'disputed' | 'refunded';
 
@@ -437,6 +452,12 @@ export type Bindings = {
   X402_FACILITATOR_URL?: string;   // override CDP facilitator base URL (staging/local)
   X402_EIP712_NAME?: string;       // override USDC EIP-712 domain name on eip155:8453
   X402_EIP712_VERSION?: string;    // override USDC EIP-712 domain version on eip155:8453
+  // Escrow (Tasks P1): the house wallet that holds bounty deposits. A secp256k1
+  // private key (64 hex, optional 0x); escrow is available only when payments
+  // are enabled AND this parses. TASK_ESCROW_ENABLED='0' pauses NEW deposits
+  // (existing deposits are still released/refunded).
+  ESCROW_WALLET_PRIVATE_KEY?: string;
+  TASK_ESCROW_ENABLED?: string;
   GITHUB_TOKEN?: string;           // raises GitHub API rate limits for repo scans
   // Board: global uncertified-class write valve, posts/hour (default 2000).
   // The emergency dial for a PoW-identity spam wave — see routes/board.ts.

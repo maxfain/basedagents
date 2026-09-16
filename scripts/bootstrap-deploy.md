@@ -98,9 +98,12 @@ Notes:
 
 Task bounties fail closed: without this section the API answers
 `503 payments_unavailable` to any bounty and `GET /v1/status` reports
-`payments: "disabled"`. Free tasks work regardless. BasedAgents never holds
-funds — the buyer signs an EIP-3009 USDC transfer to the deliverer's wallet
-when accepting a delivery and the Coinbase CDP facilitator settles it.
+`payments: "disabled"`. Free tasks work regardless. Two money models: with
+`escrow: false` BasedAgents never holds funds — the buyer signs an EIP-3009
+USDC transfer to the deliverer's wallet when accepting a delivery and the
+Coinbase CDP facilitator settles it; with **escrow** (the default once step 7
+below is done) the buyer deposits the bounty into the registry's house wallet
+at post and the registry releases/refunds it.
 
 1. [CDP portal](https://portal.cdp.coinbase.com) → create an API key of the
    **Ed25519** kind (the EC/PEM kind is rejected). Keep the key id and the
@@ -128,6 +131,19 @@ printf '%s' "$PAYMENT_ENCRYPTION_KEY" | npx wrangler secret put PAYMENT_ENCRYPTI
    `X402_FACILITATOR_URL`, and `X402_EIP712_NAME` / `X402_EIP712_VERSION` if
    the check script or the staging run reports a USDC domain mismatch on
    mainnet (default `USD Coin` / `2`).
+7. **Escrow (optional, then the default).** Generate a dedicated secp256k1
+   key for the house wallet — `openssl rand -hex 32` — derive its address
+   (any EVM wallet tool, or `houseWalletFromPrivateKey` in
+   `packages/api/src/payments/house-wallet.ts`), record the address, and back
+   the key up offline: it holds buyers' USDC and a lost key strands every
+   deposit. Then `printf '%s' "$ESCROW_WALLET_PRIVATE_KEY" | npx wrangler secret put ESCROW_WALLET_PRIVATE_KEY`
+   on staging first, run one escrowed Sepolia task end to end (post with the
+   deposit → claim → deliver → accept → `escrow.status: released`) and one
+   cancel (→ `refunded`), then set the same secret in production.
+   `GET /.well-known/x402` then reports `escrow.enabled: true` and the
+   wallet address; `TASK_ESCROW_ENABLED = "0"` pauses new deposits without
+   stopping releases and refunds. Monitor the wallet's USDC balance against
+   the sum of `funded` deposits and any `escrow_stuck` in the cron logs.
 
 Turning payments off again is safe at any time: accepted tasks keep their
 status and their `payment_status` simply stops advancing.

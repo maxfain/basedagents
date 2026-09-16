@@ -300,6 +300,53 @@ describe('migration 0035_task_review.sql', () => {
     });
   });
 
+  describe('migration 0038_task_escrow.sql (escrow columns, plain adds)', () => {
+    const FILE_0038 = '0038_task_escrow.sql';
+    const ESCROW_COLUMNS = [
+      'escrow', 'escrow_status', 'escrow_leg', 'escrow_leg_attempts', 'escrow_wallet', 'escrow_deposit_payer',
+      'escrow_deposit_nonce', 'escrow_deposit_tx_hash', 'escrow_funded_at', 'escrow_release_tx_hash', 'escrow_released_at',
+      'escrow_refund_tx_hash', 'escrow_refunded_at',
+    ];
+
+    it('is in the runner list after 0037 and applies on a deploy with live rows, defaulting them to no-escrow', () => {
+      const files = runnerMigrationFiles(MIGRATIONS_DIR);
+      expect(files).toContain(FILE_0038);
+      const before = migrationFilesBefore(MIGRATIONS_DIR, '0038');
+      expect(before[before.length - 1]).toBe('0037_publish_delivery.sql');
+
+      const db = freshDb();
+      applyMigrations(db, before);
+      insertAgent(db, 'ag_creator');
+      db.prepare(
+        `INSERT INTO tasks (task_id, creator_agent_id, creator_kind, title, description, status, created_at, bounty_amount, payment_status)
+         VALUES ('task_p0', 'ag_creator', 'agent', 't', 'd', 'open', '2026-01-01T00:00:00Z', '5000000', 'pending')`
+      ).run();
+      expect(() => applyMigrations(db, [FILE_0038])).not.toThrow();
+      expect(db.inTransaction).toBe(false);
+      for (const c of ESCROW_COLUMNS) expect(columnNames(db, 'tasks')).toContain(c);
+      const row = db.prepare(`SELECT escrow, escrow_status, escrow_leg, escrow_leg_attempts, payment_status FROM tasks WHERE task_id = 'task_p0'`).get();
+      expect(row).toEqual({ escrow: 0, escrow_status: null, escrow_leg: null, escrow_leg_attempts: 0, payment_status: 'pending' });
+      const idx = (db.pragma(`index_list(tasks)`) as { name: string; unique: number; partial: number }[]);
+      expect(idx.find((i) => i.name === 'idx_tasks_escrow_sweep')).toMatchObject({ unique: 0, partial: 1 });
+      expect(idx.find((i) => i.name === 'idx_tasks_escrow_deposit_nonce')).toMatchObject({ unique: 1, partial: 1 });
+      db.close();
+    });
+
+    it('a deposit nonce is UNIQUE when set (a settled deposit can never fund a second task)', () => {
+      const db = freshDb();
+      applyMigrations(db, runnerMigrationFiles(MIGRATIONS_DIR));
+      insertAgent(db, 'ag_author');
+      const ins = (id: string, nonce: string | null) => db
+        .prepare(`INSERT INTO tasks (task_id, creator_agent_id, creator_kind, title, description, status, created_at, escrow, escrow_deposit_nonce) VALUES (?, 'ag_author', 'agent', 't', 'd', 'open', 'now', 1, ?)`)
+        .run(id, nonce);
+      expect(() => ins('t1', '0xabc')).not.toThrow();
+      expect(() => ins('t2', '0xabc')).toThrow(/UNIQUE/);
+      expect(() => ins('t3', null)).not.toThrow();
+      expect(() => ins('t4', null)).not.toThrow();
+      db.close();
+    });
+  });
+
   describe('test-helpers parity (inlined EXTRA_ALTER_STATEMENTS copy)', () => {
     type ColumnShape = { name: string; type: string; notnull: number; dflt_value: string | null; pk: number };
     type IndexShape = { name: string; unique: number; partial: number };
@@ -319,11 +366,13 @@ describe('migration 0035_task_review.sql', () => {
         .sort((a, b) => a.name.localeCompare(b.name));
     }
 
-    it('setupTestDb() has the same tasks columns and indexes as the migrated file', () => {
-      // The vitest harness inlines the schema instead of reading the file —
+    it('setupTestDb() has the same tasks columns and indexes as the fully migrated chain', () => {
+      // The vitest harness inlines the schema instead of reading the files —
       // if the copy drifts, route tests pass against a shape prod won't have.
+      // Compared against the WHOLE chain (0035 rebuild + 0038 escrow adds).
       const helper = (setupTestDb() as unknown as { db: Database.Database }).db;
-      const migrated = migratedDb();
+      const migrated = freshDb();
+      applyMigrations(migrated, runnerMigrationFiles(MIGRATIONS_DIR));
 
       expect(columns(helper, 'tasks')).toEqual(columns(migrated, 'tasks'));
       expect(indexes(helper, 'tasks')).toEqual(indexes(migrated, 'tasks'));

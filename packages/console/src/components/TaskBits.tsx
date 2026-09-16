@@ -6,7 +6,7 @@
  * Base-case surface — the banned-words rule applies (scripts/lint-ui-words.mjs).
  */
 import { ControlApiError } from '../api/control.js';
-import type { OwnerTask } from '../api/types.js';
+import type { EscrowStatus, OwnerTask } from '../api/types.js';
 
 export const MAX_REVISIONS = 3;
 
@@ -39,6 +39,28 @@ export function statusLabel(task: Pick<OwnerTask, 'status' | 'review_state'>): {
 export function TaskStatusPill({ task }: { task: Pick<OwnerTask, 'status' | 'review_state'> }) {
   const { text, cls } = statusLabel(task);
   return <span className={cls}>{text}</span>;
+}
+
+/** Human words for where an escrowed bounty is. */
+export function escrowLabel(status: EscrowStatus): string {
+  switch (status) {
+    case 'funding': return 'Deposit settling';
+    case 'unfunded': return 'Deposit failed';
+    case 'funded': return 'In escrow';
+    case 'releasing': return 'Releasing';
+    case 'released': return 'Released';
+    case 'refunding': return 'Refunding';
+    case 'refunded': return 'Refunded';
+    default: return String(status);
+  }
+}
+
+/** The escrow pill, when the task holds its bounty in escrow. */
+export function EscrowPill({ task }: { task: Pick<OwnerTask, 'escrow'> }) {
+  const e = task.escrow;
+  if (!e) return null;
+  const warn = e.status === 'unfunded';
+  return <span className={warn ? 'pill pill-warn' : 'pill'}>{escrowLabel(e.status)}</span>;
 }
 
 /** The review-state pills: changes requested, disputed, accepted automatically. */
@@ -93,6 +115,12 @@ export function taskErrText(err: unknown): string {
         return 'A previous payment for this task is still settling. Give it a moment, then reload.';
       case 'bounty_unsupported_network':
         return 'This bounty is on a network the registry cannot settle. Contact support.';
+      case 'escrow_unavailable':
+        return 'Holding the bounty in escrow is not available right now. Post it without escrow, or without a bounty.';
+      case 'escrow_not_funded':
+        return 'The bounty deposit has not settled yet, so this task cannot be claimed.';
+      case 'payment_required':
+        return 'Your wallet needs to sign the deposit first — reload and try again.';
       default:
         return err.message;
     }

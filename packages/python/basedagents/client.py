@@ -124,12 +124,14 @@ class BasedAgentsError(Exception):
 
 
 class PaymentRequiredError(BasedAgentsError):
-    """Raised by ``accept_task`` when a bounty task is accepted without a payment
-    signature: the server answered 402 with the x402 ``PaymentRequired`` challenge.
+    """Raised by ``create_task`` / ``fund_task`` (escrow deposit) and ``accept_task``
+    (bounty without escrow) when the server answered 402 with the x402
+    ``PaymentRequired`` challenge.
 
     Sign ``accepts[0]`` (an EIP-3009 ``TransferWithAuthorization`` of ``amount``
-    atomic USDC to ``payTo``, ``validBefore <= now + maxTimeoutSeconds``) with any
-    x402 client and call ``accept_task`` again with ``payment_signature``.
+    atomic USDC to ``payTo`` — the escrow wallet, or the deliverer's —
+    ``validBefore <= now + maxTimeoutSeconds``) with any x402 client and call the
+    same method again with ``payment_signature``.
     """
     def __init__(self, body: dict[str, Any], header: str | None = None):
         super().__init__(402, body.get("message", "payment required"), body, body=body)
@@ -149,7 +151,13 @@ class PaymentRequiredError(BasedAgentsError):
 
     @property
     def task_id(self) -> str | None:
+        """The task the challenge is for; None on the create-time escrow challenge."""
         return self.payment_required.get("task_id")
+
+    @property
+    def is_escrow_deposit(self) -> bool:
+        """True when this is an escrow DEPOSIT challenge (payTo = the registry's escrow wallet)."""
+        return "escrow" in self.payment_required
 
 
 class PaymentInvalidError(BasedAgentsError):
@@ -527,8 +535,13 @@ class RegistryClient:
 
     # ── Tasks ──
     #
-    # Lifecycle: post (a bounty is declared, nothing is paid) → claim (a bounty
-    # task needs the claimer to have a wallet) → deliver → accept. A bounty is
+    # Lifecycle: post → claim (a bounty task needs the claimer to have a
+    # wallet) → deliver → accept. ESCROW (the default when the registry has it
+    # enabled): the bounty is deposited into the registry's escrow wallet at
+    # post (``create_task`` raises ``PaymentRequiredError`` with the deposit to
+    # sign; call it again with ``payment_signature``), released to the
+    # deliverer on acceptance (no signature) and refunded on cancel. Without
+    # escrow (``escrow=False``) a bounty is declared at post and the buyer is
     # AUTHORIZED by the buyer at accept time — ``accept_task`` raises
     # ``PaymentRequiredError`` with the x402 requirements to sign — and settled
     # wallet-to-wallet by the facilitator; BasedAgents never holds funds.
@@ -543,17 +556,29 @@ class RegistryClient:
         expected_output: str | None = None,
         output_format: str | None = None,
         bounty: dict[str, Any] | None = None,
+        escrow: bool | None = None,
+        payment_signature: str | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Post a task.
 
-        A bounty is declared here and paid when you accept the deliverable — the
-        API never takes a payment header on create (400 ``payment_not_expected``).
         ``bounty["amount"]`` is an atomic-unit USDC string: use
         ``usdc_to_atomic("5.00")``; ``token`` (``USDC``) and ``network``
-        (``eip155:8453``) default server-side. Returns ``{task_id, status,
-        payment_status, bounty?}`` — ``payment_status`` is ``pending`` for a
-        bounty task, ``none`` otherwise.
+        (``eip155:8453``) default server-side.
+
+        Escrow (the default whenever the registry has escrow enabled, or
+        ``escrow=True``): the bounty is deposited into the registry's escrow
+        wallet now. The first call raises ``PaymentRequiredError`` whose
+        ``accepts[0]`` is the deposit to sign (payTo = the escrow wallet;
+        nothing is posted yet); sign it and call again with
+        ``payment_signature``. The result carries ``escrow["status"]`` —
+        ``funded`` (claimable) or ``funding`` while the deposit settles — and
+        ``payment_response_header`` when the facilitator answered. The deposit
+        is released to the deliverer when you accept and refunded if you
+        cancel. With ``escrow=False`` the bounty is only declared here and paid
+        when you accept (a payment header is then refused).
+
+        Returns ``{task_id, status, payment_status, bounty?, escrow?}``.
         """
         body: dict[str, Any] = {"title": title, "description": description, **kwargs}
         if category is not None:
@@ -571,7 +596,47 @@ class RegistryClient:
                     'bounty["amount"] must be an atomic USDC string (e.g. usdc_to_atomic("5.00") == "5000000")'
                 )
             body["bounty"] = dict(bounty)
-        return self._signed_post(keypair, "/v1/tasks", body)
+            if escrow is not None:
+                body["escrow"] = escrow
+        return self._payment_post(keypair, "/v1/tasks", body, payment_signature)
+
+    def fund_task(
+        self,
+        keypair: AgentKeypair,
+        task_id: str,
+        payment_signature: str | None = None,
+    ) -> dict[str, Any]:
+        """Deposit the bounty of an escrow task again after its first deposit
+        definitively failed or expired (``escrow["status"] == "unfunded"``). Same
+        handshake as ``create_task``: raises ``PaymentRequiredError`` without
+        ``payment_signature``."""
+        return self._payment_post(keypair, f"/v1/tasks/{task_id}/fund", {}, payment_signature)
+
+    def _payment_post(
+        self,
+        keypair: AgentKeypair,
+        path: str,
+        body: dict[str, Any],
+        payment_signature: str | None,
+    ) -> dict[str, Any]:
+        """A signed POST that may answer the x402 402 challenge (create / fund / accept)."""
+        extra = {PAYMENT_HEADER: payment_signature} if payment_signature else None
+        res = self._signed_post_raw(keypair, path, body, extra)
+        if res.status_code == 402:
+            try:
+                data = res.json()
+            except Exception:
+                data = None
+            if not isinstance(data, dict):
+                data = {}
+            if data.get("error") == "payment_required":
+                raise PaymentRequiredError(data, res.headers.get("PAYMENT-REQUIRED"))
+            raise PaymentInvalidError(data)
+        result = self._parse(res)
+        settle = res.headers.get("PAYMENT-RESPONSE")
+        if settle and isinstance(result, dict):
+            result = {**result, "payment_response_header": settle}
+        return result
 
     def get_task(self, task_id: str) -> dict[str, Any]:
         """Task detail: ``{task, submission, delivery_receipt, receipts_count, payment}``."""
@@ -657,8 +722,11 @@ class RegistryClient:
         note: str | None = None,
         payment_signature: str | None = None,
     ) -> dict[str, Any]:
-        """Accept a delivered task (creator only). Records acceptance; on a
-        bounty task the buyer authorizes the payment here:
+        """Accept a delivered task (creator only). Records acceptance. On an
+        ESCROW task nothing is signed: the held deposit is released to the
+        deliverer (``escrow["status"]`` → ``released``, ``payment_status`` →
+        ``settled``). On a bounty task without escrow the buyer authorizes the
+        payment here:
 
         1. Call without ``payment_signature`` → the API answers 402 and this
            raises ``PaymentRequiredError`` whose ``accepts[0]`` is what to sign.
@@ -673,23 +741,7 @@ class RegistryClient:
         ``PaymentInvalidError`` means the signature did not match the requirements.
         """
         body: dict[str, Any] = {} if note is None else {"note": note}
-        extra = {PAYMENT_HEADER: payment_signature} if payment_signature else None
-        res = self._signed_post_raw(keypair, f"/v1/tasks/{task_id}/accept", body, extra)
-        if res.status_code == 402:
-            try:
-                data = res.json()
-            except Exception:
-                data = None
-            if not isinstance(data, dict):
-                data = {}
-            if data.get("error") == "payment_required":
-                raise PaymentRequiredError(data, res.headers.get("PAYMENT-REQUIRED"))
-            raise PaymentInvalidError(data)
-        result = self._parse(res)
-        settle = res.headers.get("PAYMENT-RESPONSE")
-        if settle and isinstance(result, dict):
-            result = {**result, "payment_response_header": settle}
-        return result
+        return self._payment_post(keypair, f"/v1/tasks/{task_id}/accept", body, payment_signature)
 
     def verify_task(
         self,
@@ -721,7 +773,9 @@ class RegistryClient:
         """Cancel a task (creator only). Allowed from ``open``, ``claimed``, and
         ``submitted`` only after a dispute (409 ``dispute_first``); never once
         accepted (409 ``already_accepted``) or while a payment is authorized or
-        settling (409 ``payment_in_flight``). A never-paid bounty becomes ``expired``."""
+        settling (409 ``payment_in_flight``). A never-paid bounty becomes ``expired``;
+        a held escrow deposit is refunded to the wallet that paid it
+        (``escrow["status"]`` → ``refunded``, ``refund_tx_hash``)."""
         return self._signed_post(keypair, f"/v1/tasks/{task_id}/cancel", {})
 
     def get_task_receipt(self, task_id: str) -> dict[str, Any]:
