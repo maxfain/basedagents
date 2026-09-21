@@ -232,7 +232,10 @@ app.get('/tasks', ownerSession, async (c) => {
   const db = c.get('db');
   const status = StatusQuery.safeParse(c.req.query('status') || undefined);
   const parts = await creatorSqlParts(db);
-  let sql = `SELECT ${parts.columns}, cl.name AS claimer_name FROM tasks t ${parts.joins} LEFT JOIN agents cl ON cl.id = t.claimed_by_agent_id WHERE t.creator_owner_id = ?`;
+  // creatorSqlParts already joins the claimer agent and selects claimer_name,
+  // which publicTaskShape folds into `claimed_by`. The top-level claimer_name is
+  // kept for the console's existing owner views.
+  let sql = `SELECT ${parts.columns} FROM tasks t ${parts.joins} WHERE t.creator_owner_id = ?`;
   const params: unknown[] = [ownerId];
   if (status.success && status.data && status.data !== 'all') { sql += ` AND t.status = ?`; params.push(status.data); }
   sql += ` ORDER BY t.created_at DESC LIMIT 100`;
@@ -242,12 +245,12 @@ app.get('/tasks', ownerSession, async (c) => {
     ok: true,
     tasks: rows.map((row) => {
       const latest = receipts.get(row.task_id as string)?.[0];
-      const { claimer_name, ...rest } = row;
+      const shaped = publicTaskShape(row);
       return {
-        ...publicTaskShape(rest),
-        claimer_name: sanitizeDisplayName((claimer_name as string | null) ?? null),
+        ...shaped,
+        claimer_name: (shaped.claimed_by as { name?: string | null } | null)?.name ?? null,
         latest_receipt: latest ? mapReceipt(latest) : null,
-        needs_review: rest.status === 'submitted',
+        needs_review: row.status === 'submitted',
       };
     }),
   });
@@ -262,16 +265,16 @@ app.get('/tasks/:id', ownerSession, async (c) => {
   if ('res' in mine) return mine.res;
   const parts = await creatorSqlParts(db);
   const row = await db.get<Record<string, unknown>>(
-    `SELECT ${parts.columns}, cl.name AS claimer_name FROM tasks t ${parts.joins} LEFT JOIN agents cl ON cl.id = t.claimed_by_agent_id WHERE t.task_id = ?`,
+    `SELECT ${parts.columns} FROM tasks t ${parts.joins} WHERE t.task_id = ?`,
     taskId,
   );
   if (!row) return err(c, 404, 'not_found', 'Task not found');
-  const { claimer_name, ...rest } = row;
+  const shaped = publicTaskShape(row);
   const receipts = (await receiptsFor(db, [taskId])).get(taskId) ?? [];
   const submission = await db.get<Record<string, unknown>>('SELECT * FROM submissions WHERE task_id = ? ORDER BY created_at DESC LIMIT 1', taskId);
   return c.json({
     ok: true,
-    task: { ...publicTaskShape(rest), claimer_name: sanitizeDisplayName((claimer_name as string | null) ?? null), needs_review: rest.status === 'submitted' },
+    task: { ...shaped, claimer_name: (shaped.claimed_by as { name?: string | null } | null)?.name ?? null, needs_review: row.status === 'submitted' },
     delivery_receipt: receipts[0] ? mapReceipt(receipts[0]) : null,
     receipts: receipts.map(mapReceipt),
     submission: submission ?? null,
