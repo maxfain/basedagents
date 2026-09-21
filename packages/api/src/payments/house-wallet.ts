@@ -216,7 +216,8 @@ export function recoverAuthorizationSigner(payload: PaymentPayloadV2): `0x${stri
 /** `undefined` = derive from env; `null` = forced disabled; otherwise the injected wallet. */
 let testOverride: HouseWallet | null | undefined = undefined;
 let memo: { raw: string; wallet: HouseWallet } | null = null;
-let disabledLogged = false;
+/** The last house-key problem logged by this isolate: one line per distinct reason. */
+let lastLoggedReason: string | null = null;
 
 /**
  * Why NEW escrow deposits are unavailable on this deploy, or null when
@@ -264,9 +265,10 @@ export function houseWalletFor(env: EscrowEnv | undefined | null): HouseWallet |
   try {
     key = parseHousePrivateKey(raw);
   } catch (err) {
-    if (!disabledLogged) {
-      disabledLogged = true;
-      console.error(`[escrow] house wallet disabled: ${(err as Error).message}`);
+    const reason = (err as Error).message;
+    if (reason !== lastLoggedReason) {
+      lastLoggedReason = reason;
+      console.error(`[escrow] house wallet disabled: ${reason}`);
     }
     return null;
   }
@@ -282,7 +284,7 @@ export function houseWalletFor(env: EscrowEnv | undefined | null): HouseWallet |
 export function setHouseWalletForTests(w: HouseWallet | null | undefined): void {
   testOverride = w;
   memo = null;
-  disabledLogged = false;
+  lastLoggedReason = null;
 }
 
 /** The asset + EIP-712 domain a house-signed leg uses on `network` (same source as buyer requirements). */

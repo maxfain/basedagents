@@ -9,8 +9,9 @@
  *   - PAYMENT_ENCRYPTION_KEY is 64 hex     (secret; AES-256-GCM for stored headers)
  *   - X402_FACILITATOR_URL, if set, is an http(s) URL
  * Otherwise it returns null and the callers fail closed: 503 on bounty
- * create / paid accept, cron settle pass skipped. The first null reason is
- * logged ONCE per isolate so a misconfigured key is visible without spamming.
+ * create / paid accept, cron settle pass skipped. Each DISTINCT null reason is
+ * logged once per isolate (a misconfigured key is visible without spamming, and
+ * fixing one secret surfaces the next problem instead of going quiet).
  *
  * Tests inject a fake through `setPaymentProviderForTests` (null = "disabled").
  */
@@ -33,8 +34,8 @@ const HEX_KEY_RE = /^[0-9a-fA-F]{64}$/;
 
 /** `undefined` = derive from env; `null` = forced disabled; otherwise the injected fake. */
 let testOverride: Facilitator | null | undefined = undefined;
-/** Module-level "already logged" flag: one disabled line per isolate. */
-let disabledLogged = false;
+/** The last disabled reason logged by this isolate: one line per distinct reason. */
+let lastLoggedReason: string | null = null;
 /** Single-entry memo so a hot Worker does not re-derive the Ed25519 public key per request. */
 let memo: { keyId: string; secret: string; baseUrl: string; provider: Facilitator } | null = null;
 
@@ -71,8 +72,8 @@ export function paymentProviderFor(env: PaymentsEnv | undefined | null): Facilit
 
   const reason = paymentsDisabledReason(env);
   if (reason !== null) {
-    if (!disabledLogged) {
-      disabledLogged = true;
+    if (reason !== lastLoggedReason) {
+      lastLoggedReason = reason;
       // The flag being off is the expected prod default (informational); the
       // flag being on with a broken key is a misconfiguration worth an error.
       if (env?.TASK_PAYMENTS_ENABLED === '1') console.error(`[payments] disabled: ${reason}`);
@@ -99,6 +100,6 @@ export function paymentProviderFor(env: PaymentsEnv | undefined | null): Facilit
  */
 export function setPaymentProviderForTests(p: Facilitator | null | undefined): void {
   testOverride = p;
-  disabledLogged = false;
+  lastLoggedReason = null;
   memo = null;
 }
