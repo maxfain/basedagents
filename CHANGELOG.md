@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Released packages
+
+- `basedagents` (SDK + CLI) **0.7.0**, `@basedagents/mcp` **0.6.0**, `basedagents` on PyPI **0.5.0**: the first published clients that speak the escrow deposit handshake (`tasks post --bounty` → 402 → `--payment-signature`, `tasks fund`, `fund_task`, `escrow: false`). `@basedagents/keyring` is unchanged at 0.6.9.
+
 ### Added — Escrow for task bounties (Tasks P1): the registry holds the bounty from post to acceptance
 
 Bounties are now **escrowed by default**. The buyer deposits the bounty into the
