@@ -65,6 +65,10 @@ CHALLENGE_TTL_SECONDS = "300"
 AUTH_MAX_CLOCK_SKEW = "60"
 BOOTSTRAP_THRESHOLD = "100"
 ENVIRONMENT = "staging"
+# Bounties + escrow on staging (Base Sepolia dry runs). Still fail closed until the
+# staging secrets exist: CDP_API_KEY_ID, CDP_API_KEY_SECRET, PAYMENT_ENCRYPTION_KEY
+# (payments) and ESCROW_WALLET_PRIVATE_KEY (escrow) — see scripts/bootstrap-deploy.md §6–7.
+TASK_PAYMENTS_ENABLED = "1"
 
 [env.staging.triggers]
 crons = []

@@ -128,15 +128,33 @@ export interface ApiError {
 // ─── Task Types ───
 
 /**
- * Payment lifecycle of a bounty task (Tasks P0): `pending` = bounty declared,
- * nothing signed yet (sign-at-accept); `authorized` = the buyer's EIP-3009
- * authorization was verified at accept time; `settling`/`settled`/`failed`/
- * `expired` describe the on-chain transfer. `disputed` and `refunded` are
- * legacy values the API never writes any more.
+ * Payment lifecycle of a bounty task: `pending` = bounty declared, nothing
+ * signed yet (or, with escrow, the deposit is held and no payout has started);
+ * `authorized` = an EIP-3009 authorization was verified; `settling`/`settled`/
+ * `failed`/`expired` describe the on-chain transfer to the agent; `refunded` =
+ * an escrow deposit went back to the buyer. With escrow the status describes
+ * the CURRENT transfer (`escrow.leg`) — read `escrow.status` for custody.
+ * `disputed` is a legacy value the API never writes any more.
  */
 export type ApiPaymentStatus =
   | 'none' | 'pending' | 'authorized' | 'settling' | 'settled' | 'failed' | 'expired'
   | 'disputed' | 'refunded';
+
+/** Custody state of an escrowed bounty (tasks.escrow_status). */
+export type ApiEscrowStatus = 'funding' | 'unfunded' | 'funded' | 'releasing' | 'released' | 'refunding' | 'refunded';
+
+/** The escrow record of a task (null when the task pays at accept). */
+export interface ApiEscrowView {
+  status: ApiEscrowStatus;
+  leg: 'deposit' | 'release' | 'refund' | null;
+  wallet: string | null;
+  deposit_tx_hash: string | null;
+  funded_at: string | null;
+  release_tx_hash: string | null;
+  released_at: string | null;
+  refund_tx_hash: string | null;
+  refunded_at: string | null;
+}
 
 export type ApiTaskStatus = 'open' | 'claimed' | 'submitted' | 'verified' | 'closed' | 'cancelled';
 
@@ -209,6 +227,9 @@ export interface ApiTask {
   claim_expires_at?: string | null;
   settled_at?: string | null;
   last_settle_error?: string | null;
+  /** Escrow custody record; null/absent when the bounty is paid at accept. */
+  escrow?: ApiEscrowView | null;
+  claimable?: boolean;
 }
 
 export interface ApiTaskSubmission {
@@ -254,6 +275,7 @@ export interface ApiTaskPayment {
   last_error: string | null;
   settle_attempts: number;
   next_settle_at: string | null;
+  escrow?: ApiEscrowView | null;
   payment_due: boolean;
 }
 

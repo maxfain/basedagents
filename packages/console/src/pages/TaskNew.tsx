@@ -4,17 +4,22 @@
  * Posting requires a passkey: the composer signs a WYSIWYS canonical of every
  * task field (the server re-derives the same hash), so an email-rung account
  * with no passkey yet mints one at this first post. When the registry has
- * payments on, a task can carry a USDC bounty: you name the amount here and
- * authorize the transfer with your wallet when you accept the delivery —
- * non-custodial, wallet to wallet. On success we land on the task's review page.
+ * payments on, a task can carry a USDC bounty. By default it is held in
+ * ESCROW: the first POST answers 402 with the deposit to sign (payTo = the
+ * registry's escrow wallet), the browser wallet signs it, and the passkey-
+ * signed post goes up with the signed deposit — the task is live once it
+ * settles, the deposit is released to the agent when you accept and refunded
+ * if you cancel. Untick escrow to pay the agent from your wallet when you
+ * accept instead. On success we land on the task's review page.
  *
  * Base-case surface — the banned-words rule applies (scripts/lint-ui-words.mjs).
  */
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { control, payments } from '../api/control.js';
+import { control, payments, paymentChallengeOf } from '../api/control.js';
 import type { CreateTaskInput, TaskCategory, TaskOutputFormat } from '../api/types.js';
 import { usdcToAtomic } from '../lib/money.js';
+import { signBountyPayment, walletAvailable } from '../lib/wallet.js';
 import { funnelPing } from '../lib/funnel.js';
 import { useOwner } from '../state/session.js';
 import { taskErrText } from '../components/TaskBits.js';
@@ -55,12 +60,17 @@ export default function TaskNew() {
   const [outputFormat, setOutputFormat] = useState<TaskOutputFormat>('json');
   const [bounty, setBounty] = useState('');
   const [paymentsOn, setPaymentsOn] = useState(false);
+  // Whether this registry can hold bounties in escrow, and whether this post uses it (on by default).
+  const [escrowOn, setEscrowOn] = useState(false);
+  const [escrow, setEscrow] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     funnelPing('task_composer_view');
     void payments.enabled().then(setPaymentsOn);
+    void payments.escrowEnabled().then(setEscrowOn);
   }, []);
 
   if (!owner) return null; // Protected route guarantees a session.
@@ -83,6 +93,11 @@ export default function TaskNew() {
         return;
       }
     }
+    const useEscrow = !!bountyField && escrowOn && escrow;
+    if (useEscrow && !walletAvailable()) {
+      setError('No browser wallet found. Install one (e.g. MetaMask or Coinbase Wallet) to hold the bounty in escrow, or untick escrow to pay when you accept.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -99,24 +114,47 @@ export default function TaskNew() {
         ...(expected ? { expected_output: expected } : {}),
         output_format: outputFormat,
         ...(bountyField ? { bounty: bountyField } : {}),
+        // Only sent when the registry offers escrow, so an older registry keeps its old behaviour.
+        ...(bountyField && escrowOn ? { escrow } : {}),
       };
+      // Escrow: the first POST answers 402 with the deposit to sign and writes
+      // nothing (no passkey challenge is consumed either). The wallet shows the
+      // exact amount and the escrow wallet it goes to.
+      let depositHeader: string | undefined;
+      if (useEscrow) {
+        setStep('Preparing the deposit…');
+        let challenge: ReturnType<typeof paymentChallengeOf> = null;
+        try {
+          await control.createTask(input);
+        } catch (err) {
+          challenge = paymentChallengeOf(err);
+          if (!challenge) throw err;
+        }
+        if (!challenge) throw new Error('The registry did not ask for the deposit. Reload and try again.');
+        setStep('Sign the deposit in your wallet…');
+        depositHeader = (await signBountyPayment(challenge.accepts[0])).header;
+      }
       // Posting requires a passkey. If this account has none yet (an email-rung
       // buyer on their first post), mint one now; then sign a canonical of
       // exactly these fields and submit the signature with the task.
+      setStep('Confirm with your passkey…');
       await ensurePasskey(activeOwner);
       const actionType = `task.create:${sha256hex(canonicalJsonStringify(input))}`;
       const { nonce, assertion } = await runAction(activeOwner.owner_id, actionType, {});
-      const res = await control.createTask(input, { nonce, assertion });
+      setStep(depositHeader ? 'Depositing the bounty…' : 'Posting…');
+      const res = await control.createTask(input, { nonce, assertion }, depositHeader);
       await refresh(); // reflect a freshly-minted passkey for the next post
       navigate(`/tasks/${encodeURIComponent(res.task_id)}`);
     } catch (err) {
       setError(taskErrText(err));
     } finally {
       setBusy(false);
+      setStep(null);
     }
   }
 
   const canPost = !busy && title.trim().length > 0 && description.trim().length > 0;
+  const hasBounty = paymentsOn && bounty.trim().length > 0;
 
   return (
     <div className="page">
@@ -224,23 +262,51 @@ export default function TaskNew() {
               <span className="affix">USDC</span>
             </div>
             <span className="field-hint">
-              Leave empty to post unpaid. With a bounty, any agent with a wallet can claim it; you
-              authorize the payment from your own wallet when you accept the delivery — wallet to
-              wallet on Base, non-custodial. Nothing moves until you accept.
+              Leave empty to post unpaid. With a bounty, any agent with a wallet can claim it.
             </span>
           </div>
         ) : (
           <p className="field-hint">This task is unpaid — an agent claims it and delivers, no bounty attached.</p>
         )}
+        {hasBounty && escrowOn && (
+          <div className="field">
+            <label className="field-label" htmlFor="task-escrow">
+              <input
+                id="task-escrow"
+                type="checkbox"
+                checked={escrow}
+                onChange={(ev) => setEscrow(ev.target.checked)}
+                disabled={busy}
+              />{' '}
+              Hold the bounty in escrow
+            </label>
+            <span className="field-hint">
+              {escrow
+                ? 'Your wallet deposits the bounty now, into an escrow wallet run by the registry. It is released to the agent when you accept the delivery (or after 7 days without a review), and refunded to your wallet if you cancel. Agents see the money is already there.'
+                : 'Nothing moves now. You pay the agent from your own wallet when you accept the delivery — wallet to wallet on Base, and the registry never holds it. Agents see a promise, not a deposit.'}
+            </span>
+            {escrow && !walletAvailable() && (
+              <span className="field-hint">
+                No browser wallet is connected, so the deposit cannot be signed here yet. Install one (e.g. MetaMask, Coinbase Wallet, or Rabby) and reload, or untick escrow.
+              </span>
+            )}
+          </div>
+        )}
+        {hasBounty && !escrowOn && (
+          <span className="field-hint">
+            You pay the agent from your own wallet when you accept the delivery — wallet to wallet on Base. Nothing moves until you accept.
+          </span>
+        )}
         <p className="field-hint">
           {activeOwner.has_passkey
             ? 'You’ll confirm this post with your passkey.'
             : 'Posting adds a passkey to your account (a Face ID / Touch ID prompt), then you confirm the post with it.'}
+          {hasBounty && escrowOn && escrow ? ' Your wallet will ask you to sign the deposit first.' : ''}
         </p>
 
         <div className="btn-row">
           <button className="btn btn-primary" type="submit" disabled={!canPost}>
-            {busy ? 'Posting…' : 'Post a task'}
+            {busy ? (step ?? 'Posting…') : (hasBounty && escrowOn && escrow ? 'Post & deposit bounty' : 'Post a task')}
           </button>
         </div>
       </form>

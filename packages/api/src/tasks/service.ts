@@ -82,7 +82,36 @@ export interface TaskRow {
   last_settle_error: string | null;
   /** Structured outcome class of the last settle attempt (payments/settle.ts SettleClass); the re-auth guard reads THIS, never the free-text error. */
   last_settle_class: string | null;
+  // ─── Escrow (0039) — see payments/escrow.ts ───
+  /** 1 when the bounty is held by the house wallet between posting and acceptance. */
+  escrow: number;
+  escrow_status: EscrowStatus | null;
+  /** Which transfer the payment_* / settle_* columns currently describe. */
+  escrow_leg: EscrowLeg | null;
+  escrow_leg_attempts: number;
+  escrow_wallet: string | null;
+  escrow_deposit_payer: string | null;
+  escrow_deposit_nonce: string | null;
+  escrow_deposit_tx_hash: string | null;
+  escrow_funded_at: string | null;
+  escrow_release_tx_hash: string | null;
+  escrow_released_at: string | null;
+  escrow_refund_tx_hash: string | null;
+  escrow_refunded_at: string | null;
 }
+
+/**
+ * Custody state of an escrow task (tasks.escrow_status):
+ *   funding    the buyer's deposit is authorized/settling into the house wallet — not claimable yet
+ *   unfunded   the deposit definitively failed or expired; the buyer re-funds (POST /fund) or cancels
+ *   funded     the house holds the bounty; the task is claimable / in progress / delivered
+ *   releasing  accepted; the house→deliverer transfer is authorized/settling
+ *   released   the deliverer was paid (escrow_release_tx_hash)
+ *   refunding  cancelled; the house→buyer transfer is authorized/settling
+ *   refunded   the buyer got the deposit back (escrow_refund_tx_hash)
+ */
+export type EscrowStatus = 'funding' | 'unfunded' | 'funded' | 'releasing' | 'released' | 'refunding' | 'refunded';
+export type EscrowLeg = 'deposit' | 'release' | 'refund';
 
 /** Buyer review window: a delivered task is auto-accepted after this long (N3). */
 export const REVIEW_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -96,6 +125,10 @@ const PRIVATE_COLUMNS = new Set([
   'payment_signature', 'payment_requirements', 'payment_payer', 'payment_nonce', 'creator_owner_id',
   'creator_assertion_id', 'review_assertion_id',
   'settle_attempts', 'settle_broadcast', 'settle_started_at', 'settle_next_at', 'last_settle_class',
+  // escrow bookkeeping folded into `escrow` by publicTaskShape (the buyer's refund address stays private)
+  'escrow_status', 'escrow_leg', 'escrow_leg_attempts', 'escrow_wallet', 'escrow_deposit_payer', 'escrow_deposit_nonce',
+  'escrow_deposit_tx_hash', 'escrow_funded_at', 'escrow_release_tx_hash', 'escrow_released_at',
+  'escrow_refund_tx_hash', 'escrow_refunded_at',
   // JOIN outputs folded into `creator` by publicTaskShape
   'creator_name', 'creator_owner_name', 'creator_certified', 'creator_owner_certified',
   // JOIN output folded into `claimed_by` by publicTaskShape
@@ -265,8 +298,48 @@ export function reviewState(t: Pick<TaskRow, 'status' | 'revision_requested_at' 
   return null;
 }
 
-export function paymentDue(t: Pick<TaskRow, 'status' | 'payment_status' | 'bounty_amount'>): boolean {
+/**
+ * Accepted bounty task still waiting on the BUYER's signature. Never true on an
+ * escrow task: the deposit is already held and the house pays out by itself.
+ */
+export function paymentDue(t: Pick<TaskRow, 'status' | 'payment_status' | 'bounty_amount' | 'escrow'>): boolean {
+  if (t.escrow) return false;
   return !!t.bounty_amount && t.status === 'verified' && ['pending', 'failed', 'expired'].includes(t.payment_status);
+}
+
+/** The public custody record of an escrow task (null when the task does not use escrow). */
+export interface EscrowView {
+  status: EscrowStatus;
+  /** Which transfer `payment_status` currently describes. */
+  leg: EscrowLeg | null;
+  /** The house wallet holding (or that held) the deposit. */
+  wallet: string | null;
+  deposit_tx_hash: string | null;
+  funded_at: string | null;
+  release_tx_hash: string | null;
+  released_at: string | null;
+  refund_tx_hash: string | null;
+  refunded_at: string | null;
+}
+
+export function escrowView(t: TaskRow): EscrowView | null {
+  if (!t.escrow) return null;
+  return {
+    status: t.escrow_status ?? 'funding',
+    leg: t.escrow_leg,
+    wallet: t.escrow_wallet,
+    deposit_tx_hash: t.escrow_deposit_tx_hash,
+    funded_at: t.escrow_funded_at,
+    release_tx_hash: t.escrow_release_tx_hash,
+    released_at: t.escrow_released_at,
+    refund_tx_hash: t.escrow_refund_tx_hash,
+    refunded_at: t.escrow_refunded_at,
+  };
+}
+
+/** An open task an agent may claim right now: an escrow task only once its deposit has settled. */
+export function claimable(t: Pick<TaskRow, 'status' | 'escrow' | 'escrow_status'>): boolean {
+  return t.status === 'open' && (!t.escrow || t.escrow_status === 'funded');
 }
 
 /** The public shape of a task row: internals stripped, derived fields added. */
@@ -308,6 +381,8 @@ export function publicTaskShape(row: Record<string, unknown>): Record<string, un
   out.bounty = bountyView(t);
   out.review_state = reviewState(t);
   out.payment_due = paymentDue(t);
+  out.escrow = escrowView(t);
+  out.claimable = claimable(t);
   return out;
 }
 
@@ -328,6 +403,7 @@ export function paymentView(t: TaskRow): Record<string, unknown> {
     settle_attempts: t.settle_attempts,
     next_settle_at: t.settle_next_at,
     payment_due: paymentDue(t),
+    escrow: escrowView(t),
   };
 }
 
@@ -347,7 +423,8 @@ export async function claimGate(db: DBAdapter, taskId: string, agentId: string, 
   return gateWithEvent(db, {
     sql: `UPDATE tasks SET claimed_by_agent_id = ?, status = 'claimed', claimed_at = ?, claim_expires_at = ?, acceptor_signature = ?
      WHERE task_id = ? AND status = 'open' AND claimed_by_agent_id IS NULL
-       AND (creator_agent_id IS NULL OR creator_agent_id <> ?)`,
+       AND (creator_agent_id IS NULL OR creator_agent_id <> ?)
+       AND (escrow = 0 OR escrow_status = 'funded')`,
     params: [agentId, nowIso, isoPlus(nowIso, CLAIM_WINDOW_MS), acceptorSig, taskId, agentId],
   }, notify?.recipientAgentId ?? null, notify?.event ?? null, nowIso);
 }
@@ -412,14 +489,25 @@ export async function disputeGate(db: DBAdapter, taskId: string, reason: string,
  * T8: open|claimed|submitted(disputed) → cancelled (N4). Delivered work can only
  * be cancelled after a dispute; accepted work never; money in flight never.
  * A never-settled bounty is voided (`expired`).
+ *
+ * Escrow: a FUNDED task keeps its payment columns — the caller starts the
+ * refund leg after the gate wins (payments/escrow.ts). A deposit that is
+ * still authorized/settling, or that was broadcast and is not yet resolved,
+ * blocks the cancel (the money may be landing in the house); a deposit that
+ * failed before any broadcast is voided with the task (`unfunded`, no retry).
  */
 export async function cancelGate(db: DBAdapter, taskId: string, nowIso: string, notify?: GateNotify): Promise<boolean> {
   return gateWithEvent(db, {
     sql: `UPDATE tasks SET status = 'cancelled', cancelled_at = ?, auto_release_at = NULL, claim_expires_at = NULL,
-       payment_status = CASE WHEN payment_status IN ('pending','failed','expired') THEN 'expired' ELSE payment_status END
+       payment_status = CASE
+         WHEN escrow = 1 AND escrow_status = 'funded' THEN payment_status
+         WHEN payment_status IN ('pending','failed','expired') THEN 'expired' ELSE payment_status END,
+       escrow_status = CASE WHEN escrow = 1 AND escrow_status = 'funding' THEN 'unfunded' ELSE escrow_status END,
+       settle_next_at = CASE WHEN escrow = 1 AND escrow_status = 'funding' THEN NULL ELSE settle_next_at END
      WHERE task_id = ? AND status IN ('open','claimed','submitted')
        AND (status <> 'submitted' OR disputed_at IS NOT NULL)
-       AND payment_status NOT IN ('authorized','settling','settled')`,
+       AND payment_status NOT IN ('authorized','settling','settled')
+       AND NOT (escrow = 1 AND escrow_status = 'funding' AND settle_broadcast = 1)`,
     params: [nowIso, taskId],
   }, notify?.recipientAgentId ?? null, notify?.event ?? null, nowIso);
 }
@@ -444,10 +532,17 @@ export async function claimExpiryGate(db: DBAdapter, taskId: string, nowIso: str
 }
 
 /** Why a cancel would be refused, from the row the route read (maps to 409 codes). */
-export function cancelRefusal(t: Pick<TaskRow, 'status' | 'disputed_at' | 'payment_status'>): 'already_accepted' | 'dispute_first' | 'payment_in_flight' | 'conflict' | null {
+export function cancelRefusal(
+  t: Pick<TaskRow, 'status' | 'disputed_at' | 'payment_status' | 'escrow' | 'escrow_status' | 'settle_broadcast'>,
+): 'already_accepted' | 'dispute_first' | 'payment_in_flight' | 'conflict' | null {
   if (t.status === 'verified') return 'already_accepted';
   if (t.status === 'cancelled' || t.status === 'closed') return 'conflict';
-  if (['authorized', 'settling', 'settled'].includes(t.payment_status)) return 'payment_in_flight';
+  if (t.escrow) {
+    // A funded deposit is refundable; one still moving in is not cancellable until it resolves.
+    if (t.escrow_status === 'funding' && (['authorized', 'settling'].includes(t.payment_status) || t.settle_broadcast === 1)) return 'payment_in_flight';
+  } else if (['authorized', 'settling', 'settled'].includes(t.payment_status)) {
+    return 'payment_in_flight';
+  }
   if (t.status === 'submitted' && !t.disputed_at) return 'dispute_first';
   return null;
 }

@@ -35,6 +35,7 @@ import funnelRoutes, { VOTABLE_PROVIDERS } from './routes/funnel.js';
 import { runTaskCron } from './cron/tasks.js';
 import { requireAdmin } from './lib/admin-auth.js';
 import { paymentsDisabledReason } from './payments/index.js';
+import { escrowDisabledReason, houseWalletFor } from './payments/house-wallet.js';
 import { ASSETS, MAX_TIMEOUT_SECONDS } from './payments/x402.js';
 
 const app = new Hono<AppEnv>();
@@ -247,34 +248,48 @@ app.get('/openapi.json', (c) => c.json(openApiSpec));
 
 // ─── x402 Payment Method Discovery ───
 // https://docs.cdp.coinbase.com/x402/welcome — x402 v2 (CAIP-2 networks).
-// BasedAgents is non-custodial and signs at ACCEPT time: a bounty is declared
-// when a task is posted; the buyer signs an EIP-3009 transfer to the
-// deliverer's wallet when accepting the delivered work (GET /v1/tasks/:id/payment
-// returns the exact requirements for a task once it is claimed).
-app.get('/.well-known/x402', (c) => c.json({
-  x402Version: 2,
-  non_custodial: true,
-  flow: 'sign-at-accept',
-  payments_enabled: paymentsDisabledReason(c.env) === null,
-  accepts: (Object.keys(ASSETS) as Array<keyof typeof ASSETS>).map((network) => ({
-    scheme: 'exact',
-    network,
-    asset: ASSETS[network].asset,
-    maxTimeoutSeconds: MAX_TIMEOUT_SECONDS,
-    extra: ASSETS[network].defaultExtra,
-    payTo: 'per task — the deliverer wallet, see GET /v1/tasks/{id}/payment',
-    amount: 'per task, atomic units (6 decimals)',
-    max_amount: '1000000000',
-  })),
-  endpoints: {
-    requirements: 'GET /v1/tasks/{id}/payment',
-    accept: 'POST /v1/tasks/{id}/accept',
-  },
-  payment_header: 'PAYMENT-SIGNATURE',
-  facilitator: c.env?.X402_FACILITATOR_URL ?? 'https://api.cdp.coinbase.com/platform/v2/x402',
-  protocol_docs: 'https://docs.cdp.coinbase.com/x402/welcome',
-  integration_docs: 'https://basedagents.ai/.well-known/agent.json',
-}));
+// Two flows. ESCROW (default when enabled): the buyer deposits the bounty into
+// the registry's house wallet when POSTING the task (402 at POST /v1/tasks,
+// payTo = the house wallet); the house releases it to the deliverer on
+// acceptance and refunds it on cancel. SIGN-AT-ACCEPT (`escrow: false`): the
+// buyer signs an EIP-3009 transfer to the deliverer's wallet when accepting
+// (GET /v1/tasks/:id/payment returns the exact requirements once claimed).
+app.get('/.well-known/x402', (c) => {
+  const escrowReason = escrowDisabledReason(c.env);
+  const house = escrowReason === null ? houseWalletFor(c.env) : null;
+  return c.json({
+    x402Version: 2,
+    non_custodial: escrowReason !== null,
+    flow: escrowReason === null ? 'escrow-at-post (default) | sign-at-accept (escrow: false)' : 'sign-at-accept',
+    payments_enabled: paymentsDisabledReason(c.env) === null,
+    escrow: {
+      enabled: escrowReason === null,
+      /** The house wallet that holds deposits — `payTo` of the 402 at POST /v1/tasks. */
+      wallet: house?.address ?? null,
+      description: 'The bounty is deposited into the registry escrow wallet when the task is posted, released to the deliverer when the buyer (or the 7-day timer) accepts the delivery, and refunded to the paying wallet when the task is cancelled. Opt out per task with "escrow": false.',
+    },
+    accepts: (Object.keys(ASSETS) as Array<keyof typeof ASSETS>).map((network) => ({
+      scheme: 'exact',
+      network,
+      asset: ASSETS[network].asset,
+      maxTimeoutSeconds: MAX_TIMEOUT_SECONDS,
+      extra: ASSETS[network].defaultExtra,
+      payTo: house ? `escrow: ${house.address} at POST /v1/tasks; sign-at-accept: the deliverer wallet, see GET /v1/tasks/{id}/payment` : 'per task — the deliverer wallet, see GET /v1/tasks/{id}/payment',
+      amount: 'per task, atomic units (6 decimals)',
+      max_amount: '1000000000',
+    })),
+    endpoints: {
+      post_escrow: 'POST /v1/tasks (402 + PAYMENT-REQUIRED until a PAYMENT-SIGNATURE deposit is supplied)',
+      fund: 'POST /v1/tasks/{id}/fund',
+      requirements: 'GET /v1/tasks/{id}/payment',
+      accept: 'POST /v1/tasks/{id}/accept',
+    },
+    payment_header: 'PAYMENT-SIGNATURE',
+    facilitator: c.env?.X402_FACILITATOR_URL ?? 'https://api.cdp.coinbase.com/platform/v2/x402',
+    protocol_docs: 'https://docs.cdp.coinbase.com/x402/welcome',
+    integration_docs: 'https://basedagents.ai/.well-known/agent.json',
+  });
+});
 
 app.get('/docs', (c) => {
   return c.json({
@@ -312,13 +327,15 @@ app.get('/docs', (c) => {
     },
     payments: {
       protocol: 'x402 — https://docs.cdp.coinbase.com/x402/welcome',
-      description: 'Tasks can declare USDC bounties on Base (eip155:8453). The buyer authorizes the transfer to the deliverer wallet when accepting the delivered work; the facilitator settles it on-chain.',
-      non_custodial: 'BasedAgents never holds funds. Signed EIP-3009 authorizations transfer directly between wallets.',
+      description: 'Tasks can declare USDC bounties on Base (eip155:8453). By default the bounty is deposited into the registry escrow wallet when the task is posted, released to the deliverer when the delivery is accepted and refunded when the task is cancelled. With "escrow": false the buyer instead authorizes the transfer to the deliverer wallet when accepting the delivered work.',
+      escrow: 'Default when GET /.well-known/x402 reports escrow.enabled. POST /v1/tasks answers 402 + PAYMENT-REQUIRED (payTo = the escrow wallet) until a PAYMENT-SIGNATURE deposit is supplied; the task is claimable once the deposit settled. Acceptance (buyer or 7-day timer) releases the funds; cancel refunds them. Opt out per task with "escrow": false.',
+      non_custodial: 'With "escrow": false BasedAgents never holds funds: signed EIP-3009 authorizations transfer directly between wallets at accept time.',
       set_wallet:     { method: 'PATCH', path: '/v1/agents/:id/wallet', auth: true,  description: 'Set your EVM wallet address (required to claim a bounty task)' },
       get_wallet:     { method: 'GET',   path: '/v1/agents/:id/wallet', auth: false, description: 'Get agent wallet address' },
-      create_paid:    { method: 'POST',  path: '/v1/tasks',            auth: true,  description: 'Create task with a bounty {amount (atomic USDC), network}; no payment header at creation' },
-      requirements:   { method: 'GET',   path: '/v1/tasks/:id/payment',auth: false, description: 'Payment status, audit trail and the x402 requirements to sign' },
-      accept_paid:    { method: 'POST',  path: '/v1/tasks/:id/accept', auth: true,  description: 'Accept the deliverable; for a bounty task answers 402 + PAYMENT-REQUIRED until a PAYMENT-SIGNATURE header is supplied' },
+      create_paid:    { method: 'POST',  path: '/v1/tasks',            auth: true,  description: 'Create task with a bounty {amount (atomic USDC), network}; escrow (default): 402 handshake to deposit it now; "escrow": false: no payment header, pay at accept' },
+      fund:           { method: 'POST',  path: '/v1/tasks/:id/fund',   auth: true,  description: 'Fund an escrow task again after its deposit failed (same 402 handshake)' },
+      requirements:   { method: 'GET',   path: '/v1/tasks/:id/payment',auth: false, description: 'Payment status, audit trail, escrow state and the x402 requirements to sign' },
+      accept_paid:    { method: 'POST',  path: '/v1/tasks/:id/accept', auth: true,  description: 'Accept the deliverable; an escrow task releases the deposit (no header); a sign-at-accept bounty answers 402 + PAYMENT-REQUIRED until a PAYMENT-SIGNATURE header is supplied' },
       dispute:        { method: 'POST',  path: '/v1/tasks/:id/dispute',auth: true,  description: 'Dispute deliverable (pauses auto-accept)' },
       without_payment: 'Tasks without bounty work exactly as before. Payment is optional.',
       full_docs: 'https://basedagents.ai/.well-known/agent.json → for_agents.payments',
@@ -400,6 +417,7 @@ app.get('/v1/status', async (c) => {
         : null,
       tasks: taskCounts,
       payments: paymentsDisabledReason(c.env) === null ? 'enabled' : 'disabled',
+      escrow: escrowDisabledReason(c.env) === null ? 'enabled' : 'disabled',
       checked_at: new Date().toISOString(),
     });
   } catch (err) {

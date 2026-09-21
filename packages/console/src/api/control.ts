@@ -29,6 +29,8 @@ import type {
   CreateTaskInput,
   TaskStatus,
   Bounty,
+  EscrowView,
+  PaymentRequirementsV2,
   TaskPaymentResponse,
   PublicTaskList,
 } from './types.js';
@@ -44,10 +46,26 @@ export class ControlApiError extends Error {
     public status: number,
     public code: string,
     message: string,
+    /** The parsed JSON body (a 402 carries the x402 requirements to sign). */
+    public body: unknown = null,
   ) {
     super(message);
     this.name = 'ControlApiError';
   }
+}
+
+/** The x402 `PaymentRequired` a 402 answers with — `accepts[0]` is what the wallet signs. */
+export interface PaymentChallenge {
+  accepts: PaymentRequirementsV2[];
+  bounty?: Bounty | null;
+  escrow?: { wallet: string };
+}
+
+/** The challenge inside a 402, or null when the error is something else. */
+export function paymentChallengeOf(err: unknown): PaymentChallenge | null {
+  if (!(err instanceof ControlApiError) || err.status !== 402 || err.code !== 'payment_required') return null;
+  const body = err.body as PaymentChallenge | null;
+  return body && Array.isArray(body.accepts) && body.accepts.length > 0 ? body : null;
 }
 
 /** The optional passkey half of a session-or-signed mutation (boardPost, tasks). */
@@ -66,7 +84,7 @@ async function request<T>(method: string, path: string, body?: unknown, extraHea
   const parsed: unknown = text ? JSON.parse(text) : {};
   if (!res.ok) {
     const e = parsed as { error?: string; message?: string };
-    throw new ControlApiError(res.status, e.error ?? 'error', e.message ?? `HTTP ${res.status}`);
+    throw new ControlApiError(res.status, e.error ?? 'error', e.message ?? `HTTP ${res.status}`, parsed);
   }
   return parsed as T;
 }
@@ -271,11 +289,26 @@ export const control = {
   task(taskId: string): Promise<OwnerTaskDetail> {
     return request('GET', `/tasks/${encodeURIComponent(taskId)}`);
   },
+  /**
+   * Post a task. With a bounty and escrow (the default when the registry has
+   * it), the deposit is paid here: a call WITHOUT `paymentHeader` throws a
+   * 402 `ControlApiError` whose `body` is the x402 challenge
+   * (`paymentChallengeOf`); sign `accepts[0]` in the wallet and call again
+   * with the header — and the passkey signature, which the 402 never consumes.
+   */
   createTask(
     input: CreateTaskInput,
     signed?: SignedAction,
-  ): Promise<{ ok: true; task_id: string; status: 'open'; payment_status: string; bounty?: Bounty }> {
-    return request('POST', '/tasks', { ...input, ...(signed ?? {}) });
+    paymentHeader?: string,
+  ): Promise<{ ok: true; task_id: string; status: 'open'; payment_status: string; bounty?: Bounty; escrow?: EscrowView | null; claimable?: boolean }> {
+    return request('POST', '/tasks', { ...input, ...(signed ?? {}) }, paymentHeader ? { 'PAYMENT-SIGNATURE': paymentHeader } : undefined);
+  },
+  /** Deposit again after an escrow deposit failed (`escrow.status === 'unfunded'`); same 402 handshake as `createTask`. */
+  fundTask(
+    taskId: string,
+    paymentHeader?: string,
+  ): Promise<{ ok: true; task_id: string; status: 'open'; payment_status: string; escrow: EscrowView; claimable: boolean }> {
+    return request('POST', `/tasks/${encodeURIComponent(taskId)}/fund`, {}, paymentHeader ? { 'PAYMENT-SIGNATURE': paymentHeader } : undefined);
   },
   /**
    * Accept a delivered task. For a bounty task, `paymentHeader` is the
@@ -399,6 +432,15 @@ export const payments = {
     try {
       const r = await publicRequest<{ payments_enabled?: boolean }>('/.well-known/x402');
       return r.payments_enabled === true;
+    } catch {
+      return false;
+    }
+  },
+  /** Whether the registry holds bounties in escrow (a house wallet is configured) — on by default when it does. */
+  async escrowEnabled(): Promise<boolean> {
+    try {
+      const r = await publicRequest<{ escrow?: { enabled?: boolean } }>('/.well-known/x402');
+      return r.escrow?.enabled === true;
     } catch {
       return false;
     }

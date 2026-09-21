@@ -18,9 +18,10 @@ import { ControlStore } from './store.js';
 import { resetCertificationProbeForTests } from './certification.js';
 import {
   enablePaymentsForTests, disablePaymentsForTests, resetPaymentsForTests, paymentHeaderFor,
-  TEST_WALLET, TEST_TX, type FakeFacilitator,
+  TEST_WALLET, TEST_PAYER, TEST_TX, type FakeFacilitator,
 } from '../payments/test-fixtures.js';
 import type { PaymentRequirementsV2 } from '../payments/x402.js';
+import { houseWalletFromPrivateKey, parseHousePrivateKey, recoverAuthorizationSigner, setHouseWalletForTests } from '../payments/house-wallet.js';
 import { sha256, bytesToHex, canonicalJsonStringify } from '../crypto/index.js';
 import { isoCBOR } from '@simplewebauthn/server/helpers';
 import { base64urlEncode, base64urlDecode, actionChallenge } from './webauthn.js';
@@ -285,6 +286,144 @@ describe('Owner task routes', () => {
     expect(funnel.map((f) => f.event)).toEqual(['task_posted']);
     const pay = await db.all<{ event_type: string }>('SELECT event_type FROM payment_events WHERE task_id = ? ORDER BY created_at', body.task_id);
     expect(pay.map((p) => p.event_type)).toEqual(['bounty_declared']);
+  });
+
+  // ─── Escrow (Tasks P1): the human deposits at post, accepts without a wallet ───
+  describe('escrow: deposit at post, release on accept, refund on cancel', () => {
+    /** Hardhat account #0 — a public test key. */
+    const house = houseWalletFromPrivateKey(parseHousePrivateKey('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'));
+    const HOUSE_ADDR = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+    const REFUND_TX = '0x' + 'ef'.repeat(32);
+    let facilitator: FakeFacilitator;
+    const FIELDS = {
+      title: 'Escrowed', description: 'Deposit first', category: 'code', required_capabilities: ['code'], output_format: 'json',
+      bounty: { amount: '100000', token: 'USDC', network: 'eip155:8453' },
+    };
+
+    beforeEach(async () => {
+      facilitator = enablePaymentsForTests();
+      setHouseWalletForTests(house);
+      await db.run('UPDATE agents SET wallet_address = ?, wallet_network = ? WHERE id = ?', TEST_WALLET, 'eip155:8453', agent.agentId);
+    });
+    afterEach(() => { setHouseWalletForTests(undefined); });
+
+    /** The console's sequence: POST → 402 → wallet signs the deposit → passkey signs the post → POST with both. */
+    async function composeEscrow(cookie: string, fields: Record<string, unknown> = FIELDS): Promise<{ taskId: string; body: Record<string, unknown> }> {
+      const challenge = await ownerPost('/v1/owner/tasks', fields, cookie);
+      expect(challenge.status).toBe(402);
+      const decoded = JSON.parse(Buffer.from(challenge.headers.get('PAYMENT-REQUIRED')!, 'base64').toString('utf8')) as { accepts: PaymentRequirementsV2[] };
+      expect(decoded.accepts[0].payTo).toBe(HOUSE_ADDR);
+      const signed = await signCreate(cookie, fields);
+      const res = await ownerPost('/v1/owner/tasks', { ...fields, ...signed }, cookie, { 'PAYMENT-SIGNATURE': paymentHeaderFor(decoded.accepts[0]) });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      return { taskId: body.task_id as string, body };
+    }
+
+    it('the 402 challenge consumes nothing: no task, no rate-limit slot, no passkey challenge', async () => {
+      const { cookie } = await ownerSession();
+      const res = await ownerPost('/v1/owner/tasks', FIELDS, cookie);
+      expect(res.status).toBe(402);
+      const body = (await res.json()) as { error: string; escrow: { wallet: string }; accepts: PaymentRequirementsV2[] };
+      expect(body.error).toBe('payment_required');
+      expect(body.escrow.wallet).toBe(HOUSE_ADDR);
+      expect(await db.get('SELECT count(*) AS n FROM tasks')).toEqual({ n: 0 });
+      expect(await db.get('SELECT count(*) AS n FROM rate_limit_log')).toEqual({ n: 0 });
+      expect(facilitator.verifyCalls).toHaveLength(0);
+    });
+
+    it('composes a funded escrow task the passkey signed, owned by the human; a header without the passkey is still refused', async () => {
+      const { cookie, ownerId } = await ownerSession();
+      const { taskId, body } = await composeEscrow(cookie);
+      expect(body.escrow).toMatchObject({ status: 'funded', wallet: HOUSE_ADDR, deposit_tx_hash: TEST_TX });
+      expect(body.claimable).toBe(true);
+      const row = await db.get<Record<string, unknown>>('SELECT * FROM tasks WHERE task_id = ?', taskId);
+      expect(row!.creator_owner_id).toBe(ownerId);
+      expect(row!.creator_kind).toBe('owner');
+      expect(row!.creator_assertion_id).not.toBeNull();
+      expect(row!.escrow).toBe(1);
+      expect(row!.escrow_status).toBe('funded');
+      expect(row!.escrow_deposit_payer).toBe(TEST_PAYER);
+      // The detail read shows the custody record to the buyer.
+      const detail = (await (await ownerGet(`/v1/owner/tasks/${taskId}`, cookie)).json()) as { task: { escrow: { status: string } }; payment: { escrow: { status: string } } };
+      expect(detail.task.escrow.status).toBe('funded');
+      expect(detail.payment.escrow.status).toBe('funded');
+
+      // Passkey required even with a valid deposit: nothing is written.
+      const challenge = await ownerPost('/v1/owner/tasks', FIELDS, cookie);
+      const decoded = JSON.parse(Buffer.from(challenge.headers.get('PAYMENT-REQUIRED')!, 'base64').toString('utf8')) as { accepts: PaymentRequirementsV2[] };
+      const noPasskey = await ownerPost('/v1/owner/tasks', FIELDS, cookie, { 'PAYMENT-SIGNATURE': paymentHeaderFor(decoded.accepts[0]) });
+      expect(noPasskey.status).toBe(401);
+      expect(await db.get('SELECT count(*) AS n FROM tasks')).toEqual({ n: 1 });
+    });
+
+    it('accepting releases the deposit to the deliverer with no wallet prompt; a payment header is refused', async () => {
+      const { cookie } = await ownerSession();
+      const { taskId } = await composeEscrow(cookie);
+      await claimAndDeliver(taskId);
+      const withHeader = await ownerPost(`/v1/owner/tasks/${taskId}/accept`, {}, cookie, { 'PAYMENT-SIGNATURE': 'x' });
+      expect(withHeader.status).toBe(400);
+      const res = await ownerPost(`/v1/owner/tasks/${taskId}/accept`, { note: 'ship it' }, cookie);
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as { status: string; accepted_by: string; payment_status: string; payment_tx_hash: string; escrow: { status: string } };
+      expect(data.status).toBe('verified');
+      expect(data.accepted_by).toBe('creator');
+      expect(data.payment_status).toBe('settled');
+      expect(data.payment_tx_hash).toBe(TEST_TX);
+      expect(data.escrow.status).toBe('released');
+      const release = facilitator.settleCalls[1];
+      expect(release.requirements.payTo).toBe(TEST_WALLET);
+      expect(release.payload.payload.authorization.from).toBe(HOUSE_ADDR);
+      expect(recoverAuthorizationSigner(release.payload)).toBe(HOUSE_ADDR);
+      const row = await db.get<Record<string, unknown>>('SELECT review_note, escrow_status, escrow_release_tx_hash FROM tasks WHERE task_id = ?', taskId);
+      expect(row).toEqual({ review_note: 'ship it', escrow_status: 'released', escrow_release_tx_hash: TEST_TX });
+    });
+
+    it('cancelling a funded task refunds the wallet that paid the deposit', async () => {
+      const { cookie } = await ownerSession();
+      const { taskId } = await composeEscrow(cookie);
+      facilitator.settleOutcomes = [{ kind: 'settled', transaction: REFUND_TX, network: 'eip155:8453', payer: HOUSE_ADDR }];
+      const res = await ownerPost(`/v1/owner/tasks/${taskId}/cancel`, {}, cookie);
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as { status: string; payment_status: string; escrow: { status: string }; refund_tx_hash: string };
+      expect(data.status).toBe('cancelled');
+      expect(data.payment_status).toBe('refunded');
+      expect(data.escrow.status).toBe('refunded');
+      expect(data.refund_tx_hash).toBe(REFUND_TX);
+      expect(facilitator.settleCalls[1].requirements.payTo).toBe(TEST_PAYER);
+    });
+
+    it('escrow: false keeps the pay-at-accept flow; an explicit escrow: true without a house wallet → 503', async () => {
+      const { cookie } = await ownerSession();
+      const res = await composeRaw(cookie, { ...FIELDS, escrow: false });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { payment_status: string; escrow: null };
+      expect(body.payment_status).toBe('pending');
+      expect(body.escrow).toBeNull();
+      setHouseWalletForTests(null);
+      const explicit = await ownerPost('/v1/owner/tasks', { ...FIELDS, escrow: true }, cookie);
+      expect(explicit.status).toBe(503);
+      expect(((await explicit.json()) as { error: string }).error).toBe('escrow_unavailable');
+      // Omitted escrow on a registry without a house wallet: the old flow, no 402.
+      expect((await composeRaw(cookie, FIELDS)).status).toBe(200);
+    });
+
+    it('funds an unfunded task again via POST /v1/owner/tasks/:id/fund', async () => {
+      const { cookie } = await ownerSession();
+      facilitator.settleOutcomes = [{ kind: 'rejected', reason: 'invalid_exact_evm_payload_signature', http: 200 }];
+      const { taskId, body } = await composeEscrow(cookie);
+      expect((body.escrow as { status: string }).status).toBe('unfunded');
+      facilitator.settleOutcomes = [];
+      const challenge = await ownerPost(`/v1/owner/tasks/${taskId}/fund`, {}, cookie);
+      expect(challenge.status).toBe(402);
+      const decoded = JSON.parse(Buffer.from(challenge.headers.get('PAYMENT-REQUIRED')!, 'base64').toString('utf8')) as { accepts: PaymentRequirementsV2[] };
+      const res = await ownerPost(`/v1/owner/tasks/${taskId}/fund`, {}, cookie, { 'PAYMENT-SIGNATURE': paymentHeaderFor(decoded.accepts[0]) });
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { escrow: { status: string } }).escrow.status).toBe('funded');
+      // Not mine → 404, never 403.
+      const { cookie: other } = await ownerSession('Other');
+      expect((await ownerPost(`/v1/owner/tasks/${taskId}/fund`, {}, other)).status).toBe(404);
+    });
   });
 
   // ─── Owner accept-and-pay (x402, sign-at-accept) ───

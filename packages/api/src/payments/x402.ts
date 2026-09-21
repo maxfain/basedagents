@@ -328,12 +328,14 @@ export function buildPaymentRequired(
   task: { task_id: string },
   requirements: PaymentRequirementsV2,
   error?: string,
+  /** Override the resource (the escrow deposit is paid to POST /v1/tasks or /fund, not /accept). */
+  resource?: { url: string; description: string },
 ): PaymentRequired {
   const out: PaymentRequired = {
     x402Version: 2,
     resource: {
-      url: `${TASK_RESOURCE_BASE}/${task.task_id}/accept`,
-      description: `BasedAgents task ${task.task_id} bounty`,
+      url: resource?.url ?? `${TASK_RESOURCE_BASE}/${task.task_id}/accept`,
+      description: resource?.description ?? `BasedAgents task ${task.task_id} bounty`,
       mimeType: 'application/json',
     },
     accepts: [requirements],

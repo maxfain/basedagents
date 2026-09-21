@@ -222,22 +222,47 @@ export interface PaymentRequirementsV2 {
   extra: { name: string; version: string };
 }
 
+/**
+ * Where an escrowed bounty is (tasks.escrow_status): the buyer's deposit is
+ * settling in (`funding`), failed for good (`unfunded` — deposit again or
+ * cancel), held (`funded`), on its way to the agent (`releasing` → `released`)
+ * or back to the buyer (`refunding` → `refunded`).
+ */
+export type EscrowStatus = 'funding' | 'unfunded' | 'funded' | 'releasing' | 'released' | 'refunding' | 'refunded';
+
+/** The custody record of an escrow task (null on tasks that do not use escrow). */
+export interface EscrowView {
+  status: EscrowStatus;
+  leg: 'deposit' | 'release' | 'refund' | null;
+  wallet: string | null;
+  deposit_tx_hash: string | null;
+  funded_at: string | null;
+  release_tx_hash: string | null;
+  released_at: string | null;
+  refund_tx_hash: string | null;
+  refunded_at: string | null;
+}
+
 /** GET /v1/tasks/:id/payment (public — no session). */
 export interface TaskPaymentResponse {
   ok: true;
-  payment: Record<string, unknown> & { pay_to: string | null };
+  payment: Record<string, unknown> & { pay_to: string | null; escrow?: EscrowView | null };
   requirements: PaymentRequirementsV2 | null;
   /** Why `requirements` is null, when it is. */
-  requirements_unavailable_reason?: 'no_bounty' | 'unsupported_network' | 'not_claimed' | 'payee_wallet_missing';
+  requirements_unavailable_reason?: 'no_bounty' | 'unsupported_network' | 'not_claimed' | 'payee_wallet_missing' | 'escrow_held' | 'escrow_funding' | 'escrow_unavailable';
   accept_endpoint: string;
+  fund_endpoint?: string;
   payment_header: string;
   events: Array<{ id: string; event_type: string; details: unknown; created_at: string }>;
 }
 
 /**
  * Input to POST /v1/owner/tasks. A `bounty` (atomic USDC units) makes it a paid
- * task — the poster authorizes the transfer with their wallet when they accept
- * the delivery. Requires payments to be enabled on the registry.
+ * task. With `escrow` (the default when the registry has it) the poster
+ * deposits the bounty from their wallet when posting and it is released to the
+ * agent on acceptance / refunded on cancel; with `escrow: false` they
+ * authorize the transfer to the agent's wallet when they accept the delivery.
+ * Requires payments to be enabled on the registry.
  */
 export interface CreateTaskInput {
   title: string;
@@ -247,6 +272,7 @@ export interface CreateTaskInput {
   expected_output?: string;
   output_format?: TaskOutputFormat;
   bounty?: { amount: string; token?: 'USDC'; network?: string };
+  escrow?: boolean;
 }
 
 /**
@@ -280,6 +306,10 @@ export interface OwnerTask {
   payment_status: string;
   review_state: TaskReviewState;
   payment_due: boolean;
+  /** The escrow custody record, or null when the task pays at accept. */
+  escrow?: EscrowView | null;
+  claimable?: boolean;
+  last_settle_error?: string | null;
   latest_receipt: OwnerTaskReceipt | null;
   claimer_name: string | null;
   needs_review: boolean;
@@ -302,6 +332,8 @@ export interface PublicTask {
   creator: TaskCreator;
   bounty: Bounty | null;
   payment_status: string | null;
+  escrow?: EscrowView | null;
+  claimable?: boolean;
   claimed_by_agent_id: string | null;
 }
 

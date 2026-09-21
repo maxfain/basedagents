@@ -12,7 +12,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { generateKeypair, serializeKeypair, TASK_STATUSES, TASK_CATEGORIES, PAYMENT_HEADER } from '../index.js';
 import {
-  tasks, tasksList, tasksPost, tasksClaim, tasksDeliver, tasksAccept, tasksRevision, tasksDispute, tasksCancel, tasksPayment,
+  tasks, tasksList, tasksPost, tasksFund, tasksClaim, tasksDeliver, tasksAccept, tasksRevision, tasksDispute, tasksCancel, tasksPayment,
   ALLOWED_STATUSES, ALLOWED_CATEGORIES, EXIT_PAYMENT_REQUIRED, readPaymentSignature, getFlag, firstPositional,
 } from './tasks.js';
 import { task } from './task.js';
@@ -240,6 +240,75 @@ describe('tasks post', () => {
     fetchMock.mockResolvedValueOnce(mockResponse({ error: 'payments_unavailable', message: 'Bounties are not enabled' }, 503));
     await expectExit(tasksPost(auth(['--title', 'T', '--description', 'D', '--bounty', '1'])), 1);
     expect(plain(stderr())).toContain('payments_unavailable');
+  });
+
+  // ─── Escrow: the deposit is signed at post ───
+
+  const ESCROW_CHALLENGE = {
+    ...PAYMENT_REQUIRED_BODY,
+    task_id: undefined,
+    accept_endpoint: undefined,
+    message: 'Escrow: sign an EIP-3009 USDC transfer of 5.00 USDC to the registry escrow wallet and retry.',
+    resource: { url: 'https://api.basedagents.ai/v1/tasks', description: 'BasedAgents escrow deposit for a new task', mimeType: 'application/json' },
+    escrow: { wallet: '0x' + 'ee'.repeat(20) },
+    fund_endpoint: 'POST /v1/tasks',
+  };
+
+  it('an escrow 402 on post prints the deposit challenge JSON to stdout and exits 2; nothing else is sent', async () => {
+    fetchMock.mockResolvedValueOnce(mockResponse(ESCROW_CHALLENGE, 402, { 'PAYMENT-REQUIRED': 'eyJ4NDAyVmVyc2lvbiI6Mn0=' }));
+    await expectExit(tasksPost(auth(['--title', 'T', '--description', 'D', '--bounty', '5.00'])), EXIT_PAYMENT_REQUIRED);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(requestOf().init.headers[PAYMENT_HEADER]).toBeUndefined();
+    const printed = JSON.parse(plain(stdout()));
+    expect(printed.accepts[0].payTo).toBe('0x' + 'ab'.repeat(20));
+    expect(printed.escrow.wallet).toBe('0x' + 'ee'.repeat(20));
+    const err = plain(stderr());
+    expect(err).toContain('Escrow deposit required');
+    expect(err).toContain('--payment-signature');
+  });
+
+  it('--payment-signature sends the deposit header and prints the escrow state', async () => {
+    fetchMock.mockResolvedValueOnce(mockResponse({
+      ok: true, task_id: 'task_esc', status: 'open', payment_status: 'pending', claimable: true,
+      bounty: { amount_atomic: '5000000', amount_display: '5.00', token: 'USDC', network: 'eip155:8453' },
+      escrow: { status: 'funded', leg: null, wallet: '0x' + 'ee'.repeat(20), deposit_tx_hash: '0x' + 'ab'.repeat(32), funded_at: 'now', release_tx_hash: null, released_at: null, refund_tx_hash: null, refunded_at: null },
+    }));
+    await tasksPost(auth(['--title', 'T', '--description', 'D', '--bounty', '5.00', '--payment-signature', 'c2lnbmVk']));
+    const { init } = requestOf();
+    expect(init.headers[PAYMENT_HEADER]).toBe('c2lnbmVk');
+    expect(JSON.parse(init.body as string).escrow).toBeUndefined(); // server default (on)
+    const out = plain(stdout());
+    expect(out).toContain('task_esc');
+    expect(out).toContain('funded');
+    expect(out).toContain('held in escrow');
+    expect(out).not.toContain('authorized when you accept');
+  });
+
+  it('--no-escrow sends escrow: false and refuses a deposit signature', async () => {
+    fetchMock.mockResolvedValueOnce(mockResponse({
+      ok: true, task_id: 'task_new', status: 'open', payment_status: 'pending', escrow: null,
+      bounty: { amount_atomic: '5000000', amount_display: '5.00', token: 'USDC', network: 'eip155:8453' },
+    }));
+    await tasksPost(auth(['--title', 'T', '--description', 'D', '--bounty', '5.00', '--no-escrow']));
+    const body = JSON.parse(requestOf().init.body as string);
+    expect(body.escrow).toBe(false);
+    expect(body.title).toBe('T'); // --no-escrow consumed no value
+    expect(plain(stdout())).toContain('authorized when you accept');
+    await expectExit(tasksPost(auth(['--title', 'T', '--description', 'D', '--bounty', '5.00', '--no-escrow', '--payment-signature', 'x'])), 1);
+    await expectExit(tasksPost(auth(['--title', 'T', '--description', 'D', '--no-escrow'])), 1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('tasks fund: 402 exits 2 with the challenge; with a signature POSTs /fund with the header', async () => {
+    fetchMock.mockResolvedValueOnce(mockResponse({ ...ESCROW_CHALLENGE, task_id: 'task_esc', fund_endpoint: 'POST /v1/tasks/task_esc/fund' }, 402));
+    await expectExit(tasksFund(auth(['task_esc'])), EXIT_PAYMENT_REQUIRED);
+    expect(requestOf().url).toContain('/v1/tasks/task_esc/fund');
+    fetchMock.mockResolvedValueOnce(mockResponse({ ok: true, task_id: 'task_esc', status: 'open', payment_status: 'pending', escrow: { status: 'funded', deposit_tx_hash: '0x' + 'ab'.repeat(32) } }));
+    await tasksFund(auth(['task_esc', '--payment-signature', 'c2lnbmVk']));
+    const { url, init } = requestOf(1);
+    expect(url).toContain('/v1/tasks/task_esc/fund');
+    expect(init.headers[PAYMENT_HEADER]).toBe('c2lnbmVk');
+    expect(plain(stdout())).toContain('funded');
   });
 });
 

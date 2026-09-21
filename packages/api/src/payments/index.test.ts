@@ -76,21 +76,29 @@ describe('paymentProviderFor', () => {
     expect(paymentsDisabledReason(env)).toMatch(re);
   });
 
-  it('logs the first null reason exactly once per isolate', () => {
+  it('logs each distinct null reason once per isolate (a fixed secret surfaces the next problem)', () => {
     const env = { ...VALID, CDP_API_KEY_SECRET: '-----BEGIN EC PRIVATE KEY-----\nabc\n-----END EC PRIVATE KEY-----' };
     expect(paymentProviderFor(env)).toBeNull();
     expect(paymentProviderFor(env)).toBeNull();
-    expect(paymentProviderFor({ ...VALID, CDP_API_KEY_ID: '' })).toBeNull();
     expect(console.error).toHaveBeenCalledTimes(1);
     expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/^\[payments\] disabled: CDP_API_KEY_SECRET is not an Ed25519 key/));
+    // The operator fixes the key format but another secret is still empty: a NEW reason, logged again.
+    expect(paymentProviderFor({ ...VALID, CDP_API_KEY_ID: '' })).toBeNull();
+    expect(paymentProviderFor({ ...VALID, CDP_API_KEY_ID: '' })).toBeNull();
+    expect(console.error).toHaveBeenCalledTimes(2);
+    expect(console.error).toHaveBeenLastCalledWith('[payments] disabled: CDP_API_KEY_ID is not set');
     expect(console.log).not.toHaveBeenCalled();
   });
 
-  it('logs the flag-off default as an informational line, still once', () => {
+  it('logs the flag-off default as an informational line, once per reason', () => {
     expect(paymentProviderFor({ ...VALID, TASK_PAYMENTS_ENABLED: undefined })).toBeNull();
-    expect(paymentProviderFor(undefined)).toBeNull();
+    expect(paymentProviderFor({ ...VALID, TASK_PAYMENTS_ENABLED: undefined })).toBeNull();
     expect(console.log).toHaveBeenCalledTimes(1);
     expect(console.log).toHaveBeenCalledWith("[payments] disabled: TASK_PAYMENTS_ENABLED is not '1'");
+    // No bindings at all is a different reason (still informational, the flag is off there too).
+    expect(paymentProviderFor(undefined)).toBeNull();
+    expect(console.log).toHaveBeenCalledTimes(2);
+    expect(console.log).toHaveBeenLastCalledWith('[payments] disabled: no env bindings');
     expect(console.error).not.toHaveBeenCalled();
   });
 

@@ -124,7 +124,7 @@ const EXPECTED_TOOLS = [
   // task marketplace — reads
   'browse_tasks', 'get_task', 'get_receipt', 'get_task_payment',
   // task marketplace — writes
-  'create_task', 'claim_task', 'submit_deliverable', 'accept_deliverable', 'request_revision', 'dispute_task', 'cancel_task',
+  'create_task', 'fund_task', 'claim_task', 'submit_deliverable', 'accept_deliverable', 'request_revision', 'dispute_task', 'cancel_task',
 ];
 
 type Props = Record<string, { type?: string; maximum?: number; description?: string; properties?: Props; required?: string[] }>;
@@ -152,19 +152,26 @@ describe('tool contract', () => {
     expect(Object.keys(byName.check_messages.inputSchema.properties ?? {})).toContain('after_id');
   });
 
-  it('task tools carry the Tasks P0 payment contract (declare at create, sign at accept)', async () => {
+  it('task tools carry the payment contract (escrow deposit at create by default, sign at accept without it)', async () => {
     const { tools } = await clientA.listTools();
     const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
     const props = (name: string) => (byName[name].inputSchema.properties ?? {}) as Props;
     const required = (name: string) => (byName[name].inputSchema as { required?: string[] }).required ?? [];
 
-    // create_task: bounty is {amount_usdc, network?} — converted client-side,
-    // never a payment header.
+    // create_task: bounty is {amount_usdc, network?} — converted client-side;
+    // escrow opt-out and the signed deposit ride alongside it.
     const bounty = props('create_task').bounty;
     expect(bounty?.type).toBe('object');
     expect(Object.keys(bounty?.properties ?? {}).sort()).toEqual(['amount_usdc', 'network']);
     expect(bounty?.required).toEqual(['amount_usdc']);
-    expect(byName.create_task.description).toContain('Nothing is charged when you post');
+    expect(Object.keys(props('create_task'))).toEqual(expect.arrayContaining(['escrow', 'payment_signature']));
+    expect(props('create_task').escrow?.type).toBe('boolean');
+    expect(byName.create_task.description).toContain('ESCROWED');
+    expect(byName.create_task.description).toContain('escrow: false');
+
+    // fund_task: the deposit again, same handshake.
+    expect(Object.keys(props('fund_task')).sort()).toEqual(['payment_signature', 'task_id']);
+    expect(required('fund_task')).toEqual(['task_id']);
 
     // accept_deliverable: optional note + payment_signature; the description
     // teaches the 402 handshake.

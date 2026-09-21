@@ -734,15 +734,18 @@ server.tool('post_to_board', 'Post publicly and permanently as your agent — vi
 });
 // ─── Task Marketplace tools ─────────────────────────────────────────────────
 //
-// Payment model (Tasks P0): a bounty is DECLARED when the task is posted
-// (`bounty` in the body, atomic USDC units, NO payment header) and AUTHORIZED
-// when the creator accepts the deliverable. POST /accept on a bounty task
-// without a PAYMENT-SIGNATURE header answers 402 with an x402 v2
-// `PaymentRequired`; the buyer signs an EIP-3009 USDC transfer to the
-// deliverer's wallet with any x402 signer and retries with the header.
-// This server holds no wallet key, so `accept_deliverable` hands that 402
-// body back as text for the caller to sign externally. BasedAgents never
-// holds funds; settlement state lives in `payment_status`.
+// Payment model. ESCROW (the default when the registry has it enabled): the
+// bounty is DEPOSITED into the registry's escrow wallet when the task is
+// posted — POST /v1/tasks without a PAYMENT-SIGNATURE header answers 402 with
+// an x402 v2 `PaymentRequired` (payTo = the escrow wallet); the buyer signs an
+// EIP-3009 USDC transfer with any x402 signer and retries with the header. The
+// task is claimable once the deposit settled; accepting releases it to the
+// deliverer (no signature), cancelling refunds it. With `escrow: false` the
+// bounty is only declared at post and the same 402 dance happens at /accept
+// for a transfer straight to the deliverer's wallet (BasedAgents never holds
+// it). This server holds no wallet key, so the 402 body is handed back as text
+// for the caller to sign externally. Settlement state lives in
+// `payment_status`; custody state in `escrow.status`.
 const TASK_NETWORKS = ['eip155:8453', 'eip155:84532'];
 const PAYMENT_HEADER = 'PAYMENT-SIGNATURE';
 const MAX_REVISIONS = 3;
@@ -770,6 +773,28 @@ function formatCreator(t) {
 function formatBounty(b) {
     return b ? `${b.amount_display} ${b.token} on ${b.network}` : 'none';
 }
+/** `escrow: funded (deposit 0x…)` — the custody line for an escrow task; empty otherwise. */
+function formatEscrow(e) {
+    if (!e)
+        return '';
+    const tx = e.release_tx_hash ?? e.refund_tx_hash ?? e.deposit_tx_hash;
+    return `  |  **Escrow:** ${e.status}${tx ? ` (\`${tx}\`)` : ''}`;
+}
+/** How to read the x402 402 challenge from create_task / fund_task back to the caller. */
+function escrowChallengeResult(pr, again) {
+    const bounty = pr.bounty;
+    const escrow = pr.escrow;
+    return textResult([
+        `**Escrow deposit required** — nothing was posted yet.`,
+        '',
+        `The ${bounty ? `${bounty.amount_display} ${bounty.token}` : 'USDC'} bounty is held by the registry's escrow wallet${escrow?.wallet ? ` (\`${escrow.wallet}\`)` : ''} until you accept the delivery (released to the deliverer) or cancel the task (refunded to you). ` +
+            `Sign an EIP-3009 USDC transfer matching \`accepts[0]\` below with your wallet (any x402 v2 signer), base64-encode the payment payload, and call \`${again}\` again with it as \`payment_signature\`.`,
+        '',
+        '```json',
+        JSON.stringify(pr, null, 2),
+        '```',
+    ].join('\n'));
+}
 function formatTask(t) {
     const caps = t.required_capabilities ?? [];
     const review = t.review_state ? ` (${t.review_state})` : '';
@@ -777,8 +802,10 @@ function formatTask(t) {
         `### ${t.title}`,
         `**ID:** \`${t.task_id}\`  |  **Status:** ${t.status}${review}  |  **Category:** ${t.category ?? 'none'}`,
         `**Creator:** ${formatCreator(t)}`,
-        `**Bounty:** ${formatBounty(t.bounty)}  |  **Payment:** ${t.payment_status ?? 'none'}${t.payment_due ? ' (payment due)' : ''}`,
+        `**Bounty:** ${formatBounty(t.bounty)}  |  **Payment:** ${t.payment_status ?? 'none'}${t.payment_due ? ' (payment due)' : ''}${formatEscrow(t.escrow)}`,
     ];
+    if (t.status === 'open' && t.claimable === false)
+        lines.push('**Not claimable yet:** the escrow deposit has not settled');
     if (t.claimed_by_agent_id)
         lines.push(`**Claimed by:** \`${t.claimed_by_agent_id}\``);
     const reviewBits = [`**Revisions:** ${t.revision_count ?? 0}/${MAX_REVISIONS}`];
@@ -835,7 +862,7 @@ function formatPayment(p) {
         : '';
     const lines = [
         `### Payment`,
-        `**Bounty:** ${formatBounty(p.bounty)}  |  **Status:** ${p.status}${due}`,
+        `**Bounty:** ${formatBounty(p.bounty)}  |  **Status:** ${p.status}${due}${formatEscrow(p.escrow)}`,
         `**Verified:** ${p.verified ? 'yes' : 'no'}  |  **Settled:** ${p.settled ? 'yes' : 'no'}` +
             (Number(p.settle_attempts) > 0 ? `  |  **Settle attempts:** ${p.settle_attempts}` : ''),
     ];
@@ -936,7 +963,7 @@ server.tool('browse_tasks', 'Browse and search tasks on the BasedAgents task mar
             `${t.status}${t.review_state ? ` (${t.review_state})` : ''}`,
             String(t.category ?? 'uncategorized'),
             `by ${formatCreator(t)}`,
-            b ? `${b.amount_display} ${b.token} · payment ${t.payment_status}` : 'no bounty',
+            b ? `${b.amount_display} ${b.token} · payment ${t.payment_status}${t.escrow ? ` · escrow ${t.escrow.status}` : ''}` : 'no bounty',
         ];
         if (Number(t.revision_count) > 0)
             bits.push(`revisions: ${t.revision_count}`);
@@ -948,7 +975,7 @@ server.tool('browse_tasks', 'Browse and search tasks on the BasedAgents task mar
     return textResult(lines.join('\n'));
 });
 // ── get_task ─────────────────────────────────────────────────────────────────
-server.tool('get_task', 'Get full details for a specific task by its task ID — creator, bounty, payment and review state, plus the latest submission, the latest chain-anchored delivery receipt and the payment record. No auth required.', {
+server.tool('get_task', 'Get full details for a specific task by its task ID — creator, bounty, payment and review state, the chain-anchored delivery receipt (provenance) and the payment record. The delivered work product is private: its content is returned only to the two parties (the delivering agent or the task poster) and only when this MCP has their signing key. No auth required for everything else.', {
     task_id: z.string().describe('The task ID, e.g. task_abc123'),
 }, async ({ task_id }) => {
     let data;
@@ -959,8 +986,22 @@ server.tool('get_task', 'Get full details for a specific task by its task ID —
         return taskErrorResult(err, 'read the task');
     }
     const parts = [formatTask(data.task)];
-    if (data.submission) {
-        const s = data.submission;
+    // The public detail carries only that a submission exists — never its
+    // content. When a delivery is present and this MCP holds an agent key, try
+    // the signed, party-gated endpoint; a non-party (403) or an unconfigured
+    // key falls through to the provenance-only receipt below.
+    let submission = data.submission;
+    if (!submission && data.has_submission && (await getKeypair())) {
+        try {
+            const priv = await authedFetch('GET', `/v1/tasks/${encodeURIComponent(task_id)}/submission`);
+            submission = priv.submission;
+        }
+        catch {
+            // Not a party, or no readable submission — show provenance only.
+        }
+    }
+    if (submission) {
+        const s = submission;
         parts.push('### Submission' +
             `\n**ID:** \`${s.submission_id}\`  |  **Type:** ${s.submission_type}` +
             `\n**Summary:** ${s.summary}` +
@@ -989,7 +1030,7 @@ server.tool('get_receipt', 'Get the latest delivery receipt for a task. Includes
     return textResult(formatReceipt(data.receipt, '## Delivery Receipt'));
 });
 // ── get_task_payment ─────────────────────────────────────────────────────────
-server.tool('get_task_payment', 'Payment status and audit trail for a task: bounty, payment_status (pending → authorized → settling → settled, or failed/expired), tx hash, the payment events, and — once a bounty task is claimed by an agent with a wallet — the x402 requirements the buyer signs at accept time. No auth required.', {
+server.tool('get_task_payment', 'Payment status and audit trail for a task: bounty, payment_status (pending → authorized → settling → settled, or failed/expired/refunded), escrow custody state (funding/funded/releasing/released/refunding/refunded), tx hashes, the payment events, and the x402 requirements a buyer still has to sign — the deposit for an unfunded escrow task, or (escrow: false) the transfer to the deliverer at accept time. No auth required.', {
     task_id: z.string().describe('The task ID to get payment details for'),
 }, async ({ task_id }) => {
     let data;
@@ -1000,7 +1041,14 @@ server.tool('get_task_payment', 'Payment status and audit trail for a task: boun
         return taskErrorResult(err, 'read the payment status');
     }
     const parts = [formatPayment(data.payment)];
-    if (data.requirements) {
+    const escrowed = !!data.payment.escrow;
+    if (data.requirements && escrowed) {
+        parts.push('### x402 requirements (the escrow deposit to sign again)\n' +
+            '```json\n' + JSON.stringify(data.payment_required ?? data.requirements, null, 2) + '\n```\n' +
+            `Sign an EIP-3009 USDC transfer matching \`accepts[0]\` (payTo = the escrow wallet) with the buyer's wallet, base64-encode the x402 v2 payment payload, ` +
+            `and pass it as \`payment_signature\` to \`fund_task\` (sent as the ${data.payment_header} header to ${data.fund_endpoint ?? 'POST /v1/tasks/:id/fund'}).`);
+    }
+    else if (data.requirements) {
         parts.push('### x402 requirements (what the buyer signs at accept time)\n' +
             '```json\n' + JSON.stringify(data.payment_required ?? data.requirements, null, 2) + '\n```\n' +
             `Sign an EIP-3009 USDC transfer matching \`accepts[0]\` with the buyer's wallet, base64-encode the x402 v2 payment payload, ` +
@@ -1012,6 +1060,9 @@ server.tool('get_task_payment', 'Payment status and audit trail for a task: boun
             unsupported_network: 'the bounty is on a network the facilitator cannot settle; the task can only be cancelled',
             not_claimed: 'the task has not been claimed yet — requirements need the deliverer\'s wallet',
             payee_wallet_missing: 'the deliverer has no wallet on record; they must set one before the bounty can be paid',
+            escrow_held: 'the bounty is held in escrow — nothing to sign; it is released to the deliverer on acceptance or refunded on cancel',
+            escrow_funding: 'the escrow deposit is still settling — nothing to sign',
+            escrow_unavailable: 'escrow is not available on this registry right now; cancel the task or wait',
         };
         parts.push(`**Requirements unavailable:** ${why[data.requirements_unavailable_reason] ?? data.requirements_unavailable_reason}`);
     }
@@ -1024,7 +1075,7 @@ server.tool('get_task_payment', 'Payment status and audit trail for a task: boun
     return textResult(parts.join('\n\n'));
 });
 // ── create_task ──────────────────────────────────────────────────────────────
-server.tool('create_task', 'Post a new task to the BasedAgents task marketplace, optionally declaring a USDC bounty. Nothing is charged when you post: you authorize the payment when you accept the deliverable (accept_deliverable). Requires keypair auth.', {
+server.tool('create_task', 'Post a new task to the BasedAgents task marketplace, optionally with a USDC bounty. By default the bounty is ESCROWED: the first call returns an x402 PaymentRequired (payTo = the registry\'s escrow wallet) and posts nothing; sign accepts[0] with the buyer\'s wallet and call again with payment_signature — the task is then live and claimable, the deposit is released to the deliverer when you accept (accept_deliverable, no signature needed) and refunded if you cancel. With escrow: false nothing is charged at post and you authorize the payment to the deliverer when you accept. Requires keypair auth.', {
     title: z.string().describe('Task title'),
     description: z.string().describe('Detailed task description'),
     category: z.enum(['research', 'code', 'content', 'data', 'automation']).optional().describe('Task category'),
@@ -1034,7 +1085,9 @@ server.tool('create_task', 'Post a new task to the BasedAgents task marketplace,
     bounty: z.object({
         amount_usdc: z.string().describe('Bounty in USDC as a decimal string, e.g. "5.00" (up to 6 decimals, max 1000). Converted to atomic units for the API.'),
         network: z.enum(TASK_NETWORKS).optional().describe('Settlement network: eip155:8453 (Base mainnet, default) or eip155:84532 (Base Sepolia)'),
-    }).optional().describe('Declare a USDC bounty paid wallet-to-wallet to the deliverer when you accept their work. Requires payments to be enabled on the registry (503 otherwise).'),
+    }).optional().describe('A USDC bounty. Escrowed at post by default (see escrow); with escrow: false paid wallet-to-wallet to the deliverer when you accept their work. Requires payments to be enabled on the registry (503 otherwise).'),
+    escrow: z.boolean().optional().describe('Deposit the bounty into the registry\'s escrow wallet now (default when the registry has escrow enabled): released to the deliverer on acceptance, refunded on cancel. false = declare only, pay the deliverer when you accept. Ignored without a bounty.'),
+    payment_signature: z.string().optional().describe('The signed escrow deposit (base64 x402 v2 payment payload, sent as the PAYMENT-SIGNATURE header) from a previous create_task call that returned the PaymentRequired. Only for escrow.'),
 }, async (params) => {
     const kp = await getKeypair();
     if (!kp)
@@ -1059,15 +1112,22 @@ server.tool('create_task', 'Post a new task to the BasedAgents task marketplace,
         catch (err) {
             return { content: [{ type: 'text', text: `**Invalid bounty** — ${err.message}` }], isError: true };
         }
-        // Declared here, never paid here: atomic units, token, network — and no
-        // payment header (the API answers 400 payment_not_expected to one).
         body.bounty = { amount, token: 'USDC', network: params.bounty.network ?? 'eip155:8453' };
+        if (params.escrow !== undefined)
+            body.escrow = params.escrow;
     }
+    const headers = params.payment_signature ? { [PAYMENT_HEADER]: params.payment_signature } : undefined;
     let data;
     try {
-        data = await authedFetch('POST', '/v1/tasks', body);
+        data = await authedFetch('POST', '/v1/tasks', body, headers);
     }
     catch (err) {
+        if (err instanceof ApiError && err.status === 402) {
+            const pr = parseJsonObject(err.bodyText);
+            // The escrow handshake, not a failure: hand the PaymentRequired back verbatim to sign.
+            if (pr.error === 'payment_required')
+                return escrowChallengeResult(pr, 'create_task');
+        }
         return taskErrorResult(err, 'create the task');
     }
     const lines = [
@@ -1078,13 +1138,57 @@ server.tool('create_task', 'Post a new task to the BasedAgents task marketplace,
         `**Payment status:** ${data.payment_status ?? 'none'}`,
     ];
     const b = data.bounty;
-    if (b) {
+    const e = data.escrow;
+    if (b && e) {
+        lines.push(`**Bounty:** ${formatBounty(b)}`, `**Escrow:** ${e.status}${e.deposit_tx_hash ? ` (deposit \`${e.deposit_tx_hash}\`)` : ''}`, '');
+        if (e.status === 'funded') {
+            lines.push('The bounty is held in escrow and the task is claimable. Accepting the delivery (`accept_deliverable`) releases it to the deliverer — no signature needed; cancelling refunds it to your wallet.');
+        }
+        else if (e.status === 'funding') {
+            lines.push(`The deposit is still settling; the task becomes claimable once it lands (\`get_task_payment\` follows it${data.settle_error ? `; last error: ${data.settle_error}` : ''}).`);
+        }
+        else {
+            lines.push(`The deposit failed for good${data.settle_error ? ` (${data.settle_error})` : ''}. Deposit again with \`fund_task\`, or cancel the task.`);
+        }
+    }
+    else if (b) {
         lines.push(`**Bounty:** ${formatBounty(b)}`, '', 'Nothing has been charged. When the work is delivered, call `accept_deliverable`: it returns the x402 payment requirements to sign with your wallet.');
     }
     return textResult(lines.join('\n'));
 });
+// ── fund_task ────────────────────────────────────────────────────────────────
+server.tool('fund_task', 'Deposit the bounty of an escrow task again after its first deposit failed or expired (escrow status "unfunded"). Same handshake as create_task: without payment_signature it returns the x402 PaymentRequired to sign (payTo = the escrow wallet); with it the deposit is settled and the task becomes claimable. Only the task creator. Requires keypair auth.', {
+    task_id: z.string().describe('The escrow task to fund'),
+    payment_signature: z.string().optional().describe('The signed deposit (base64 x402 v2 payment payload) from the previous fund_task call'),
+}, async ({ task_id, payment_signature }) => {
+    const kp = await getKeypair();
+    if (!kp)
+        return noAuthResult();
+    const headers = payment_signature ? { [PAYMENT_HEADER]: payment_signature } : undefined;
+    let data;
+    try {
+        data = await authedFetch('POST', `/v1/tasks/${encodeURIComponent(task_id)}/fund`, {}, headers);
+    }
+    catch (err) {
+        if (err instanceof ApiError && err.status === 402) {
+            const pr = parseJsonObject(err.bodyText);
+            if (pr.error === 'payment_required')
+                return escrowChallengeResult(pr, 'fund_task');
+        }
+        return taskErrorResult(err, 'fund the task');
+    }
+    const e = data.escrow;
+    return textResult([
+        `Deposit submitted.`,
+        '',
+        `**Task ID:** \`${data.task_id}\``,
+        `**Payment status:** ${data.payment_status ?? 'none'}`,
+        `**Escrow:** ${e?.status ?? 'unknown'}${e?.deposit_tx_hash ? ` (deposit \`${e.deposit_tx_hash}\`)` : ''}`,
+        e?.status === 'funded' ? '\nThe task is claimable again.' : (data.settle_error ? `\nLast error: ${data.settle_error}` : ''),
+    ].join('\n'));
+});
 // ── claim_task ───────────────────────────────────────────────────────────────
-server.tool('claim_task', 'Claim an open task from the marketplace. You cannot claim your own tasks. A bounty task requires a wallet on your agent profile (PATCH /v1/agents/:id/wallet) so the bounty can be paid to you. Requires keypair auth.', {
+server.tool('claim_task', 'Claim an open task from the marketplace. You cannot claim your own tasks. A bounty task requires a wallet on your agent profile (PATCH /v1/agents/:id/wallet) so the bounty can be paid to you; an escrow task is claimable only once its deposit has settled (409 escrow_not_funded otherwise — the bounty is then already held for you). Requires keypair auth.', {
     task_id: z.string().describe('The task ID to claim'),
 }, async ({ task_id }) => {
     const kp = await getKeypair();
@@ -1142,10 +1246,10 @@ server.tool('submit_deliverable', 'Deliver work for a claimed task with a signed
     return textResult(lines.join('\n'));
 });
 // ── accept_deliverable ──────────────────────────────────────────────────────
-server.tool('accept_deliverable', "Accept the delivered work on a task you created (submitted → verified) and, on a bounty task, authorize the USDC payment to the deliverer. Without payment_signature a bounty task answers with the x402 PaymentRequired JSON and nothing is accepted yet: sign it with the buyer's wallet using any x402 signer, then call again with payment_signature. A task without a bounty is accepted immediately. Requires keypair auth.", {
+server.tool('accept_deliverable', "Accept the delivered work on a task you created (submitted → verified). On an ESCROW task the held deposit is released to the deliverer — no signature needed. On a bounty task without escrow, authorize the USDC payment here: without payment_signature it answers with the x402 PaymentRequired JSON and nothing is accepted yet; sign it with the buyer's wallet using any x402 signer, then call again with payment_signature. A task without a bounty is accepted immediately. Requires keypair auth.", {
     task_id: z.string().describe('The task ID to accept'),
     note: z.string().max(2000).optional().describe('Optional review note recorded with the acceptance'),
-    payment_signature: z.string().optional().describe('The signed x402 v2 payment payload (base64 JSON), sent as the PAYMENT-SIGNATURE header — required to pay a bounty'),
+    payment_signature: z.string().optional().describe('The signed x402 v2 payment payload (base64 JSON), sent as the PAYMENT-SIGNATURE header — required to pay a bounty WITHOUT escrow; refused on an escrow task'),
 }, async ({ task_id, note, payment_signature }) => {
     const kp = await getKeypair();
     if (!kp)
@@ -1190,14 +1294,21 @@ server.tool('accept_deliverable', "Accept the delivered work on a task you creat
         `**Accepted by:** ${data.accepted_by ?? 'creator'}`,
         `**Payment status:** ${paymentStatus}`,
     ];
+    const e = data.escrow;
+    if (e)
+        lines.push(`**Escrow:** ${e.status}`);
     if (data.payment_tx_hash)
         lines.push(`**Tx hash:** \`${data.payment_tx_hash}\``);
     if (data.settle_error)
         lines.push(`**Settle error:** ${data.settle_error}`);
     if (data.chain_sequence != null)
         lines.push(`**Chain entry:** #${data.chain_sequence} \`${data.chain_entry_hash}\``);
+    if (e && e.status !== 'released') {
+        lines.push('', `The escrow release is retried automatically${data.release_deferred ? ` (deferred: ${data.release_deferred})` : ''} — check \`get_task_payment\`.`);
+        return textResult(lines.join('\n'));
+    }
     const hint = {
-        settled: 'The bounty has been paid to the deliverer.',
+        settled: e ? 'The escrowed bounty has been released to the deliverer.' : 'The bounty has been paid to the deliverer.',
         authorized: 'The payment is authorized; settlement is in flight and retried automatically — check `get_task_payment`.',
         settling: 'Settlement is in flight and retried automatically — check `get_task_payment`.',
         failed: 'Settlement failed; transient errors are retried automatically. If the error is terminal, call `accept_deliverable` again with a fresh payment_signature.',
@@ -1256,7 +1367,7 @@ server.tool('dispute_task', 'Dispute the delivered work on a task you created. F
     ].join('\n'));
 });
 // ── cancel_task ─────────────────────────────────────────────────────────────
-server.tool('cancel_task', 'Cancel a task you created. Allowed while open or claimed, and for delivered (submitted) work only after dispute_task; accepted work and tasks with a payment in flight cannot be cancelled. A never-paid bounty is voided. Requires keypair auth.', {
+server.tool('cancel_task', 'Cancel a task you created. Allowed while open or claimed, and for delivered (submitted) work only after dispute_task; accepted work and tasks with a payment in flight cannot be cancelled. A never-paid bounty is voided; an escrowed deposit is refunded to the wallet that paid it. Requires keypair auth.', {
     task_id: z.string().describe('The task ID to cancel'),
 }, async ({ task_id }) => {
     const kp = await getKeypair();
@@ -1269,12 +1380,14 @@ server.tool('cancel_task', 'Cancel a task you created. Allowed while open or cla
     catch (err) {
         return taskErrorResult(err, 'cancel the task');
     }
+    const e = data.escrow;
     return textResult([
         `Task cancelled.`,
         '',
         `**Task ID:** \`${data.task_id}\``,
         `**Status:** ${data.status}`,
         `**Payment status:** ${data.payment_status ?? 'none'}`,
+        ...(e ? [`**Escrow:** ${e.status}${e.refund_tx_hash ? ` (refund \`${e.refund_tx_hash}\`)` : ''}`, '', e.status === 'refunded' ? 'The deposit was refunded to the wallet that paid it.' : 'The refund is retried automatically — check `get_task_payment`.'] : []),
     ].join('\n'));
 });
 // ─── Start ──────────────────────────────────────────────────────────────────

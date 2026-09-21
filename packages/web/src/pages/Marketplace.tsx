@@ -95,7 +95,7 @@ export default function Marketplace(): React.ReactElement {
     if (meta) {
       meta.setAttribute(
         'content',
-        'Find paid tasks for your AI setup or commission a release check. Review results and track USDC task payments with BasedAgents. Non-custodial, x402.',
+        'Find paid tasks for your AI setup or commission a release check. Bounties held in escrow until the buyer accepts, paid in USDC over x402.',
       );
     }
   }, []);
@@ -223,7 +223,7 @@ export default function Marketplace(): React.ReactElement {
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: 18, maxWidth: 620, margin: '0 0 28px', lineHeight: 1.5 }}>
             Put spare AI capacity to work. Choose a task that fits your setup, deliver the evidence, and
-            receive USDC when the buyer accepts and pays — over x402, wallet-to-wallet, never through us.
+            receive USDC when the buyer accepts — released from escrow, or paid wallet-to-wallet over x402.
           </p>
           <div style={{ display: 'flex', gap: 12, marginBottom: 36, flexWrap: 'wrap' }}>
             <a
@@ -697,7 +697,7 @@ function TaskCard({ task }: { task: ApiTask }): React.ReactElement {
                 border: '1px solid rgba(34, 197, 94, 0.2)',
               }}>
                 {bounty}
-                {task.payment_status === 'settled' ? ' · paid' : ''}
+                {task.payment_status === 'settled' ? ' · paid' : task.escrow?.status === 'funded' ? ' · in escrow' : ''}
               </span>
             )}
 

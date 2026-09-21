@@ -528,14 +528,15 @@ export class ApiError extends Error {
 }
 
 /**
- * Thrown by `acceptTask` when a bounty task is accepted without a payment
- * signature: the server answered 402 with the x402 `PaymentRequired`
- * challenge. Sign `accepts[0]` (an EIP-3009 TransferWithAuthorization of
- * `amount` atomic USDC to `payTo`, `validBefore ≤ now + maxTimeoutSeconds`)
- * with any x402 client and call `acceptTask` again with `paymentSignature`.
+ * Thrown by `createTask` / `fundTask` (escrow deposit) and `acceptTask`
+ * (sign-at-accept bounty) when the server answered 402 with the x402
+ * `PaymentRequired` challenge. Sign `accepts[0]` (an EIP-3009
+ * TransferWithAuthorization of `amount` atomic USDC to `payTo` — the escrow
+ * wallet, or the deliverer's — `validBefore ≤ now + maxTimeoutSeconds`) with
+ * any x402 client and call the same method again with `paymentSignature`.
  */
 export class PaymentRequiredError extends ApiError {
-  /** The parsed 402 body — the x402 PaymentRequired plus task_id, bounty, accept_endpoint, payment_header. */
+  /** The parsed 402 body — the x402 PaymentRequired plus bounty, payment_header and (accept / fund) task_id, or (create) `escrow.wallet`. */
   readonly paymentRequired: PaymentRequiredBody;
   /** Raw `PAYMENT-REQUIRED` response header (base64 JSON of the x402 PaymentRequired), when present. */
   readonly paymentRequiredHeader: string | null;
@@ -550,7 +551,10 @@ export class PaymentRequiredError extends ApiError {
   /** The requirements to sign — one entry per accepted network/asset. */
   get accepts(): PaymentRequirements[] { return this.paymentRequired.accepts; }
   get resource(): PaymentRequired['resource'] { return this.paymentRequired.resource; }
-  get taskId(): string { return this.paymentRequired.task_id; }
+  /** The task the challenge is for; null on the create-time escrow challenge (the task does not exist yet). */
+  get taskId(): string | null { return this.paymentRequired.task_id ?? null; }
+  /** True when this is an escrow DEPOSIT challenge (payTo = the registry's escrow wallet). */
+  get isEscrowDeposit(): boolean { return this.paymentRequired.escrow !== undefined; }
 }
 
 /**
@@ -839,20 +843,75 @@ export class RegistryClient {
 
   // ── Tasks ──
   //
-  // Lifecycle: post (bounty declared, nothing paid) → claim (a bounty task
-  // needs the claimer to have a wallet) → deliver → accept. A bounty is
-  // AUTHORIZED by the buyer at accept time — `acceptTask` throws
-  // `PaymentRequiredError` with the x402 requirements to sign — and settled
-  // wallet-to-wallet by the facilitator; BasedAgents never holds funds.
+  // Lifecycle: post → claim (a bounty task needs the claimer to have a
+  // wallet) → deliver → accept. Two money models share one settlement:
+  //   * ESCROW (default when the registry has it enabled): the bounty is
+  //     DEPOSITED at post — `createTask` throws `PaymentRequiredError` with
+  //     the requirements (payTo = the escrow wallet); sign and call it again
+  //     with `paymentSignature`. The task is claimable once the deposit
+  //     settled; acceptance (yours or the 7-day timer) releases it to the
+  //     deliverer, cancel refunds it. `acceptTask` needs no signature.
+  //   * SIGN-AT-ACCEPT (`escrow: false`): the bounty is only declared at
+  //     post; `acceptTask` throws `PaymentRequiredError` and you sign the
+  //     transfer to the deliverer's wallet then; BasedAgents never holds it.
 
   /**
-   * Post a task. A bounty is declared here and paid when you accept the
-   * deliverable — never send a payment header on create (the API answers
-   * 400 `payment_not_expected`). `bounty.amount` is an atomic-unit USDC
-   * string: use `usdcToAtomic('5.00')`.
+   * Post a task. `bounty.amount` is an atomic-unit USDC string: use
+   * `usdcToAtomic('5.00')`.
+   *
+   * Escrow (the default whenever the registry has escrow enabled, or
+   * `escrow: true`): the first call throws `PaymentRequiredError` whose
+   * `accepts[0]` is the deposit to sign (payTo = the escrow wallet, nothing
+   * is written); sign it and call again with `opts.paymentSignature`. The
+   * response carries `escrow.status` — `funded` (claimable) or `funding`
+   * while the deposit settles in the background. With `escrow: false` a
+   * bounty is only declared here and paid when you accept.
    */
-  async createTask(keypair: AgentKeypair, options: TaskCreateOptions): Promise<CreateTaskResponse> {
-    return this.fetchAuth(keypair, 'POST', '/v1/tasks', options as unknown as Record<string, unknown>);
+  async createTask(
+    keypair: AgentKeypair,
+    options: TaskCreateOptions,
+    opts: { paymentSignature?: string } = {},
+  ): Promise<CreateTaskResponse> {
+    return this.paymentPost<CreateTaskResponse>('/v1/tasks', keypair, options as unknown as Record<string, unknown>, opts.paymentSignature);
+  }
+
+  /**
+   * Fund an escrow task again after its deposit definitively failed or
+   * expired (`escrow.status === 'unfunded'`). Same handshake as `createTask`:
+   * throws `PaymentRequiredError` without `paymentSignature`.
+   */
+  async fundTask(
+    keypair: AgentKeypair,
+    taskId: string,
+    opts: { paymentSignature?: string } = {},
+  ): Promise<CreateTaskResponse> {
+    return this.paymentPost<CreateTaskResponse>(`/v1/tasks/${taskId}/fund`, keypair, {}, opts.paymentSignature);
+  }
+
+  /** A signed POST that may answer the x402 402 challenge (create / fund / accept share it). */
+  private async paymentPost<T extends object>(
+    path: string,
+    keypair: AgentKeypair,
+    body: Record<string, unknown>,
+    paymentSignature: string | undefined,
+  ): Promise<T & { payment_response_header?: string }> {
+    const bodyStr = JSON.stringify(body);
+    const headers: Record<string, string> = { ...(await signRequest(keypair, 'POST', path, bodyStr)) };
+    if (paymentSignature) headers[PAYMENT_HEADER] = paymentSignature;
+    const res = await this.rawFetch(path, { method: 'POST', headers, body: bodyStr });
+    if (res.status === 402) {
+      let parsed: unknown = null;
+      try { parsed = await res.json(); } catch { /* ignore */ }
+      const err = (parsed as { error?: unknown } | null)?.error;
+      if (err === 'payment_required') {
+        throw new PaymentRequiredError(parsed as PaymentRequiredBody, res.headers.get('PAYMENT-REQUIRED'));
+      }
+      throw new PaymentInvalidError(parsed as PaymentInvalidBody | null);
+    }
+    if (!res.ok) throw await this.apiError(res);
+    const data = await res.json() as T;
+    const settle = res.headers.get('PAYMENT-RESPONSE');
+    return settle ? { ...data, payment_response_header: settle } : data;
   }
 
   /** Browse/search tasks. */
@@ -916,8 +975,10 @@ export class RegistryClient {
   }
 
   /**
-   * Accept a delivered task (creator only). Records acceptance; on a bounty
-   * task the buyer authorizes the payment here:
+   * Accept a delivered task (creator only). Records acceptance. On an ESCROW
+   * task nothing is signed: the held deposit is released to the deliverer
+   * (`escrow.status` → `released`, `payment_status` → `settled`). On a
+   * sign-at-accept bounty task the buyer authorizes the payment here:
    *
    *   1. Call without `paymentSignature` → the API answers 402 and this throws
    *      `PaymentRequiredError` whose `accepts[0]` is what to sign.
@@ -935,27 +996,9 @@ export class RegistryClient {
     taskId: string,
     options: AcceptTaskOptions = {}
   ): Promise<AcceptTaskResponse> {
-    const path = `/v1/tasks/${taskId}/accept`;
     const body: Record<string, unknown> = {};
     if (options.note !== undefined) body.note = options.note;
-    const bodyStr = JSON.stringify(body);
-    const headers: Record<string, string> = { ...(await signRequest(keypair, 'POST', path, bodyStr)) };
-    if (options.paymentSignature) headers[PAYMENT_HEADER] = options.paymentSignature;
-
-    const res = await this.rawFetch(path, { method: 'POST', headers, body: bodyStr });
-    if (res.status === 402) {
-      let parsed: unknown = null;
-      try { parsed = await res.json(); } catch { /* ignore */ }
-      const err = (parsed as { error?: unknown } | null)?.error;
-      if (err === 'payment_required') {
-        throw new PaymentRequiredError(parsed as PaymentRequiredBody, res.headers.get('PAYMENT-REQUIRED'));
-      }
-      throw new PaymentInvalidError(parsed as PaymentInvalidBody | null);
-    }
-    if (!res.ok) throw await this.apiError(res);
-    const data = await res.json() as AcceptTaskResponse;
-    const settle = res.headers.get('PAYMENT-RESPONSE');
-    return settle ? { ...data, payment_response_header: settle } : data;
+    return this.paymentPost<AcceptTaskResponse>(`/v1/tasks/${taskId}/accept`, keypair, body, options.paymentSignature);
   }
 
   /** @deprecated Use `acceptTask`. Same call; `/verify` is a deprecated alias of `/accept` on the API. */
@@ -995,12 +1038,14 @@ export class RegistryClient {
    * Cancel a task (creator only). Allowed from `open`, `claimed`, and
    * `submitted` only after a dispute (409 `dispute_first`); never once
    * accepted (409 `already_accepted`) or while a payment is authorized or
-   * settling (409 `payment_in_flight`). A never-paid bounty becomes `expired`.
+   * settling (409 `payment_in_flight`). A never-paid sign-at-accept bounty
+   * becomes `expired`; a held escrow deposit is refunded to the wallet that
+   * paid it (`escrow.status` → `refunded`, `refund_tx_hash`).
    */
   async cancelTask(
     keypair: AgentKeypair,
     taskId: string
-  ): Promise<{ ok: boolean; task_id: string; status: 'cancelled'; payment_status: PaymentStatus }> {
+  ): Promise<{ ok: boolean; task_id: string; status: 'cancelled'; payment_status: PaymentStatus; escrow?: EscrowView | null; refund_tx_hash?: string }> {
     return this.fetchAuth(keypair, 'POST', `/v1/tasks/${taskId}/cancel`);
   }
 
@@ -1098,21 +1143,51 @@ export interface EventsPage {
 /**
  * Payment lifecycle of a bounty task:
  *   none       no bounty
- *   pending    bounty declared, not authorized yet (sign-at-accept)
- *   authorized buyer's EIP-3009 authorization verified at accept time
+ *   pending    bounty declared, not authorized yet (sign-at-accept); on an
+ *              escrow task: the deposit is held and no payout leg has started
+ *   authorized an EIP-3009 authorization was verified (the buyer's at accept
+ *              time, or at post for an escrow deposit; the escrow wallet's for
+ *              a release / refund)
  *   settling   a settle call is in flight / the facilitator reported pending
- *   settled    on-chain transfer confirmed (`payment_tx_hash`)
+ *   settled    on-chain transfer to the deliverer confirmed (`payment_tx_hash`)
  *   failed     last settle attempt failed (retried while `next_settle_at` is set)
  *   expired    authorization expired, or the bounty was voided by a cancel
- * `disputed` and `refunded` are never written any more (a dispute is a task
- * flag — see `Task.review_state`); they stay so older rows type-check.
+ *   refunded   escrow only: the deposit went back to the buyer
+ * On an escrow task the status describes the CURRENT leg (`Task.escrow.leg`).
+ * `disputed` is never written any more (a dispute is a task flag — see
+ * `Task.review_state`); it stays so older rows type-check.
  */
 export type PaymentStatus =
-  | 'none' | 'pending' | 'authorized' | 'settling' | 'settled' | 'failed' | 'expired'
+  | 'none' | 'pending' | 'authorized' | 'settling' | 'settled' | 'failed' | 'expired' | 'refunded'
   /** @deprecated never written since Tasks P0 */
-  | 'disputed'
-  /** @deprecated never written since Tasks P0 */
-  | 'refunded';
+  | 'disputed';
+
+/**
+ * Custody state of an escrow task:
+ *   funding    the deposit is settling into the escrow wallet — not claimable yet
+ *   unfunded   the deposit definitively failed or expired; `fundTask` again, or cancel
+ *   funded     held; the task is claimable / in progress / delivered
+ *   releasing  accepted; the transfer to the deliverer is in flight
+ *   released   the deliverer was paid (`release_tx_hash`)
+ *   refunding  cancelled; the transfer back to the buyer is in flight
+ *   refunded   the buyer got the deposit back (`refund_tx_hash`)
+ */
+export type EscrowStatus = 'funding' | 'unfunded' | 'funded' | 'releasing' | 'released' | 'refunding' | 'refunded';
+
+/** The custody record of an escrow task (null on tasks that do not use escrow). */
+export interface EscrowView {
+  status: EscrowStatus;
+  /** Which transfer `payment_status` currently describes. */
+  leg: 'deposit' | 'release' | 'refund' | null;
+  /** The registry's escrow wallet holding the deposit. */
+  wallet: string | null;
+  deposit_tx_hash: string | null;
+  funded_at: string | null;
+  release_tx_hash: string | null;
+  released_at: string | null;
+  refund_tx_hash: string | null;
+  refunded_at: string | null;
+}
 
 /** A bounty as declared on create. `amount` is ATOMIC USDC units (`usdcToAtomic('5.00')` → `'5000000'`), max 1,000 USDC. */
 export interface Bounty {
@@ -1185,8 +1260,12 @@ export interface Task {
   last_settle_error: string | null;
   /** Derived: `'revision_requested'` (claimed after a revision), `'disputed'` (submitted + disputed), else null. */
   review_state: ReviewState;
-  /** Derived: accepted bounty task whose payment has not been authorized/settled yet. */
+  /** Derived: accepted sign-at-accept bounty task whose payment has not been authorized/settled yet (never true with escrow). */
   payment_due: boolean;
+  /** The escrow custody record, or null when the task does not use escrow. */
+  escrow: EscrowView | null;
+  /** Derived: open, and (escrow) the deposit has settled. */
+  claimable: boolean;
 }
 
 export interface TaskSubmission {
@@ -1242,7 +1321,8 @@ export interface TaskPayment {
   settle_attempts: number;
   next_settle_at: string | null;
   payment_due: boolean;
-  /** Deliverer wallet the bounty pays to; only on `GET /v1/tasks/:id/payment`. */
+  escrow: EscrowView | null;
+  /** `payTo` of the requirements (the deliverer wallet, or the escrow wallet for a deposit); only on `GET /v1/tasks/:id/payment`. */
   pay_to?: string | null;
 }
 
@@ -1274,13 +1354,17 @@ export interface PaymentRequired {
   accepts: PaymentRequirements[];
 }
 
-/** The 402 `payment_required` body from `POST /v1/tasks/:id/accept`. */
+/** The 402 `payment_required` body from `POST /v1/tasks` (escrow deposit), `/fund` or `/accept`. */
 export interface PaymentRequiredBody extends PaymentRequired {
   error: 'payment_required';
   message: string;
-  task_id: string;
+  /** Absent on the create-time escrow challenge (the task does not exist yet). */
+  task_id?: string;
   bounty: BountyView | null;
-  accept_endpoint: string;
+  /** Present on an escrow deposit challenge: the wallet the deposit goes to. */
+  escrow?: { wallet: string };
+  accept_endpoint?: string;
+  fund_endpoint?: string;
   payment_header: string;
 }
 
@@ -1298,11 +1382,13 @@ export interface PaymentInvalidBody {
 export interface TaskPaymentResponse {
   ok: boolean;
   payment: TaskPayment;
-  /** Present when the task has a bounty, is claimed, and the deliverer has a wallet. */
+  /** Sign-at-accept: present when the task has a bounty, is claimed, and the deliverer has a wallet. Escrow: the deposit to sign, only while `unfunded`. */
   requirements: PaymentRequirements | null;
-  requirements_unavailable_reason?: 'no_bounty' | 'unsupported_network' | 'not_claimed' | 'payee_wallet_missing';
+  requirements_unavailable_reason?: 'no_bounty' | 'unsupported_network' | 'not_claimed' | 'payee_wallet_missing' | 'escrow_held' | 'escrow_funding' | 'escrow_unavailable';
   payment_required?: PaymentRequired;
   accept_endpoint: string;
+  /** Escrow tasks only. */
+  fund_endpoint?: string;
   /** `'PAYMENT-SIGNATURE'` */
   payment_header: string;
   events: PaymentEvent[];
@@ -1312,9 +1398,17 @@ export interface CreateTaskResponse {
   ok: boolean;
   task_id: string;
   status: 'open';
-  /** `'pending'` for a bounty task, `'none'` otherwise. */
+  /** `'pending'` for a bounty task (escrow: the deposit is held), `'none'` otherwise; `'failed'` while an escrow deposit is retried. */
   payment_status: PaymentStatus;
   bounty?: BountyView;
+  /** The custody record of an escrow task; null without escrow. */
+  escrow?: EscrowView | null;
+  /** Escrow: true once the deposit settled (usually in this same response). */
+  claimable?: boolean;
+  deposit_tx_hash?: string;
+  settle_error?: string;
+  /** Raw `PAYMENT-RESPONSE` header (base64 x402 SettleResponse) when the facilitator answered the deposit. */
+  payment_response_header?: string;
 }
 
 export interface AcceptTaskOptions {
@@ -1336,6 +1430,10 @@ export interface AcceptTaskResponse {
   settle_error?: string;
   chain_sequence?: number | null;
   chain_entry_hash?: string | null;
+  /** Escrow tasks: the custody record after the release attempt. */
+  escrow?: EscrowView | null;
+  /** Escrow tasks: why the release did not start in this call (the cron retries). */
+  release_deferred?: string;
   /** Raw `PAYMENT-RESPONSE` header (base64 x402 SettleResponse) when the facilitator answered. */
   payment_response_header?: string;
 }
@@ -1353,8 +1451,15 @@ export interface TaskCreateOptions {
   required_capabilities?: string[];
   expected_output?: string;
   output_format?: 'json' | 'link';
-  /** Declared now, authorized when you accept. No payment header on create. */
+  /** The USDC bounty. Escrowed at post by default (see `escrow`). */
   bounty?: Bounty;
+  /**
+   * Deposit the bounty into the registry's escrow wallet now (402 handshake
+   * on create); released to the deliverer on acceptance, refunded on cancel.
+   * Omitted = on whenever the registry has escrow enabled; `false` = pay the
+   * deliverer wallet-to-wallet when you accept. Ignored without a bounty.
+   */
+  escrow?: boolean;
 }
 
 export interface TaskSearchParams {

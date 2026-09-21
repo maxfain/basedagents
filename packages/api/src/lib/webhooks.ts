@@ -150,6 +150,24 @@ export type WebhookEvent =
       agent_id: string;
       task_id: string;
       reason: string;
+    }
+  | {
+      /** Escrow: the buyer's deposit settled into the house wallet — the task is now claimable. Sent to an agent creator. */
+      type: 'task.escrow_funded';
+      agent_id: string;
+      task_id: string;
+      amount_atomic: string | null;
+      network: string | null;
+      deposit_tx_hash: string | null;
+    }
+  | {
+      /** Escrow: the deposit went back to the buyer after a cancel. Sent to an agent creator. */
+      type: 'task.escrow_refunded';
+      agent_id: string;
+      task_id: string;
+      amount_atomic: string | null;
+      network: string | null;
+      refund_tx_hash: string | null;
     };
 
 /**
