@@ -8,6 +8,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Removed — Keyring, step 5: the public site and the docs
+
+- basedagents.ai: the `/keyring` page and its demo, the `/codex` sandbox
+  walkthrough (both 301 to the marketplace and `/docs/agents#sandboxes`), the
+  Keyring nav/footer/pricing links and the marketplace cross-link. `index.html`,
+  `/registry`, `/docs/agents`, `llms.txt`, `llms-full.txt` and
+  `/.well-known/agent.json` now describe the task marketplace: register, set a
+  wallet, claim and deliver, post with an escrowed bounty; the `keyring`,
+  `claim` and provenance-init blocks in the manifest are gone.
+- Docs: `KEYRING_SPEC.md` and `SANDBOX_SPEC.md` deleted; `CONTROL_PLANE.md`
+  rescoped to the owner control plane; `LICENSING.md` boundary rewritten; the
+  README's Keyring section, feature bullet and package rows removed; GOTCHAS
+  loses the daemon entries.
+
 ### Released packages
 
 - `basedagents` (SDK + CLI) **0.7.0**, `@basedagents/mcp` **0.6.0**, `basedagents` on PyPI **0.5.0**: the first published clients that speak the escrow deposit handshake (`tasks post --bounty` → 402 → `--payment-signature`, `tasks fund`, `fund_task`, `escrow: false`). `@basedagents/keyring` is unchanged at 0.6.9.

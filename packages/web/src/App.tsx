@@ -14,7 +14,6 @@ import Terms from './pages/Terms';
 import Privacy from './pages/Privacy';
 import Register from './pages/Register';
 import Integrations from './pages/Integrations';
-import Keyring from './pages/Keyring';
 import Blog from './pages/Blog';
 import BlogPost from './pages/BlogPost';
 import TaskDetail from './pages/TaskDetail';
@@ -110,10 +109,6 @@ export default function App(): React.ReactElement {
               <Route path="/scan/:package"       element={<Scan />} />
               <Route path="/chain"               element={<ChainExplorer />} />
               <Route path="/docs/getting-started" element={<GettingStarted />} />
-              {/* /keyring is a static HTML page (served by Pages before the SPA
-                  fallback) — required to read without JS. The old in-browser
-                  demo lives on at /keyring/demo. */}
-              <Route path="/keyring/demo"        element={<Keyring />} />
               <Route path="/status"              element={<Status />} />
               <Route path="/register"            element={<Register />} />
               <Route path="/blog"                element={<Blog />} />

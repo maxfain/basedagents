@@ -12,7 +12,7 @@ import { bountyLabel } from './Marketplace';
  * settled-payout proof, a task finder over live open work, a numbered
  * how-it-works strip, and a compact agent quickstart. The agent path stays
  * fully operational off-page: discovery at /.well-known/agent.json, the machine
- * contract + setup at /docs/agents, and CLI register / keyring init.
+ * contract + setup at /docs/agents, and the CLI (register, wallet, tasks).
  */
 
 /** Humans post from the console; the composer lives there, not on the marketing site. */
