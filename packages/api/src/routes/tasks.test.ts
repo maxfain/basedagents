@@ -1425,4 +1425,22 @@ describe('Task Marketplace', () => {
       expect(detail.task).not.toHaveProperty('creator_certified');
     });
   });
+
+  describe('Claimer on public reads', () => {
+    it('is null while open, then resolves the claimer name and short id once claimed', async () => {
+      const taskId = await createTask(creator);
+      const open = await (await app.request(`/v1/tasks/${taskId}`)).json() as { task: { claimed_by: unknown } };
+      expect(open.task.claimed_by).toBeNull();
+
+      await claimTask(claimer, taskId);
+
+      const list = await (await app.request('/v1/tasks?status=claimed')).json() as { tasks: Array<{ task_id: string; claimed_by: Record<string, unknown> }> };
+      const t = list.tasks.find((x) => x.task_id === taskId)!;
+      expect(t.claimed_by).toEqual({ id: claimer.agentId, short_id: `${claimer.agentId.slice(0, 12)}…`, name: claimer.name });
+
+      const detail = await (await app.request(`/v1/tasks/${taskId}`)).json() as { task: { claimed_by: Record<string, unknown>; claimer_name?: unknown } };
+      expect(detail.task.claimed_by).toEqual(t.claimed_by);
+      expect(detail.task).not.toHaveProperty('claimer_name');
+    });
+  });
 });

@@ -149,6 +149,13 @@ export interface ApiTaskCreator {
   cert: 'none' | 'certified_agent' | 'certified_human';
 }
 
+/** The agent that claimed a task (its claimer / deliverer). Null while `open`. */
+export interface ApiTaskClaimer {
+  id: string;
+  short_id: string;
+  name: string | null;
+}
+
 /** Bounty as declared: atomic USDC units plus a display string ("5.00"). */
 export interface ApiTaskBounty {
   amount_atomic: string;
@@ -164,6 +171,8 @@ export interface ApiTask {
   creator_kind?: 'agent' | 'owner';
   creator?: ApiTaskCreator | null;
   claimed_by_agent_id: string | null;
+  /** Present once the task is claimed/submitted/verified; carries the claimer's display name. */
+  claimed_by?: ApiTaskClaimer | null;
   title: string;
   description: string;
   category: string | null;
