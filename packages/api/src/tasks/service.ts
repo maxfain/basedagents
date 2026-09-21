@@ -72,6 +72,8 @@ export interface TaskRow {
   payment_tx_hash: string | null;
   payment_expires_at: string | null;
   auto_release_at: string | null;
+  /** Claim-delivery timer: a `claimed` task past this returns to `open` (cron). Cleared on delivery/cancel. */
+  claim_expires_at: string | null;
   settle_attempts: number;
   settle_broadcast: number;
   settle_started_at: string | null;
@@ -84,6 +86,8 @@ export interface TaskRow {
 
 /** Buyer review window: a delivered task is auto-accepted after this long (N3). */
 export const REVIEW_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+/** Claim window: a claimed task with no delivery is returned to `open` after this long (cron). */
+export const CLAIM_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 /** Max "request changes" rounds per task (D4). */
 export const MAX_REVISIONS = 3;
 
@@ -338,20 +342,20 @@ export function paymentView(t: TaskRow): Record<string, unknown> {
 /** A recipient agent id + the event to drop in its inbox atomically with the gate. */
 export interface GateNotify { recipientAgentId: string | null; event: WebhookEvent | null }
 
-/** T2: open → claimed. The creator can never claim their own task. */
+/** T2: open → claimed. The creator can never claim their own task. Arms the claim-delivery timer. */
 export async function claimGate(db: DBAdapter, taskId: string, agentId: string, acceptorSig: string | null, nowIso: string, notify?: GateNotify): Promise<boolean> {
   return gateWithEvent(db, {
-    sql: `UPDATE tasks SET claimed_by_agent_id = ?, status = 'claimed', claimed_at = ?, acceptor_signature = ?
+    sql: `UPDATE tasks SET claimed_by_agent_id = ?, status = 'claimed', claimed_at = ?, claim_expires_at = ?, acceptor_signature = ?
      WHERE task_id = ? AND status = 'open' AND claimed_by_agent_id IS NULL
        AND (creator_agent_id IS NULL OR creator_agent_id <> ?)`,
-    params: [agentId, nowIso, acceptorSig, taskId, agentId],
+    params: [agentId, nowIso, isoPlus(nowIso, CLAIM_WINDOW_MS), acceptorSig, taskId, agentId],
   }, notify?.recipientAgentId ?? null, notify?.event ?? null, nowIso);
 }
 
-/** T3: claimed → submitted, arming the 7-day auto-accept for every task (N3). */
+/** T3: claimed → submitted, arming the 7-day auto-accept and clearing the claim timer (N3). */
 export async function deliverGate(db: DBAdapter, taskId: string, agentId: string, nowIso: string, notify?: GateNotify): Promise<boolean> {
   return gateWithEvent(db, {
-    sql: `UPDATE tasks SET status = 'submitted', submitted_at = ?, auto_release_at = ?
+    sql: `UPDATE tasks SET status = 'submitted', submitted_at = ?, auto_release_at = ?, claim_expires_at = NULL
      WHERE task_id = ? AND status = 'claimed' AND claimed_by_agent_id = ?`,
     params: [nowIso, isoPlus(nowIso, REVIEW_WINDOW_MS), taskId, agentId],
   }, notify?.recipientAgentId ?? null, notify?.event ?? null, nowIso);
@@ -385,13 +389,13 @@ export async function autoAcceptGate(db: DBAdapter, taskId: string, nowIso: stri
   return res.changes === 1;
 }
 
-/** T6: submitted → claimed (request changes), capped at MAX_REVISIONS. */
+/** T6: submitted → claimed (request changes), capped at MAX_REVISIONS. Re-arms the claim timer for the re-delivery. */
 export async function revisionGate(db: DBAdapter, taskId: string, note: string, nowIso: string, notify?: GateNotify): Promise<boolean> {
   return gateWithEvent(db, {
     sql: `UPDATE tasks SET status = 'claimed', review_note = ?, revision_count = revision_count + 1,
-       revision_requested_at = ?, auto_release_at = NULL, disputed_at = NULL
+       revision_requested_at = ?, auto_release_at = NULL, claim_expires_at = ?, disputed_at = NULL
      WHERE task_id = ? AND status = 'submitted' AND revision_count < ?`,
-    params: [note, nowIso, taskId, MAX_REVISIONS],
+    params: [note, nowIso, isoPlus(nowIso, CLAIM_WINDOW_MS), taskId, MAX_REVISIONS],
   }, notify?.recipientAgentId ?? null, notify?.event ?? null, nowIso);
 }
 
@@ -411,13 +415,32 @@ export async function disputeGate(db: DBAdapter, taskId: string, reason: string,
  */
 export async function cancelGate(db: DBAdapter, taskId: string, nowIso: string, notify?: GateNotify): Promise<boolean> {
   return gateWithEvent(db, {
-    sql: `UPDATE tasks SET status = 'cancelled', cancelled_at = ?, auto_release_at = NULL,
+    sql: `UPDATE tasks SET status = 'cancelled', cancelled_at = ?, auto_release_at = NULL, claim_expires_at = NULL,
        payment_status = CASE WHEN payment_status IN ('pending','failed','expired') THEN 'expired' ELSE payment_status END
      WHERE task_id = ? AND status IN ('open','claimed','submitted')
        AND (status <> 'submitted' OR disputed_at IS NOT NULL)
        AND payment_status NOT IN ('authorized','settling','settled')`,
     params: [nowIso, taskId],
   }, notify?.recipientAgentId ?? null, notify?.event ?? null, nowIso);
+}
+
+/**
+ * T9: claimed → open when the claimer never delivered within the claim window.
+ * Returns the task to the pool for anyone to re-claim and clears the previous
+ * claimer's context (claim timestamps, acceptor signature, and the review round
+ * counters so the next claimer starts fresh). Never touches payment columns —
+ * nothing is authorized at claim time, so a bounty stays `pending`. The timer is
+ * part of the predicate so a delivery made after the cron's SELECT is not clobbered.
+ */
+export async function claimExpiryGate(db: DBAdapter, taskId: string, nowIso: string): Promise<boolean> {
+  const res = await db.run(
+    `UPDATE tasks SET status = 'open', claimed_by_agent_id = NULL, claimed_at = NULL, acceptor_signature = NULL,
+       claim_expires_at = NULL, revision_count = 0, review_note = NULL, revision_requested_at = NULL
+     WHERE task_id = ? AND status = 'claimed'
+       AND claim_expires_at IS NOT NULL AND claim_expires_at <= ?`,
+    taskId, nowIso,
+  );
+  return res.changes === 1;
 }
 
 /** Why a cancel would be refused, from the row the route read (maps to 409 codes). */
