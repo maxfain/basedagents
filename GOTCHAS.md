@@ -238,7 +238,7 @@ to *fail* must break origin/challenge, not the attestation blob.
 The control-plane test files each build an in-memory SQLite from explicit
 migration files (`rawDb.exec(SQL_0023)` …). A new migration that existing
 queries depend on must be added to **every** harness
-(`routes.test.ts`, `store.test.ts`, `approvals.test.ts`, `recovery.test.ts`) —
+(`routes.test.ts`, `store.test.ts`, `ladder.test.ts`, `recovery.test.ts`) —
 forgetting this is 28 mysterious `no such column` failures at once.
 
 ### `node.ts` replays the FULL migration chain, one transaction per file
@@ -321,18 +321,18 @@ keyring publish is a **pair**: bump the sdk a patch, raise its
 
 ### Publishing is trusted publishing (OIDC) — no token anywhere
 
-`.github/workflows/publish.yml` publishes `@basedagents/keyring`, `basedagents`
-(sdk + cli), `@basedagents/mcp` and the PyPI `basedagents` with **trusted
+`.github/workflows/publish.yml` publishes `basedagents` (sdk + cli),
+`@basedagents/mcp` and the PyPI `basedagents` with **trusted
 publishing**: the GitHub Actions job's OIDC identity is the credential, so
 there is no npm token, no PyPI token and no `.env` to leak. It runs on every
 push to `main` that touches a package manifest and on manual dispatch. Every
 job first asks the registry whether the manifest's version is already
 published and **skips when it is** — so the workflow is idempotent: merging a
 bump PR publishes it, re-running publishes nothing twice, and a bump that
-landed with other changes ships on the next dispatch. Keyring publishes
-before the sdk (see above); mcp and python run in parallel.
+landed with other changes ships on the next dispatch. The three jobs run in
+parallel.
 
-One-time registry setup (already done for the four packages; repeat for a new
+One-time registry setup (already done for the three packages; repeat for a new
 package): on **npmjs.com** → package → Settings → *Trusted Publisher* →
 GitHub Actions with owner `maxfain`, repository `basedagents`, workflow
 `publish.yml`, environment `publish`. On **pypi.org** → project →

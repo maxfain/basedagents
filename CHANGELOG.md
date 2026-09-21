@@ -8,6 +8,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Removed — Keyring is being retired; step 1: the sdk no longer bundles it
+
+The credential vault never found users while the task marketplace did, so
+Keyring is being removed from the repo in stages. This step decouples the
+published `basedagents` package (**0.8.0**):
+
+- `basedagents` no longer depends on `@basedagents/keyring` — an install of the
+  sdk/CLI no longer pulls in undici and playwright-core through it.
+- `basedagents keyring …` prints a retirement notice and exits 1 instead of
+  forwarding to the vault CLI (agents run cached commands for months; a
+  signpost beats a 404). `npx @basedagents/keyring` still runs the standalone
+  package, which is deprecated on npm.
+- `basedagents register` now hands off to the task board (set a wallet, find
+  open tasks) instead of "set up key custody".
+- The clean-container smoke test packs and drives the sdk alone.
+### Removed — Keyring, step 3: the API control plane keeps only what the marketplace uses
+
+- Gone from `/v1/owner`: the approvals inbox and grant approvals, every
+  `daemon/*` endpoint, the vault-key binding, the `keyring init` link codes and
+  claim, agent-sent invites (and the register-on-first-use agent auth that only
+  they used), connect cards and credential facts, the cloud passport and shelf,
+  billing (entitlements, Stripe checkout/portal/webhook, the Free-tier agent
+  cap on delegations), and the anonymous funnel pings and provider vote tiles.
+- Stays: owner accounts, the email → passkey ladder (`/start/*`, `/login/email`),
+  passkey registration/login, the action ceremony, delegations, recovery, owner
+  tasks and board posting, the MCP OAuth worker. `GET /me` no longer returns
+  `vault_key`.
+- Migration `0040_retire_keyring.sql` drops the eleven keyring-only tables and
+  the billing/kill-report columns on `owners`/`delegations`. `funnel_events`
+  stays — the marketplace records `task_posted` server-side.
+- Config: the `STRIPE_*` vars/secrets are gone; `KEYRING_RP_ID`,
+  `KEYRING_ORIGINS`, `KEYRING_CONSOLE_ORIGIN` keep their names (WebAuthn RP config).
+
 ### Released packages
 
 - `basedagents` (SDK + CLI) **0.7.0**, `@basedagents/mcp` **0.6.0**, `basedagents` on PyPI **0.5.0**: the first published clients that speak the escrow deposit handshake (`tasks post --bounty` → 402 → `--payment-signature`, `tasks fund`, `fund_task`, `escrow: false`). `@basedagents/keyring` is unchanged at 0.6.9.
