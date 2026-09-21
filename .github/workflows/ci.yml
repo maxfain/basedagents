@@ -42,6 +42,17 @@ jobs:
       - name: Build all workspaces
         run: npm run build
 
+      # The GitHub Action is consumed straight from the repo, so its esbuild
+      # bundle (packages/github-action/dist/index.js) is committed. The build
+      # above just regenerated it; a diff means someone changed the action's
+      # source or dependencies without rebuilding.
+      - name: Action bundle is up to date
+        run: |
+          git diff --exit-code --stat -- packages/github-action/dist || {
+            echo "::error::packages/github-action/dist is stale — run 'npm run build --workspace=packages/github-action' and commit the result"
+            exit 1
+          }
+
       # The MCP server ships a vendored (esbuild-bundled) stdio slice of the
       # MCP SDK. Unit tests exercise src against the devDependency, so drive
       # the BUILT server over real stdio to prove the bundle actually runs.
