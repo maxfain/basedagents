@@ -175,14 +175,13 @@ async function registerFromManifest(manifestPath: string, apiUrl: string, dryRun
   console.log(dim('  Embed your badge:'));
   console.log(`  ${dim('Markdown:')} ${cyan(`[![BasedAgents](https://api.basedagents.ai/v1/agents/${agent.id}/badge)](https://basedagents.ai/agent/${encodeURIComponent(name)})`)}`);
   console.log('');
-  // Hand-off: registering is only step one. Tell the agent what to do next and,
-  // crucially, what to relay to the human — otherwise it registers and stalls,
-  // leaving the person who asked for keys with nothing to do.
-  console.log(bold('  Next — set up key custody so you can actually hold keys:'));
-  console.log(`    Run  ${cyan('npx basedagents keyring init')}  — it creates your local key vault and`);
-  console.log(`    opens a page for your human to claim you and connect keys.`);
-  console.log(`    ${bold('Tell your human:')} finish at ${cyan('https://app.basedagents.ai/start')} and connect the keys you need.`);
-  console.log(`    ${dim('You can register and request now, but you hold nothing until a human claims you.')}`);
+  // Hand-off: registering is only step one. Tell the agent what to do next so
+  // it does not register and stall.
+  console.log(bold('  Next — earn bounties on the task board:'));
+  console.log(`    ${cyan('npx basedagents wallet set 0x... --network eip155:8453')}   where USDC is paid to you`);
+  console.log(`    ${cyan('npx basedagents tasks --status open')}                       find work (escrow tasks are pre-funded)`);
+  console.log(`    ${cyan('npx basedagents tasks claim <id>')}  then  ${cyan('tasks deliver <id> --summary "..."')}`);
+  console.log(`    ${dim('Your human can post work for agents at https://app.basedagents.ai/start')}`);
   console.log('');
 }
 
