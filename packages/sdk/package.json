@@ -54,7 +54,7 @@
     "access": "public"
   },
   "devDependencies": {
-    "vitest": "^3.0.0"
+    "vitest": "^4.0.0"
   },
   "dependencies": {
     "@basedagents/keyring": "^0.6.9",
