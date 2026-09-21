@@ -323,7 +323,10 @@ describe('migration 0035_task_review.sql', () => {
       // The vitest harness inlines the schema instead of reading the file —
       // if the copy drifts, route tests pass against a shape prod won't have.
       const helper = (setupTestDb() as unknown as { db: Database.Database }).db;
-      const migrated = migratedDb();
+      // Compare against the FULL migration chain (not 0035 alone): later migrations
+      // add task columns too (e.g. 0038 claim_expires_at), and test-helpers mirrors prod.
+      const migrated = freshDb();
+      applyMigrations(migrated, runnerMigrationFiles(MIGRATIONS_DIR));
 
       expect(columns(helper, 'tasks')).toEqual(columns(migrated, 'tasks'));
       expect(indexes(helper, 'tasks')).toEqual(indexes(migrated, 'tasks'));

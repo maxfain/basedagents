@@ -103,6 +103,32 @@ describe('Task Marketplace', () => {
     });
   }
 
+  // ─── Claim-delivery timer (claim_expires_at) ───
+
+  describe('claim-delivery timer (claim_expires_at)', () => {
+    async function claimExpiresAt(taskId: string): Promise<string | null> {
+      return (await db.get<{ claim_expires_at: string | null }>('SELECT claim_expires_at FROM tasks WHERE task_id = ?', taskId))!.claim_expires_at;
+    }
+
+    it('arms on claim, clears on deliver, re-arms on a revision request; exposed on public reads', async () => {
+      const taskId = await createTask(creator);
+      expect(await claimExpiresAt(taskId)).toBeNull();               // open: no timer
+
+      await claimTask(claimer, taskId);
+      expect(await claimExpiresAt(taskId)).not.toBeNull();           // claimed: armed
+      const publicView = await (await app.request(`/v1/tasks/${taskId}`)).json() as { task: { claim_expires_at: string | null } };
+      expect(publicView.task.claim_expires_at).not.toBeNull();       // exposed for the UI
+
+      await deliverTask(claimer, taskId);
+      expect(await claimExpiresAt(taskId)).toBeNull();               // submitted: cleared
+
+      const body = JSON.stringify({ note: 'more please' });
+      const headers = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/revision`, body);
+      await app.request(`/v1/tasks/${taskId}/revision`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
+      expect(await claimExpiresAt(taskId)).not.toBeNull();           // claimed again: re-armed
+    });
+  });
+
   // ─── POST /v1/tasks — Create task ───
 
   describe('POST /v1/tasks — Create task', () => {

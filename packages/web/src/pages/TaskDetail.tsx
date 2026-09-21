@@ -475,6 +475,12 @@ export default function TaskDetail(): React.ReactElement {
                   <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{formatDate(task.auto_release_at)}</div>
                 </div>
               )}
+              {task.claim_expires_at && task.status === 'claimed' && (
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 2 }}>Returns to open if not delivered by</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{formatDate(task.claim_expires_at)}</div>
+                </div>
+              )}
               {paymentStatus === 'failed' && (task.last_settle_error ?? payment?.last_error) && (
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 2 }}>Last error</div>

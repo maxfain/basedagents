@@ -18,7 +18,7 @@ import {
   enablePaymentsForTests, resetPaymentsForTests, paymentHeaderFor, TEST_WALLET, TEST_PAYER, TEST_TX,
 } from '../payments/test-fixtures.js';
 import { generatePublicId } from '../lib/ids.js';
-import { isoPlus, loadTask, REVIEW_WINDOW_MS, type TaskRow } from '../tasks/service.js';
+import { isoPlus, loadTask, REVIEW_WINDOW_MS, CLAIM_WINDOW_MS, type TaskRow } from '../tasks/service.js';
 
 // Mock twitter
 vi.mock('../lib/twitter.js', () => ({
@@ -45,7 +45,7 @@ const DELIVERER_HOOK = 'https://deliverer.example.com/hook';
 const CREATOR_HOOK = 'https://creator.example.com/hook';
 
 const EMPTY_SUMMARY: TaskCronSummary = {
-  auto_accepted: 0, settle_attempted: 0, settled: 0, expired: 0, recovered: 0, capped: 0, settle_skipped_reason: null,
+  auto_accepted: 0, claims_expired: 0, settle_attempted: 0, settled: 0, expired: 0, recovered: 0, capped: 0, settle_skipped_reason: null,
 };
 
 describe('cron/tasks.ts runTaskCron', () => {
@@ -189,6 +189,13 @@ describe('cron/tasks.ts runTaskCron', () => {
     return (await db.get<{ reputation_score: number }>('SELECT reputation_score FROM agents WHERE id = ?', agentId))!.reputation_score;
   }
 
+  /** Durable inbox events (agent_events) for one recipient, oldest first. */
+  async function inboxEvents(agentId: string): Promise<Array<{ type: string; ref_id: string | null }>> {
+    return db.all<{ type: string; ref_id: string | null }>(
+      'SELECT type, ref_id FROM agent_events WHERE agent_id = ? ORDER BY seq ASC', agentId,
+    );
+  }
+
   // ─── 1. Auto-accept ───
 
   describe('1. auto-accept', () => {
@@ -303,6 +310,67 @@ describe('cron/tasks.ts runTaskCron', () => {
       expect((await row(unarmed)).status).toBe('submitted');
       expect((await row(claimed)).status).toBe('claimed');
       expect(await chainEntries()).toEqual([]);
+    });
+  });
+
+  // ─── 1b. Claim expiry ───
+
+  describe('1b. claim expiry', () => {
+    /** A claimed task whose delivery deadline just elapsed. */
+    async function seedStaleClaim(overrides: Partial<TaskRow> = {}): Promise<string> {
+      return seedTask({
+        status: 'claimed',
+        claimed_at: isoPlus(NOW, -CLAIM_WINDOW_MS - 120_000),
+        claim_expires_at: isoPlus(NOW, -60_000),
+        acceptor_signature: 'sig_test',
+        submitted_at: null,
+        auto_release_at: null,
+        ...overrides,
+      });
+    }
+
+    it('a claimed task past its window → open, claimer cleared, ex-claimer notified', async () => {
+      const taskId = await seedStaleClaim();
+
+      const summary = await runTaskCron(db, env, NOW);
+      await flush();
+
+      expect(summary).toEqual({ ...EMPTY_SUMMARY, claims_expired: 1, settle_skipped_reason: 'payments_disabled' });
+      expect(await row(taskId)).toMatchObject({
+        status: 'open', claimed_by_agent_id: null, claimed_at: null, claim_expires_at: null,
+        acceptor_signature: null, revision_count: 0, review_note: null, revision_requested_at: null,
+      });
+      expect(await inboxEvents(deliverer.agentId)).toContainEqual({ type: 'task.claim_expired', ref_id: taskId });
+      // never moves money
+      expect(await chainEntries()).toEqual([]);
+    });
+
+    it('re-notifies matching agents the work is open again, excluding the ex-claimer', async () => {
+      const matcher = await createTestAgent(db, { status: 'active', capabilities: ['research'] });
+      const taskId = await seedStaleClaim({ required_capabilities: JSON.stringify(['research']) });
+
+      await runTaskCron(db, env, NOW);
+      await flush();
+
+      expect(await inboxEvents(matcher.agentId)).toContainEqual({ type: 'task.available', ref_id: taskId });
+      // the ex-claimer is told it lapsed, not re-pitched the task as available
+      const exClaimer = await inboxEvents(deliverer.agentId);
+      expect(exClaimer).toContainEqual({ type: 'task.claim_expired', ref_id: taskId });
+      expect(exClaimer.filter((e) => e.type === 'task.available')).toEqual([]);
+    });
+
+    it('leaves a claimed task whose window has not elapsed', async () => {
+      const taskId = await seedStaleClaim({ claim_expires_at: isoPlus(NOW, 60_000) });
+      const summary = await runTaskCron(db, env, NOW);
+      expect(summary.claims_expired).toBe(0);
+      expect(await row(taskId)).toMatchObject({ status: 'claimed', claimed_by_agent_id: deliverer.agentId });
+    });
+
+    it('ignores a claimed task with no timer armed (claim_expires_at NULL)', async () => {
+      const taskId = await seedStaleClaim({ claim_expires_at: null });
+      const summary = await runTaskCron(db, env, NOW);
+      expect(summary.claims_expired).toBe(0);
+      expect((await row(taskId)).status).toBe('claimed');
     });
   });
 
@@ -664,7 +732,7 @@ describe('cron/tasks.ts runTaskCron', () => {
 
       const summary = await runTaskCron(db, env, NOW);
 
-      expect(summary).toEqual({ auto_accepted: 1, settle_attempted: 1, settled: 1, expired: 1, recovered: 1, capped: 1, settle_skipped_reason: null });
+      expect(summary).toEqual({ auto_accepted: 1, claims_expired: 0, settle_attempted: 1, settled: 1, expired: 1, recovered: 1, capped: 1, settle_skipped_reason: null });
       expect((await row(acceptId)).status).toBe('verified');
       expect((await row(settleId)).payment_status).toBe('settled');
       expect((await row(sweepId)).payment_status).toBe('expired');
