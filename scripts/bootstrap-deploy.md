@@ -132,11 +132,11 @@ printf '%s' "$PAYMENT_ENCRYPTION_KEY" | npx wrangler secret put PAYMENT_ENCRYPTI
    the check script or the staging run reports a USDC domain mismatch on
    mainnet (default `USD Coin` / `2`).
 7. **Escrow (optional, then the default).** Generate a dedicated secp256k1
-   key for the house wallet — `openssl rand -hex 32` — derive its address
-   (any EVM wallet tool, or `houseWalletFromPrivateKey` in
-   `packages/api/src/payments/house-wallet.ts`), record the address, and back
-   the key up offline: it holds buyers' USDC and a lost key strands every
-   deposit. Then `printf '%s' "$ESCROW_WALLET_PRIVATE_KEY" | npx wrangler secret put ESCROW_WALLET_PRIVATE_KEY`
+   key for the house wallet with `npx tsx scripts/escrow-wallet-keygen.ts`
+   (from `packages/api`; prints the key and its address, validated with the
+   Worker's own parser — `openssl rand -hex 32` works too), record the
+   address, and back the key up offline: it holds buyers' USDC and a lost key
+   strands every deposit. Then `printf '%s' "$ESCROW_WALLET_PRIVATE_KEY" | npx wrangler secret put ESCROW_WALLET_PRIVATE_KEY`
    on staging first, run one escrowed Sepolia task end to end (post with the
    deposit → claim → deliver → accept → `escrow.status: released`) and one
    cancel (→ `refunded`), then set the same secret in production.

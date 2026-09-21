@@ -1089,9 +1089,9 @@ enabled|disabled`. Enable checklist: `wrangler secret put CDP_API_KEY_ID` /
 with the production code path and asserts `eip155:8453 exact` is supported) →
 enable on staging with an `eip155:84532` bounty and run one paid task end to
 end → set `TASK_PAYMENTS_ENABLED = "1"` in the production `[vars]`. Escrow on
-top: generate a fresh secp256k1 key for the house wallet (`openssl rand -hex 32`
-is a valid private key with overwhelming probability; derive and record its
-address), `wrangler secret put ESCROW_WALLET_PRIVATE_KEY`, run one escrowed
+top: generate a fresh secp256k1 key for the house wallet
+(`npx tsx scripts/escrow-wallet-keygen.ts` prints the key and its address;
+`openssl rand -hex 32` works too), `wrangler secret put ESCROW_WALLET_PRIVATE_KEY`, run one escrowed
 Sepolia task end to end (post with the deposit → claim → deliver → accept →
 `escrow.status: released`; and one cancel → `refunded`), then the same on
 production. The house wallet is custodial: back the key up offline, watch its
