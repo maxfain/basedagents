@@ -90,11 +90,15 @@ describe('paymentProviderFor', () => {
     expect(console.log).not.toHaveBeenCalled();
   });
 
-  it('logs the flag-off default as an informational line, still once', () => {
+  it('logs the flag-off default as an informational line, once per reason', () => {
     expect(paymentProviderFor({ ...VALID, TASK_PAYMENTS_ENABLED: undefined })).toBeNull();
-    expect(paymentProviderFor(undefined)).toBeNull();
+    expect(paymentProviderFor({ ...VALID, TASK_PAYMENTS_ENABLED: undefined })).toBeNull();
     expect(console.log).toHaveBeenCalledTimes(1);
     expect(console.log).toHaveBeenCalledWith("[payments] disabled: TASK_PAYMENTS_ENABLED is not '1'");
+    // No bindings at all is a different reason (still informational, the flag is off there too).
+    expect(paymentProviderFor(undefined)).toBeNull();
+    expect(console.log).toHaveBeenCalledTimes(2);
+    expect(console.log).toHaveBeenLastCalledWith('[payments] disabled: no env bindings');
     expect(console.error).not.toHaveBeenCalled();
   });
 
