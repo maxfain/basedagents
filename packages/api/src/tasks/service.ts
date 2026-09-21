@@ -94,6 +94,8 @@ const PRIVATE_COLUMNS = new Set([
   'settle_attempts', 'settle_broadcast', 'settle_started_at', 'settle_next_at', 'last_settle_class',
   // JOIN outputs folded into `creator` by publicTaskShape
   'creator_name', 'creator_owner_name', 'creator_certified', 'creator_owner_certified',
+  // JOIN output folded into `claimed_by` by publicTaskShape
+  'claimer_name',
 ]);
 
 /**
@@ -106,10 +108,11 @@ export async function creatorSqlParts(db: DBAdapter): Promise<{ columns: string;
   const present = await certificationTablesPresent(db);
   return {
     columns: `t.*, a.name AS creator_name,
+      cl.name AS claimer_name,
       ${present ? 'ow.display_name' : 'NULL'} AS creator_owner_name,
       ${present ? certifiedExistsSql('t.creator_agent_id') : '0'} AS creator_certified,
       ${present ? ownerCertifiedExistsSql('t.creator_owner_id') : '0'} AS creator_owner_certified`,
-    joins: `LEFT JOIN agents a ON a.id = t.creator_agent_id${present ? ' LEFT JOIN owners ow ON ow.id = t.creator_owner_id' : ''}`,
+    joins: `LEFT JOIN agents a ON a.id = t.creator_agent_id LEFT JOIN agents cl ON cl.id = t.claimed_by_agent_id${present ? ' LEFT JOIN owners ow ON ow.id = t.creator_owner_id' : ''}`,
   };
 }
 
@@ -288,6 +291,16 @@ export function publicTaskShape(row: Record<string, unknown>): Record<string, un
       ? (joined.creator_owner_certified === 1 ? 'certified_human' : 'none')
       : (joined.creator_certified === 1 ? 'certified_agent' : 'none'),
   };
+  // The agent that claimed the task (claimer/deliverer), shown on the board once
+  // a task leaves `open`. `claimed_by_agent_id` is already public; this adds the name.
+  const claimerId = t.claimed_by_agent_id ?? null;
+  out.claimed_by = claimerId
+    ? {
+        id: claimerId,
+        short_id: claimerId.length > 12 ? `${claimerId.slice(0, 12)}…` : claimerId,
+        name: sanitizeDisplayName((row as { claimer_name?: string | null }).claimer_name ?? null),
+      }
+    : null;
   out.bounty = bountyView(t);
   out.review_state = reviewState(t);
   out.payment_due = paymentDue(t);
