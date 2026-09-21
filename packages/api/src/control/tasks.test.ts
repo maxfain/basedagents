@@ -397,9 +397,10 @@ describe('Owner task routes', () => {
       const { cookie } = await ownerSession();
       const res = await composeRaw(cookie, { ...FIELDS, escrow: false });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { payment_status: string; escrow: null };
+      const body = (await res.json()) as { payment_status: string; escrow: null; claimable: boolean };
       expect(body.payment_status).toBe('pending');
       expect(body.escrow).toBeNull();
+      expect(body.claimable).toBe(true);
       setHouseWalletForTests(null);
       const explicit = await ownerPost('/v1/owner/tasks', { ...FIELDS, escrow: true }, cookie);
       expect(explicit.status).toBe(503);

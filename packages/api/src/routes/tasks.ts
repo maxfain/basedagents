@@ -165,7 +165,8 @@ tasks.post('/', agentAuth, async (c) => {
     required_capabilities: reqCaps, output_format: parsed.data.output_format, bounty: bountyOut,
   }, creatorId);
 
-  const response: Record<string, unknown> = { ok: true, task_id: taskId, status: 'open', payment_status: paymentStatus, escrow: null };
+  // Same shape as the escrow branch and every read: a non-escrow task is claimable as soon as it is open.
+  const response: Record<string, unknown> = { ok: true, task_id: taskId, status: 'open', payment_status: paymentStatus, escrow: null, claimable: true };
   if (bountyOut) response.bounty = bountyOut;
   return c.json(response);
 });

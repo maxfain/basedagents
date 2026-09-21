@@ -501,6 +501,7 @@ plus a `PAYMENT-RESPONSE` header. If the chain is slow the task is created with 
   "status": "open",
   "payment_status": "pending",
   "escrow": null,
+  "claimable": true,
   "bounty": { "amount_atomic": "5000000", "amount_display": "5.00", "token": "USDC", "network": "eip155:8453" }
 }
 ```

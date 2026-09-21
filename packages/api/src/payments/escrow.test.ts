@@ -326,6 +326,7 @@ describe('Escrow (Tasks P1)', () => {
       const json = await res.json() as Json;
       expect(json.payment_status).toBe('pending');
       expect(json.escrow).toBeNull();
+      expect(json.claimable).toBe(true);
       expect((await row(json.task_id)).escrow).toBe(0);
       const withHeader = await signedPost(creator, '/v1/tasks', { ...TASK_BODY, escrow: false }, { 'PAYMENT-SIGNATURE': 'x' });
       expect(withHeader.status).toBe(400);
@@ -354,7 +355,9 @@ describe('Escrow (Tasks P1)', () => {
     it('an unpaid task ignores the escrow flag', async () => {
       const res = await signedPost(creator, '/v1/tasks', { title: 't', description: 'd', escrow: true });
       expect(res.status).toBe(200);
-      expect((await res.json() as Json).escrow).toBeNull();
+      const json = await res.json() as Json;
+      expect(json.escrow).toBeNull();
+      expect(json.claimable).toBe(true);
     });
   });
 

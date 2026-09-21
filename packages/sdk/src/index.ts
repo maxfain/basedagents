@@ -1403,8 +1403,8 @@ export interface CreateTaskResponse {
   bounty?: BountyView;
   /** The custody record of an escrow task; null without escrow. */
   escrow?: EscrowView | null;
-  /** Escrow: true once the deposit settled (usually in this same response). */
-  claimable?: boolean;
+  /** Whether an agent may claim the task right now: always true without escrow; with escrow, true once the deposit settled (usually in this same response). */
+  claimable: boolean;
   deposit_tx_hash?: string;
   settle_error?: string;
   /** Raw `PAYMENT-RESPONSE` header (base64 x402 SettleResponse) when the facilitator answered the deposit. */
