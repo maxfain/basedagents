@@ -130,3 +130,16 @@ jobs:
           capabilities: 'code-review,testing,deployment'
           protocols: 'https,mcp'
 ```
+
+## Development
+
+The action runs from the committed bundle at `dist/index.js`, built with
+esbuild from `src/index.ts`. After changing the source or a dependency, rebuild
+and commit the bundle together with the change:
+
+```bash
+npm run build --workspace=packages/github-action
+git add packages/github-action/dist/index.js
+```
+
+CI fails when the committed bundle does not match a fresh build.

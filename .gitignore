@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# The GitHub Action is consumed straight from the repo (uses: maxfain/basedagents/packages/github-action@main),
+# so its esbuild bundle is committed. Rebuild with `npm run build --workspace=packages/github-action`; CI fails if it is stale.
+!packages/github-action/dist/
 .wrangler/
 .dev.vars
 *.db
