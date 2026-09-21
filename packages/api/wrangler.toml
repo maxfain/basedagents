@@ -27,11 +27,6 @@ REGISTRY_SIGNING_PUBLIC_KEY = "9827a77ffa3bbddff01444277707271838098f3e8f2d29a20
 KEYRING_RP_ID = "basedagents.ai"
 KEYRING_ORIGINS = "https://app.basedagents.ai"
 KEYRING_CONSOLE_ORIGIN = "https://app.basedagents.ai"
-# Stripe price ids are config, not secrets (STRIPE_SECRET_KEY /
-# STRIPE_WEBHOOK_SECRET are wrangler secrets — see scripts/bootstrap-deploy.md).
-# Billing endpoints answer 503 until the secrets are set.
-STRIPE_PRICE_PRO_MONTHLY = ""
-STRIPE_PRICE_PRO_YEARLY = ""
 
 # Custom domain route
 [[routes]]
@@ -67,7 +62,7 @@ BOOTSTRAP_THRESHOLD = "100"
 ENVIRONMENT = "staging"
 # Bounties + escrow on staging (Base Sepolia dry runs). Still fail closed until the
 # staging secrets exist: CDP_API_KEY_ID, CDP_API_KEY_SECRET, PAYMENT_ENCRYPTION_KEY
-# (payments) and ESCROW_WALLET_PRIVATE_KEY (escrow) — see scripts/bootstrap-deploy.md §6–7.
+# (payments) and ESCROW_WALLET_PRIVATE_KEY (escrow) — see scripts/bootstrap-deploy.md §5.
 TASK_PAYMENTS_ENABLED = "1"
 
 [env.staging.triggers]
