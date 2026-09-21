@@ -319,44 +319,57 @@ keyring publish is a **pair**: bump the sdk a patch, raise its
 `@basedagents/keyring` range to pin the new version, publish keyring first
 (the sdk's `prepublishOnly` build needs it on the registry), then the sdk.
 
-### Publish from anywhere, but with credentials
+### Publishing is trusted publishing (OIDC) — no token anywhere
+
+`.github/workflows/publish.yml` publishes `@basedagents/keyring`, `basedagents`
+(sdk + cli), `@basedagents/mcp` and the PyPI `basedagents` with **trusted
+publishing**: the GitHub Actions job's OIDC identity is the credential, so
+there is no npm token, no PyPI token and no `.env` to leak. It runs on every
+push to `main` that touches a package manifest and on manual dispatch. Every
+job first asks the registry whether the manifest's version is already
+published and **skips when it is** — so the workflow is idempotent: merging a
+bump PR publishes it, re-running publishes nothing twice, and a bump that
+landed with other changes ships on the next dispatch. Keyring publishes
+before the sdk (see above); mcp and python run in parallel.
+
+One-time registry setup (already done for the four packages; repeat for a new
+package): on **npmjs.com** → package → Settings → *Trusted Publisher* →
+GitHub Actions with owner `maxfain`, repository `basedagents`, workflow
+`publish.yml`, environment `publish`. On **pypi.org** → project →
+*Publishing* → add a GitHub publisher with the same owner / repository /
+workflow and environment `publish`. The repo's `publish` environment is where
+a required-reviewer gate goes if you ever want a human click before a
+publish; today it has none.
+
+Trusted publishing needs **npm ≥ 11.5.1** (Node 22 ships npm 10; the job
+installs `npm@latest`) and a **public repository or a paid plan** for OIDC.
+`scripts/publish-if-unpublished.sh <workspace>` is the same skip-or-publish
+step the workflow runs and works from a logged-in shell too.
 
 `prepublishOnly` runs the clean `build:dist` (test-free `tsconfig.build.json`),
-so `npm publish` from a fresh checkout is safe. Verify with
+so a publish from a fresh checkout is safe. Verify with
 `npm pack --dry-run` — expect `dist/`, `bin/`, `README.md`, `LICENSE`,
 `package.json`, and **zero** `*.test.*` files.
 
-### Publishing needs a token with *both* 2FA-bypass and the exact package in scope
+### Publishing by hand: passkey login, never a bypass-2FA token
 
-The 403s npm throws during publish are two different failures that read alike:
+npm deprecated granular access tokens with "Bypass 2FA" in July 2026 (they
+lose package-management rights in August 2026 and direct publishing around
+January 2027), so the old advice of a token in `.env` is gone. From a
+terminal, `npm login` (browser + passkey) then `npm publish --workspace=<pkg>`
+— each publish opens the browser once more for the passkey; there is no
+`--otp` with a passkey. Two failures that read alike:
 
-- `Two-factor authentication or granular access token with bypass 2fa enabled
-  is required` → the credential has no 2FA bypass. Pass `--otp=<code>`, or use a
-  token with **"Bypass 2FA" enabled**.
-- `You may not perform that action with these credentials` → the token
-  authenticates fine (even as the package owner) but its **package scope
-  doesn't include this package**.
+- `npm whoami` → **401** means the stored token in `~/.npmrc` is dead:
+  `npm logout && npm login`. Being signed in to npmjs.com in the browser does
+  **not** log in the CLI.
+- `npm publish` → **404 Not Found - PUT …** is npm's *unauthenticated* answer
+  (it hides whether the package exists). Same fix. A genuine permission
+  problem shows as 403; both packages are owned by the `maxcr` account.
 
-The trap that cost us a dozen attempts: a granular token scoped to the
-**`@basedagents`** scope covers `@basedagents/keyring` but **not** the unscoped
-**`basedagents`** SDK package — scoped and unscoped names are separate grants.
-And npm **cannot edit a granular token's package list after creation**; you must
-generate a *new* token and paste the new string in (editing the old one changes
-nothing). One token needs **both** attributes at once: Bypass 2FA **on** and
-either **"All packages"** or an explicit list containing both the `@basedagents`
-scope *and* the individual package `basedagents`, Read+write. A Classic
-"Automation" token also works (full account access + bypasses 2FA) and sidesteps
-per-package scoping entirely.
-
-Tokens live in the repo-root `.env` (gitignored). Publish non-interactively with:
-
-```bash
-npm publish --workspace=<pkg> "--//registry.npmjs.org/:_authToken=$NPM_ACCESS_TOKEN"
-```
-
-The two published packages have **separate versions and separate owners of
-truth**: `@basedagents/keyring` (`packages/keyring`) and `basedagents`
-(`packages/sdk`) — bumping one does not bump the other.
+For PyPI by hand: `python3 -m build packages/python && python3 -m twine
+upload packages/python/dist/*` with username `__token__` and a project-scoped
+API token as the password (`~/.pypirc` remembers it; `chmod 600`).
 
 ### Stacked PRs don't retarget themselves
 
