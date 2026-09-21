@@ -48,7 +48,7 @@ import { readFile } from 'node:fs/promises';
 
 const API = process.env.BASEDAGENTS_API_URL ?? 'https://api.basedagents.ai';
 const SITE = 'https://basedagents.ai';
-const VERSION = '0.5.0';
+const VERSION = '0.6.0';
 
 // ─── Auth / keypair ─────────────────────────────────────────────────────────
 

@@ -46,7 +46,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 const API = process.env.BASEDAGENTS_API_URL ?? 'https://api.basedagents.ai';
 const SITE = 'https://basedagents.ai';
-const VERSION = '0.5.0';
+const VERSION = '0.6.0';
 const AUTH_HELP = 'Messaging requires a keypair. Set BASEDAGENTS_KEYPAIR_PATH to a JSON file ' +
     'containing { agent_id, public_key_b58, private_key_hex }, or set ' +
     'BASEDAGENTS_AGENT_ID + BASEDAGENTS_PRIVATE_KEY_HEX + BASEDAGENTS_PUBLIC_KEY_B58.';
