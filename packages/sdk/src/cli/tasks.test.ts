@@ -6,7 +6,7 @@
  * code). Authenticated subcommands sign with a throwaway keypair written to a
  * temp file and passed via `--keypair <path>` — the real loadKeypair path.
  */
-import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll, type MockInstance } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -61,8 +61,8 @@ afterAll(() => {
 });
 
 let fetchMock: ReturnType<typeof vi.fn>;
-let logSpy: ReturnType<typeof vi.spyOn>;
-let errSpy: ReturnType<typeof vi.spyOn>;
+let logSpy: MockInstance<typeof console.log>;
+let errSpy: MockInstance<typeof console.error>;
 
 beforeEach(() => {
   fetchMock = vi.fn();
