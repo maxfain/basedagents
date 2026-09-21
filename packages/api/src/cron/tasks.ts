@@ -5,6 +5,9 @@
  *      `verified` / accepted_by='auto' (N3). A sign-at-accept bounty is never
  *      moved by the buyer's silence (the creator gets `task.payment_due`); an
  *      ESCROW bounty is already held, so the house releases it to the deliverer.
+ *   1b. Claim expiry: a claimed task not delivered within 7 days returns to
+ *      `open` for anyone to re-claim (the claimer is notified; matching agents
+ *      are re-pinged). Never touches payment columns — a funded escrow stays funded.
  *   2. Settle retry: authorized/failed/settling rows that are due — accepted
  *      tasks and escrow deposit/refund legs alike.
  *   3. Expiry sweep: un-broadcast authorizations past validBefore.
@@ -22,12 +25,14 @@ import { paymentProviderFor } from '../payments/index.js';
 import { settleTask, UNKNOWN_OUTCOME_MAX_MS, escrowLegFailedSql } from '../payments/settle.js';
 import { startEscrowLeg, escrowSweep } from '../payments/escrow.js';
 import {
-  loadTask, autoAcceptGate, afterAccept, logPaymentEvent, agentTarget, creatorTarget, isoPlus,
+  loadTask, autoAcceptGate, claimExpiryGate, afterAccept, logPaymentEvent, agentTarget, creatorTarget, isoPlus,
+  bountyView, notifyMatchingAgents,
 } from '../tasks/service.js';
 import { recordEvent, drainOutbox } from '../events/service.js';
 
 export interface TaskCronSummary {
   auto_accepted: number;
+  claims_expired: number;
   settle_attempted: number;
   settled: number;
   expired: number;
@@ -43,7 +48,7 @@ const BATCH = 50;
 
 export async function runTaskCron(db: DBAdapter, env: Bindings, nowIso: string = new Date().toISOString()): Promise<TaskCronSummary> {
   const summary: TaskCronSummary = {
-    auto_accepted: 0, settle_attempted: 0, settled: 0, expired: 0, recovered: 0, capped: 0, settle_skipped_reason: null,
+    auto_accepted: 0, claims_expired: 0, settle_attempted: 0, settled: 0, expired: 0, recovered: 0, capped: 0, settle_skipped_reason: null,
     escrow_swept: 0, escrow_stuck: 0,
   };
 
@@ -71,6 +76,37 @@ export async function runTaskCron(db: DBAdapter, env: Bindings, nowIso: string =
       }
     } catch (err) {
       console.error(`[cron] auto-accept failed for ${task_id}:`, err);
+    }
+  }
+
+  // 1b. Claim expiry: a claimed task whose claimer never delivered within the
+  // claim window returns to `open` for anyone to re-claim. The former claimer is
+  // told their claim lapsed; matching agents are re-notified the work is available
+  // again (event-driven, one-shot — excluding the ex-claimer so they don't just
+  // re-grab and sit on it). Never touches payment columns (nothing was authorized).
+  const staleClaims = await db.all<{ task_id: string }>(
+    `SELECT task_id FROM tasks WHERE status = 'claimed'
+       AND claim_expires_at IS NOT NULL AND claim_expires_at <= ? LIMIT ?`,
+    nowIso, BATCH,
+  );
+  for (const { task_id } of staleClaims) {
+    try {
+      const task = await loadTask(db, task_id);
+      const exClaimer = task?.claimed_by_agent_id ?? null;
+      // Gate is authoritative: false if the claimer delivered between SELECT and now.
+      if (!(await claimExpiryGate(db, task_id, nowIso))) continue;
+      summary.claims_expired++;
+      if (exClaimer) await recordEvent(db, exClaimer, { type: 'task.claim_expired', agent_id: exClaimer, task_id }, nowIso);
+      if (task) {
+        let reqCaps: string[] | null = null;
+        try { reqCaps = task.required_capabilities ? JSON.parse(task.required_capabilities) as string[] : null; } catch { reqCaps = null; }
+        await notifyMatchingAgents(db, {
+          task_id: task.task_id, title: task.title, description: task.description, category: task.category,
+          required_capabilities: reqCaps, output_format: task.output_format, bounty: bountyView(task),
+        }, exClaimer);
+      }
+    } catch (err) {
+      console.error(`[cron] claim-expiry failed for ${task_id}:`, err);
     }
   }
 

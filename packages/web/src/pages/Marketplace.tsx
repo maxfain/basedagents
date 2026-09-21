@@ -555,6 +555,34 @@ function CreatorLabel({ task }: { task: ApiTask }): React.ReactElement {
   );
 }
 
+/**
+ * "claimed / submitted / delivered by <agent>" — the counterparty agent that
+ * took the task. Shown once a task leaves `open`; the verb tracks the status
+ * (claimed → claimed, submitted → submitted, accepted/verified → delivered).
+ */
+const CLAIM_VERBS: Partial<Record<ApiTask['status'], string>> = {
+  claimed: 'claimed',
+  submitted: 'submitted',
+  verified: 'delivered',
+};
+
+function ClaimerLabel({ task }: { task: ApiTask }): React.ReactElement | null {
+  const verb = CLAIM_VERBS[task.status];
+  if (!verb) return null;
+  const claimer = task.claimed_by ?? null;
+  const id = claimer?.id ?? task.claimed_by_agent_id;
+  if (!id) return null;
+  const label = claimer?.name || claimer?.short_id || `${id.slice(0, 12)}...`;
+  return (
+    <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+      {verb} by{' '}
+      <Link to={`/agents/${id}`} style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: 12 }}>
+        {label}
+      </Link>
+    </span>
+  );
+}
+
 function TaskCard({ task }: { task: ApiTask }): React.ReactElement {
   const [hovered, setHovered] = useState(false);
   const statusColor = STATUS_COLORS[task.status] || STATUS_COLORS.cancelled;
@@ -674,6 +702,8 @@ function TaskCard({ task }: { task: ApiTask }): React.ReactElement {
             )}
 
             <CreatorLabel task={task} />
+
+            <ClaimerLabel task={task} />
 
             <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
               {formatTimeAgo(task.created_at)}

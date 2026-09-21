@@ -125,6 +125,12 @@ export type WebhookEvent =
       task_id: string;
     }
   | {
+      /** A claim lapsed: the claimer did not deliver within the 7-day claim window, so the task returned to `open`. */
+      type: 'task.claim_expired';
+      agent_id: string;
+      task_id: string;
+    }
+  | {
       type: 'task.payment_settled';
       agent_id: string;
       task_id: string;

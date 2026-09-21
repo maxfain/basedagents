@@ -103,6 +103,32 @@ describe('Task Marketplace', () => {
     });
   }
 
+  // ─── Claim-delivery timer (claim_expires_at) ───
+
+  describe('claim-delivery timer (claim_expires_at)', () => {
+    async function claimExpiresAt(taskId: string): Promise<string | null> {
+      return (await db.get<{ claim_expires_at: string | null }>('SELECT claim_expires_at FROM tasks WHERE task_id = ?', taskId))!.claim_expires_at;
+    }
+
+    it('arms on claim, clears on deliver, re-arms on a revision request; exposed on public reads', async () => {
+      const taskId = await createTask(creator);
+      expect(await claimExpiresAt(taskId)).toBeNull();               // open: no timer
+
+      await claimTask(claimer, taskId);
+      expect(await claimExpiresAt(taskId)).not.toBeNull();           // claimed: armed
+      const publicView = await (await app.request(`/v1/tasks/${taskId}`)).json() as { task: { claim_expires_at: string | null } };
+      expect(publicView.task.claim_expires_at).not.toBeNull();       // exposed for the UI
+
+      await deliverTask(claimer, taskId);
+      expect(await claimExpiresAt(taskId)).toBeNull();               // submitted: cleared
+
+      const body = JSON.stringify({ note: 'more please' });
+      const headers = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/revision`, body);
+      await app.request(`/v1/tasks/${taskId}/revision`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
+      expect(await claimExpiresAt(taskId)).not.toBeNull();           // claimed again: re-armed
+    });
+  });
+
   // ─── POST /v1/tasks — Create task ───
 
   describe('POST /v1/tasks — Create task', () => {
@@ -1423,6 +1449,24 @@ describe('Task Marketplace', () => {
       expect(detail.task.creator).toEqual(t.creator);
       expect(detail.task).not.toHaveProperty('creator_name');
       expect(detail.task).not.toHaveProperty('creator_certified');
+    });
+  });
+
+  describe('Claimer on public reads', () => {
+    it('is null while open, then resolves the claimer name and short id once claimed', async () => {
+      const taskId = await createTask(creator);
+      const open = await (await app.request(`/v1/tasks/${taskId}`)).json() as { task: { claimed_by: unknown } };
+      expect(open.task.claimed_by).toBeNull();
+
+      await claimTask(claimer, taskId);
+
+      const list = await (await app.request('/v1/tasks?status=claimed')).json() as { tasks: Array<{ task_id: string; claimed_by: Record<string, unknown> }> };
+      const t = list.tasks.find((x) => x.task_id === taskId)!;
+      expect(t.claimed_by).toEqual({ id: claimer.agentId, short_id: `${claimer.agentId.slice(0, 12)}…`, name: claimer.name });
+
+      const detail = await (await app.request(`/v1/tasks/${taskId}`)).json() as { task: { claimed_by: Record<string, unknown>; claimer_name?: unknown } };
+      expect(detail.task.claimed_by).toEqual(t.claimed_by);
+      expect(detail.task).not.toHaveProperty('claimer_name');
     });
   });
 });

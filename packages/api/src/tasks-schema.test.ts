@@ -300,19 +300,19 @@ describe('migration 0035_task_review.sql', () => {
     });
   });
 
-  describe('migration 0038_task_escrow.sql (escrow columns, plain adds)', () => {
-    const FILE_0038 = '0038_task_escrow.sql';
+  describe('migration 0039_task_escrow.sql (escrow columns, plain adds)', () => {
+    const FILE_0039 = '0039_task_escrow.sql';
     const ESCROW_COLUMNS = [
       'escrow', 'escrow_status', 'escrow_leg', 'escrow_leg_attempts', 'escrow_wallet', 'escrow_deposit_payer',
       'escrow_deposit_nonce', 'escrow_deposit_tx_hash', 'escrow_funded_at', 'escrow_release_tx_hash', 'escrow_released_at',
       'escrow_refund_tx_hash', 'escrow_refunded_at',
     ];
 
-    it('is in the runner list after 0037 and applies on a deploy with live rows, defaulting them to no-escrow', () => {
+    it('is in the runner list after 0038 (claim expiry) and applies on a deploy with live rows, defaulting them to no-escrow', () => {
       const files = runnerMigrationFiles(MIGRATIONS_DIR);
-      expect(files).toContain(FILE_0038);
-      const before = migrationFilesBefore(MIGRATIONS_DIR, '0038');
-      expect(before[before.length - 1]).toBe('0037_publish_delivery.sql');
+      expect(files).toContain(FILE_0039);
+      const before = migrationFilesBefore(MIGRATIONS_DIR, '0039');
+      expect(before[before.length - 1]).toBe('0038_claim_expiry.sql');
 
       const db = freshDb();
       applyMigrations(db, before);
@@ -321,7 +321,7 @@ describe('migration 0035_task_review.sql', () => {
         `INSERT INTO tasks (task_id, creator_agent_id, creator_kind, title, description, status, created_at, bounty_amount, payment_status)
          VALUES ('task_p0', 'ag_creator', 'agent', 't', 'd', 'open', '2026-01-01T00:00:00Z', '5000000', 'pending')`
       ).run();
-      expect(() => applyMigrations(db, [FILE_0038])).not.toThrow();
+      expect(() => applyMigrations(db, [FILE_0039])).not.toThrow();
       expect(db.inTransaction).toBe(false);
       for (const c of ESCROW_COLUMNS) expect(columnNames(db, 'tasks')).toContain(c);
       const row = db.prepare(`SELECT escrow, escrow_status, escrow_leg, escrow_leg_attempts, payment_status FROM tasks WHERE task_id = 'task_p0'`).get();
@@ -371,6 +371,8 @@ describe('migration 0035_task_review.sql', () => {
       // if the copy drifts, route tests pass against a shape prod won't have.
       // Compared against the WHOLE chain (0035 rebuild + 0038 escrow adds).
       const helper = (setupTestDb() as unknown as { db: Database.Database }).db;
+      // Compare against the FULL migration chain (not 0035 alone): later migrations
+      // add task columns too (e.g. 0038 claim_expires_at), and test-helpers mirrors prod.
       const migrated = freshDb();
       applyMigrations(migrated, runnerMigrationFiles(MIGRATIONS_DIR));
 

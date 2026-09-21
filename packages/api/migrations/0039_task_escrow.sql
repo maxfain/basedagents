@@ -1,4 +1,4 @@
--- 0038: escrow for task bounties (Tasks P1).
+-- 0039: escrow for task bounties (Tasks P1).
 --
 -- Escrow is the default money model for a bounty task: the buyer DEPOSITS the
 -- bounty into the registry's house wallet when the task is posted, the task is
