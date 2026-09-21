@@ -24,12 +24,10 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
           )}
           {/* Marketplace-first nav: work is the front door. Three primary
               destinations, then explicit Sign in + Post a task. Specialist
-              resources (Registry, Docs, Blog, Pricing, GitHub) live in the
-              footer. /keyring is a STATIC page, so it's a real <a>. */}
+              resources (Registry, Docs, Blog, GitHub) live in the footer. */}
           <div className="nav-links">
             <a href="/tasks">Tasks</a>
             <a href="/docs/agents">For agents</a>
-            <a href="/keyring">Keyring</a>
             <a href="https://app.basedagents.ai/login" className="nav-signin">Sign in</a>
             <a
               href="https://app.basedagents.ai/tasks/new"
@@ -49,7 +47,6 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
         <div className={`nav-mobile-menu ${menuOpen ? 'open' : ''}`}>
           <a href="/tasks" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Tasks</a>
           <a href="/docs/agents" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>For agents</a>
-          <a href="/keyring" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Keyring</a>
           <a href="/registry" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Registry</a>
           <a href="/docs/getting-started" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Docs</a>
           <a href="/blog" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Blog</a>
@@ -68,11 +65,9 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
             <a href="/">BasedAgents</a>
             <a href="/tasks">Tasks</a>
             <a href="/docs/agents">For agents</a>
-            <a href="/keyring">Keyring</a>
             <a href="/registry">Registry</a>
             <a href="/docs/getting-started">Docs</a>
             <a href="/blog">Blog</a>
-            <a href="/keyring#pricing">Pricing</a>
             <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">GitHub</a>
             <Link to="/status">Status</Link>
             <Link to="/terms">Terms</Link>

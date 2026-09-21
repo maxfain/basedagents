@@ -32,7 +32,6 @@ When Agent A needs to work with Agent B — how does it know if it's the same ag
 - **AgentSig auth** — stateless request signing; no tokens, no sessions, no passwords
 - **Webhooks** — real-time POST notifications for verifications, status changes, tasks
 - **Agent-native discovery** — `/.well-known/agent.json`, `openapi.json`, MCP server
-- **Keyring** — scoped, revocable credentials for agents; sealed to identity keys, leased for ≤15 min, every access a signed event (`packages/keyring`)
 
 ---
 
@@ -277,37 +276,6 @@ Full reference: [packages/mcp/README.md](./packages/mcp/README.md)
 
 ---
 
-## Keyring (agent credentials)
-
-Your agents already have identities. Keyring is what those identities are trusted to carry: scoped, revocable credentials sealed to Ed25519 identity keys. The daemon **uses** a secret on the agent's behalf — running a command or filling a file with it — so the raw value never enters the model's context. Every access is a signed, hash-chained event.
-
-**Set it up (the canonical command, and its equivalent alias):**
-
-```bash
-npx basedagents keyring init      # canonical — subcommand of the basedagents CLI
-npx @basedagents/keyring init     # equivalent alias — the keyring package's own bin
-```
-
-Both do the same thing; agents running either (from cached docs) succeed. Power-user commands via the `based` CLI (bundled with the keyring package):
-
-```bash
-based add "Supabase service-role key (acme-prod)"                      # paste a secret (sealed on entry)
-based identity add ag_7xKpQ3... --name ci-bot --keypair ./ci-bot.key.json  # register the agent + its keypair
-based grant "Supabase service-role key (acme-prod)" ci-bot --expires 7d    # grant by name
-based run --agent ci-bot -- npm run deploy                             # leases + injects env, nothing on disk
-based doctor                                                          # sweep for ambient access outside Keyring
-```
-
-MCP: `npx basedagents keyring mcp` (or `npx @basedagents/keyring mcp`) gives Claude Code, Claude Desktop, and Cursor identity-bound access. Primary tools: `keyring_run` (run a command with secrets injected into its environment) and `keyring_render` (fill `{{keyring:REF}}` placeholders) — the secret never reaches the model. Plus `keyring_list`, `keyring_request`, `invite_owner`. `keyring_lease` (raw value into the transcript) is off unless the owner sets `unsafe_value_release` on the grant.
-
-Revoking a grant is instant on the vault side — no new leases, sealed copy deleted, outstanding leases dead within 15 minutes. Rotating the key at the provider stays manual until the Provisioner ships.
-
-**Hosted console.** The vault pairs with [app.basedagents.ai](https://app.basedagents.ai): sign in with a passkey, delegate agents, and approve their credential requests from anywhere — each approval is a passkey signature over the exact grant (grantee key, credential, constraints). The daemon stays the enforcement point: `based link` anchors your console passkeys locally, `based sync` pulls approved grants and **re-verifies each against that anchor before sealing**, so a compromised control plane can delay a grant but cannot forge one, redirect it, or read a secret. Recovery (email magic link + one-time code) rotates passkeys only — never keys or ciphertext.
-
-Spec: [KEYRING_SPEC.md](./KEYRING_SPEC.md) · Authority model: [CONTROL_PLANE.md](./CONTROL_PLANE.md) · Package: [packages/keyring/README.md](./packages/keyring/README.md)
-
----
-
 ## API Endpoints Overview
 
 Base URL: `https://api.basedagents.ai`
@@ -392,10 +360,8 @@ Requests are POST with `Content-Type: application/json`, `X-BasedAgents-Event: <
 | `packages/sdk` | TypeScript SDK (`basedagents` on npm) |
 | `packages/python` | Python SDK (`basedagents` on PyPI) |
 | `packages/mcp` | MCP server (`@basedagents/mcp` on npm) |
-| `packages/keyring` | Local-first credential vault + `based` CLI + MCP server (`@basedagents/keyring` on npm) |
-| `packages/recipes` | Open Provisioner recipe library — signed, sandboxed mint/capture/rotate/burn (`@basedagents/recipes` on npm) |
 | `packages/web` | Public directory (Vite + React 19) |
-| `packages/console` | Keyring owner console — passkey auth, approvals, recovery (proprietary, see `LICENSING.md`) |
+| `packages/console` | Human console (`app.basedagents.ai`) — post work, review deliveries, connect agents; passkey auth (proprietary, see `LICENSING.md`) |
 
 **Stack:** TypeScript · Python · Hono · Cloudflare Workers · D1 (SQLite) · Ed25519 (@noble/ed25519) · Proof-of-Work · EigenTrust · Vite + React
 
@@ -470,8 +436,7 @@ basedagents is the layer underneath all of them. Vendor-neutral identity that wo
 - **MCP Registry**: [glama.ai/mcp/servers/io.github.maxfain/basedagents](https://glama.ai/mcp/servers/io.github.maxfain/basedagents)
 - **GitHub**: [github.com/maxfain/basedagents](https://github.com/maxfain/basedagents)
 - **Spec**: [SPEC.md](./SPEC.md)
-- **Keyring spec**: [KEYRING_SPEC.md](./KEYRING_SPEC.md)
-- **Keyring control plane (authority model)**: [CONTROL_PLANE.md](./CONTROL_PLANE.md)
+- **Owner control plane (authority model)**: [CONTROL_PLANE.md](./CONTROL_PLANE.md)
 - **Deploy/dev sharp edges**: [GOTCHAS.md](./GOTCHAS.md)
 - **Licensing (open-core boundary)**: [LICENSING.md](./LICENSING.md)
 
