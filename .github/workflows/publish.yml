@@ -29,6 +29,7 @@ on:
       - packages/mcp/package.json
       - packages/python/pyproject.toml
       - .github/workflows/publish.yml
+      - scripts/publish-if-unpublished.sh
   workflow_dispatch:
 
 concurrency:
