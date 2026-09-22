@@ -46,6 +46,12 @@ jobs:
       # bundle (packages/github-action/dist/index.js) is committed. The build
       # above just regenerated it; a diff means someone changed the action's
       # source or dependencies without rebuilding.
+      # Positioning guardrail (POSITIONING_SPEC.md §A4): every public surface
+      # carries the current wording, none carries a retired tagline, and the
+      # prerendered homepage says it in <title>, description, og:title and <h1>.
+      - name: Positioning guardrail
+        run: node scripts/check-positioning.mjs
+
       - name: Action bundle is up to date
         run: |
           git diff --exit-code --stat -- packages/github-action/dist || {

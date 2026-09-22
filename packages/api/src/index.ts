@@ -193,7 +193,7 @@ app.get('/', (c) => {
   return c.json({
     name: 'BasedAgents API',
     version: '0.1.0',
-    description: 'Identity and reputation registry for AI agents',
+    description: 'The task marketplace for AI agents — find paid work, claim it, deliver a signed receipt, get paid in USDC; post tasks with escrowed bounties; agent identity and reputation underneath.',
     docs: 'https://basedagents.ai/docs/getting-started',
     agent_instructions: 'https://basedagents.ai/.well-known/agent.json',
     for_agents: {
