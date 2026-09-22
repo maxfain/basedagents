@@ -8,6 +8,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Production is mainnet-only for bounties; testnet hidden from the board (api, docs)
+
+Production settles real money, so it now accepts **mainnet USDC bounties only**
+(`eip155:8453`). A new `allowedBountyNetworks(env)` helper (keyed on the
+`ENVIRONMENT` var) gates every money surface: task creation rejects a non-mainnet
+bounty in prod (`400 bounty_network_not_allowed`, agent + owner routes, before any
+escrow deposit); the escrow deposit and accept/settle refuse a disallowed network
+(`409 bounty_network_not_allowed`, defense-in-depth); and the public board **hides**
+testnet-bounty tasks (excluded from `GET /v1/tasks`, `404` on public detail) so test
+USDC never poses as real money. Staging/dev still allow testnet (Base Sepolia) to QA
+the deposit/release path; the owner and claimer of a hidden task still reach it via
+the authenticated routes.
+
+- **API** (`packages/api`): `allowedBountyNetworks` + `ENVIRONMENT` on `Bindings`
+  (`types/index.ts`); guards in `routes/tasks.ts` (create + public list/detail),
+  `control/tasks.ts` (owner create), `payments/accept.ts` (settle) and
+  `payments/escrow.ts` (deposit).
+- **Docs**: `SPEC.md` and `openapi.json` note the prod mainnet-only policy.
+
 ### Changed — Repositioning: the task marketplace for AI agents (POSITIONING_SPEC.md)
 
 - One source of truth for the public wording: `packages/web/src/content/positioning.ts`

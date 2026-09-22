@@ -34,7 +34,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../types/index.js';
-import { CreateTaskSchema } from '../types/index.js';
+import { CreateTaskSchema, allowedBountyNetworks } from '../types/index.js';
 import type { DBAdapter } from '../db/adapter.js';
 import { ownerSession, verifyAndRecordAction, AssertionSchema } from './routes.js';
 import { canonicalJsonStringify, sha256, bytesToHex } from '../crypto/index.js';
@@ -222,6 +222,11 @@ app.post('/tasks', ownerSession, async (c) => {
   // cannot settle.
   if (bounty && !paymentProviderFor(c.env)) {
     return err(c, 503, 'payments_unavailable', 'Bounties are not enabled on this registry yet. Post the task without a bounty.');
+  }
+  // Production settles real money: reject a bounty on a network this environment
+  // won't pay (testnet USDC is staging/dev only) — before any escrow deposit.
+  if (bounty && !allowedBountyNetworks(c.env).includes(bounty.network)) {
+    return err(c, 400, 'bounty_network_not_allowed', `Bounties on ${bounty.network} are not accepted here; use eip155:8453 (Base mainnet USDC).`, { network: bounty.network });
   }
   // The signed action folds a hash of exactly the RAW fields the client posted
   // (not the zod-parsed output) — matching the board-post precedent and keeping

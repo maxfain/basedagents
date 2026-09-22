@@ -8,6 +8,7 @@ import {
 import type { SQLiteAdapter } from '../db/sqlite-adapter.js';
 import { drainOutbox } from '../events/service.js';
 import type { TestKeypair } from '../test-helpers.js';
+import { enablePaymentsForTests, resetPaymentsForTests } from '../payments/test-fixtures.js';
 
 // Mock twitter
 vi.mock('../lib/twitter.js', () => ({
@@ -1230,6 +1231,64 @@ describe('Task Marketplace', () => {
       // Free tasks report payment_status 'none' and never a tx hash
       expect(data.payment_status).toBe('none');
       expect(data.payment_tx_hash).toBeUndefined();
+    });
+  });
+
+  // ─── Testnet bounties are production-gated (mainnet USDC only) ───
+
+  describe('Testnet bounties are prod-gated', () => {
+    async function seedBountyTask(id: string, network: string): Promise<void> {
+      await db.run(
+        `INSERT INTO tasks (task_id, creator_agent_id, title, description, status, created_at, bounty_amount, bounty_token, bounty_network, payment_status)
+         VALUES (?, ?, ?, ?, 'open', ?, '100000', 'USDC', ?, 'pending')`,
+        id, creator.agentId, `Task ${network}`, 'x', new Date().toISOString(), network,
+      );
+    }
+
+    it('hides a testnet-bounty task from the public board in production, keeps mainnet + free', async () => {
+      await seedBountyTask('task_testnet_hidden', 'eip155:84532');
+      await seedBountyTask('task_mainnet_shown', 'eip155:8453');
+      const freeId = await createTask(creator, { title: 'Free one', description: 'no bounty' });
+
+      const prodApp = createTestApp(db, { ENVIRONMENT: 'production' });
+      const prodList = (await (await prodApp.request('/v1/tasks?status=open')).json()) as { tasks: Array<{ task_id: string }> };
+      const prodIds = prodList.tasks.map((t) => t.task_id);
+      expect(prodIds).toContain('task_mainnet_shown');
+      expect(prodIds).toContain(freeId);
+      expect(prodIds).not.toContain('task_testnet_hidden');
+      expect((await prodApp.request('/v1/tasks/task_testnet_hidden')).status).toBe(404);
+      expect((await prodApp.request('/v1/tasks/task_mainnet_shown')).status).toBe(200);
+
+      // Non-prod (staging/dev/tests): testnet task is still visible for QA.
+      const devList = (await (await app.request('/v1/tasks?status=open')).json()) as { tasks: Array<{ task_id: string }> };
+      expect(devList.tasks.map((t) => t.task_id)).toContain('task_testnet_hidden');
+      expect((await app.request('/v1/tasks/task_testnet_hidden')).status).toBe(200);
+    });
+
+    it('rejects a testnet bounty at creation in production (declare + escrow paths); accepts mainnet', async () => {
+      enablePaymentsForTests();
+      try {
+        const prodApp = createTestApp(db, { ENVIRONMENT: 'production' });
+        const post = async (network: string, escrow: boolean) => {
+          const body = JSON.stringify({ title: 'T', description: 'D', required_capabilities: ['code'], escrow, bounty: { amount: '100000', token: 'USDC', network } });
+          const headers = await signRequest(creator, 'POST', '/v1/tasks', body);
+          return prodApp.request('/v1/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
+        };
+
+        const testnetDeclare = await post('eip155:84532', false);
+        expect(testnetDeclare.status).toBe(400);
+        expect((await testnetDeclare.json() as { error: string }).error).toBe('bounty_network_not_allowed');
+
+        // Rejected before any escrow deposit is taken, too.
+        const testnetEscrow = await post('eip155:84532', true);
+        expect(testnetEscrow.status).toBe(400);
+
+        const mainnet = await post('eip155:8453', false);
+        expect(mainnet.status).toBe(200);
+        expect((await mainnet.json() as { status: string }).status).toBe('open');
+      } finally {
+        resetPaymentsForTests();
+      }
     });
   });
 

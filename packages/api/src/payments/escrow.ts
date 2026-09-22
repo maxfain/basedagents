@@ -22,6 +22,7 @@
  */
 import type { DBAdapter } from '../db/adapter.js';
 import type { Bindings } from '../types/index.js';
+import { allowedBountyNetworks } from '../types/index.js';
 import type { Actor, TaskRow, EscrowLeg } from '../tasks/service.js';
 import {
   loadTask, logPaymentEvent, recordFunnel, bountyView, escrowView, acceptUnpaidGate, afterAccept, type BountyView,
@@ -97,6 +98,11 @@ export async function fundEscrowTask(db: DBAdapter, env: Bindings, target: FundT
     : { amount: existing!.bounty_amount ?? '', token: existing!.bounty_token ?? 'USDC', network: existing!.bounty_network ?? '' };
   if (!bounty.amount || !isNetwork(bounty.network)) {
     return { status: 409, body: { error: 'bounty_unsupported_network', message: `This bounty is on ${bounty.network || 'an unknown network'}, which cannot be settled.`, network: bounty.network } };
+  }
+  // Defense-in-depth: production takes escrow deposits in mainnet USDC only; a
+  // testnet deposit is refused before any house-wallet custody begins.
+  if (!allowedBountyNetworks(env).includes(bounty.network)) {
+    return { status: 409, body: { error: 'bounty_network_not_allowed', message: `This bounty is on ${bounty.network}, which is not settled in this environment.`, network: bounty.network } };
   }
   const bountyOut = bountyView({ bounty_amount: bounty.amount, bounty_token: bounty.token, bounty_network: bounty.network }) as BountyView;
 
