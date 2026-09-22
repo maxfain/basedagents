@@ -25,7 +25,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../types/index.js';
-import { CreateTaskSchema, SubmitDeliverableSchema, DeliverTaskSchema, TaskQuerySchema } from '../types/index.js';
+import { CreateTaskSchema, SubmitDeliverableSchema, DeliverTaskSchema, TaskQuerySchema, BOUNTY_NETWORKS, allowedBountyNetworks } from '../types/index.js';
 import { agentAuth } from '../middleware/auth.js';
 import { bytesToHex } from '../crypto/index.js';
 import { generatePublicId } from '../lib/ids.js';
@@ -119,6 +119,15 @@ tasks.post('/', agentAuth, async (c) => {
       error: 'payments_unavailable',
       message: 'Bounties are not enabled on this registry yet. Post the task without a bounty, or check GET /v1/status -> payments.',
     }, 503);
+  }
+  // Production settles real money: reject a bounty on a network this environment
+  // won't pay (testnet USDC is staging/dev only) — BEFORE any escrow deposit is taken.
+  if (bounty && !allowedBountyNetworks(c.env).includes(bounty.network)) {
+    return c.json({
+      error: 'bounty_network_not_allowed',
+      message: `Bounties on ${bounty.network} are not accepted here; use eip155:8453 (Base mainnet USDC).`,
+      network: bounty.network,
+    }, 400);
   }
 
   const taskId = generatePublicId('task');
@@ -225,6 +234,15 @@ tasks.get('/', async (c) => {
   if (q.capability) { sql += ` AND t.required_capabilities LIKE ?`; params.push(`%"${q.capability}"%`); }
   if (q.creator) { sql += ` AND t.creator_agent_id = ?`; params.push(q.creator); }
   if (q.claimer) { sql += ` AND t.claimed_by_agent_id = ?`; params.push(q.claimer); }
+
+  // Public board shows only bounties this environment settles: in production,
+  // testnet-bounty tasks are hidden so test USDC never poses as real money.
+  // Free tasks (no bounty network) always show. In staging the list is unchanged.
+  const allowedNets = allowedBountyNetworks(c.env);
+  if (allowedNets.length < BOUNTY_NETWORKS.length) {
+    sql += ` AND (t.bounty_network IS NULL OR t.bounty_network IN (${allowedNets.map(() => '?').join(',')}))`;
+    params.push(...allowedNets);
+  }
 
   sql += ` ORDER BY t.created_at DESC LIMIT ? OFFSET ?`;
   params.push(limit, offset);
@@ -387,6 +405,12 @@ tasks.get('/:id', async (c) => {
   const parts = await creatorSqlParts(db);
   const row = await db.get<Record<string, unknown>>(`SELECT ${parts.columns} FROM tasks t ${parts.joins} WHERE t.task_id = ?`, taskId);
   if (!row) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
+  // Hide a testnet-bounty task from the public board in production (see list filter);
+  // the owner/claimer still reach it through the authenticated owner/agent routes.
+  const detailBountyNet = (row as { bounty_network?: string | null }).bounty_network ?? null;
+  if (detailBountyNet && !allowedBountyNetworks(c.env).includes(detailBountyNet)) {
+    return c.json({ error: 'not_found', message: 'Task not found' }, 404);
+  }
   const task = row as unknown as TaskRow;
 
   const submission = await db.get<Record<string, unknown>>(

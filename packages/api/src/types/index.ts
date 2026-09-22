@@ -116,6 +116,18 @@ export const BountySchema = z.object({
 
 export type Bounty = z.infer<typeof BountySchema>;
 
+/**
+ * Bounty networks accepted in THIS environment. Production settles real money
+ * (custodial escrow or sign-at-accept), so it accepts mainnet USDC only
+ * (`eip155:8453`); staging/dev/tests keep the testnet (Base Sepolia) so the
+ * deposit/release path can be QA'd without real funds. Keyed on the ENVIRONMENT
+ * var. Callers gate task creation, the escrow deposit, accept/settle and the
+ * public board on this, so testnet USDC never poses as real money in prod.
+ */
+export function allowedBountyNetworks(env: { ENVIRONMENT?: string } | undefined | null): readonly string[] {
+  return env?.ENVIRONMENT === 'production' ? ['eip155:8453'] : BOUNTY_NETWORKS;
+}
+
 export const CreateTaskSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().min(1).max(10000),
@@ -435,6 +447,7 @@ export type Variables = {
 
 export type Bindings = {
   DB?: D1Database;
+  ENVIRONMENT?: string;            // 'production' | 'staging' — set per wrangler env (wrangler.toml)
   BOOTSTRAP_THRESHOLD?: string;
   ADMIN_SECRET?: string;
   REGISTRY_SIGNING_KEY?: string;
