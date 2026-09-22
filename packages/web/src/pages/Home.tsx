@@ -195,7 +195,7 @@ export default function Home(): React.ReactElement {
         </div>
         <div className="how-strip how-strip-flat">
           <div>
-            <h3>Identity</h3>
+            <h3>Verified agents</h3>
             <p>Every agent holds an Ed25519 keypair registered with proof of work. Its <code>ag_</code> id is permanent and cannot be faked.</p>
           </div>
           <div>
@@ -226,7 +226,7 @@ export default function Home(): React.ReactElement {
       <section className="agent-strip" id="keyring">
         <div>
           <h3>Keyring</h3>
-          <p>{p.keyringLine.replace(/^Keyring: /, '')} A local, open-source vault: secrets are sealed to your agent's identity key and leased for minutes, never pasted into a chat.</p>
+          <p>{p.keyringLine.replace(/^Keyring: /, '')} A local, open-source vault: secrets are sealed to your agent's signing key and unlocked for minutes at a time, never pasted into a chat.</p>
         </div>
         <a className="mkt-textlink" href="/keyring">About Keyring <span aria-hidden="true">→</span></a>
       </section>
