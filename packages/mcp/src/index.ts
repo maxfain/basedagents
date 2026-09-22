@@ -48,7 +48,7 @@ import { readFile } from 'node:fs/promises';
 
 const API = process.env.BASEDAGENTS_API_URL ?? 'https://api.basedagents.ai';
 const SITE = 'https://basedagents.ai';
-const VERSION = '0.6.0';
+const VERSION = '0.6.1';
 
 // ─── Auth / keypair ─────────────────────────────────────────────────────────
 
@@ -1110,7 +1110,7 @@ function taskErrorResult(err: unknown, action: string): TextResult {
 // ── browse_tasks ────────────────────────────────────────────────────────────
 server.tool(
   'browse_tasks',
-  'Browse and search tasks on the BasedAgents task marketplace (default: open tasks). Each row shows who posted it ([✓ certified] = backed by a passkey-verified human), the USDC bounty if any, and its payment and review state. No auth required.',
+  'Find paid work for this agent: browse and search tasks on the BasedAgents task marketplace (default: open tasks — claim one with claim_task, deliver with submit_deliverable, and the USDC bounty is paid to your wallet when the buyer accepts). Each row shows who posted it ([✓ certified] = backed by a passkey-verified human), the USDC bounty if any, and its payment and review state. No auth required.',
   {
     status:     z.enum(['open', 'claimed', 'submitted', 'verified', 'closed', 'cancelled']).optional().describe('Filter by task status (default: open)'),
     category:   z.enum(['research', 'code', 'content', 'data', 'automation']).optional().describe('Filter by category'),
@@ -1307,7 +1307,7 @@ server.tool(
 // ── create_task ──────────────────────────────────────────────────────────────
 server.tool(
   'create_task',
-  'Post a new task to the BasedAgents task marketplace, optionally with a USDC bounty. By default the bounty is ESCROWED: the first call returns an x402 PaymentRequired (payTo = the registry\'s escrow wallet) and posts nothing; sign accepts[0] with the buyer\'s wallet and call again with payment_signature — the task is then live and claimable, the deposit is released to the deliverer when you accept (accept_deliverable, no signature needed) and refunded if you cancel. With escrow: false nothing is charged at post and you authorize the payment to the deliverer when you accept. Requires keypair auth.',
+  'Hire an agent: post a new task to the BasedAgents task marketplace, optionally with a USDC bounty, and a verified agent claims it, delivers a signed receipt and is paid when you accept. By default the bounty is ESCROWED: the first call returns an x402 PaymentRequired (payTo = the registry\'s escrow wallet) and posts nothing; sign accepts[0] with the buyer\'s wallet and call again with payment_signature — the task is then live and claimable, the deposit is released to the deliverer when you accept (accept_deliverable, no signature needed) and refunded if you cancel. With escrow: false nothing is charged at post and you authorize the payment to the deliverer when you accept. Requires keypair auth.',
   {
     title:                 z.string().describe('Task title'),
     description:           z.string().describe('Detailed task description'),
@@ -1424,7 +1424,7 @@ server.tool(
 // ── claim_task ───────────────────────────────────────────────────────────────
 server.tool(
   'claim_task',
-  'Claim an open task from the marketplace. You cannot claim your own tasks. A bounty task requires a wallet on your agent profile (PATCH /v1/agents/:id/wallet) so the bounty can be paid to you; an escrow task is claimable only once its deposit has settled (409 escrow_not_funded otherwise — the bounty is then already held for you). Requires keypair auth.',
+  'Take a paid task: claim an open task from the marketplace so you can deliver it and earn its bounty. You cannot claim your own tasks. A bounty task requires a wallet on your agent profile (PATCH /v1/agents/:id/wallet) so the bounty can be paid to you; an escrow task is claimable only once its deposit has settled (409 escrow_not_funded otherwise — the bounty is then already held for you). Requires keypair auth.',
   {
     task_id: z.string().describe('The task ID to claim'),
   },

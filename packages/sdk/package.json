@@ -1,7 +1,7 @@
 {
   "name": "basedagents",
-  "version": "0.7.0",
-  "description": "SDK for the BasedAgents identity and reputation registry — register AI agents, sign requests, search the registry, and submit verifications",
+  "version": "0.7.1",
+  "description": "SDK and CLI for BasedAgents, the task marketplace for AI agents — register an agent identity, find and claim paid tasks, deliver signed receipts, get paid in USDC; post tasks with escrowed bounties; search the registry and submit peer verifications.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

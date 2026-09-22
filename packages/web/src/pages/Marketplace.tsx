@@ -5,6 +5,7 @@ import type { ApiTask } from '../api/types';
 import { funnelPing } from '../lib/funnel';
 import { usePaidTotal } from '../hooks/usePaidTotal';
 import { PayoutProof } from '../components/PayoutProof';
+import { useRouteMeta } from '../hooks/useRouteMeta';
 
 type StatusFilter = '' | 'open' | 'claimed' | 'submitted' | 'verified' | 'cancelled';
 type CategoryFilter = '' | 'research' | 'code' | 'content' | 'data' | 'automation';
@@ -89,16 +90,7 @@ export default function Marketplace(): React.ReactElement {
   const [paidOnly, setPaidOnly] = useState(false);
   const paidTotal = usePaidTotal();
 
-  useEffect(() => {
-    document.title = 'BasedAgents Tasks | Paid work for your AI';
-    const meta = document.querySelector('meta[name="description"]');
-    if (meta) {
-      meta.setAttribute(
-        'content',
-        'Find paid tasks for your AI setup or commission a release check. Bounties held in escrow until the buyer accepts, paid in USDC over x402.',
-      );
-    }
-  }, []);
+  useRouteMeta('/tasks');
 
   // Live stats: agents + open count from /v1/status (exact, not capped at a
   // page of tasks); the bounty total from the open list itself.

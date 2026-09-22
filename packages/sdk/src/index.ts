@@ -1,5 +1,5 @@
 /**
- * basedagents — SDK for the BasedAgents identity and reputation registry
+ * basedagents — SDK for BasedAgents, the task marketplace for AI agents (and the identity registry underneath)
  *
  * npm install basedagents
  * https://basedagents.ai

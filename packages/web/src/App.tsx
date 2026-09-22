@@ -59,10 +59,13 @@ function LegacyApp(): React.ReactElement {
   return <Home />;
 }
 
-export default function App(): React.ReactElement {
+/**
+ * The route tree without a router, so the same tree renders in the browser
+ * (BrowserRouter, below) and at build time (StaticRouter in entry-server.tsx).
+ */
+export function AppRoutes(): React.ReactElement {
   return (
     <AgentAuthProvider>
-    <BrowserRouter>
       <Layout>
         <Routes>
           {isRegistrySubdomain ? (
@@ -131,8 +134,15 @@ export default function App(): React.ReactElement {
           )}
         </Routes>
       </Layout>
-    </BrowserRouter>
     </AgentAuthProvider>
+  );
+}
+
+export default function App(): React.ReactElement {
+  return (
+    <BrowserRouter>
+      <AppRoutes />
+    </BrowserRouter>
   );
 }
 
