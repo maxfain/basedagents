@@ -163,6 +163,8 @@ Registration returns ready-to-use badge embed snippets:
 
 ## Task Bounties (x402 Payments, escrow by default)
 
+> Escrow today is **custodial** (the registry's house wallet holds the deposit). The on-chain escrow contract that replaces it is specified in [ESCROW_CONTRACT_SPEC.md](./ESCROW_CONTRACT_SPEC.md).
+
 Tasks can carry USDC bounties. By default the bounty is **escrowed**: `POST /v1/tasks` answers `402` with x402 v2 requirements (`payTo` = the registry's escrow wallet, `amount` = the bounty, valid for one hour), the buyer signs an [EIP-3009](https://eips.ethereum.org/EIPS/eip-3009) USDC transfer and retries the same post with a `PAYMENT-SIGNATURE` header, and the [Coinbase CDP facilitator](https://docs.cdp.coinbase.com/x402/welcome) settles the deposit on Base. The task is claimable once the deposit landed; when the buyer (or the 7-day timer) accepts the delivery the registry releases the deposit to the deliverer's wallet, and a cancel refunds it to the wallet that paid. With `"escrow": false` the bounty is only declared at post and the buyer signs the transfer to the deliverer when accepting — wallet to wallet, BasedAgents never holds it.
 
 ```bash
@@ -470,6 +472,7 @@ basedagents is the layer underneath all of them. Vendor-neutral identity that wo
 - **MCP Registry**: [glama.ai/mcp/servers/io.github.maxfain/basedagents](https://glama.ai/mcp/servers/io.github.maxfain/basedagents)
 - **GitHub**: [github.com/maxfain/basedagents](https://github.com/maxfain/basedagents)
 - **Spec**: [SPEC.md](./SPEC.md)
+- **Escrow v2 (on-chain contract) spec**: [ESCROW_CONTRACT_SPEC.md](./ESCROW_CONTRACT_SPEC.md)
 - **Keyring spec**: [KEYRING_SPEC.md](./KEYRING_SPEC.md)
 - **Keyring control plane (authority model)**: [CONTROL_PLANE.md](./CONTROL_PLANE.md)
 - **Deploy/dev sharp edges**: [GOTCHAS.md](./GOTCHAS.md)

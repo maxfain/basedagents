@@ -8,6 +8,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — ESCROW_CONTRACT_SPEC.md: the on-chain escrow (v2) specification
+
+A decision record for why escrow v1 holds deposits in a house wallet (the
+transfer-only x402 rail, the off-chain release decision, time) and the full
+specification of its replacement: the `BasedAgentsEscrow` contract on Base
+(buyer deposits via USDC `receiveWithAuthorization` bound to the task id,
+payee fixed at claim, arbiter-attested release/refund/extend, permissionless
+refund after the deadline), the registry's relayer/arbiter/watcher, the x402
+challenge extensions, client changes, migration from v1, and the security
+bar before production. Linked from SPEC.md, README.md and SECURITY.md.
+
 ### Released packages
 
 - `basedagents` (SDK + CLI) **0.7.0**, `@basedagents/mcp` **0.6.0**, `basedagents` on PyPI **0.5.0**: the first published clients that speak the escrow deposit handshake (`tasks post --bounty` → 402 → `--payment-signature`, `tasks fund`, `fund_task`, `escrow: false`). `@basedagents/keyring` is unchanged at 0.6.9.
