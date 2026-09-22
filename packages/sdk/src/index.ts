@@ -350,13 +350,28 @@ export function serializeKeypair(kp: AgentKeypair): string {
   });
 }
 
-/** Deserialize a keypair from JSON. Works in Node, browsers, and edge runtimes. */
+/**
+ * Deserialize a keypair from JSON. Accepts both shapes agents write:
+ *   - the SDK's own hex shape: { publicKey, privateKey }        (both hex)
+ *   - the legacy shape from the Python SDK's to_dict, the MCP server and
+ *     scripts/register-*.mjs: { public_key_b58, private_key_hex }
+ * Each field is decoded with the right codec — base58 for `public_key_b58`,
+ * never hex (hexToBytes would silently turn non-hex chars into 0 bytes and hand
+ * back a corrupt key). A file that is neither shape fails with a message that
+ * names both formats, at the point of the actual problem. Mirrors parseKeypairJson
+ * in packages/keyring/src/store.ts (the two can't share code — the SDK ships
+ * standalone to npm and cannot depend on the keyring). Works in Node, browsers
+ * and edge runtimes.
+ */
 export function deserializeKeypair(json: string): AgentKeypair {
-  const { publicKey, privateKey } = JSON.parse(json) as { publicKey: string; privateKey: string };
-  return {
-    publicKey: hexToBytes(publicKey),
-    privateKey: hexToBytes(privateKey),
-  };
+  const parsed = JSON.parse(json) as Record<string, unknown>;
+  if (typeof parsed.publicKey === 'string' && typeof parsed.privateKey === 'string') {
+    return { publicKey: hexToBytes(parsed.publicKey), privateKey: hexToBytes(parsed.privateKey) };
+  }
+  if (typeof parsed.public_key_b58 === 'string' && typeof parsed.private_key_hex === 'string') {
+    return { publicKey: base58Decode(parsed.public_key_b58), privateKey: hexToBytes(parsed.private_key_hex) };
+  }
+  throw new Error('Unrecognized keypair file — expected { publicKey, privateKey } (hex) or { public_key_b58, private_key_hex }');
 }
 
 function hexToBytes(hex: string): Uint8Array {
