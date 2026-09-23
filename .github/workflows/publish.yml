@@ -16,7 +16,9 @@
 #
 # Order matters for the npm pair: the sdk pins @basedagents/keyring, so
 # keyring publishes first (GOTCHAS: "Publish the sdk with EVERY keyring
-# publish"). mcp and python are independent.
+# publish"). mcp and python are independent; the MCP Registry listing
+# (server.json) publishes after the npm package it points at, and needs no
+# setup: GitHub OIDC proves ownership of the io.github.maxfain/* namespace.
 
 name: Publish
 
@@ -27,6 +29,7 @@ on:
       - packages/keyring/package.json
       - packages/sdk/package.json
       - packages/mcp/package.json
+      - packages/mcp/server.json
       - packages/python/pyproject.toml
       - .github/workflows/publish.yml
       - scripts/publish-if-unpublished.sh
@@ -98,6 +101,48 @@ jobs:
       - run: npm ci
       - name: Publish if unpublished
         run: scripts/publish-if-unpublished.sh packages/mcp
+
+  # The official MCP Registry (registry.modelcontextprotocol.io) lists what
+  # packages/mcp/server.json says — its description comes from positioning.
+  # It was only ever published by hand, so the listing sat at 0.3.1 with the
+  # retired identity-registry copy while npm moved on.
+  mcp-registry:
+    name: MCP Registry listing
+    needs: mcp
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip if this version is already listed
+        id: check
+        run: |
+          name=$(jq -r .name packages/mcp/server.json); version=$(jq -r .version packages/mcp/server.json)
+          listed=$(curl -sS "https://registry.modelcontextprotocol.io/v0/servers?search=${name}" \
+            | jq -r --arg n "$name" --arg v "$version" '[.servers[] | (.server // .) | select(.name == $n and .version == $v)] | length')
+          if [ "$listed" != "0" ]; then
+            echo "${name} ${version} is already on the MCP Registry — nothing to publish"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publishing ${name} ${version} to the MCP Registry"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.check.outputs.publish == 'true'
+        name: Publish server.json
+        # Pinned + checksum-verified: this binary runs with id-token: write.
+        # Bump both together from the release's registry_<version>_checksums.txt.
+        env:
+          PUBLISHER_VERSION: v1.8.1
+          PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+        run: |
+          curl -sSLo mcp-publisher.tgz "https://github.com/modelcontextprotocol/registry/releases/download/${PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${PUBLISHER_SHA256}  mcp-publisher.tgz" | sha256sum -c -
+          tar xzf mcp-publisher.tgz mcp-publisher
+          ./mcp-publisher login github-oidc
+          cd packages/mcp && ../../mcp-publisher publish
 
   python:
     name: PyPI basedagents

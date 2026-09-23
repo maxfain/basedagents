@@ -3,6 +3,9 @@
  * check-positioning — the guardrail (POSITIONING_SPEC.md §A4). Fails when:
  *   1. a public surface contains a retired tagline (allowed only in the
  *      /keyring page content and the CHANGELOG);
+ *   1b. a public surface, the README body or a blog post calls BasedAgents
+ *      "non-custodial" / says it "never holds funds" outside copy about the
+ *      per-task escrow opt-out (escrow is the default, and it is custodial);
  *   2. the built homepage (packages/web/dist/index.html) lacks the one-liner in
  *      <title>, the meta description, og:title, or an <h1>;
  *   3. `sync-positioning --check` reports drift.
@@ -12,6 +15,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { custodyViolations } from './lib/custody-claims.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pos = JSON.parse(readFileSync(join(ROOT, 'packages/web/src/content/positioning.json'), 'utf8'));
@@ -58,6 +62,18 @@ for (const [name, text] of texts) {
   for (const tag of pos.retiredTaglines) {
     if (lower.includes(tag.toLowerCase())) failures.push(`${name}: contains retired tagline "${tag}"`);
   }
+}
+
+// ── 1b. custody claims, scoped to default-flow copy (scripts/lib/custody-claims.mjs) ──
+// Covers the whole README and the blog, not just the hero.
+const blogDir = join(ROOT, 'packages/web/src/blog/posts');
+const custodyTexts = [
+  ...texts.filter(([name]) => name !== 'README.md (hero)'),
+  ['README.md', readme],
+  ...(existsSync(blogDir) ? readdirSync(blogDir).map((f) => [`packages/web/src/blog/posts/${f}`, readFileSync(join(blogDir, f), 'utf8')]) : []),
+];
+for (const [name, text] of custodyTexts) {
+  for (const v of custodyViolations(text)) failures.push(`${name}: custody claim ${v} outside opt-out copy (escrow is the default and is custodial)`);
 }
 
 // ── 2. the built homepage carries the one-liner ──
