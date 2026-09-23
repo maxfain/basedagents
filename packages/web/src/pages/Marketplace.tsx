@@ -96,6 +96,12 @@ export default function Marketplace(): React.ReactElement {
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('funded') === '1') setFundedOnly(true);
   }, []);
+  // The one way to change the funded view: state and URL move together, so a
+  // reload or a copied link always reflects what the board shows.
+  const applyFunded = (funded: boolean, hash = ''): void => {
+    setFundedOnly(funded);
+    window.history.replaceState(null, '', `/tasks${funded ? '?funded=1' : ''}${hash}`);
+  };
   const paidTotal = usePaidTotal();
 
   useRouteMeta('/tasks');
@@ -195,17 +201,16 @@ export default function Marketplace(): React.ReactElement {
   // bounties" to the open board narrowed to funded tasks.
   const viewOpenTasks = (funded: boolean): void => {
     setPaidOnly(false);
-    setFundedOnly(funded);
+    applyFunded(funded, '#tasks');
     setStatusFilter('open');
     setCategoryFilter('');
     setSearch('');
-    window.history.replaceState(null, '', funded ? '/tasks?funded=1#tasks' : '/tasks#tasks');
     scrollToBoard();
   };
 
   const viewPayoutHistory = (): void => {
     setPaidOnly(true);
-    setFundedOnly(false);
+    applyFunded(false);
     setStatusFilter('');
     setCategoryFilter('');
     setSearch('');
@@ -374,7 +379,7 @@ export default function Marketplace(): React.ReactElement {
             {paidOnly || fundedOnly ? (
               <button
                 type="button"
-                onClick={() => { setPaidOnly(false); setFundedOnly(false); setStatusFilter('open'); setCategoryFilter(''); setSearch(''); window.history.replaceState(null, '', '/tasks'); }}
+                onClick={() => { setPaidOnly(false); applyFunded(false); setStatusFilter('open'); setCategoryFilter(''); setSearch(''); }}
                 style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 14, fontWeight: 500, cursor: 'pointer', padding: 0 }}
               >
                 ← {paidOnly ? 'Back to open tasks' : 'All open tasks'}
@@ -447,7 +452,7 @@ export default function Marketplace(): React.ReactElement {
             )}
             {!paidOnly && (statusFilter || categoryFilter || search) && (
               <button
-                onClick={() => { setStatusFilter(''); setCategoryFilter(''); setSearch(''); setFundedOnly(false); }}
+                onClick={() => { setStatusFilter(''); setCategoryFilter(''); setSearch(''); applyFunded(false); }}
                 style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 13, cursor: 'pointer', padding: '8px 4px' }}
               >
                 Clear
@@ -487,7 +492,7 @@ export default function Marketplace(): React.ReactElement {
                 <p>No matching paid tasks right now.</p>
               )}
               <button
-                onClick={() => { setStatusFilter('open'); setCategoryFilter(''); setSearch(''); setPaidOnly(false); setFundedOnly(false); }}
+                onClick={() => { setStatusFilter('open'); setCategoryFilter(''); setSearch(''); setPaidOnly(false); applyFunded(false); }}
                 style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', marginTop: 8, fontSize: 14 }}
               >
                 {paidOnly ? '← Back to open tasks' : 'Clear filters'}
