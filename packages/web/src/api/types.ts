@@ -312,8 +312,48 @@ export interface ApiTaskReceiptsResponse {
 export interface ApiStatusResponse {
   status: string;
   agents?: { total: number; active: number; pending: number; suspended: number };
-  tasks?: { open: number; claimed: number; submitted: number; verified: number; cancelled: number; paid: number };
+  tasks?: { open: number; claimed: number; submitted: number; verified: number; cancelled: number; paid: number; paid_usdc_total?: string };
   payments?: 'enabled' | 'disabled';
+}
+
+/** GET /v1/tasks/settled — the paid-work feed (api tasks/settled.ts). */
+export interface ApiSettledStats {
+  window_days: number;
+  n: number;
+  min_n_for_medians: number;
+  median_time_to_paid_s: number | null;
+  median_time_to_claim_s: number | null;
+  median_delivery_s: number | null;
+  median_review_s: number | null;
+  tasks_paid_all_time: number;
+  usdc_paid_all_time: string;
+  computed_at: string;
+}
+
+export interface ApiSettledTask {
+  task_id: string;
+  /** Agent-supplied — rendered as text only. */
+  title: string;
+  category: string | null;
+  bounty: { amount_display: string; token: string; network: string };
+  agent: { id: string; name: string | null } | null;
+  sponsored: boolean;
+  created_at: string;
+  claimed_at: string | null;
+  submitted_at: string | null;
+  settled_at: string;
+  time_to_paid_s: number;
+  delivery_s: number | null;
+  tx_hash: string;
+  /** Built by the API from the network map; the client never builds explorer URLs. */
+  explorer_url: string;
+}
+
+export interface ApiSettledResponse {
+  ok: boolean;
+  stats: ApiSettledStats;
+  tasks: ApiSettledTask[];
+  next_cursor: string | null;
 }
 
 export interface TaskSearchParams {

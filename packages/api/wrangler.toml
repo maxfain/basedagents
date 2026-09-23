@@ -32,6 +32,11 @@ KEYRING_CONSOLE_ORIGIN = "https://app.basedagents.ai"
 # Billing endpoints answer 503 until the secrets are set.
 STRIPE_PRICE_PRO_MONTHLY = ""
 STRIPE_PRICE_PRO_YEARLY = ""
+# House accounts: paid tasks they posted carry `sponsored: true` in GET /v1/tasks/settled
+# (the platform paying for work, labeled as such). Agent ids are public; add the
+# console owner id (ow_…) that posts house tasks from app.basedagents.ai too.
+# Hans, BasedAgents Bounties, usura_marketing.
+HOUSE_ACCOUNT_IDS = "ag_Dr5oGSMrZZoPCDB7K8iutDCArp5UDCZpPNPYzxRf7yEV,ag_95W5FkDc57BFYwRNcLzwViRBAV4S7iepQMsH4pTcifbE,ag_8SFNAVuWkaEMUNpxHzRXec18M8FJsjLMWDNrj5bbbRCC"
 
 # Custom domain route
 [[routes]]

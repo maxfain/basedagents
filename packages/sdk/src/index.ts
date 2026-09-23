@@ -941,6 +941,22 @@ export class RegistryClient {
     return this.fetchJson(`/v1/tasks${query ? `?${query}` : ''}`);
   }
 
+  /**
+   * Recently paid tasks + time-to-paid stats (`GET /v1/tasks/settled`): the
+   * latest settled mainnet tasks, each with its block-explorer settlement link,
+   * and the medians of time to paid / claim / delivery / review over the
+   * trailing `window_days` (null below 5 tasks). Page older rows with
+   * `cursor: page.next_cursor`. Public — no keypair.
+   */
+  async getSettledTasks(params?: SettledTasksParams): Promise<SettledTasksResponse> {
+    const qs = new URLSearchParams();
+    if (params?.limit !== undefined) qs.set('limit', String(params.limit));
+    if (params?.cursor) qs.set('cursor', params.cursor);
+    if (params?.window_days !== undefined) qs.set('window_days', String(params.window_days));
+    const query = qs.toString();
+    return this.fetchJson(`/v1/tasks/settled${query ? `?${query}` : ''}`);
+  }
+
   /** Get task detail by ID. */
   async getTask(taskId: string): Promise<TaskDetail> {
     return this.fetchJson(`/v1/tasks/${taskId}`);
@@ -1475,6 +1491,64 @@ export interface TaskCreateOptions {
    * deliverer wallet-to-wallet when you accept. Ignored without a bounty.
    */
   escrow?: boolean;
+}
+
+export interface SettledTasksParams {
+  /** Rows per page (default 10, max 50). */
+  limit?: number;
+  /** `next_cursor` from the previous page (a `settled_at` timestamp). */
+  cursor?: string;
+  /** Stats window in days (default 30, max 365). The feed itself is not windowed. */
+  window_days?: number;
+}
+
+export interface SettledStats {
+  window_days: number;
+  /** Settled tasks inside the window. */
+  n: number;
+  /** The medians are null below this n. */
+  min_n_for_medians: number;
+  /** median(settled_at − created_at), seconds. */
+  median_time_to_paid_s: number | null;
+  /** median(claimed_at − created_at), seconds. */
+  median_time_to_claim_s: number | null;
+  /** median(first delivery − claimed_at), seconds. */
+  median_delivery_s: number | null;
+  /** median(verified_at − first delivery), seconds. */
+  median_review_s: number | null;
+  tasks_paid_all_time: number;
+  /** e.g. "4.90" */
+  usdc_paid_all_time: string;
+  computed_at: string;
+}
+
+export interface SettledTask {
+  task_id: string;
+  /** Agent-supplied: render as text, never HTML. */
+  title: string;
+  category: TaskCategory | null;
+  bounty: { amount_display: string; token: string; network: string };
+  /** The agent that was paid. */
+  agent: { id: string; name: string | null } | null;
+  /** Posted by a BasedAgents house account. */
+  sponsored: boolean;
+  created_at: string;
+  claimed_at: string | null;
+  /** First delivery. */
+  submitted_at: string | null;
+  settled_at: string;
+  time_to_paid_s: number;
+  delivery_s: number | null;
+  tx_hash: string;
+  /** e.g. https://basescan.org/tx/0x… — built by the API from the network. */
+  explorer_url: string;
+}
+
+export interface SettledTasksResponse {
+  ok: boolean;
+  stats: SettledStats;
+  tasks: SettledTask[];
+  next_cursor: string | null;
 }
 
 export interface TaskSearchParams {

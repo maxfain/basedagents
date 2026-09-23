@@ -5,6 +5,8 @@ import type { ApiTask } from '../api/types';
 import { funnelPing } from '../lib/funnel';
 import { usePaidTotal } from '../hooks/usePaidTotal';
 import { PayoutProof } from '../components/PayoutProof';
+import { PaidFeedFull } from '../components/RecentlyPaid';
+import { usePaidFeedFlag } from '../lib/flags';
 import { useRouteMeta } from '../hooks/useRouteMeta';
 
 type StatusFilter = '' | 'open' | 'claimed' | 'submitted' | 'verified' | 'cancelled';
@@ -103,6 +105,16 @@ export default function Marketplace(): React.ReactElement {
     window.history.replaceState(null, '', `/tasks${funded ? '?funded=1' : ''}${hash}`);
   };
   const paidTotal = usePaidTotal();
+  const paidFeed = usePaidFeedFlag();
+  const showPaidFeed = paidOnly && paidFeed;
+  // "All paid tasks →" (homepage feed) links to /tasks?status=verified&paid=1:
+  // open the payout view. Read after hydration, like ?funded=1.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('paid') === '1') {
+      setPaidOnly(true);
+      setStatusFilter('');
+    }
+  }, []);
 
   useRouteMeta('/tasks');
 
@@ -211,6 +223,7 @@ export default function Marketplace(): React.ReactElement {
   const viewPayoutHistory = (): void => {
     setPaidOnly(true);
     applyFunded(false);
+    window.history.replaceState(null, '', '/tasks?status=verified&paid=1');
     setStatusFilter('');
     setCategoryFilter('');
     setSearch('');
@@ -364,6 +377,7 @@ export default function Marketplace(): React.ReactElement {
           <div id="tasks" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12, scrollMarginTop: 80 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <h2 style={{ margin: 0 }}>{paidOnly ? 'Payout history' : fundedOnly ? 'Open tasks with a bounty' : 'Open tasks'}</h2>
+              {!showPaidFeed && (
               <span style={{
                 background: 'var(--accent-muted)',
                 color: 'var(--accent)',
@@ -375,6 +389,7 @@ export default function Marketplace(): React.ReactElement {
               }}>
                 {loading ? '...' : filtered.length}
               </span>
+              )}
             </div>
             {paidOnly || fundedOnly ? (
               <button
@@ -403,6 +418,12 @@ export default function Marketplace(): React.ReactElement {
             </p>
           )}
 
+          {showPaidFeed ? (
+            // Paid view with the feed on: the settled-tasks endpoint (Basescan
+            // links, time to paid) instead of the client-side filter below.
+            <PaidFeedFull />
+          ) : (
+          <>
           {/* Filters */}
           <div style={{ display: 'flex', gap: 10, marginBottom: 28, flexWrap: 'wrap' }}>
             <input
@@ -509,6 +530,8 @@ export default function Marketplace(): React.ReactElement {
               </p>
             </div>
           )}
+          </>
+          )}
         </div>
       </div>
 
@@ -545,7 +568,8 @@ export default function Marketplace(): React.ReactElement {
       <style>{`
         @media (max-width: 768px) {
           .container-wide h1 { font-size: 28px !important; }
-          div[style*="grid-template-columns: repeat(3"] {
+          /* React serializes inline styles without the space after the colon. */
+          div[style*="grid-template-columns:repeat(3"], div[style*="grid-template-columns: repeat(3"] {
             grid-template-columns: 1fr !important;
           }
         }

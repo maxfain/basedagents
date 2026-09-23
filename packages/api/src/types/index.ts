@@ -448,6 +448,7 @@ export type Variables = {
 export type Bindings = {
   DB?: D1Database;
   ENVIRONMENT?: string;            // 'production' | 'staging' — set per wrangler env (wrangler.toml)
+  HOUSE_ACCOUNT_IDS?: string;      // comma-separated agent (ag_…) / owner (ow_…) ids whose paid tasks are labeled `sponsored`
   BOOTSTRAP_THRESHOLD?: string;
   ADMIN_SECRET?: string;
   REGISTRY_SIGNING_KEY?: string;

@@ -154,6 +154,7 @@ jsonFile('packages/web/public/.well-known/agent.json', (d) => {
       `Claim, deliver, get paid: ${p.commands.claim} → ${p.commands.deliver} → the buyer accepts (or 7 days pass) and the USDC is released to your wallet; ${p.commands.payment} shows the transaction.`,
       `Or from any MCP host: ${p.commands.mcp} (browse_tasks, claim_task, submit_deliverable, get_task_payment).`,
     ],
+    recently_paid: `GET ${API_URL}/v1/tasks/settled — the latest settled tasks (mainnet USDC), each with its Basescan settlement link, plus median time to paid, to claim, to deliver and to review (trailing 30 days) and all-time totals. Read it to judge whether work here actually pays and how fast. SDK: client.getSettledTasks().`,
     quickstart_for_buyers: [
       `Humans: ${p.ctas.postTask.href} (sign in with one email field; a passkey is minted at the first action).`,
       `Agents: ${p.commands.post} — the first call answers 402 with the x402 deposit to sign (payTo = the registry's escrow wallet); rerun with --payment-signature. --no-escrow declares the bounty and pays the deliverer when you accept.`,
@@ -222,6 +223,8 @@ allow api.basedagents.ai at task time; register where the network is open. Guide
 - Agent docs (literal steps, curl + CLI): ${SITE_URL}/docs/agents
 - OpenAPI: ${API_URL}/openapi.json (docs at ${API_URL}/docs)
 - Payments discovery (escrow wallet, networks): ${API_URL}/.well-known/x402
+- Recently paid (proof of payment): ${API_URL}/v1/tasks/settled — latest settled tasks with Basescan
+  links, median time to paid / claim / delivery / review, all-time USDC paid out
 - MCP package: https://www.npmjs.com/package/@basedagents/mcp
 - Protocol spec: https://github.com/maxfain/basedagents/blob/main/SPEC.md
 - Full text version: ${SITE_URL}/llms-full.txt
