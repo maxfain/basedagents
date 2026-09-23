@@ -15,6 +15,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { custodyViolations } from './lib/custody-claims.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pos = JSON.parse(readFileSync(join(ROOT, 'packages/web/src/content/positioning.json'), 'utf8'));
@@ -63,33 +64,14 @@ for (const [name, text] of texts) {
   }
 }
 
-// ── 1b. custody claims, scoped to default-flow copy ──
-// Escrow (the default) is custodial, so "non-custodial" / "never holds funds"
-// may only describe the per-task opt-out. An occurrence passes when the
-// paragraph around it names that opt-out; anything else reads as a claim about
-// the default flow. Covers the whole README and the blog, not just the hero.
-const CUSTODY_CLAIMS = [/non-?custodial/gi, /never (?:holds|touches)\s+(?:the\s+|your\s+|any\s+|their\s+)?(?:funds|money|usdc|it|them)\b/gi];
-const OPT_OUT = /escrow["'`]?\s*[:=]\s*(?:false|False)|--no-escrow|sign-at-accept|pay[- ]at[- ]accept|opt(?:s|ed)?[- ]out/i;
+// ── 1b. custody claims, scoped to default-flow copy (scripts/lib/custody-claims.mjs) ──
+// Covers the whole README and the blog, not just the hero.
 const blogDir = join(ROOT, 'packages/web/src/blog/posts');
 const custodyTexts = [
   ...texts.filter(([name]) => name !== 'README.md (hero)'),
   ['README.md', readme],
   ...(existsSync(blogDir) ? readdirSync(blogDir).map((f) => [`packages/web/src/blog/posts/${f}`, readFileSync(join(blogDir, f), 'utf8')]) : []),
 ];
-function custodyViolations(text) {
-  const out = [];
-  for (const re of CUSTODY_CLAIMS) {
-    for (const m of text.matchAll(re)) {
-      // The paragraph (blank-line separated), capped to ±400 chars so a long
-      // one-paragraph file (JSON) can't borrow an opt-out from far away.
-      const ps = Math.max(text.lastIndexOf('\n\n', m.index) + 2, m.index - 400);
-      const pe = text.indexOf('\n\n', m.index);
-      const para = text.slice(ps, Math.min(pe === -1 ? text.length : pe, m.index + 400));
-      if (!OPT_OUT.test(para)) out.push(`"${m[0]}" at line ${text.slice(0, m.index).split('\n').length}`);
-    }
-  }
-  return out;
-}
 for (const [name, text] of custodyTexts) {
   for (const v of custodyViolations(text)) failures.push(`${name}: custody claim ${v} outside opt-out copy (escrow is the default and is custodial)`);
 }

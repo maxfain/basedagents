@@ -132,8 +132,15 @@ jobs:
           fi
       - if: steps.check.outputs.publish == 'true'
         name: Publish server.json
+        # Pinned + checksum-verified: this binary runs with id-token: write.
+        # Bump both together from the release's registry_<version>_checksums.txt.
+        env:
+          PUBLISHER_VERSION: v1.8.1
+          PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
         run: |
-          curl -sSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+          curl -sSLo mcp-publisher.tgz "https://github.com/modelcontextprotocol/registry/releases/download/${PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${PUBLISHER_SHA256}  mcp-publisher.tgz" | sha256sum -c -
+          tar xzf mcp-publisher.tgz mcp-publisher
           ./mcp-publisher login github-oidc
           cd packages/mcp && ../../mcp-publisher publish
 

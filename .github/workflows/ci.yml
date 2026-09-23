@@ -54,8 +54,9 @@ jobs:
 
       # The prod drift check (run after every deploy and daily) against a fake
       # production on localhost: a current site passes, a stale title fails.
-      - name: Prod drift check self-test
-        run: node --test scripts/check-prod-drift.test.mjs
+      # Plus the custody-claim guard's scoping rules.
+      - name: Prod drift check + custody guard self-tests
+        run: node --test scripts/check-prod-drift.test.mjs scripts/lib/custody-claims.test.mjs
 
       - name: Action bundle is up to date
         run: |
