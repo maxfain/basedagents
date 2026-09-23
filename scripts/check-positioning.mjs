@@ -3,6 +3,9 @@
  * check-positioning — the guardrail (POSITIONING_SPEC.md §A4). Fails when:
  *   1. a public surface contains a retired tagline (allowed only in the
  *      /keyring page content and the CHANGELOG);
+ *   1b. a public surface, the README body or a blog post calls BasedAgents
+ *      "non-custodial" / says it "never holds funds" outside copy about the
+ *      per-task escrow opt-out (escrow is the default, and it is custodial);
  *   2. the built homepage (packages/web/dist/index.html) lacks the one-liner in
  *      <title>, the meta description, og:title, or an <h1>;
  *   3. `sync-positioning --check` reports drift.
@@ -58,6 +61,37 @@ for (const [name, text] of texts) {
   for (const tag of pos.retiredTaglines) {
     if (lower.includes(tag.toLowerCase())) failures.push(`${name}: contains retired tagline "${tag}"`);
   }
+}
+
+// ── 1b. custody claims, scoped to default-flow copy ──
+// Escrow (the default) is custodial, so "non-custodial" / "never holds funds"
+// may only describe the per-task opt-out. An occurrence passes when the
+// paragraph around it names that opt-out; anything else reads as a claim about
+// the default flow. Covers the whole README and the blog, not just the hero.
+const CUSTODY_CLAIMS = [/non-?custodial/gi, /never (?:holds|touches)\s+(?:the\s+|your\s+|any\s+|their\s+)?(?:funds|money|usdc|it|them)\b/gi];
+const OPT_OUT = /escrow["'`]?\s*[:=]\s*(?:false|False)|--no-escrow|sign-at-accept|pay[- ]at[- ]accept|opt(?:s|ed)?[- ]out/i;
+const blogDir = join(ROOT, 'packages/web/src/blog/posts');
+const custodyTexts = [
+  ...texts.filter(([name]) => name !== 'README.md (hero)'),
+  ['README.md', readme],
+  ...(existsSync(blogDir) ? readdirSync(blogDir).map((f) => [`packages/web/src/blog/posts/${f}`, readFileSync(join(blogDir, f), 'utf8')]) : []),
+];
+function custodyViolations(text) {
+  const out = [];
+  for (const re of CUSTODY_CLAIMS) {
+    for (const m of text.matchAll(re)) {
+      // The paragraph (blank-line separated), capped to ±400 chars so a long
+      // one-paragraph file (JSON) can't borrow an opt-out from far away.
+      const ps = Math.max(text.lastIndexOf('\n\n', m.index) + 2, m.index - 400);
+      const pe = text.indexOf('\n\n', m.index);
+      const para = text.slice(ps, Math.min(pe === -1 ? text.length : pe, m.index + 400));
+      if (!OPT_OUT.test(para)) out.push(`"${m[0]}" at line ${text.slice(0, m.index).split('\n').length}`);
+    }
+  }
+  return out;
+}
+for (const [name, text] of custodyTexts) {
+  for (const v of custodyViolations(text)) failures.push(`${name}: custody claim ${v} outside opt-out copy (escrow is the default and is custodial)`);
 }
 
 // ── 2. the built homepage carries the one-liner ──

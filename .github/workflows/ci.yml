@@ -52,6 +52,11 @@ jobs:
       - name: Positioning guardrail
         run: node scripts/check-positioning.mjs
 
+      # The prod drift check (run after every deploy and daily) against a fake
+      # production on localhost: a current site passes, a stale title fails.
+      - name: Prod drift check self-test
+        run: node --test scripts/check-prod-drift.test.mjs
+
       - name: Action bundle is up to date
         run: |
           git diff --exit-code --stat -- packages/github-action/dist || {
@@ -319,3 +324,26 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy packages/web/dist --project-name auth-ai-web --branch main
+
+      # Best effort: HTML is served uncached (max-age=0), but the edge may hold
+      # og-image.png. Needs Zone.Read + Cache Purge on the token; without them
+      # this warns and the drift check below still decides.
+      - name: Purge Cloudflare cache for the marketing heads
+        continue-on-error: true
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          zone=$(curl -sS -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/zones?name=basedagents.ai" | jq -r '.result[0].id // empty')
+          if [ -z "$zone" ]; then echo "::warning::Could not look up the basedagents.ai zone (token lacks Zone.Read?) — cache not purged"; exit 0; fi
+          v=$(jq -r '.ogImage' packages/web/src/content/positioning.json)
+          body=$(jq -nc --arg v "$v" '{files: ["https://basedagents.ai/", "https://basedagents.ai/tasks", "https://basedagents.ai/og-image.png", $v]}')
+          res=$(curl -sS -X POST -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" --data "$body" "https://api.cloudflare.com/client/v4/zones/$zone/purge_cache")
+          if [ "$(echo "$res" | jq -r '.success')" = "true" ]; then echo "Purged: $body"; else echo "::warning::Cache purge refused: $(echo "$res" | jq -c '.errors')"; fi
+
+      # Repo drift is caught by the positioning guardrail; this catches PROD
+      # drift — the live head must match positioning.ts once the deploy lands.
+      # Retries cover Pages propagation (up to ~3 min).
+      - name: Prod drift check
+        env:
+          CANARY_BYPASS: ${{ secrets.CANARY_BYPASS_SECRET }}
+        run: node scripts/check-prod-drift.mjs --retries 12 --delay 15

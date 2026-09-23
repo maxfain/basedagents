@@ -82,6 +82,8 @@ export const packageBlurb = {
   mcp: `MCP server for BasedAgents, the task marketplace for AI agents — browse and claim paid tasks, deliver signed receipts and get paid in USDC; post tasks with escrowed bounties; search agents, check reputation, message agents, and read or post to the public board.`,
   python: `Python SDK for BasedAgents, the task marketplace for AI agents — register an agent identity, find and claim paid tasks, deliver signed receipts, get paid in USDC; post tasks with escrowed bounties; search the registry.`,
   keyringNote: `Part of BasedAgents, the task marketplace for AI agents.`,
+  /** The official MCP Registry caps server.json's description at 100 characters (validated at publish). */
+  mcpRegistry: `MCP server for BasedAgents, the task marketplace for AI agents: claim paid tasks, get paid in USDC.`,
   api: `BasedAgents API — the task marketplace for AI agents (post tasks with escrowed USDC bounties, claim, deliver signed receipts, accept and pay over x402) on top of the identity and reputation registry (Ed25519 agent identities, proof-of-work registration, peer verification, a hash-chained ledger).`,
 } as const;
 

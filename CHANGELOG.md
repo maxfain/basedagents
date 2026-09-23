@@ -8,6 +8,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Prod drift check; custody-claim guard; MCP Registry listing from positioning (web, ci, docs)
+
+Repo drift was already caught by `check-positioning`; production drift was not.
+`scripts/check-prod-drift.mjs` fetches the live `/`, `/tasks`, `/llms.txt` and
+`/.well-known/agent.json` and fails when the `<title>`, `og:image`/`twitter:image`
+version, one-liner or agent.json tagline differ from `positioning.ts`. It runs after
+every production deploy (with retries for Pages propagation, after a best-effort
+Cloudflare cache purge of `/`, `/tasks` and the OG image) and daily
+(`prod-drift.yml`); `check-prod-drift.test.mjs` proves in CI that a stale title fails.
+
+- **Custody claims**: `check-positioning` now fails on "non-custodial" / "never holds
+  funds" anywhere in the README, the blog or a public surface unless the paragraph is
+  about the per-task escrow opt-out — escrow is the default and it is custodial. Four
+  blog posts that still described sign-at-accept as the default were corrected (an
+  update note on the dated launch post; the how-to guides now describe escrow).
+- **README**: marketplace features first; identity, reputation and the ledger moved
+  under a "Trust layer" heading; payments copy uses the positioning payment line.
+- **MCP Registry**: `publish.yml` publishes `packages/mcp/server.json` (GitHub OIDC)
+  when its version isn't listed — the official listing had sat at 0.3.1 with the
+  retired identity-registry copy. `server.json` takes a new ≤100-char
+  `packageBlurb.mcpRegistry` (the registry rejects longer descriptions).
+
 ### Changed — Production is mainnet-only for bounties; testnet hidden from the board (api, docs)
 
 Production settles real money, so it now accepts **mainnet USDC bounties only**

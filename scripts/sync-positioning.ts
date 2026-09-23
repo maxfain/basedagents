@@ -122,7 +122,8 @@ function jsonFile(rel: string, mutate: (d: Record<string, unknown>) => void): vo
 }
 jsonFile('packages/sdk/package.json', (d) => { d.description = packageBlurb.sdk; });
 jsonFile('packages/mcp/package.json', (d) => { d.description = packageBlurb.mcp; });
-jsonFile('packages/mcp/server.json', (d) => { d.description = packageBlurb.mcp; });
+if (packageBlurb.mcpRegistry.length > 100) throw new Error(`packageBlurb.mcpRegistry is ${packageBlurb.mcpRegistry.length} chars; the MCP Registry allows 100`);
+jsonFile('packages/mcp/server.json', (d) => { d.description = packageBlurb.mcpRegistry; });
 jsonFile('packages/keyring/package.json', (d) => {
   const base = String(d.description ?? '').replace(/\s*Part of BasedAgents, the task marketplace for AI agents\.\s*$/, '');
   d.description = `${base} ${packageBlurb.keyringNote}`;
