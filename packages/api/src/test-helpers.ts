@@ -85,6 +85,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_payment_status ON tasks(payment_status);
 CREATE INDEX IF NOT EXISTS idx_tasks_auto_release ON tasks(auto_release_at);
 CREATE INDEX IF NOT EXISTS idx_tasks_creator_owner ON tasks(creator_owner_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tasks_settle ON tasks(payment_status, settle_next_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_payment_settled ON tasks(payment_status, settled_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_payment_nonce ON tasks(payment_nonce) WHERE payment_nonce IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_receipts_task_completed ON delivery_receipts(task_id, completed_at DESC);
 ALTER TABLE tasks ADD COLUMN escrow INTEGER NOT NULL DEFAULT 0;

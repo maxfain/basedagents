@@ -37,6 +37,7 @@ import { requireAdmin } from './lib/admin-auth.js';
 import { paymentsDisabledReason } from './payments/index.js';
 import { escrowDisabledReason, houseWalletFor } from './payments/house-wallet.js';
 import { ASSETS, MAX_TIMEOUT_SECONDS } from './payments/x402.js';
+import { paidTotals } from './tasks/settled.js';
 
 const app = new Hono<AppEnv>();
 
@@ -86,6 +87,9 @@ const RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
   // Atom feed: already 60s-edge-cached, so this only bounds cache-busting
   // clients that hit the Worker directly.
   '/v1/board/feed.atom':       { max: 60,  windowMs: 60_000 },
+  // Settled-tasks feed (homepage "Recently paid"): 60s-edge-cached like the
+  // Atom feed; this bounds clients that bypass the cache.
+  '/v1/tasks/settled':         { max: 120, windowMs: 60_000 },
 };
 // Vote tiles are parameterized paths — one exact entry per allowlisted slug.
 for (const p of VOTABLE_PROVIDERS) {
@@ -221,6 +225,7 @@ app.get('/', (c) => {
       get_message:      'GET /v1/messages/:id',
       create_task:      'POST /v1/tasks',
       browse_tasks:     'GET /v1/tasks',
+      settled_tasks:    'GET /v1/tasks/settled (recently paid + time-to-paid stats)',
       get_task:         'GET /v1/tasks/:id',
       claim_task:       'POST /v1/tasks/:id/claim',
       submit_task:      'POST /v1/tasks/:id/submit',
@@ -335,6 +340,7 @@ app.get('/docs', (c) => {
       create_paid:    { method: 'POST',  path: '/v1/tasks',            auth: true,  description: 'Create task with a bounty {amount (atomic USDC), network}; escrow (default): 402 handshake to deposit it now; "escrow": false: no payment header, pay at accept' },
       fund:           { method: 'POST',  path: '/v1/tasks/:id/fund',   auth: true,  description: 'Fund an escrow task again after its deposit failed (same 402 handshake)' },
       requirements:   { method: 'GET',   path: '/v1/tasks/:id/payment',auth: false, description: 'Payment status, audit trail, escrow state and the x402 requirements to sign' },
+      settled:        { method: 'GET',   path: '/v1/tasks/settled',    auth: false, description: 'Recently paid tasks (mainnet) with Basescan settlement links, plus median time to paid / claim / delivery / review' },
       accept_paid:    { method: 'POST',  path: '/v1/tasks/:id/accept', auth: true,  description: 'Accept the deliverable; an escrow task releases the deposit (no header); a sign-at-accept bounty answers 402 + PAYMENT-REQUIRED until a PAYMENT-SIGNATURE header is supplied' },
       dispute:        { method: 'POST',  path: '/v1/tasks/:id/dispute',auth: true,  description: 'Dispute deliverable (pauses auto-accept)' },
       without_payment: 'Tasks without bounty work exactly as before. Payment is optional.',
@@ -383,11 +389,15 @@ app.get('/v1/status', async (c) => {
 
     // Task marketplace counts (Tasks P0). Tolerates an OSS deploy without the tasks table.
     const taskCounts: Record<string, number> = { open: 0, claimed: 0, submitted: 0, verified: 0, cancelled: 0, paid: 0 };
+    let paidUsdcTotal = '0.00';
     try {
       const rows = await db.all<{ status: string; count: number }>(`SELECT status, COUNT(*) as count FROM tasks GROUP BY status`);
       for (const row of rows) if (row.status in taskCounts) taskCounts[row.status] = row.count;
-      const paid = await db.get<{ count: number }>(`SELECT COUNT(*) as count FROM tasks WHERE payment_status = 'settled'`);
-      taskCounts.paid = paid?.count ?? 0;
+      // Same population as GET /v1/tasks/settled (mainnet, tx on record, not
+      // refunded) so the status page and the homepage feed can't disagree.
+      const paid = await paidTotals(db);
+      taskCounts.paid = paid.count;
+      paidUsdcTotal = paid.usdc;
     } catch {
       // no tasks table
     }
@@ -415,7 +425,7 @@ app.get('/v1/status', async (c) => {
       last_registration: lastAgent
         ? { name: lastAgent.name, at: lastAgent.registered_at }
         : null,
-      tasks: taskCounts,
+      tasks: { ...taskCounts, paid_usdc_total: paidUsdcTotal },
       payments: paymentsDisabledReason(c.env) === null ? 'enabled' : 'disabled',
       escrow: escrowDisabledReason(c.env) === null ? 'enabled' : 'disabled',
       checked_at: new Date().toISOString(),

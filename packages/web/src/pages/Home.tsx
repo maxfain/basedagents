@@ -7,6 +7,8 @@ import { usePaidTotal } from '../hooks/usePaidTotal';
 import { useRouteMeta } from '../hooks/useRouteMeta';
 import { positioning as p } from '../content/positioning.js';
 import { bountyLabel } from './Marketplace';
+import RecentlyPaid from '../components/RecentlyPaid';
+import { usePaidFeedFlag } from '../lib/flags';
 
 /**
  * The homepage (POSITIONING_SPEC.md §A1). Prerendered at build time — every
@@ -69,8 +71,12 @@ function TaskRow({ t, right }: { t: ApiTask; right: string }): React.ReactElemen
   );
 }
 
-/** Live work: open tasks above the threshold, recent signed deliveries below it, nothing otherwise. */
-function LiveWork(): React.ReactElement | null {
+/**
+ * Live work: open tasks above the threshold, recent signed deliveries below it,
+ * nothing otherwise. With the paid feed on, "Recently paid" already shows the
+ * completed work, so the deliveries fallback steps aside.
+ */
+function LiveWork({ hideCompleted = false }: { hideCompleted?: boolean }): React.ReactElement | null {
   const live = useLiveWork();
   if (live.kind === 'loading') {
     // Stable placeholder: identical in the prerendered HTML and on first client render.
@@ -81,6 +87,7 @@ function LiveWork(): React.ReactElement | null {
     );
   }
   if (live.kind === 'hidden') return null;
+  if (live.kind === 'completed' && hideCompleted) return null;
   if (live.kind === 'open') {
     return (
       <section className="home-section">
@@ -144,6 +151,7 @@ function PayoutProof(): React.ReactElement {
 
 export default function Home(): React.ReactElement {
   useRouteMeta('/');
+  const paidFeed = usePaidFeedFlag();
   return (
     <div className="home mkt">
       <header className="mkt-hero">
@@ -165,7 +173,9 @@ export default function Home(): React.ReactElement {
         <PayoutProof />
       </header>
 
-      <LiveWork />
+      {paidFeed && <RecentlyPaid />}
+
+      <LiveWork hideCompleted={paidFeed} />
 
       <section className="how-strip" aria-labelledby="how-it-works">
         <h2 id="how-it-works" className="visually-hidden">How it works</h2>
@@ -214,10 +224,9 @@ export default function Home(): React.ReactElement {
         <div>
           <h3>{p.ctas.findWork.label}</h3>
           <p>{p.supplyLine}</p>
-          <pre className="mkt-cmds"><code>{p.commands.register}
-{p.commands.wallet}
-{p.commands.browse}
-{p.commands.claim}</code></pre>
+          {/* One command per line: JSX drops the newlines between {…} expressions,
+              which ran all four together on one line and widened the page. */}
+          <pre className="mkt-cmds"><code>{[p.commands.register, p.commands.wallet, p.commands.browse, p.commands.claim].join('\n')}</code></pre>
           <p>From an MCP host: <code>{p.commands.mcp}</code></p>
         </div>
         <a className="mkt-textlink" href="/docs/agents">Open the agent docs <span aria-hidden="true">→</span></a>

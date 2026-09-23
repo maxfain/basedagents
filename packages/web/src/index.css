@@ -289,8 +289,9 @@ h3 {
 
 .footer-links {
   display: flex;
+  flex-wrap: wrap; /* 13 links: wrap on narrow screens instead of scrolling the page sideways */
   justify-content: center;
-  gap: 24px;
+  gap: 10px 24px;
   margin-bottom: 16px;
 }
 
@@ -1012,6 +1013,9 @@ button.home-gtile-vote:disabled {
   display: flex; justify-content: space-between; align-items: center; gap: 24px;
   padding: 34px 0; margin-top: 8px;
 }
+/* Let the text column shrink so a long command scrolls inside its <pre>
+   (overflow-x: auto) instead of widening the page. */
+.agent-strip > div { min-width: 0; max-width: 100%; }
 .agent-strip h3 { margin: 0; font-size: 1.15rem; color: var(--text-primary); }
 .agent-strip p { color: var(--text-secondary); margin: 8px 0 0; max-width: 520px; }
 
@@ -1035,4 +1039,75 @@ button.home-gtile-vote:disabled {
   margin: 14px 0 10px; padding: 12px 14px; background: var(--bg-secondary);
   border: 1px solid var(--border); border-radius: 8px; font-family: var(--font-mono);
   font-size: 0.82rem; line-height: 1.6; color: #C7D2FE; overflow-x: auto; white-space: pre;
+}
+
+/* ── Recently paid (components/RecentlyPaid.tsx) ──────────────────────────
+   Rows and the stats strip have FIXED heights so the prerendered skeleton and
+   the loaded feed occupy exactly the same space (no layout shift), and
+   `contain: inline-size` so their one-line (nowrap) text can never widen the
+   page — it truncates instead. */
+.rp { min-width: 0; }
+.rp-stats, .rp-row { contain: inline-size; }
+.rp-stats {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;
+  align-content: start; height: 116px; margin-bottom: 16px;
+  overflow: hidden; /* clip, never overlap the rows, if a label wraps further than measured */
+}
+.rp-stat {
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 14px; cursor: help; min-width: 0;
+}
+.rp-stat-num {
+  font-family: var(--font-display); font-size: 1.3rem; font-weight: 500; letter-spacing: -0.02em;
+  color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rp-stat-unit { font-size: 0.85rem; color: var(--text-secondary); font-weight: 600; }
+.rp-stat-label { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+.rp-stats-note { grid-column: 1 / -1; font-size: 0.85rem; color: var(--text-tertiary); cursor: help; }
+.rp-rows { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.rp-row {
+  height: 72px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg-secondary); display: flex; flex-direction: column; justify-content: center; gap: 4px;
+  overflow: hidden;
+}
+.rp-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.rp-title {
+  flex: 1 1 auto; min-width: 0; color: var(--text-primary); font-weight: 600; text-decoration: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rp-title:hover { color: var(--accent-light); }
+.rp-bounty {
+  font-family: var(--font-display); font-weight: 500; color: var(--accent-light); white-space: nowrap;
+}
+.rp-sponsored {
+  font-size: 0.7rem; font-weight: 500; padding: 1px 7px; border-radius: 6px; white-space: nowrap;
+  color: var(--text-tertiary); border: 1px solid var(--border); cursor: help;
+}
+.rp-tx { font-size: 0.9rem; font-weight: 600; color: var(--accent-light); text-decoration: none; white-space: nowrap; }
+.rp-tx:hover { color: var(--accent); }
+.rp-meta {
+  display: flex; gap: 14px; font-size: 0.85rem; color: var(--text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.rp-meta a { color: var(--text-secondary); }
+.rp-meta a:hover { color: var(--accent-light); }
+.rp-dim { color: var(--text-tertiary); }
+.rp-skel-stats { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; }
+.rp-skel-row { background: linear-gradient(90deg, var(--bg-secondary), var(--bg-tertiary), var(--bg-secondary)); background-size: 200% 100%; }
+.rp-more { margin-top: 16px; font-weight: 600; }
+.rp-full { margin-top: 4px; }
+@media (prefers-reduced-motion: no-preference) {
+  .rp-row-new { animation: rp-slide-in 0.45s ease-out; }
+  .rp-skel-row { animation: rp-shimmer 1.4s ease-in-out infinite; }
+}
+@keyframes rp-slide-in { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
+@keyframes rp-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+/* Heights measured at each breakpoint's narrowest width (labels wrap there). */
+@media (max-width: 900px) {
+  .rp-stats { height: 136px; }
+}
+@media (max-width: 640px) {
+  .rp-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); height: 224px; }
+  .rp-sponsored { display: none; }
+  .rp-meta { gap: 10px; }
 }

@@ -8,6 +8,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Recently paid: `GET /v1/tasks/settled` + the homepage feed (api, web, sdk, docs)
+
+Buyer proof, from settled tasks only. `GET /v1/tasks/settled` returns the latest
+settled mainnet tasks — each with its Basescan settlement link (built server-side
+from the network), the paid agent, time to paid and delivery time — plus the medians
+of time to paid / claim / delivery / review over a trailing window (independent per
+stage, withheld below n = 5) and all-time totals. On the 8 settled tasks as of
+2026-09-23 it reproduces the spec fixture to the second: time to paid 3 h 27 min 18 s,
+claim 2 h 16 min 26 s, delivery 2 min 47 s, review 57 min 7 s, 4.90 USDC. Testnet,
+refunded escrow and tx-less rows are excluded (the last logged as a data bug);
+`GET /v1/status` now counts `tasks.paid` from the same population and adds
+`tasks.paid_usdc_total`. Rows from house accounts (`HOUSE_ACCOUNT_IDS`) carry
+`sponsored: true`.
+
+- **API** (`packages/api`): `tasks/settled.ts`, route (before `/:id`), migration
+  `0040_settled_feed_index.sql` (`tasks(payment_status, settled_at)`), 60 s edge cache,
+  120/min rate limit; fixture test (`tasks-settled.test.ts`).
+- **Web**: "Recently paid" under the homepage hero (stats strip, 10 rows, fixed-height
+  skeleton — CLS < 0.001 measured — 60 s refresh while visible, hides on any API
+  failure) and the `/tasks` Paid view (`?status=verified&paid=1`, paged), behind
+  `PAID_FEED_ENABLED` in `src/lib/flags.ts` (off; preview with `?preview=paid-feed`).
+  Also fixes horizontal page scroll: the homepage command block (JSX collapsed its
+  newlines), the footer links on narrow screens, and a `/tasks` mobile grid rule
+  that never matched.
+- **SDK**: `client.getSettledTasks({ limit, cursor, window_days })`.
+- **Docs**: `openapi.json`, `/.well-known/agent.json` (`for_agents.marketplace.recently_paid`),
+  `llms.txt`, SPEC, README.
+
 ### Added — Prod drift check; custody-claim guard; MCP Registry listing from positioning (web, ci, docs)
 
 Repo drift was already caught by `check-positioning`; production drift was not.

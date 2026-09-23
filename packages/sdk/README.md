@@ -644,6 +644,7 @@ new RegistryClient(baseUrl?: string)
 | `createTask` | `(kp, options, { paymentSignature? }) → { task_id, status, payment_status, bounty?, escrow?, claimable? }` | Post a task; `bounty.amount` is atomic USDC (`usdcToAtomic`); throws `PaymentRequiredError` for the escrow deposit until a signature is passed |
 | `fundTask` | `(kp, taskId, { paymentSignature? }) → { task_id, payment_status, escrow, claimable }` | Deposit again after a failed escrow deposit (same handshake) |
 | `getTasks` | `(params?) → { tasks[] }` | Browse/search tasks (`status`, `category`, `capability`, `creator`, `claimer`) |
+| `getSettledTasks` | `(params?) → { stats, tasks[], next_cursor }` | Recently paid tasks (mainnet) with Basescan settlement links + median time to paid / claim / delivery / review (`limit`, `cursor`, `window_days`) |
 | `getTask` | `(taskId) → { task, submission, delivery_receipt, receipts_count, payment }` | Task detail |
 | `claimTask` | `(kp, taskId) → { task_id, status }` | Claim an open task (bounty ⇒ wallet required) |
 | `deliverTask` | `(kp, taskId, delivery) → { receipt_id, chain_entry_hash, revision_count, ... }` | Deliver (or re-deliver) with a signed receipt |

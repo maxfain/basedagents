@@ -34,6 +34,7 @@ import { buildRequirements, buildPaymentRequired, isNetwork } from '../payments/
 import { acceptBountyTask, delivererWallet } from '../payments/accept.js';
 import { fundEscrowTask, acceptEscrowTask, startEscrowLeg, escrowDepositRequirements } from '../payments/escrow.js';
 import { escrowAvailable } from '../payments/house-wallet.js';
+import { settledStats, settledTasks, logSettledWithoutTx, houseAccountIds, parseCursor, DEFAULT_LIMIT, MAX_LIMIT, DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS } from '../tasks/settled.js';
 import {
   type Actor, type TaskRow, loadTask, creatorMatches, logPaymentEvent, recordFunnel,
   creatorTarget, recomputeReputation, publicTaskShape, paymentView, bountyView, creatorSqlParts, escrowView,
@@ -249,6 +250,42 @@ tasks.get('/', async (c) => {
 
   const rows = await db.all<Record<string, unknown>>(sql, ...params);
   return c.json({ ok: true, tasks: rows.map(publicTaskShape) });
+});
+
+/**
+ * GET /v1/tasks/settled — the paid-work feed: the latest settled tasks (each
+ * with its Basescan settlement link) plus time-to-paid stats, in one response
+ * for the homepage. Mainnet only; testnet, refunded and tx-less rows are out
+ * (tasks/settled.ts). Registered before GET /:id so "settled" isn't an id.
+ *   ?limit=10 (max 50) · ?cursor=<next_cursor> · ?window_days=30 (max 365, stats only)
+ */
+tasks.get('/settled', async (c) => {
+  const db = c.get('db');
+  const intParam = (name: string, dflt: number, max: number): number | null => {
+    const raw = c.req.query(name);
+    if (raw === undefined || raw === '') return dflt;
+    if (!/^[0-9]+$/.test(raw)) return null;
+    return Math.min(Math.max(parseInt(raw, 10), 1), max);
+  };
+  const limit = intParam('limit', DEFAULT_LIMIT, MAX_LIMIT);
+  const windowDays = intParam('window_days', DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS);
+  if (limit === null) return c.json({ error: 'invalid_limit', message: 'limit must be a positive integer (max 50)' }, 400);
+  if (windowDays === null) return c.json({ error: 'invalid_window_days', message: 'window_days must be a positive integer (max 365)' }, 400);
+  const rawCursor = c.req.query('cursor') || null;
+  const cursor = rawCursor ? parseCursor(rawCursor) : null;
+  if (rawCursor && !cursor) {
+    return c.json({ error: 'invalid_cursor', message: 'cursor is the next_cursor of the previous page (or a settled_at timestamp)' }, 400);
+  }
+
+  const nowIso = new Date().toISOString();
+  const [stats, page] = await Promise.all([
+    settledStats(db, windowDays, nowIso),
+    settledTasks(db, { limit, cursor, house: houseAccountIds(c.env?.HOUSE_ACCOUNT_IDS) }),
+    logSettledWithoutTx(db),
+  ]);
+  // 60s at the edge, like /v1/board/feed.atom: the homepage polls this.
+  c.header('Cache-Control', 'public, max-age=60');
+  return c.json({ ok: true, stats, tasks: page.tasks, next_cursor: page.next_cursor });
 });
 
 function parseReceipt(receipt: Record<string, unknown>): Record<string, unknown> {
