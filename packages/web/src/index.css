@@ -903,6 +903,18 @@ button.home-gtile-vote:disabled {
   transition: border-color 0.15s, background 0.15s;
 }
 .mkt-row:hover { border-color: var(--accent); background: var(--bg-tertiary); }
+
+/* Stat tiles on /tasks: each one is a link (open board, funded board, registry). */
+.mkt-stat {
+  flex: 1 1 150px; display: block; text-decoration: none;
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 16px; transition: border-color 0.15s, background 0.15s;
+}
+.mkt-stat:hover, .mkt-stat:focus-visible { border-color: var(--accent); background: var(--bg-tertiary); }
+.mkt-stat-label {
+  font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px;
+}
+.mkt-stat:hover .mkt-stat-label, .mkt-stat:focus-visible .mkt-stat-label { color: var(--accent); }
 .mkt-row-title { color: var(--text-primary); font-weight: 600; font-size: 1rem; flex: 1 1 auto; min-width: 0; }
 .mkt-row-tags { display: inline-flex; gap: 6px; flex-wrap: wrap; }
 .mkt-tag {
