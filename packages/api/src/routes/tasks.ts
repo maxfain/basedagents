@@ -34,7 +34,7 @@ import { buildRequirements, buildPaymentRequired, isNetwork } from '../payments/
 import { acceptBountyTask, delivererWallet } from '../payments/accept.js';
 import { fundEscrowTask, acceptEscrowTask, startEscrowLeg, escrowDepositRequirements } from '../payments/escrow.js';
 import { escrowAvailable } from '../payments/house-wallet.js';
-import { settledStats, settledTasks, logSettledWithoutTx, houseAccountIds, DEFAULT_LIMIT, MAX_LIMIT, DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS } from '../tasks/settled.js';
+import { settledStats, settledTasks, logSettledWithoutTx, houseAccountIds, parseCursor, DEFAULT_LIMIT, MAX_LIMIT, DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS } from '../tasks/settled.js';
 import {
   type Actor, type TaskRow, loadTask, creatorMatches, logPaymentEvent, recordFunnel,
   creatorTarget, recomputeReputation, publicTaskShape, paymentView, bountyView, creatorSqlParts, escrowView,
@@ -257,7 +257,7 @@ tasks.get('/', async (c) => {
  * with its Basescan settlement link) plus time-to-paid stats, in one response
  * for the homepage. Mainnet only; testnet, refunded and tx-less rows are out
  * (tasks/settled.ts). Registered before GET /:id so "settled" isn't an id.
- *   ?limit=10 (max 50) · ?cursor=<settled_at of the last row> · ?window_days=30 (max 365, stats only)
+ *   ?limit=10 (max 50) · ?cursor=<next_cursor> · ?window_days=30 (max 365, stats only)
  */
 tasks.get('/settled', async (c) => {
   const db = c.get('db');
@@ -271,9 +271,10 @@ tasks.get('/settled', async (c) => {
   const windowDays = intParam('window_days', DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS);
   if (limit === null) return c.json({ error: 'invalid_limit', message: 'limit must be a positive integer (max 50)' }, 400);
   if (windowDays === null) return c.json({ error: 'invalid_window_days', message: 'window_days must be a positive integer (max 365)' }, 400);
-  const cursor = c.req.query('cursor') || null;
-  if (cursor && Number.isNaN(Date.parse(cursor))) {
-    return c.json({ error: 'invalid_cursor', message: 'cursor is the settled_at timestamp of the last row you received' }, 400);
+  const rawCursor = c.req.query('cursor') || null;
+  const cursor = rawCursor ? parseCursor(rawCursor) : null;
+  if (rawCursor && !cursor) {
+    return c.json({ error: 'invalid_cursor', message: 'cursor is the next_cursor of the previous page (or a settled_at timestamp)' }, 400);
   }
 
   const nowIso = new Date().toISOString();

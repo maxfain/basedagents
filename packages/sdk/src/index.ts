@@ -945,7 +945,7 @@ export class RegistryClient {
    * Recently paid tasks + time-to-paid stats (`GET /v1/tasks/settled`): the
    * latest settled mainnet tasks, each with its block-explorer settlement link,
    * and the medians of time to paid / claim / delivery / review over the
-   * trailing `window_days` (null below 5 tasks). Page older rows with
+   * trailing `window_days` (each null below 5 samples). Page older rows with
    * `cursor: page.next_cursor`. Public — no keypair.
    */
   async getSettledTasks(params?: SettledTasksParams): Promise<SettledTasksResponse> {
@@ -1496,7 +1496,7 @@ export interface TaskCreateOptions {
 export interface SettledTasksParams {
   /** Rows per page (default 10, max 50). */
   limit?: number;
-  /** `next_cursor` from the previous page (a `settled_at` timestamp). */
+  /** `next_cursor` from the previous page (`<settled_at>|<task_id>`). */
   cursor?: string;
   /** Stats window in days (default 30, max 365). The feed itself is not windowed. */
   window_days?: number;
@@ -1506,7 +1506,7 @@ export interface SettledStats {
   window_days: number;
   /** Settled tasks inside the window. */
   n: number;
-  /** The medians are null below this n. */
+  /** Each median is null below this many samples of its own stage. */
   min_n_for_medians: number;
   /** median(settled_at − created_at), seconds. */
   median_time_to_paid_s: number | null;

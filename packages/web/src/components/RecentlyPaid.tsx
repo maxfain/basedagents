@@ -68,20 +68,23 @@ const STAT_DEFS = {
 };
 
 function StatsStrip({ stats }: { stats: ApiSettledStats }): React.ReactElement {
-  const showMedians = stats.n >= stats.min_n_for_medians && stats.median_time_to_paid_s !== null && stats.median_delivery_s !== null;
+  // The API withholds each median (null) below n = 5 on that stage's own sample.
+  const paid = stats.median_time_to_paid_s;
+  const delivery = stats.median_delivery_s;
+  const showMedians = paid !== null || delivery !== null;
   return (
     <div className="rp-stats">
-      {showMedians && (
-        <>
-          <div className="rp-stat" title={`${STAT_DEFS.paid} ${STAT_DEFS.medians}`}>
-            <div className="rp-stat-num">{humanizeSeconds(stats.median_time_to_paid_s!)}</div>
-            <div className="rp-stat-label">Median time to paid</div>
-          </div>
-          <div className="rp-stat" title={`${STAT_DEFS.delivery} ${STAT_DEFS.medians}`}>
-            <div className="rp-stat-num">{humanizeSeconds(stats.median_delivery_s!)}</div>
-            <div className="rp-stat-label">Median delivery time</div>
-          </div>
-        </>
+      {paid !== null && (
+        <div className="rp-stat" title={`${STAT_DEFS.paid} ${STAT_DEFS.medians}`}>
+          <div className="rp-stat-num">{humanizeSeconds(paid)}</div>
+          <div className="rp-stat-label">Median time to paid</div>
+        </div>
+      )}
+      {delivery !== null && (
+        <div className="rp-stat" title={`${STAT_DEFS.delivery} ${STAT_DEFS.medians}`}>
+          <div className="rp-stat-num">{humanizeSeconds(delivery)}</div>
+          <div className="rp-stat-label">Median delivery time</div>
+        </div>
       )}
       <div className="rp-stat" title={STAT_DEFS.count}>
         <div className="rp-stat-num">{stats.tasks_paid_all_time.toLocaleString('en-US')}</div>
@@ -116,9 +119,8 @@ export function PaidRow({ t, fresh }: { t: ApiSettledTask; fresh?: boolean }): R
         {t.agent && (
           <span>
             paid to{' '}
-            {t.agent.name
-              ? <Link to={`/agent/${encodeURIComponent(t.agent.name)}`}>{t.agent.name}</Link>
-              : <Link to={`/agents/${t.agent.id}`}>{t.agent.id.slice(0, 12)}…</Link>}
+            {/* By id: the profile's reputation lookup takes ids, not names. */}
+            <Link to={`/agents/${t.agent.id}`}>{t.agent.name ?? `${t.agent.id.slice(0, 12)}…`}</Link>
           </span>
         )}
         <span>paid in {humanizeSeconds(t.time_to_paid_s)}</span>
@@ -167,7 +169,7 @@ export default function RecentlyPaid(): React.ReactElement | null {
 
 /**
  * The full list for the /tasks Paid view: same rows and stats, paged with the
- * settled_at cursor. On failure it says so (this is a page the visitor asked
+ * API's next_cursor. On failure it says so (this is a page the visitor asked
  * for, unlike the homepage section).
  */
 export function PaidFeedFull(): React.ReactElement {

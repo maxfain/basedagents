@@ -29,7 +29,7 @@ export function explorerTxUrl(network: string, txHash: string): string | null {
   return base && /^0x[0-9a-fA-F]{64}$/.test(txHash) ? `${base}${txHash}` : null;
 }
 
-/** Below this many tasks in the window the medians are withheld (null): too few to mean anything. */
+/** A median is withheld (null) when its own stage has fewer samples than this in the window: too few to mean anything. */
 export const MIN_N_FOR_MEDIANS = 5;
 export const DEFAULT_WINDOW_DAYS = 30;
 export const MAX_WINDOW_DAYS = 365;
@@ -45,11 +45,14 @@ export function medianSeconds(values: number[]): number | null {
 }
 
 const TX = `COALESCE(NULLIF(t.escrow_release_tx_hash, ''), NULLIF(t.payment_tx_hash, ''))`;
+/** SQL twin of explorerTxUrl's hash check (0x + 64 hex), so a malformed hash is out of the stats AND the feed. */
+const TX_VALID = `(length(${TX}) = 66 AND substr(${TX}, 1, 2) = '0x' AND NOT (lower(substr(${TX}, 3)) GLOB '*[^0-9a-f]*'))`;
 const NETS = PAID_NETWORKS.map((n) => `'${n}'`).join(',');
 /** Settled, mainnet, not refunded — before the tx-hash check (which splits "shown" from "data bug"). */
 const SETTLED_BASE = `t.payment_status = 'settled' AND t.bounty_network IN (${NETS}) AND t.settled_at IS NOT NULL
   AND COALESCE(t.escrow_status, '') != 'refunded'`;
-const PAID_WHERE = `${SETTLED_BASE} AND ${TX} IS NOT NULL`;
+/** Every PAID_NETWORKS entry has an explorer, so a valid hash here always renders a working link. */
+const PAID_WHERE = `${SETTLED_BASE} AND ${TX_VALID}`;
 /** First delivery: a revised task's submitted_at is its LAST delivery; the receipts keep every one. */
 const FIRST_SUBMITTED = `COALESCE((SELECT MIN(r.completed_at) FROM delivery_receipts r WHERE r.task_id = t.task_id), t.submitted_at)`;
 
@@ -113,8 +116,9 @@ export async function settledStats(db: DBAdapter, windowDays: number, nowIso: st
   );
   const pick = (f: (r: (typeof rows)[number]) => number | null) =>
     rows.map(f).filter((x): x is number => x !== null);
-  const enough = rows.length >= MIN_N_FOR_MEDIANS;
-  const med = (xs: number[]) => (enough ? medianSeconds(xs) : null);
+  // Each stage is withheld below n = 5 on ITS OWN sample (a stage can have
+  // fewer valid durations than there are settled rows).
+  const med = (xs: number[]) => (xs.length >= MIN_N_FOR_MEDIANS ? medianSeconds(xs) : null);
   const totals = await paidTotals(db);
   return {
     window_days: windowDays,
@@ -130,13 +134,31 @@ export async function settledStats(db: DBAdapter, windowDays: number, nowIso: st
   };
 }
 
+/**
+ * The page cursor: `<settled_at>|<task_id>` of the last row, so a page boundary
+ * inside a group of tasks settled at the same instant doesn't skip the rest of
+ * the group. A bare `<settled_at>` is accepted too (strictly older rows).
+ */
+export function parseCursor(raw: string): { settledAt: string; taskId: string | null } | null {
+  const [settledAt, taskId, extra] = raw.split('|');
+  if (extra !== undefined || !settledAt || Number.isNaN(Date.parse(settledAt))) return null;
+  if (taskId !== undefined && !/^task_[A-Za-z0-9_-]{1,64}$/.test(taskId)) return null;
+  return { settledAt, taskId: taskId ?? null };
+}
+
 export async function settledTasks(
   db: DBAdapter,
-  opts: { limit: number; cursor?: string | null; house: Set<string> },
+  opts: { limit: number; cursor?: { settledAt: string; taskId: string | null } | null; house: Set<string> },
 ): Promise<{ tasks: SettledTask[]; next_cursor: string | null }> {
   const params: unknown[] = [];
   let where = PAID_WHERE;
-  if (opts.cursor) { where += ` AND t.settled_at < ?`; params.push(opts.cursor); }
+  if (opts.cursor?.taskId) {
+    where += ` AND (t.settled_at < ? OR (t.settled_at = ? AND t.task_id < ?))`;
+    params.push(opts.cursor.settledAt, opts.cursor.settledAt, opts.cursor.taskId);
+  } else if (opts.cursor) {
+    where += ` AND t.settled_at < ?`;
+    params.push(opts.cursor.settledAt);
+  }
   const rows = await db.all<{
     task_id: string; title: string; category: string | null; bounty_amount: string; bounty_token: string | null; bounty_network: string;
     claimed_by_agent_id: string | null; claimer_name: string | null; creator_kind: string | null; creator_agent_id: string | null; creator_owner_id: string | null;
@@ -181,15 +203,16 @@ export async function settledTasks(
       explorer_url: explorer,
     });
   }
-  return { tasks, next_cursor: rows.length === opts.limit ? rows[rows.length - 1].settled_at : null };
+  const last = rows[rows.length - 1];
+  return { tasks, next_cursor: rows.length === opts.limit ? `${last.settled_at}|${last.task_id}` : null };
 }
 
-/** Settled rows with no tx hash — a data bug. Logged on every feed read so it can't hide. */
+/** Settled rows with a missing or malformed tx hash — a data bug. Logged on every feed read so it can't hide. */
 export async function logSettledWithoutTx(db: DBAdapter): Promise<string[]> {
   const bad = await db.all<{ task_id: string }>(
-    `SELECT t.task_id FROM tasks t WHERE ${SETTLED_BASE} AND ${TX} IS NULL LIMIT 20`,
+    `SELECT t.task_id FROM tasks t WHERE ${SETTLED_BASE} AND NOT COALESCE(${TX_VALID}, 0) LIMIT 20`,
   );
   const ids = bad.map((b) => b.task_id);
-  if (ids.length) console.error(`[settled] DATA BUG: settled task(s) without a settlement tx hash, excluded from the feed: ${ids.join(', ')}`);
+  if (ids.length) console.error(`[settled] DATA BUG: settled task(s) without a valid settlement tx hash, excluded from the feed and the stats: ${ids.join(', ')}`);
   return ids;
 }

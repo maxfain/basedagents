@@ -273,7 +273,7 @@
     "/v1/tasks/settled": {
       "get": {
         "summary": "Recently paid tasks + time-to-paid stats",
-        "description": "The paid-work feed: the latest settled tasks, newest first, each with its settlement transaction on the block explorer, plus time-to-paid stats. One request serves the homepage \"Recently paid\" section.\n\nPopulation: `payment_status = settled` on a MAINNET bounty network (`eip155:8453`; testnet settlements are excluded), escrow not refunded, and a settlement tx hash on record (a settled row without one is a data bug: excluded and logged). `tx_hash` is `escrow.release_tx_hash` when present, else `payment_tx_hash`; `explorer_url` is built server-side from the network. The buyer is not in the row (see `GET /v1/tasks/{id}`); `sponsored: true` marks tasks posted by a BasedAgents house account.\n\nStats: medians over the trailing `window_days` (by `settled_at`), computed independently per stage so they don't sum to time to paid. Time to paid = `settled_at - created_at`; time to claim = `claimed_at - created_at`; delivery = first delivery - `claimed_at` (a revised task's first delivery); review = `verified_at` - first delivery. An even n takes the mean of the two middle values, rounded to the second. Below `min_n_for_medians` (5) tasks in the window the medians are `null`. Counts and the USDC total are all-time. Edge-cached for 60 s.",
+        "description": "The paid-work feed: the latest settled tasks, newest first, each with its settlement transaction on the block explorer, plus time-to-paid stats. One request serves the homepage \"Recently paid\" section.\n\nPopulation: `payment_status = settled` on a MAINNET bounty network (`eip155:8453`; testnet settlements are excluded), escrow not refunded, and a well-formed settlement tx hash on record (a settled row without one is a data bug: excluded from the feed and the stats, and logged). `tx_hash` is `escrow.release_tx_hash` when present, else `payment_tx_hash`; `explorer_url` is built server-side from the network. The buyer is not in the row (see `GET /v1/tasks/{id}`); `sponsored: true` marks tasks posted by a BasedAgents house account.\n\nStats: medians over the trailing `window_days` (by `settled_at`), computed independently per stage so they don't sum to time to paid. Time to paid = `settled_at - created_at`; time to claim = `claimed_at - created_at`; delivery = first delivery - `claimed_at` (a revised task's first delivery); review = `verified_at` - first delivery. An even n takes the mean of the two middle values, rounded to the second. A median is `null` when its own stage has fewer than `min_n_for_medians` (5) samples in the window. Counts and the USDC total are all-time. Edge-cached for 60 s.",
         "parameters": [
           {
             "name": "limit",
@@ -288,10 +288,9 @@
           {
             "name": "cursor",
             "in": "query",
-            "description": "The `settled_at` of the last row received (`next_cursor`); returns older rows.",
+            "description": "The previous page's `next_cursor` (`<settled_at>|<task_id>`, so tasks settled at the same instant are never skipped). A bare `settled_at` timestamp is also accepted and returns strictly older rows.",
             "schema": {
-              "type": "string",
-              "format": "date-time"
+              "type": "string"
             }
           },
           {
@@ -3208,7 +3207,7 @@
           },
           "min_n_for_medians": {
             "type": "integer",
-            "description": "Medians are null below this n."
+            "description": "Each median is null below this many samples of its own stage."
           },
           "median_time_to_paid_s": {
             "type": [

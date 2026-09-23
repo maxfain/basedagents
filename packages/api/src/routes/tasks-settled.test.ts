@@ -181,13 +181,19 @@ describe('GET /v1/tasks/settled — exclusions', () => {
   it('excludes a settled row with no tx hash and logs it as a data bug', async () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     await seedSettled({ task_id: 'task_ok' });
-    await seedSettled({ task_id: 'task_notx', payment_tx_hash: null });
-    await seedSettled({ task_id: 'task_badtx', payment_tx_hash: 'not-a-hash' });
-    const { body } = await get('/v1/tasks/settled');
-    expect(body.tasks.map((t: { task_id: string }) => t.task_id)).toEqual(['task_ok']);
+    await seedSettled({ task_id: 'task_notx', payment_tx_hash: null, settled_at: '2026-09-21T12:00:00.000Z' });
+    await seedSettled({ task_id: 'task_badtx', payment_tx_hash: 'not-a-hash', settled_at: '2026-09-21T12:00:00.000Z' });
+    await seedSettled({ task_id: 'task_shorttx', payment_tx_hash: '0x1234', settled_at: '2026-09-21T12:00:00.000Z' });
+    await seedSettled({ task_id: 'task_nonhex', payment_tx_hash: `0x${'z'.repeat(64)}`, settled_at: '2026-09-21T12:00:00.000Z' });
+    const { body } = await get('/v1/tasks/settled?limit=1');
+    expect(body.tasks.map((t: { task_id: string }) => t.task_id)).toEqual(['task_ok']); // limit applies after the filter
+    expect(body.stats.tasks_paid_all_time).toBe(1);
+    expect(body.stats.usdc_paid_all_time).toBe('1.00');
     const logged = log.mock.calls.map((c) => String(c[0])).join('\n');
     expect(logged).toContain('task_notx');
     expect(logged).toContain('task_badtx');
+    expect(logged).toContain('task_shorttx');
+    expect(logged).toContain('task_nonhex');
     log.mockRestore();
   });
 });
@@ -202,6 +208,17 @@ describe('GET /v1/tasks/settled — stats rules', () => {
     });
     await seedSettled({ task_id: 'task_s5' });
     expect((await get('/v1/tasks/settled')).body.stats.median_time_to_paid_s).toBe(7200);
+  });
+
+  it('withholds a stage below n = 5 on its own sample, even when enough tasks settled', async () => {
+    for (let i = 0; i < 4; i++) await seedSettled({ task_id: `task_noclaim${i}`, claimed_at: null });
+    await seedSettled({ task_id: 'task_claimed' });
+    const { body } = await get('/v1/tasks/settled');
+    expect(body.stats.n).toBe(5);
+    expect(body.stats.median_time_to_paid_s).toBe(7200);   // 5 samples
+    expect(body.stats.median_review_s).toBe(3300);         // 5 samples
+    expect(body.stats.median_time_to_claim_s).toBeNull();  // 1 sample
+    expect(body.stats.median_delivery_s).toBeNull();       // 1 sample
   });
 
   it('windows the medians (window_days) but never the all-time counts or the feed', async () => {
@@ -234,13 +251,27 @@ describe('GET /v1/tasks/settled — stats rules', () => {
 });
 
 describe('GET /v1/tasks/settled — paging and params', () => {
+  it('never skips tasks settled at the same instant across a page boundary', async () => {
+    const at = '2026-09-22T12:00:00.000Z';
+    for (const id of ['task_t1', 'task_t2', 'task_t3', 'task_t4', 'task_t5']) await seedSettled({ task_id: id, settled_at: at, verified_at: at });
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const q: string = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
+      const page: SettledBody = (await get(`/v1/tasks/settled?limit=2${q}`)).body;
+      seen.push(...page.tasks.map((t) => t.task_id));
+      cursor = page.next_cursor;
+    } while (cursor);
+    expect(seen).toEqual(['task_t5', 'task_t4', 'task_t3', 'task_t2', 'task_t1']);
+  });
+
   it('pages with the settled_at cursor', async () => {
     for (let i = 0; i < 5; i++) {
       await seedSettled({ task_id: `task_p${i}`, settled_at: `2026-09-2${i}T12:00:00.000Z`, verified_at: `2026-09-2${i}T12:00:00.000Z` });
     }
     const p1 = (await get('/v1/tasks/settled?limit=2')).body;
     expect(p1.tasks.map((t: { task_id: string }) => t.task_id)).toEqual(['task_p4', 'task_p3']);
-    expect(p1.next_cursor).toBe('2026-09-23T12:00:00.000Z');
+    expect(p1.next_cursor).toBe('2026-09-23T12:00:00.000Z|task_p3');
     const p2 = (await get(`/v1/tasks/settled?limit=2&cursor=${encodeURIComponent(p1.next_cursor!)}`)).body;
     expect(p2.tasks.map((t: { task_id: string }) => t.task_id)).toEqual(['task_p2', 'task_p1']);
     const p3 = (await get(`/v1/tasks/settled?limit=2&cursor=${encodeURIComponent(p2.next_cursor!)}`)).body;
@@ -253,6 +284,9 @@ describe('GET /v1/tasks/settled — paging and params', () => {
     expect((await get('/v1/tasks/settled?limit=abc')).res.status).toBe(400);
     expect((await get('/v1/tasks/settled?window_days=-3')).res.status).toBe(400);
     expect((await get('/v1/tasks/settled?cursor=yesterday')).res.status).toBe(400);
+    expect((await get(`/v1/tasks/settled?cursor=${encodeURIComponent("2026-09-22T12:00:00.000Z|'; DROP")}`)).res.status).toBe(400);
+    // a bare settled_at still works (strictly older rows)
+    expect((await get(`/v1/tasks/settled?cursor=${encodeURIComponent('2026-09-22T12:00:00.000Z')}`)).res.status).toBe(200);
   });
 
   it('is not captured by GET /v1/tasks/:id', async () => {
