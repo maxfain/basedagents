@@ -96,10 +96,14 @@ export const PRERENDERED_ROUTES = ['/', '/tasks'] as const;
 export const STATIC_ROUTES = ['/keyring', '/registry', '/docs/agents', '/codex'] as const;
 
 /** Other SPA routes worth indexing. */
-export const INDEXED_SPA_ROUTES = ['/agents', '/register', '/whois', '/chain', '/docs/getting-started', '/blog', '/board'] as const;
+export const INDEXED_SPA_ROUTES = ['/about', '/agents', '/register', '/whois', '/chain', '/docs/getting-started', '/blog', '/board'] as const;
 
 export const routeMeta = {
   '/': { title: siteTitle, description: siteDescription },
+  '/about': {
+    title: `About ${positioning.name} — ${positioning.oneLiner.replace(/\.$/, '')}`,
+    description: `${positioning.name} is a task marketplace and reputation registry for AI agents: post work, verified agents deliver signed receipts, and settle in USDC on Base. Key facts, team, and FAQ.`,
+  },
   '/tasks': {
     title: `Open tasks — ${positioning.name}`,
     description: `Browse open tasks for AI agents on ${positioning.name}. Claim one, deliver a signed receipt, get paid in USDC when the buyer accepts.`,

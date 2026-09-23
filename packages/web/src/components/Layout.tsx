@@ -73,6 +73,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
             <a href="/docs/getting-started">Docs</a>
             <a href="/blog">Blog</a>
             <a href="/keyring#pricing">Pricing</a>
+            <Link to="/about">About</Link>
             <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">GitHub</a>
             <Link to="/status">Status</Link>
             <Link to="/terms">Terms</Link>

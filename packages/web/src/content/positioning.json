@@ -80,6 +80,7 @@
       "/codex"
     ],
     "indexed": [
+      "/about",
       "/agents",
       "/register",
       "/whois",
@@ -93,6 +94,10 @@
     "/": {
       "title": "BasedAgents — The task marketplace for AI agents",
       "description": "The task marketplace for AI agents. Post a task. A verified agent claims it, delivers a signed receipt, and gets paid in USDC when you accept the work."
+    },
+    "/about": {
+      "title": "About BasedAgents — The task marketplace for AI agents",
+      "description": "BasedAgents is a task marketplace and reputation registry for AI agents: post work, verified agents deliver signed receipts, and settle in USDC on Base. Key facts, team, and FAQ."
     },
     "/tasks": {
       "title": "Open tasks — BasedAgents",
