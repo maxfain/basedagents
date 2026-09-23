@@ -88,6 +88,20 @@ export default function Marketplace(): React.ReactElement {
   // "Payout history" is a client-side view over settled payments — visitors can
   // inspect what task runners were actually paid without signing in.
   const [paidOnly, setPaidOnly] = useState(false);
+  // Funded-only view: open tasks that carry a USDC bounty (the "Open bounties"
+  // tile). Represented in the URL as `?funded=1` so the tile works as a real
+  // link (new tab, middle click, copy) — read once after hydration, never during
+  // the prerender, so the static markup stays the default view.
+  const [fundedOnly, setFundedOnly] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('funded') === '1') setFundedOnly(true);
+  }, []);
+  // The one way to change the funded view: state and URL move together, so a
+  // reload or a copied link always reflects what the board shows.
+  const applyFunded = (funded: boolean, hash = ''): void => {
+    setFundedOnly(funded);
+    window.history.replaceState(null, '', `/tasks${funded ? '?funded=1' : ''}${hash}`);
+  };
   const paidTotal = usePaidTotal();
 
   useRouteMeta('/tasks');
@@ -167,17 +181,36 @@ export default function Marketplace(): React.ReactElement {
     let list = tasks;
     // Payout-history view: only tasks whose bounty has actually settled.
     if (paidOnly) list = list.filter(t => t.payment_status === 'settled');
+    if (fundedOnly) list = list.filter(t => bountyUsdc(t) > 0);
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(t => t.title.toLowerCase().includes(q));
     }
     return list;
-  }, [tasks, search, paidOnly]);
+  }, [tasks, search, paidOnly, fundedOnly]);
 
   // "View payout history" clears status/category so the settled filter can see
   // every accepted task, flips to the paid-only view, and jumps to the list.
+  const scrollToBoard = (): void => {
+    requestAnimationFrame(() => {
+      document.getElementById('tasks')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  // The stat tiles are links: "Open tasks" jumps to the open board, "Open
+  // bounties" to the open board narrowed to funded tasks.
+  const viewOpenTasks = (funded: boolean): void => {
+    setPaidOnly(false);
+    applyFunded(funded, '#tasks');
+    setStatusFilter('open');
+    setCategoryFilter('');
+    setSearch('');
+    scrollToBoard();
+  };
+
   const viewPayoutHistory = (): void => {
     setPaidOnly(true);
+    applyFunded(false);
     setStatusFilter('');
     setCategoryFilter('');
     setSearch('');
@@ -261,22 +294,22 @@ export default function Marketplace(): React.ReactElement {
             </div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               {[
-                { stat: openStat, fmt: (v: number) => String(v), label: 'Open tasks', color: 'var(--text-primary)' },
-                { stat: bountyStat, fmt: (v: number) => `${v.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC`, label: 'Open bounties', color: 'var(--accent-light)' },
-                { stat: agentStat, fmt: (v: number) => String(v), label: 'Registered agents', color: 'var(--text-primary)' },
+                { stat: openStat, fmt: (v: number) => String(v), label: 'Open tasks', color: 'var(--text-primary)', href: '#tasks', title: 'Jump to the open tasks', onClick: () => viewOpenTasks(false) },
+                { stat: bountyStat, fmt: (v: number) => `${v.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC`, label: 'Open bounties', color: 'var(--accent-light)', href: '/tasks?funded=1#tasks', title: 'Show the open tasks that carry a bounty', onClick: () => viewOpenTasks(true) },
+                { stat: agentStat, fmt: (v: number) => String(v), label: 'Registered agents', color: 'var(--text-primary)', href: '/registry', title: 'Browse the agent registry', onClick: undefined },
               ].map((s) => (
-                <div key={s.label} style={{
-                  flex: '1 1 150px',
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 10,
-                  padding: '12px 16px',
-                }}>
+                <a
+                  key={s.label}
+                  className="mkt-stat"
+                  href={s.href}
+                  title={s.title}
+                  onClick={s.onClick ? (e) => { e.preventDefault(); s.onClick(); } : undefined}
+                >
                   <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--font-mono)', color: s.color }}>
                     <StatValue stat={s.stat} format={s.fmt} />
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>{s.label}</div>
-                </div>
+                  <div className="mkt-stat-label">{s.label} <span aria-hidden="true">→</span></div>
+                </a>
               ))}
             </div>
           </div>
@@ -330,7 +363,7 @@ export default function Marketplace(): React.ReactElement {
           {/* Section header */}
           <div id="tasks" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12, scrollMarginTop: 80 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <h2 style={{ margin: 0 }}>{paidOnly ? 'Payout history' : 'Open tasks'}</h2>
+              <h2 style={{ margin: 0 }}>{paidOnly ? 'Payout history' : fundedOnly ? 'Open tasks with a bounty' : 'Open tasks'}</h2>
               <span style={{
                 background: 'var(--accent-muted)',
                 color: 'var(--accent)',
@@ -343,13 +376,13 @@ export default function Marketplace(): React.ReactElement {
                 {loading ? '...' : filtered.length}
               </span>
             </div>
-            {paidOnly ? (
+            {paidOnly || fundedOnly ? (
               <button
                 type="button"
-                onClick={() => { setPaidOnly(false); setStatusFilter('open'); }}
+                onClick={() => { setPaidOnly(false); applyFunded(false); setStatusFilter('open'); setCategoryFilter(''); setSearch(''); }}
                 style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 14, fontWeight: 500, cursor: 'pointer', padding: 0 }}
               >
-                ← Back to open tasks
+                ← {paidOnly ? 'Back to open tasks' : 'All open tasks'}
               </button>
             ) : (
               <a
@@ -419,7 +452,7 @@ export default function Marketplace(): React.ReactElement {
             )}
             {!paidOnly && (statusFilter || categoryFilter || search) && (
               <button
-                onClick={() => { setStatusFilter(''); setCategoryFilter(''); setSearch(''); }}
+                onClick={() => { setStatusFilter(''); setCategoryFilter(''); setSearch(''); applyFunded(false); }}
                 style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 13, cursor: 'pointer', padding: '8px 4px' }}
               >
                 Clear
@@ -459,7 +492,7 @@ export default function Marketplace(): React.ReactElement {
                 <p>No matching paid tasks right now.</p>
               )}
               <button
-                onClick={() => { setStatusFilter('open'); setCategoryFilter(''); setSearch(''); setPaidOnly(false); }}
+                onClick={() => { setStatusFilter('open'); setCategoryFilter(''); setSearch(''); setPaidOnly(false); applyFunded(false); }}
                 style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', marginTop: 8, fontSize: 14 }}
               >
                 {paidOnly ? '← Back to open tasks' : 'Clear filters'}
