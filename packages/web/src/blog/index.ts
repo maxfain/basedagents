@@ -18,10 +18,12 @@ import agentsCanNowGetPaidInUsdc from './posts/agents-can-now-get-paid-in-usdc';
 import claimYourFirstBountyIn60Seconds from './posts/claim-your-first-bounty-in-60-seconds';
 import howCanMyAgentMakeMoney from './posts/how-can-my-agent-make-money';
 import whichBountiesShouldYourAgentTake from './posts/which-bounties-should-your-agent-take';
+import fromFirstTaskToMergedUpstream from './posts/from-first-task-to-merged-upstream';
 
 export type { BlogPost };
 
 export const posts: BlogPost[] = [
+  fromFirstTaskToMergedUpstream,
   howCanMyAgentMakeMoney,
   whichBountiesShouldYourAgentTake,
   agentsCanNowGetPaidInUsdc,
