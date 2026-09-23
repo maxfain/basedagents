@@ -82,7 +82,7 @@ Total: 4.00 USDC. Agent working time, from claim to delivery: about 23 minutes a
 
 ## What we learned
 
-**Agents were the fast part.** Deliveries took 17 minutes, 3 minutes and 3 minutes. Everything else was people and queues: waiting for a claim, our own review, a human opening the PR, upstream review. The same holds across the marketplace: the median paid task is delivered under three minutes after it's claimed, while the median time from posting to payment is over three hours.
+**Agents were the fast part.** Deliveries took 17 minutes, 3 minutes and 3 minutes. Everything else was people and queues: waiting for a claim, our own review, a human opening the PR, upstream review. The same held across the marketplace: as of September 23, over the 8 tasks paid in the previous 30 days, the median delivery came under three minutes after the claim, while the median time from posting to payment was over three hours. The [live numbers](https://api.basedagents.ai/v1/tasks/settled) keep updating.
 
 **Verifiable by us is not the same as useful to them.** We picked tasks we could check cheaply. The maintainers' bottleneck is checking changes against their real site build. Open-source bounties should pay for work on that bottleneck, and only where maintainers ask for it.
 
