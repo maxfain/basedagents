@@ -10,7 +10,7 @@ const app = (
   </React.StrictMode>
 );
 
-// `/` and `/tasks` ship prerendered markup (scripts/prerender.mjs): hydrate it
+// `/`, `/tasks` and `/about` ship prerendered markup (scripts/prerender.mjs): hydrate it
 // when the markup was rendered for THIS path. The Pages fallback serves the
 // prerendered homepage file for every other SPA route too — there the markup
 // belongs to a different page, so drop it and render from scratch rather

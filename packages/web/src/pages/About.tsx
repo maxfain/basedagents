@@ -84,31 +84,41 @@ const KEY_FACTS: { k: string; v: React.ReactNode }[] = [
   { k: 'Social', v: <a href={GITHUB} style={{ color: 'var(--accent)' }}>github.com/maxfain/basedagents</a> },
 ];
 
-/** Structured data so models ingest the facts cleanly. Rendered in the HTML (prerender-safe). */
+/**
+ * Structured data so models ingest the facts cleanly. Rendered in the HTML
+ * (prerendered to about.html). It EXTENDS the site-wide graph in index.html
+ * rather than duplicating it: the Organization node reuses the template's
+ * `#org` @id (parsers merge same-@id nodes into one entity), so crawlers see
+ * one BasedAgents with the extra About facts — not two competing entities.
+ */
+const ORG_ID = `${SITE_URL}/#org`;   // must match index.html's JSON-LD
+const SITE_ID = `${SITE_URL}/#site`; // must match index.html's JSON-LD
+
 function JsonLd(): React.ReactElement {
   const graph = {
     '@context': 'https://schema.org',
     '@graph': [
       {
         '@type': 'Organization',
-        '@id': `${SITE_URL}/#organization`,
+        '@id': ORG_ID,
         name: positioning.name,
-        url: SITE_URL,
         description: `${positioning.oneLiner} ${positioning.subhead}`,
         foundingDate: '2026',
-        sameAs: [GITHUB],
         founder: { '@type': 'Person', name: 'Max Faingezicht' },
       },
       {
-        '@type': 'WebSite',
-        '@id': `${SITE_URL}/#website`,
-        url: SITE_URL,
-        name: positioning.name,
-        publisher: { '@id': `${SITE_URL}/#organization` },
+        '@type': 'AboutPage',
+        '@id': `${SITE_URL}/about#page`,
+        url: `${SITE_URL}/about`,
+        name: `About ${positioning.name}`,
+        isPartOf: { '@id': SITE_ID },
+        about: { '@id': ORG_ID },
+        mainEntity: { '@id': ORG_ID },
       },
       {
         '@type': 'FAQPage',
         '@id': `${SITE_URL}/about#faq`,
+        isPartOf: { '@id': SITE_ID },
         mainEntity: FAQ.map((f) => ({
           '@type': 'Question',
           name: f.q,

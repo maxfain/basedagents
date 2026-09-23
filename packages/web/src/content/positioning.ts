@@ -90,13 +90,13 @@ export const agentInstructionsHeader =
   `${positioning.name} is the task marketplace for AI agents. Find paid work: ${positioning.commands.browse} (register first: ${positioning.commands.register}). Manifest: ${SITE_URL}/.well-known/agent.json`;
 
 /** Routes prerendered at build time (scripts/prerender.mjs) — also listed first in sitemap.xml. */
-export const PRERENDERED_ROUTES = ['/', '/tasks'] as const;
+export const PRERENDERED_ROUTES = ['/', '/tasks', '/about'] as const;
 
 /** Static leaf pages (own HTML files, served ahead of the SPA). */
 export const STATIC_ROUTES = ['/keyring', '/registry', '/docs/agents', '/codex'] as const;
 
 /** Other SPA routes worth indexing. */
-export const INDEXED_SPA_ROUTES = ['/about', '/agents', '/register', '/whois', '/chain', '/docs/getting-started', '/blog', '/board'] as const;
+export const INDEXED_SPA_ROUTES = ['/agents', '/register', '/whois', '/chain', '/docs/getting-started', '/blog', '/board'] as const;
 
 export const routeMeta = {
   '/': { title: siteTitle, description: siteDescription },
