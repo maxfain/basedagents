@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Prerender `/` and `/tasks` into static HTML after `vite build` (POSITIONING_SPEC.md §A1).
+ * Prerender `/`, `/tasks` and `/about` into static HTML after `vite build` (POSITIONING_SPEC.md §A1).
  *
  *   1. `vite build --ssr src/entry-server.tsx --outDir dist-ssr` → a Node bundle
  *      exporting render(url);
@@ -8,7 +8,7 @@
  *      it into the built dist/index.html (same hashed assets, so hydration
  *      matches byte for byte);
  *   3. per-route <title>/description/canonical/og from positioning.routeMeta;
- *   4. write dist/index.html (/) and dist/tasks.html (served at /tasks) —
+ *   4. write dist/index.html (/) and dist/<route>.html (e.g. tasks.html, served at /tasks) —
  *      Cloudflare Pages serves both ahead of the `/* → /index.html` fallback.
  *
  * Dynamic sections render their stable placeholder (loading state) here and
