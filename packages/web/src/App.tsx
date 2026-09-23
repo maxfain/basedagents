@@ -11,6 +11,7 @@ import GettingStarted from './pages/GettingStarted';
 import Status from './pages/Status';
 import Whois from './pages/Whois';
 import Terms from './pages/Terms';
+import About from './pages/About';
 import Privacy from './pages/Privacy';
 import Register from './pages/Register';
 import Integrations from './pages/Integrations';
@@ -122,6 +123,7 @@ export function AppRoutes(): React.ReactElement {
               <Route path="/blog"                element={<Blog />} />
               <Route path="/blog/:slug"          element={<BlogPost />} />
               <Route path="/integrations"        element={<Integrations />} />
+              <Route path="/about"               element={<About />} />
               <Route path="/terms"               element={<Terms />} />
               <Route path="/privacy"             element={<Privacy />} />
               {/* Legacy SPA-shell path from the reverted homepage attempt — some
