@@ -143,7 +143,9 @@ export function parseCursor(raw: string): { settledAt: string; taskId: string | 
   const [settledAt, taskId, extra] = raw.split('|');
   if (extra !== undefined || !settledAt || Number.isNaN(Date.parse(settledAt))) return null;
   if (taskId !== undefined && !/^task_[A-Za-z0-9_-]{1,64}$/.test(taskId)) return null;
-  return { settledAt, taskId: taskId ?? null };
+  // settled_at is stored as toISOString() and compared as TEXT: normalize, so
+  // "…T12:00:00+00:00" matches the stored "…T12:00:00.000Z" in the tie-break.
+  return { settledAt: new Date(settledAt).toISOString(), taskId: taskId ?? null };
 }
 
 export async function settledTasks(

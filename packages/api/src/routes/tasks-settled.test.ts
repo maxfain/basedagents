@@ -263,6 +263,9 @@ describe('GET /v1/tasks/settled — paging and params', () => {
       cursor = page.next_cursor;
     } while (cursor);
     expect(seen).toEqual(['task_t5', 'task_t4', 'task_t3', 'task_t2', 'task_t1']);
+    // the same instant written another way still hits the tie-break
+    const alt = (await get(`/v1/tasks/settled?limit=2&cursor=${encodeURIComponent('2026-09-22T12:00:00+00:00|task_t4')}`)).body;
+    expect(alt.tasks.map((t) => t.task_id)).toEqual(['task_t3', 'task_t2']);
   });
 
   it('pages with the settled_at cursor', async () => {
