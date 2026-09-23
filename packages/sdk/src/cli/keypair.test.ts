@@ -5,7 +5,11 @@
  * simulating the multi-keypair selection logic from wallet.ts.
  */
 import { describe, it, expect } from 'vitest';
-import { generateKeypair, serializeKeypair, deserializeKeypair, publicKeyToAgentId } from '../index.js';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { generateKeypair, serializeKeypair, deserializeKeypair, publicKeyToAgentId, base58Encode } from '../index.js';
+import { loadKeypair } from './wallet.js';
 
 describe('loadKeypair — keypair round-trip (NEW-2)', () => {
   it('generates a valid keypair', async () => {
@@ -49,6 +53,46 @@ describe('loadKeypair — keypair round-trip (NEW-2)', () => {
     const id1 = publicKeyToAgentId(kp1.publicKey);
     const id2 = publicKeyToAgentId(kp2.publicKey);
     expect(id1).not.toBe(id2);
+  });
+});
+
+describe('deserializeKeypair — legacy shape (public_key_b58 / private_key_hex)', () => {
+  /** The legacy file shape written by the Python SDK, the MCP server and scripts/register-*.mjs. */
+  function legacyFile(kp: { publicKey: Uint8Array; privateKey: Uint8Array }): string {
+    const { privateKey } = JSON.parse(serializeKeypair(kp)) as { privateKey: string };
+    return JSON.stringify({
+      agent_id: publicKeyToAgentId(kp.publicKey),
+      public_key_b58: base58Encode(kp.publicKey), // base58, NOT hex — decoded with base58Decode
+      private_key_hex: privateKey,
+    });
+  }
+
+  it('deserializes a legacy file to the same key bytes as the generated keypair', async () => {
+    const kp = await generateKeypair();
+    const restored = deserializeKeypair(legacyFile(kp));
+    expect(restored.publicKey).toEqual(kp.publicKey);
+    expect(restored.privateKey).toEqual(kp.privateKey);
+  });
+
+  it('throws an error naming both accepted formats on an unrecognized shape', () => {
+    let message = '';
+    try { deserializeKeypair(JSON.stringify({ some: 'other', shape: true })); } catch (e) { message = (e as Error).message; }
+    expect(message).toContain('publicKey');       // the SDK hex shape
+    expect(message).toContain('public_key_b58');  // the legacy shape
+  });
+
+  it('loadKeypair reads a legacy-shape file given as a --keypair path (the path that was broken)', async () => {
+    const kp = await generateKeypair();
+    const dir = mkdtempSync(join(tmpdir(), 'ba-keys-'));
+    const file = join(dir, 'hans-keypair.json');
+    writeFileSync(file, legacyFile(kp));
+    try {
+      const loaded = loadKeypair(file);
+      expect(loaded.publicKey).toEqual(kp.publicKey);
+      expect(loaded.privateKey).toEqual(kp.privateKey);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
