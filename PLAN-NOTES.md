@@ -53,6 +53,8 @@ These are live today and documented in SPEC.md, `/docs/agents`, `llms.txt`, the 
 - `wrangler pages deploy` compiles `functions/` from the **current directory**. Both Pages deploy steps run from the repo root today. To give the site and the console separate functions, each deploy step runs from its own package directory.
 - CI deploys a **console** preview per PR. There is no site preview and no API preview (the API's `staging` environment is deployed by hand). WS1 adds a site preview job that runs the front-door checks against the preview URL. API behavior is covered by route tests and the post-deploy drift check.
 
-## Order
+## Status
 
-WS1 first, then WS5 (no money involved), as one PR each. WS2 and WS3 wait for decisions D1–D12.
+- **WS1 (front door): shipped in #136.** Covers the skill (v1.0.0 → 1.1.0), `skill.json`, `/.well-known/basedagents.json` on three hosts, `/` negotiation, `llms-full.txt`, the homepage "Send this to your agent" block, CLI one-liners (`id`, `register --name…`, `tasks list --min-usdc`, `tasks submit`, `tasks watch`), ETag/304, and the CI drift and live front-door checks. `wallet init` (WS2) and `verify-proof` (WS4) wait for their workstreams.
+- **WS5 (feedback): this PR.** Covers `POST /v1/feedback`, `X-Request-Id`, version telemetry, the daily digest, `/changelog(.json)`, the admin triage page and `basedagents feedback`. The notification targets are secrets to set once: `FEEDBACK_NOTIFY_EMAIL`, and `FEEDBACK_SLACK_WEBHOOK_URL` (optional).
+- **WS2, WS3, WS4, WS6, WS7: not started.** They wait on decisions D1–D12 above. WS4 proof pages depend on WS3's APPROVED semantics (D10, D11). WS7's scout loop depends on the fee, the minimum task amount and the A2A funding relay (D3, D4, D8).

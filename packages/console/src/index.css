@@ -379,3 +379,14 @@ a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 .queue-title:hover { text-decoration: underline; }
 .queue-amount { font-family: var(--mono); font-size: 0.85rem; color: var(--ok); white-space: nowrap; }
 .queue-meta { font-size: 0.82rem; }
+
+/* ── /admin/feedback (operator triage, WS5) ── */
+.fb-tabs { margin: 0.5rem 0 1rem; flex-wrap: wrap; }
+.fb-card .card-main { min-width: 0; width: 100%; }
+.fb-field { margin-top: 0.6rem; }
+.fb-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.fb-value { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.9rem; }
+.fb-chip { display: inline-block; margin: 0.15rem 0.35rem 0 0; }
+.fb-actions { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin-top: 0.9rem; }
+.fb-note { flex: 1 1 16rem; min-width: 0; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 0.45rem 0.6rem; }
+.fb-note:focus { outline: none; border-color: var(--accent-strong); }

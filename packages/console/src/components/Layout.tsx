@@ -65,6 +65,7 @@ export default function Layout() {
         <NavLink to="/approvals" className={cls}>Approvals</NavLink>
         <NavLink to="/vault" className={cls}>Vault</NavLink>
         <NavLink to="/settings/billing" className={cls}>Billing</NavLink>
+        {owner?.is_admin && <NavLink to="/admin/feedback" className={cls}>Feedback</NavLink>}
 
         <div className="side-bottom">
           {owner && <span className="owner-id" title={owner.owner_id}>{shortOwner(owner.owner_id)}</span>}

@@ -18,6 +18,7 @@
  *
  * Mounted by the coordinator at /v1/owner.
  */
+import { isAdminOwner } from './admin-ids.js';
 import { Hono } from 'hono';
 import type { Context, MiddlewareHandler } from 'hono';
 import { setCookie, getCookie, deleteCookie } from 'hono/cookie';
@@ -616,6 +617,8 @@ app.get('/me', ownerSession, async (c) => {
     // a passkey (credentials.length === 0 conveys it too; explicit is kinder).
     session_method: (c.get as (k: string) => string)('sessionMethod') ?? 'passkey',
     has_passkey: creds.length > 0,
+    // Operator pages (feedback triage) — ADMIN_OWNER_IDS; drives the console nav only.
+    is_admin: isAdminOwner(c.env, ownerId),
   });
 });
 

@@ -90,7 +90,7 @@ const manifest = {
   sha256,
   updatedAt: meta.updated,
   minCliVersion: meta.min_cli_version,
-  changelogUrl: 'https://github.com/maxfain/basedagents/blob/main/CHANGELOG.md',
+  changelogUrl: `${SITE}/changelog`,
 };
 upsert('packages/web/public/skills/basedagents/skill.json', JSON.stringify(manifest, null, 2) + '\n');
 

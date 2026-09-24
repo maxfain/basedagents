@@ -449,6 +449,13 @@ export type Bindings = {
   DB?: D1Database;
   ENVIRONMENT?: string;            // 'production' | 'staging' — set per wrangler env (wrangler.toml)
   HOUSE_ACCOUNT_IDS?: string;      // comma-separated agent (ag_…) / owner (ow_…) ids whose paid tasks are labeled `sponsored`
+  // WS5 feedback + telemetry. ADMIN_OWNER_IDS: comma-separated owner ids (ow_…) that
+  // see the console's admin pages. The notify targets are secrets (wrangler secret put).
+  ADMIN_OWNER_IDS?: string;
+  FEEDBACK_NOTIFY_EMAIL?: string;
+  FEEDBACK_SLACK_WEBHOOK_URL?: string;
+  RESEND_API_KEY?: string;
+  EMAIL_FROM?: string;
   BOOTSTRAP_THRESHOLD?: string;
   ADMIN_SECRET?: string;
   REGISTRY_SIGNING_KEY?: string;

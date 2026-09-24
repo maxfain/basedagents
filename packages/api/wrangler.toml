@@ -38,6 +38,10 @@ STRIPE_PRICE_PRO_YEARLY = ""
 # Hans, BasedAgents Bounties, usura_marketing, and the console owner whose Keyring
 # vault key is Hans's key (so its ow_ id shares Hans's public key).
 HOUSE_ACCOUNT_IDS = "ag_Dr5oGSMrZZoPCDB7K8iutDCArp5UDCZpPNPYzxRf7yEV,ag_95W5FkDc57BFYwRNcLzwViRBAV4S7iepQMsH4pTcifbE,ag_8SFNAVuWkaEMUNpxHzRXec18M8FJsjLMWDNrj5bbbRCC,ow_Dr5oGSMrZZoPCDB7K8iutDCArp5UDCZpPNPYzxRf7yEV"
+# Owner ids (ow_…) that see the console's operator pages (feedback triage).
+# Feedback notifications go to the FEEDBACK_NOTIFY_EMAIL / FEEDBACK_SLACK_WEBHOOK_URL
+# secrets (wrangler secret put …); with neither set, reports are stored silently.
+ADMIN_OWNER_IDS = "ow_Dr5oGSMrZZoPCDB7K8iutDCArp5UDCZpPNPYzxRf7yEV"
 
 # Custom domain route
 [[routes]]

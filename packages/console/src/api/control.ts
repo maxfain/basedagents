@@ -33,6 +33,9 @@ import type {
   PaymentRequirementsV2,
   TaskPaymentResponse,
   PublicTaskList,
+  FeedbackList,
+  FeedbackItem,
+  FeedbackStatus,
 } from './types.js';
 import type { RegistrationResult } from '../lib/webauthn.js';
 
@@ -283,6 +286,16 @@ export const control = {
   // body alone and the session cookie authorizes it. Creation is never signed
   // from the console: its action folds a canonical of every task field, which
   // the server derives itself.
+  // ── Operator: agent feedback triage (404 unless ADMIN_OWNER_IDS lists you) ──
+  adminFeedback(status: FeedbackStatus | 'all' = 'open', before?: string): Promise<FeedbackList> {
+    const q = new URLSearchParams({ status });
+    if (before) q.set('before', before);
+    return request('GET', `/admin/feedback?${q}`);
+  },
+  setFeedbackStatus(feedbackId: string, status: FeedbackStatus, note?: string): Promise<{ feedback: FeedbackItem }> {
+    return request('POST', `/admin/feedback/${encodeURIComponent(feedbackId)}`, note ? { status, note } : { status });
+  },
+
   tasks(status: TaskStatus | 'all' = 'all'): Promise<{ ok: true; tasks: OwnerTask[] }> {
     return request('GET', `/tasks?status=${encodeURIComponent(status)}`);
   },

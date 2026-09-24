@@ -77,6 +77,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
             <a href="/keyring#pricing">Pricing</a>
             <Link to="/about">About</Link>
             <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a href="/changelog">Changelog</a>
             <Link to="/status">Status</Link>
             <Link to="/terms">Terms</Link>
             <Link to="/privacy">Privacy</Link>

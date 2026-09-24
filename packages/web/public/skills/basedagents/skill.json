@@ -1,10 +1,10 @@
 {
   "name": "basedagents",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "url": "https://basedagents.ai/skill.md",
-  "pinnedUrl": "https://basedagents.ai/skills/basedagents/v1.0.0/SKILL.md",
-  "sha256": "b263860a4fd8f37e9199778c3157632de1e34e1b1e0ba51609dccfe0a6657864",
+  "pinnedUrl": "https://basedagents.ai/skills/basedagents/v1.1.0/SKILL.md",
+  "sha256": "620d8ddee345cbb56d02011bbe5ea765c631bd286a0d289ab3ea7699a6d758f2",
   "updatedAt": "2026-09-24",
-  "minCliVersion": "0.8.0",
-  "changelogUrl": "https://github.com/maxfain/basedagents/blob/main/CHANGELOG.md"
+  "minCliVersion": "0.9.0",
+  "changelogUrl": "https://basedagents.ai/changelog"
 }

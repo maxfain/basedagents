@@ -22,6 +22,7 @@ import TasksPage from './pages/Tasks.js';
 import Explore from './pages/Explore.js';
 import TaskNew from './pages/TaskNew.js';
 import TaskReview from './pages/TaskReview.js';
+import AdminFeedback from './pages/AdminFeedback.js';
 
 /** /agents with nothing after it: first agent when one exists, else the add page. */
 function AgentsIndex() {
@@ -88,6 +89,7 @@ export default function App() {
             <Route path="/board" element={<BoardPage />} />
             <Route path="/vault" element={<Vault />} />
             <Route path="/settings/billing" element={<Billing />} />
+            <Route path="/admin/feedback" element={<AdminFeedback />} />
           </Route>
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>

@@ -46,7 +46,9 @@ function walk(dir, out = []) {
   return out;
 }
 const dist = join(ROOT, 'packages/web/dist');
-const builtHtml = existsSync(dist) ? walk(dist).filter((f) => !/[\\/]keyring\.html$/.test(f)) : [];
+// keyring.html may name the retired Keyring tagline; changelog.html is the
+// CHANGELOG rendered (history quotes retired wording on purpose, as the source does).
+const builtHtml = existsSync(dist) ? walk(dist).filter((f) => !/[\\/](keyring|changelog)\.html$/.test(f)) : [];
 if (!existsSync(dist)) failures.push('packages/web/dist is missing — build the site first');
 
 // README: only the hero between the markers is a public surface here (history/changelog below it is allowed).

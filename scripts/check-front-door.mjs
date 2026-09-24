@@ -10,7 +10,7 @@
  *   every negotiated response → Vary: Accept
  * and /.well-known/basedagents.json must equal the repo's descriptor, with the
  * same value on every host. The site must also serve /skill.md and
- * /skills/basedagents/skill.json matching the repo.
+ * /skills/basedagents/skill.json matching the repo, and /changelog (+ .json).
  *
  *   node scripts/check-front-door.mjs --site https://basedagents.ai --api https://api.basedagents.ai \
  *     --console https://app.basedagents.ai [--retries 0] [--delay 15]
@@ -85,6 +85,12 @@ export async function checkHost(kind, base, exp) {
     let m = null;
     try { m = JSON.parse(man.body); } catch { /* reported below */ }
     if (!m || !isDeepStrictEqual(m, exp.manifest)) out.push(`${at('/skills/basedagents/skill.json')}: HTTP ${man.status}, differs from the repo`);
+    const cl = await fetchText(`${base}/changelog.json`);
+    let releases = null;
+    try { releases = JSON.parse(cl.body).releases; } catch { /* reported below */ }
+    if (cl.status !== 200 || !Array.isArray(releases) || releases.length === 0) out.push(`${at('/changelog.json')}: HTTP ${cl.status}, no releases`);
+    const page = await fetchText(`${base}/changelog`, { Accept: 'text/html' });
+    if (page.status !== 200 || !page.body.includes('<h1>Changelog</h1>')) out.push(`${at('/changelog')}: HTTP ${page.status}, not the changelog page`);
   }
   return out;
 }

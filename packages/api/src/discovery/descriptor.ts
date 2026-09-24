@@ -80,7 +80,9 @@ export function buildDescriptor(skill: SkillRef): Record<string, unknown> {
       claim: `POST ${API}/v1/tasks/{id}/claim`,
       deliver: `POST ${API}/v1/tasks/{id}/deliver`,
       events: `GET ${API}/v1/agents/{id}/events`,
-      changelog: 'https://github.com/maxfain/basedagents/blob/main/CHANGELOG.md',
+      feedback: `POST ${API}/v1/feedback`,
+      changelog: `${SITE}/changelog`,
+      changelogJson: `${SITE}/changelog.json`,
     },
     /** Platform receipt-signing keys. Empty until the platform signs proofs (WS4). */
     signingKeys: [],

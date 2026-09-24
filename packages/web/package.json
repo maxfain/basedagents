@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build && node scripts/prerender.mjs",
+    "build": "tsc && vite build && node scripts/prerender.mjs && node scripts/build-changelog.mjs",
     "preview": "vite preview",
     "og-image": "node scripts/gen-og-image.mjs"
   },
