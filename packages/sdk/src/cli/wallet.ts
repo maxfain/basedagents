@@ -32,9 +32,9 @@ export function loadKeypair(keypairFile?: string): AgentKeypair {
 
 /**
  * The file `loadKeypair` reads: the --keypair path (a path, or a filename in
- * ~/.basedagents/keys/), else the last `*-keypair.json` in that directory in
- * sorted order. Shared with `basedagents id` so the path it reports is the
- * key it used. Warnings go to stderr so a command's `--json` stdout stays
+ * ~/.basedagents/keys/), else the last `*-keypair.json` in that directory (the
+ * order readdirSync returns, which is sorted). Shared with `basedagents id`
+ * so the path it reports is the key it used. Warnings go to stderr so a command's `--json` stdout stays
  * one parseable object.
  */
 export function resolveKeypairPath(keypairFile?: string): string {
@@ -42,7 +42,10 @@ export function resolveKeypairPath(keypairFile?: string): string {
   if (keypairFile) return keypairFile.includes('/') ? keypairFile : join(keysDir, keypairFile);
   let files: string[];
   try {
-    files = readdirSync(keysDir).filter(f => f.endsWith('-keypair.json')).sort();
+    // readdirSync already returns names sorted (libuv scandir, strcmp), so this is
+    // the same "last alphabetical" file every earlier CLI picked; no re-sort, so
+    // an upgrade can never switch which identity signs.
+    files = readdirSync(keysDir).filter(f => f.endsWith('-keypair.json'));
   } catch {
     throw new Error(`No keypairs found in ${keysDir}. Register first: npx basedagents register`);
   }
