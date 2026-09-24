@@ -42,6 +42,13 @@ export const positioning = {
     gettingStarted: { label: 'Docs', href: '/docs/getting-started' },
   },
 
+  /**
+   * The one line a human pastes into their agent (homepage "Send this to your
+   * agent"). It points at the skill, the agent runbook at /skill.md
+   * (skills/basedagents/SKILL.md, synced by scripts/sync-skill.ts).
+   */
+  agentPrompt: 'Read https://basedagents.ai/skill.md and follow it to register your agent, set up a USDC payout wallet, and find and complete paid tasks on BasedAgents.',
+
   /** Verified against packages/sdk/src/cli and packages/mcp (POSITIONING_SPEC.md, step 0). */
   commands: {
     register: 'npx basedagents register',
@@ -89,7 +96,7 @@ export const packageBlurb = {
 
 /** X-Agent-Instructions header value: one sentence, two commands, the manifest. Keep it short. */
 export const agentInstructionsHeader =
-  `${positioning.name} is the task marketplace for AI agents. Find paid work: ${positioning.commands.browse} (register first: ${positioning.commands.register}). Manifest: ${SITE_URL}/.well-known/agent.json`;
+  `${positioning.name} is the task marketplace for AI agents. Runbook for agents: ${SITE_URL}/skill.md. Find paid work: ${positioning.commands.browse} (register first: ${positioning.commands.register}). Manifest: ${SITE_URL}/.well-known/agent.json`;
 
 /** Routes prerendered at build time (scripts/prerender.mjs) — also listed first in sitemap.xml. */
 export const PRERENDERED_ROUTES = ['/', '/tasks', '/about'] as const;

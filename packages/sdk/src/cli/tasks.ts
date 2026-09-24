@@ -25,10 +25,12 @@
  * transfer straight to the deliverer's wallet.
  */
 
-import { readFileSync } from 'fs';
+import { readFileSync, statSync } from 'fs';
+import { basename } from 'path';
+import { VERSION } from '../version.js';
 import {
   RegistryClient, DEFAULT_API_URL, TASK_STATUSES, TASK_CATEGORIES, BOUNTY_NETWORKS,
-  usdcToAtomic, ApiError, PaymentRequiredError, PaymentInvalidError,
+  usdcToAtomic, ApiError, PaymentRequiredError, PaymentInvalidError, redactSecrets,
   type AgentKeypair, type Task, type TaskCreateOptions, type DeliverOptions,
 } from '../index.js';
 import { loadKeypair } from './wallet.js';
@@ -50,8 +52,10 @@ export const ALLOWED_STATUSES: readonly string[] = [...TASK_STATUSES, 'all'];
 export const ALLOWED_CATEGORIES: readonly string[] = TASK_CATEGORIES;
 export const ALLOWED_FORMATS = ['json', 'link'] as const;
 export const ALLOWED_DELIVERY_TYPES = ['json', 'link', 'pr'] as const;
+/** A USDC amount: whole units with up to 6 decimals (the token's precision). */
+export const MIN_USDC_RE = /^\d{1,9}(\.\d{1,6})?$/;
 
-const SUBCOMMANDS = ['list', 'post', 'fund', 'claim', 'deliver', 'accept', 'revision', 'dispute', 'cancel', 'payment'] as const;
+const SUBCOMMANDS = ['list', 'post', 'fund', 'claim', 'deliver', 'submit', 'watch', 'accept', 'revision', 'dispute', 'cancel', 'payment'] as const;
 type Subcommand = (typeof SUBCOMMANDS)[number];
 
 export function statusColor(status: string): string {
@@ -75,8 +79,9 @@ function row(label: string, value: string, labelWidth = 16): string {
   return `  ${dim(label.padEnd(labelWidth))} ${value}`;
 }
 
+/** Every error line goes through here, redacted: server messages and echoed input are untrusted. */
 function fail(message: string, code = 1): never {
-  console.error(red(`\n  ✗ ${message}\n`));
+  console.error(red(`\n  ✗ ${redactSecrets(message)}\n`));
   process.exit(code);
 }
 
@@ -98,7 +103,7 @@ function keypairOrExit(keypairFile: string | undefined): AgentKeypair {
 }
 
 /** Flags that take no value; every other `--flag` consumes the next token. */
-const BOOLEAN_FLAGS = new Set(['--json', '--help', '-h', '--no-escrow']);
+const BOOLEAN_FLAGS = new Set(['--json', '--help', '-h', '--no-escrow', '--once', '--force']);
 
 /**
  * The first positional argument, wherever it sits among the flags —
@@ -210,6 +215,8 @@ ${bold('Subcommands:')}
   fund <id>                  Deposit the bounty again after a failed escrow deposit
   claim <id>                 Claim an open task
   deliver <id>               Deliver a claimed task with a signed receipt
+  submit <id> --file <path>  Deliver a file (JSON → json, a list of URLs → link, else inline)
+  watch <id>                 Poll a task until it settles (burst, then 60 s / 180 s, honors 429)
   accept <id>                Accept a delivered task (releases the escrow, or authorizes a pay-at-accept bounty)
   revision <id>              Send a delivered task back for changes
   dispute <id>               Dispute a delivered task (freezes auto-accept)
@@ -223,6 +230,7 @@ ${bold('list options:')}
   --creator <agent id>       Tasks posted by an agent
   --claimer <agent id>       Tasks claimed by an agent
   --limit <n>                Max results (default 20, max 100)
+  --min-usdc <amount>        Only tasks whose bounty is at least this many USDC
 
 ${bold('post options:')}
   --title <text>             Required
@@ -250,6 +258,17 @@ ${bold('deliver options:')}
   --type json|link|pr        Override the inferred submission type
   --commit <sha>             40-hex commit hash
 
+${bold('submit options:')}
+  --file <path>              Required. Up to 50,000 characters.
+  --note <text>              One-line summary for the buyer (default: "Delivered <file name>")
+  --type json|link           Override the inferred submission type
+  --force                    Deliver even when the file doesn't match the task's output_format
+
+${bold('watch options:')}
+  --max-hours <n>            Give up after n hours (default 24); exit 3
+  --once                     Poll once, print the state and exit
+  With --json, prints one JSON object per line (state changes, then a final "done").
+
 ${bold('accept options:')}
   --note <text>              Acceptance note
   --payment-signature <v>    Base64 x402 payment payload; @file reads a file, - reads stdin.
@@ -271,7 +290,10 @@ ${bold('Examples:')}
   basedagents tasks post --title "Summarize paper" --description "..." --bounty 5.00   # prints the deposit to sign, exit 2
   basedagents tasks post --title "Summarize paper" --description "..." --bounty 5.00 --payment-signature @deposit.b64
   basedagents tasks post --title "Summarize paper" --description "..." --bounty 5.00 --no-escrow
+  basedagents tasks list --status open --min-usdc 1.00 --json
   basedagents tasks claim task_abc123
+  basedagents tasks submit task_abc123 --file result.json --note "Pricing table for 12 vendors"
+  basedagents tasks watch task_abc123 --json
   basedagents tasks deliver task_abc123 --summary "Done" --pr-url https://github.com/o/r/pull/1
   basedagents tasks accept task_abc123                      # prints PaymentRequired, exit 2
   basedagents tasks accept task_abc123 --payment-signature @payload.b64
@@ -295,6 +317,8 @@ export async function tasks(args: string[]): Promise<void> {
     case 'fund':     return tasksFund(rest);
     case 'claim':    return tasksClaim(rest);
     case 'deliver':  return tasksDeliver(rest);
+    case 'submit':   return tasksSubmit(rest);
+    case 'watch':    return tasksWatch(rest);
     case 'accept':   return tasksAccept(rest);
     case 'revision': return tasksRevision(rest);
     case 'dispute':  return tasksDispute(rest);
@@ -315,6 +339,7 @@ export async function tasksList(args: string[]): Promise<void> {
   const creator = getFlag(args, '--creator');
   const claimer = getFlag(args, '--claimer');
   const limit = getFlag(args, '--limit');
+  const minUsdc = getFlag(args, '--min-usdc');
 
   // NEW-6: validate --status and --category against the shared allowlists
   if (status && !ALLOWED_STATUSES.includes(status)) {
@@ -322,6 +347,9 @@ export async function tasksList(args: string[]): Promise<void> {
   }
   if (category && !ALLOWED_CATEGORIES.includes(category)) {
     return fail(`Invalid --category value: '${category}'\n  Allowed values: ${ALLOWED_CATEGORIES.join(', ')}`);
+  }
+  if (minUsdc !== undefined && !MIN_USDC_RE.test(minUsdc)) {
+    return fail(`Invalid --min-usdc value: '${minUsdc}'\n  A USDC amount with up to 6 decimals, e.g. 1.00`);
   }
 
   const params: Record<string, string> = {};
@@ -331,6 +359,7 @@ export async function tasksList(args: string[]): Promise<void> {
   if (creator) params.creator = creator;
   if (claimer) params.claimer = claimer;
   if (limit) params.limit = limit;
+  if (minUsdc) params.min_usdc = minUsdc;
 
   try {
     const result = await client.getTasks(params);
@@ -546,6 +575,235 @@ export async function tasksDeliver(args: string[]): Promise<void> {
     console.log('');
   } catch (err) {
     return apiFail('Failed to deliver task', err);
+  }
+}
+
+// ─── submit ───
+
+/** Max deliverable body the API accepts (DeliverTaskSchema.submission_content). */
+export const MAX_SUBMISSION_CHARS = 50_000;
+
+/**
+ * How a file is delivered: a file that parses as JSON goes as `json`; a file
+ * whose non-empty lines are all http(s) URLs (at most 20) goes as `link` with
+ * those URLs as artifacts; anything else goes inline as `json` content.
+ */
+export function inferSubmission(text: string): { type: 'json' | 'link'; content?: string; artifacts?: string[]; isJson: boolean } {
+  try {
+    JSON.parse(text);
+    return { type: 'json', content: text, isJson: true };
+  } catch { /* not JSON */ }
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length > 0 && lines.length <= 20 && lines.every((l) => /^https?:\/\/\S+$/i.test(l))) {
+    return { type: 'link', artifacts: lines, isJson: false };
+  }
+  return { type: 'json', content: text, isJson: false };
+}
+
+export async function tasksSubmit(args: string[]): Promise<void> {
+  const { apiUrl, jsonMode, keypairFile } = common(args);
+  const usage = 'basedagents tasks submit <id> --file <path> [--note <text>] [--type json|link]';
+  const taskId = taskIdOrExit(args, usage);
+  const file = getFlag(args, '--file');
+  if (!file) return fail(`--file is required.\n  Usage: ${usage}`);
+  const explicitType = getFlag(args, '--type');
+  if (explicitType && explicitType !== 'json' && explicitType !== 'link') {
+    return fail(`Invalid --type value: '${explicitType}'\n  Allowed values: json, link (use tasks deliver --pr-url for a pull request)`);
+  }
+
+  let text: string;
+  try {
+    if (statSync(file).size > MAX_SUBMISSION_CHARS * 4) return fail(`${file} is too large: a delivery is at most ${MAX_SUBMISSION_CHARS.toLocaleString()} characters.`);
+    text = readFileSync(file, 'utf8');
+  } catch (err) {
+    return fail(`Could not read ${file}: ${err instanceof Error ? err.message : 'unknown error'}`);
+  }
+  if (!text.trim()) return fail(`${file} is empty.`);
+  if (text.length > MAX_SUBMISSION_CHARS) {
+    return fail(`${file} has ${text.length.toLocaleString()} characters; a delivery is at most ${MAX_SUBMISSION_CHARS.toLocaleString()}. Host it and submit a file of URLs instead.`);
+  }
+
+  const inferred = inferSubmission(text);
+  const type = (explicitType as 'json' | 'link' | undefined) ?? inferred.type;
+  const summary = (getFlag(args, '--note') ?? `Delivered ${basename(file)}`).slice(0, 2000);
+
+  const client = new RegistryClient(apiUrl);
+  // Refuse (unless --force) to send a file that doesn't match the format the
+  // buyer asked for: the API stores any text, so a mismatch would "succeed"
+  // and leave the buyer with a deliverable they can't use.
+  let wanted: string | undefined;
+  try { wanted = (await client.getTask(taskId)).task.output_format; } catch { /* the deliver call below reports any real problem */ }
+  const mismatch = wanted === 'json' && !(type === 'json' && inferred.isJson)
+    ? `This task asks for JSON output and ${basename(file)} is not valid JSON. Wrap it, e.g. {"report": "..."}.`
+    : wanted === 'link' && type !== 'link'
+      ? `This task asks for links and ${basename(file)} is not a list of URLs (one per line).`
+      : null;
+  if (mismatch) {
+    if (!args.includes('--force')) return fail(`${mismatch}\n  Pass --force to deliver it anyway.`);
+    console.error(yellow(`  ⚠ ${mismatch} Delivering anyway (--force).`));
+  }
+
+  const delivery: DeliverOptions = { summary, submission_type: type };
+  if (type === 'link') {
+    const urls = inferred.artifacts ?? text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    delivery.artifact_urls = urls;
+  } else {
+    delivery.submission_content = text;
+  }
+
+  const kp = keypairOrExit(keypairFile);
+  try {
+    const result = await client.deliverTask(kp, taskId, delivery);
+    if (jsonMode) {
+      console.log(JSON.stringify({ ...result, submission_type: type, file: basename(file) }, null, 2));
+      return;
+    }
+    console.log('');
+    console.log(`  ${green('✓')} Delivered ${basename(file)} (${type})`);
+    console.log(row('Task ID', cyan(result.task_id)));
+    console.log(row('Receipt', result.receipt_id));
+    console.log(row('Status', statusColor(result.status)));
+    console.log(`  ${dim(`Follow it with: basedagents tasks watch ${result.task_id}`)}`);
+    console.log('');
+  } catch (err) {
+    return apiFail('Failed to deliver task', err);
+  }
+}
+
+// ─── watch ───
+
+const TERMINAL_STATUSES = new Set(['verified', 'closed', 'cancelled']);
+/** Payment states after which nothing more will happen to the money. */
+const PAYMENT_FINAL = new Set(['none', 'settled', 'refunded', 'expired']);
+
+/**
+ * Done watching: cancelled/closed, or accepted with the payout final. An
+ * accepted bounty whose transfer is still pending/settling (or failed and
+ * being retried by the registry) keeps the watch going.
+ */
+export function watchIsDone(t: { status?: unknown; payment_status?: unknown }): boolean {
+  if (!TERMINAL_STATUSES.has(String(t.status))) return false;
+  if (t.status !== 'verified') return true;
+  return PAYMENT_FINAL.has(String(t.payment_status ?? 'none'));
+}
+
+/**
+ * The poll interval (ms) for `tasks watch`, per the skill's watch loop: every
+ * 10–15 s for the first 2 minutes after your own action, then 60 s while the
+ * task changed in the last 30 minutes, else 180 s. ±15% jitter so a fleet of
+ * watchers never polls in lockstep. `rand` is injectable for tests.
+ */
+export function watchDelayMs(sinceStartMs: number, sinceChangeMs: number, rand: () => number = Math.random): number {
+  let base: number;
+  if (sinceStartMs < 2 * 60_000) base = 10_000 + rand() * 5_000;
+  else if (sinceChangeMs < 30 * 60_000) base = 60_000;
+  else base = 180_000;
+  const jitter = 1 + (rand() * 0.3 - 0.15);
+  return Math.round(base * jitter);
+}
+
+/** What the task's state asks of the claimer next — the `nextAction` hint of the watch loop. */
+export function nextActionHint(t: Pick<Task, 'status'> & Partial<Task>): string {
+  const task = t as Partial<Task> & { review_note?: string | null; claim_expires_at?: string | null; auto_release_at?: string | null; payment_status?: string | null };
+  switch (task.status) {
+    case 'open': return 'claimable';
+    case 'claimed': return task.review_note ? 'revise and deliver again (the buyer requested changes)' : `deliver${task.claim_expires_at ? ` before ${task.claim_expires_at}` : ''}`;
+    case 'submitted': return `waiting for review${task.auto_release_at ? `; auto-accepts at ${task.auto_release_at}` : ''}`;
+    case 'verified':
+      if (task.payment_status === 'settled') return 'paid';
+      if (task.payment_status === 'failed') return 'accepted; payout failed and is being retried (check tasks payment)';
+      return task.payment_status && task.payment_status !== 'none' ? `accepted; payout ${task.payment_status}` : 'accepted';
+    case 'cancelled': return 'none (cancelled)';
+    case 'closed': return 'none (closed)';
+    default: return 're-fetch the task';
+  }
+}
+
+/** The fields whose change is worth reporting. */
+function watchFingerprint(d: Record<string, unknown>): string {
+  const t = (d.task ?? {}) as Record<string, unknown>;
+  const escrow = (t.escrow ?? null) as Record<string, unknown> | null;
+  return JSON.stringify([t.status, t.payment_status, t.revision_count, t.review_note, t.claimed_by_agent_id, t.disputed_at, escrow?.status, d.receipts_count, d.submission_public]);
+}
+
+const sleepMs = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export async function tasksWatch(args: string[]): Promise<void> {
+  const { apiUrl, jsonMode } = common(args);
+  const taskId = taskIdOrExit(args, 'basedagents tasks watch <id> [--max-hours 24] [--once] [--json]');
+  const once = args.includes('--once');
+  const maxHours = Number(getFlag(args, '--max-hours') ?? 24);
+  if (!Number.isFinite(maxHours) || maxHours <= 0) return fail('--max-hours must be a positive number');
+  const base = apiUrl.replace(/\/$/, '');
+  const emit = (event: Record<string, unknown>, human: string) => {
+    if (jsonMode) console.log(JSON.stringify(event));
+    else console.log(human);
+  };
+
+  const start = Date.now();
+  let lastChange = start;
+  let etag: string | undefined;
+  let fingerprint: string | undefined;
+  let last: Record<string, unknown> | undefined;
+  let failures = 0;
+
+  for (;;) {
+    let res: Response | null = null;
+    try {
+      res = await fetch(`${base}/v1/tasks/${encodeURIComponent(taskId)}`, {
+        headers: { Accept: 'application/json', 'X-BasedAgents-Cli-Version': VERSION, ...(etag ? { 'If-None-Match': etag } : {}) },
+      });
+    } catch (err) {
+      failures++;
+      if (failures >= 5) return fail(`Could not reach ${base}: ${err instanceof Error ? err.message : 'network error'}`);
+    }
+
+    if (res) {
+      if (res.status === 429) {
+        const wait = Math.max(1, Number(res.headers.get('Retry-After') ?? 60)) * 1000;
+        emit({ event: 'rate_limited', task_id: taskId, retry_after_s: wait / 1000, at: new Date().toISOString() }, dim(`  rate limited — waiting ${wait / 1000}s`));
+        await sleepMs(wait);
+        continue;
+      }
+      if (res.status === 404) return fail(`Task ${taskId} not found`);
+      if (res.status === 304) {
+        failures = 0;
+      } else if (res.ok) {
+        failures = 0;
+        etag = res.headers.get('ETag') ?? undefined;
+        const data = await res.json() as Record<string, unknown>;
+        const fp = watchFingerprint(data);
+        if (fp !== fingerprint) {
+          fingerprint = fp;
+          last = data;
+          lastChange = Date.now();
+          const t = data.task as Task & Record<string, unknown>;
+          const hint = nextActionHint(t);
+          emit(
+            { event: 'state', task_id: taskId, status: t.status, payment_status: t.payment_status ?? null, revision_count: t.revision_count ?? 0, review_note: t.review_note ?? null, escrow_status: (t.escrow as { status?: string } | null)?.status ?? null, next_action: hint, updated_at: new Date().toISOString() },
+            `  ${dim(new Date().toISOString())}  ${statusColor(String(t.status))}  ${dim(hint)}`,
+          );
+        }
+      } else {
+        failures++;
+        if (failures >= 5) return fail(`The API kept failing (HTTP ${res.status}); stopping. Check GET /v1/health.`);
+      }
+    }
+
+    const t = (last?.task ?? null) as Record<string, unknown> | null;
+    if (once) {
+      process.exit(t ? 0 : 1);
+    }
+    if (t && watchIsDone(t)) {
+      emit({ event: 'done', task_id: taskId, reason: 'terminal', status: t.status, payment_status: t.payment_status ?? null }, `  ${green('✓')} ${taskId} is ${t.status}. Done.`);
+      process.exit(0);
+    }
+    if (Date.now() - start > maxHours * 3_600_000) {
+      emit({ event: 'done', task_id: taskId, reason: 'timeout', status: t?.status ?? null, watched_hours: maxHours }, yellow(`  Stopped after ${maxHours} h; last status: ${t?.status ?? 'unknown'}. Report this and re-check later.`));
+      process.exit(3);
+    }
+    const backoff = failures ? Math.min(60_000 * failures, 300_000) : 0;
+    await sleepMs(Math.max(watchDelayMs(Date.now() - start, Date.now() - lastChange), backoff));
   }
 }
 

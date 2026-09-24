@@ -1,10 +1,14 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
+import { etag } from 'hono/etag';
 import type { AppEnv } from './types/index.js';
 import { D1Adapter } from './db/d1-adapter.js';
 import type { DBAdapter } from './db/adapter.js';
 import { checkRateLimit } from './lib/rate-limiter.js';
+import { buildDescriptor } from './discovery/descriptor.js';
+import { agentFormat, NEGOTIATED_VARY } from './discovery/negotiate.js';
+import { SKILL_MD, SKILL_VERSION } from './discovery/skill.generated.js';
 import { runBootstrapProber } from './bootstrap/prober.js';
 import { resolveAllAgentSkills, computeSkillReputations } from './skills/resolver.js';
 
@@ -125,8 +129,8 @@ app.use('*', cors({
     return null; // reject
   },
   allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Timestamp', 'X-Nonce', 'PAYMENT-SIGNATURE', 'X-PAYMENT-SIGNATURE'],
-  exposeHeaders: ['X-RateLimit-Remaining', 'PAYMENT-REQUIRED', 'PAYMENT-RESPONSE', 'Deprecation'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Timestamp', 'X-Nonce', 'PAYMENT-SIGNATURE', 'X-PAYMENT-SIGNATURE', 'If-None-Match', 'Idempotency-Key', 'X-BasedAgents-Skill-Version', 'X-BasedAgents-Cli-Version'],
+  exposeHeaders: ['X-RateLimit-Remaining', 'PAYMENT-REQUIRED', 'PAYMENT-RESPONSE', 'Deprecation', 'ETag', 'Retry-After', 'X-BasedAgents-Skill-Latest'],
   // The console authenticates with an httpOnly session cookie, so the browser
   // needs Access-Control-Allow-Credentials. Safe with the whitelist above: the
   // origin is reflected exactly (never '*'), so only listed origins are allowed.
@@ -151,6 +155,14 @@ app.use('*', async (c, next) => {
     c.set('db', nodeAdapter);
   }
   await next();
+});
+
+// Every response names the latest skill version, so an agent notices an update
+// without polling skill.json. Registered before the rate limiter so its 429s
+// carry it too.
+app.use('*', async (c, next) => {
+  await next();
+  c.header('X-BasedAgents-Skill-Latest', SKILL_VERSION);
 });
 
 // ─── Rate limiting middleware (durable) ───
@@ -187,9 +199,34 @@ app.use('*', async (c, next) => {
   await next();
 });
 
-// ─── Health Check ───
+// ─── Conditional GETs + cache headers (agent-first plan §0.2) ───
+// Every GET gets an ETag (If-None-Match → 304), so watch loops and skill
+// checks cost a round trip, not a body. A route that sets no Cache-Control
+// gets a revalidate-always default: `private` when the request carried
+// credentials, `public` otherwise.
+app.use('*', async (c, next) => {
+  await next();
+  if ((c.req.method === 'GET' || c.req.method === 'HEAD') && !c.res.headers.has('Cache-Control')) {
+    const credentialed = !!(c.req.header('Authorization') || c.req.header('Cookie'));
+    c.header('Cache-Control', c.res.status >= 400 ? 'no-store' : credentialed ? 'private, no-cache' : 'public, max-age=0, must-revalidate');
+  }
+});
+app.use('*', async (c, next) => {
+  if (c.req.method !== 'GET' && c.req.method !== 'HEAD') return next();
+  return etag()(c, next);
+});
+
+// ─── Front door: `/` negotiates; the descriptor + skill for agents (WS1) ───
 app.get('/', (c) => {
   const accept = c.req.header('Accept') ?? '';
+  c.header('Vary', NEGOTIATED_VARY);
+  const format = agentFormat(accept);
+  if (format === 'markdown') {
+    return c.body(SKILL_MD, 200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'public, max-age=300' });
+  }
+  if (format === 'json') {
+    return c.json(buildDescriptor({ version: SKILL_VERSION }), 200, { 'Cache-Control': 'public, max-age=300' });
+  }
   if (accept.includes('text/html')) {
     return c.redirect('https://basedagents.ai', 301);
   }
@@ -246,10 +283,16 @@ app.get('/', (c) => {
 });
 
 app.get('/health', (c) => c.json({ status: 'ok' }));
+app.get('/v1/health', (c) => c.json({ status: 'ok', skill_version: SKILL_VERSION }, 200, { 'Cache-Control': 'no-cache' }));
+
+/** The service descriptor, identical on all three hosts (scripts/sync-skill.ts writes the static copies). */
+app.get('/.well-known/basedagents.json', (c) =>
+  c.json(buildDescriptor({ version: SKILL_VERSION }), 200, { 'Cache-Control': 'public, max-age=300', 'Access-Control-Allow-Origin': '*' }));
 
 // ─── OpenAPI Spec ───
 import openApiSpec from './openapi.json';
 app.get('/openapi.json', (c) => c.json(openApiSpec));
+app.get('/v1/openapi.json', (c) => c.json(openApiSpec));
 
 // ─── x402 Payment Method Discovery ───
 // https://docs.cdp.coinbase.com/x402/welcome — x402 v2 (CAIP-2 networks).

@@ -219,6 +219,17 @@ tasks.get('/', async (c) => {
 
   const q = query.success ? query.data : {};
   const limit = Math.min(q.limit ?? 20, 100);
+  // ?min_usdc=1.00 — bounty floor in USDC, validated on its own so a malformed
+  // value is a 400 instead of silently dropping every other filter.
+  const minUsdcRaw = c.req.query('min_usdc');
+  let minAtomic: bigint | null = null;
+  if (minUsdcRaw !== undefined) {
+    if (!/^\d{1,9}(\.\d{1,6})?$/.test(minUsdcRaw)) {
+      return c.json({ error: 'invalid_min_usdc', message: 'min_usdc must be a USDC amount with up to 6 decimals, e.g. 1.00' }, 400);
+    }
+    const [whole, frac = ''] = minUsdcRaw.split('.');
+    minAtomic = BigInt(whole) * 1_000_000n + BigInt(frac.padEnd(6, '0'));
+  }
   const offset = q.offset ?? 0;
 
   const parts = await creatorSqlParts(db);
@@ -235,6 +246,12 @@ tasks.get('/', async (c) => {
   if (q.capability) { sql += ` AND t.required_capabilities LIKE ?`; params.push(`%"${q.capability}"%`); }
   if (q.creator) { sql += ` AND t.creator_agent_id = ?`; params.push(q.creator); }
   if (q.claimer) { sql += ` AND t.claimed_by_agent_id = ?`; params.push(q.claimer); }
+  if (minAtomic !== null) {
+    // bounty_amount is atomic units as a digit string; a few legacy rows hold a
+    // decimal display string ("5.00") — scale those so both compare in atomic units.
+    sql += ` AND t.bounty_amount IS NOT NULL AND (CASE WHEN t.bounty_amount GLOB '*[^0-9]*' THEN CAST(ROUND(CAST(t.bounty_amount AS REAL) * 1000000) AS INTEGER) ELSE CAST(t.bounty_amount AS INTEGER) END) >= ?`;
+    params.push(Number(minAtomic));
+  }
 
   // Public board shows only bounties this environment settles: in production,
   // testnet-bounty tasks are hidden so test USDC never poses as real money.
