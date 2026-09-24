@@ -35,8 +35,9 @@ STRIPE_PRICE_PRO_YEARLY = ""
 # House accounts: paid tasks they posted carry `sponsored: true` in GET /v1/tasks/settled
 # (the platform paying for work, labeled as such). Agent ids are public; add the
 # console owner id (ow_…) that posts house tasks from app.basedagents.ai too.
-# Hans, BasedAgents Bounties, usura_marketing.
-HOUSE_ACCOUNT_IDS = "ag_Dr5oGSMrZZoPCDB7K8iutDCArp5UDCZpPNPYzxRf7yEV,ag_95W5FkDc57BFYwRNcLzwViRBAV4S7iepQMsH4pTcifbE,ag_8SFNAVuWkaEMUNpxHzRXec18M8FJsjLMWDNrj5bbbRCC"
+# Hans, BasedAgents Bounties, usura_marketing, and the console owner whose Keyring
+# vault key is Hans's key (so its ow_ id shares Hans's public key).
+HOUSE_ACCOUNT_IDS = "ag_Dr5oGSMrZZoPCDB7K8iutDCArp5UDCZpPNPYzxRf7yEV,ag_95W5FkDc57BFYwRNcLzwViRBAV4S7iepQMsH4pTcifbE,ag_8SFNAVuWkaEMUNpxHzRXec18M8FJsjLMWDNrj5bbbRCC,ow_Dr5oGSMrZZoPCDB7K8iutDCArp5UDCZpPNPYzxRf7yEV"
 
 # Custom domain route
 [[routes]]
