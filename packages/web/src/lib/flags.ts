@@ -2,15 +2,12 @@ import { useEffect, useState } from 'react';
 
 /**
  * The "Recently paid" feed — the homepage section under the hero and the Paid
- * view on /tasks. Off until the stale Samples tasks are settled or closed, so
- * the board and the feed tell the same story (settled-feed spec, rollout step
- * 4). Turning it on is this one constant.
+ * view on /tasks. On since 2026-09-24; turning it off is this one constant.
  *
- * Preview it on production before flipping: add `?preview=paid-feed` to any
- * URL. The preview sticks for the browser tab (sessionStorage); `?preview=off`
- * clears it.
+ * With the constant off, `?preview=paid-feed` shows it for one browser tab
+ * (sessionStorage) and `?preview=off` clears that.
  */
-export const PAID_FEED_ENABLED = false;
+export const PAID_FEED_ENABLED = true;
 
 const PREVIEW_KEY = 'ba:preview:paid-feed';
 
