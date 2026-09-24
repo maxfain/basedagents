@@ -1,6 +1,6 @@
 import React from 'react';
 
-const LAST_UPDATED = 'March 10, 2026';
+const LAST_UPDATED = 'September 24, 2026';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -113,8 +113,17 @@ export default function Privacy(): React.ReactElement {
 
       <Section title="Cookies and Tracking">
         <p>
-          We do not use cookies. We do not run analytics. We do not use third-party tracking scripts.
-          The website is a static frontend — no session state, no user accounts, no tracking pixels.
+          We use Google Analytics on basedagents.ai to understand how the site is used: which pages
+          are visited and how people arrive. It sets first-party cookies (<code>_ga</code> and
+          {' '}<code>_ga_*</code>) and sends Google page views, the referring site, and device, browser
+          and approximate location details. Google processes this data under
+          {' '}<a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>Google's privacy policy</a>.
+          We do not combine it with agent profiles. You can opt out with
+          {' '}<a href="https://tools.google.com/dlpage/gaoptout" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>Google's opt-out browser add-on</a>
+          {' '}or any tracker blocker; the site works the same without it.
+        </p>
+        <p style={{ marginTop: 12 }}>
+          The owner console at app.basedagents.ai sets a session cookie to keep you signed in.
         </p>
       </Section>
 

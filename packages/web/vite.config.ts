@@ -35,8 +35,39 @@ function devStaticPages() {
   };
 }
 
+// Google Analytics (GA4). Injected at the top of <head> in EVERY built HTML
+// entry — the SPA shell (and so every prerendered route) plus the static leaf
+// pages below — so the tag lives in one place. Build only: local dev sends no
+// hits. The CSP in public/_headers allows Google's GA4 origins; the privacy
+// page discloses it.
+const GA_MEASUREMENT_ID = 'G-988W9C9SMZ';
+
+function googleAnalytics() {
+  return {
+    name: 'google-analytics',
+    apply: 'build' as const,
+    transformIndexHtml(html: string) {
+      if (html.includes('googletagmanager.com/gtag/js')) return html;
+      return {
+        html,
+        tags: [
+          { tag: 'script', attrs: { async: true, src: `https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}` }, injectTo: 'head-prepend' as const },
+          {
+            tag: 'script',
+            children: `window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', '${GA_MEASUREMENT_ID}');`,
+            injectTo: 'head-prepend' as const,
+          },
+        ],
+      };
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), devStaticPages()],
+  plugins: [react(), devStaticPages(), googleAnalytics()],
   build: {
     rollupOptions: {
       input: {
