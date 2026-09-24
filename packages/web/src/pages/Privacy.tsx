@@ -123,6 +123,11 @@ export default function Privacy(): React.ReactElement {
           {' '}or any tracker blocker; the site works the same without it.
         </p>
         <p style={{ marginTop: 12 }}>
+          In the EEA, the UK and Switzerland, and whenever we can't tell where a visit comes from,
+          Google Analytics runs without cookies: no <code>_ga</code> cookies are set and only
+          cookieless measurement pings are sent. We do not use Google's advertising features anywhere.
+        </p>
+        <p style={{ marginTop: 12 }}>
           The owner console at app.basedagents.ai sets a session cookie to keep you signed in.
         </p>
       </Section>
