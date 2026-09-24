@@ -10,6 +10,7 @@ import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 
 export { sha256, bytesToHex };
+export { redactSecrets, containsSecret, REDACTED } from './redact.js';
 
 // ─── Canonical JSON ───
 
@@ -1559,6 +1560,8 @@ export interface TaskSearchParams {
   creator?: string;
   /** Filter by claimer agent id. */
   claimer?: string;
+  /** Only tasks whose bounty is at least this many USDC, e.g. "1.00" (free tasks are excluded). */
+  min_usdc?: string;
   limit?: number;
   offset?: number;
 }

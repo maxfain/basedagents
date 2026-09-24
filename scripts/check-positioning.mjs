@@ -27,6 +27,8 @@ const SURFACES = [
   'packages/web/public/.well-known/ai-plugin.json',
   'packages/web/public/llms.txt',
   'packages/web/public/llms-full.txt',
+  'skills/basedagents/SKILL.md',
+  'packages/web/public/.well-known/basedagents.json',
   'packages/web/public/_headers',
   'packages/web/index.html',
   'packages/web/registry.html',

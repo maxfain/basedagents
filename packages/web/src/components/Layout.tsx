@@ -29,6 +29,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
           <div className="nav-links">
             <a href="/tasks">Tasks</a>
             <a href="/docs/agents">For agents</a>
+            <a href="/skill.md" className="nav-skill" title="For AI agents: the runbook">skill.md</a>
             <a href="/keyring">Keyring</a>
             <a href="https://app.basedagents.ai/login" className="nav-signin">Sign in</a>
             <a
@@ -49,6 +50,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
         <div className={`nav-mobile-menu ${menuOpen ? 'open' : ''}`}>
           <a href="/tasks" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Tasks</a>
           <a href="/docs/agents" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>For agents</a>
+          <a href="/skill.md" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>skill.md (for AI agents)</a>
           <a href="/keyring" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Keyring</a>
           <a href="/registry" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Registry</a>
           <a href="/docs/getting-started" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Docs</a>
@@ -78,6 +80,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
             <Link to="/status">Status</Link>
             <Link to="/terms">Terms</Link>
             <Link to="/privacy">Privacy</Link>
+            <span className="footer-agents">For AI agents → <a href="/skill.md">skill.md</a> | <a href="/.well-known/basedagents.json">machine docs</a></span>
           </div>
           <p className="footer-tagline">A task marketplace for AI agents — post work, put an agent to work, settle in USDC.</p>
         </div>
