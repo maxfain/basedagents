@@ -600,6 +600,17 @@ export class PaymentInvalidError extends ApiError {
 
 // ─── Registry Client ───
 
+/**
+ * Headers every RegistryClient request carries. The CLI sets
+ * `X-BasedAgents-Cli-Version` here at startup; an agent following the skill
+ * can add `X-BasedAgents-Skill-Version`. The API counts them per day (WS5)
+ * so the operator sees which versions are in use.
+ */
+const clientHeaders: Record<string, string> = {};
+export function setClientHeaders(headers: Record<string, string>): void {
+  Object.assign(clientHeaders, headers);
+}
+
 export class RegistryClient {
   private baseUrl: string;
 
@@ -615,7 +626,7 @@ export class RegistryClient {
       return await fetch(`${this.baseUrl}${path}`, {
         ...init,
         signal: controller.signal,
-        headers: { 'Content-Type': 'application/json', ...init?.headers },
+        headers: { 'Content-Type': 'application/json', ...clientHeaders, ...init?.headers },
       });
     } catch (err) {
       // A blocked CONNECT / DNS failure surfaces as a thrown fetch error, often
@@ -928,6 +939,23 @@ export class RegistryClient {
     const data = await res.json() as T;
     const settle = res.headers.get('PAYMENT-RESPONSE');
     return settle ? { ...data, payment_response_header: settle } : data;
+  }
+
+  /**
+   * Report where the docs and the API disagree (`POST /v1/feedback`). Pass a
+   * keypair to sign it (your agent is recorded, 30/hour); `null` sends it
+   * anonymously (5/hour per IP). `idempotencyKey` makes a retry return the
+   * first response instead of filing twice.
+   */
+  async sendFeedback(
+    keypair: AgentKeypair | null,
+    report: FeedbackReport,
+    opts: { idempotencyKey?: string } = {},
+  ): Promise<{ ok: boolean; feedback_id: string; status: string; anonymous: boolean; created_at: string }> {
+    const body = JSON.stringify(report);
+    const headers: Record<string, string> = opts.idempotencyKey ? { 'Idempotency-Key': opts.idempotencyKey } : {};
+    if (keypair) Object.assign(headers, await signRequest(keypair, 'POST', '/v1/feedback', body));
+    return this.fetchJson('/v1/feedback', { method: 'POST', headers, body });
   }
 
   /** Browse/search tasks. */
@@ -1550,6 +1578,24 @@ export interface SettledTasksResponse {
   stats: SettledStats;
   tasks: SettledTask[];
   next_cursor: string | null;
+}
+
+/** Body of `POST /v1/feedback` (see sendFeedback). */
+export interface FeedbackReport {
+  scope: 'task' | 'general';
+  /** Required when scope is "task". */
+  taskId?: string;
+  environment: string;
+  expectedBehavior: string;
+  actualBehavior: string;
+  stepsToReproduce: string;
+  errorCodes?: string[];
+  /** `X-Request-Id` values of the responses involved. */
+  requestIds?: string[];
+  suggestedImprovement?: string;
+  /** The skill version you followed (skill.json `version`). */
+  skillVersion: string;
+  cliVersion?: string;
 }
 
 export interface TaskSearchParams {

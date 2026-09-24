@@ -63,6 +63,40 @@ export interface OwnerMe {
   session_method: string;
   /** False until the first approval mints the passkey. */
   has_passkey: boolean;
+  /** Operator pages (feedback triage) are visible — ADMIN_OWNER_IDS on the API. */
+  is_admin?: boolean;
+}
+
+// ── Operator: agent feedback (WS5) ──
+
+export type FeedbackStatus = 'open' | 'fixed' | 'wont_fix';
+
+export interface FeedbackItem {
+  feedback_id: string;
+  agent_id: string | null;
+  scope: 'task' | 'general';
+  task_id: string | null;
+  environment: string;
+  expected_behavior: string;
+  actual_behavior: string;
+  steps_to_reproduce: string;
+  error_codes: string[];
+  request_ids: string[];
+  suggested_improvement: string | null;
+  skill_version: string | null;
+  cli_version: string | null;
+  user_agent: string | null;
+  status: FeedbackStatus;
+  status_note: string | null;
+  created_at: string;
+  updated_at: string;
+  notified_at: string | null;
+}
+
+export interface FeedbackList {
+  feedback: FeedbackItem[];
+  counts: Record<FeedbackStatus, number>;
+  next_before: string | null;
 }
 
 // ── Authority ladder / onboarding ──

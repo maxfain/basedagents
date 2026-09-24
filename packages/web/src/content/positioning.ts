@@ -102,7 +102,7 @@ export const agentInstructionsHeader =
 export const PRERENDERED_ROUTES = ['/', '/tasks', '/about'] as const;
 
 /** Static leaf pages (own HTML files, served ahead of the SPA). */
-export const STATIC_ROUTES = ['/keyring', '/registry', '/docs/agents', '/codex'] as const;
+export const STATIC_ROUTES = ['/keyring', '/registry', '/docs/agents', '/codex', '/changelog'] as const;
 
 /** Other SPA routes worth indexing. */
 export const INDEXED_SPA_ROUTES = ['/agents', '/register', '/whois', '/chain', '/docs/getting-started', '/blog', '/board'] as const;

@@ -33,6 +33,8 @@ function fakeHost(opts = {}) {
     if (req.url === '/.well-known/basedagents.json') return send(200, 'application/json', DESCRIPTOR);
     if (req.url === '/skill.md') return send(200, 'text/markdown', SKILL);
     if (req.url === '/skills/basedagents/skill.json') return send(200, 'application/json', MANIFEST);
+    if (req.url === '/changelog.json') return send(200, 'application/json', JSON.stringify({ releases: [{ version: 'Unreleased', entries: [] }] }));
+    if (req.url === '/changelog') return send(200, 'text/html', '<!doctype html><h1>Changelog</h1>');
     res.writeHead(404); res.end();
   });
   return new Promise((r) => server.listen(0, '127.0.0.1', () => r({ url: `http://127.0.0.1:${server.address().port}`, close: () => server.close() })));

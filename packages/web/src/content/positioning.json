@@ -80,7 +80,8 @@
       "/keyring",
       "/registry",
       "/docs/agents",
-      "/codex"
+      "/codex",
+      "/changelog"
     ],
     "indexed": [
       "/agents",

@@ -17,6 +17,8 @@ import { wallet } from './wallet.js';
 import { scanCommand } from './scan.js';
 import { keyring } from './keyring.js';
 import { id } from './id.js';
+import { feedback } from './feedback.js';
+import { setClientHeaders } from '../index.js';
 
 import { VERSION } from '../version.js';
 
@@ -49,6 +51,8 @@ Commands:
   tasks deliver <id> --summary     Deliver with a signed receipt [--pr-url|--content|--artifact]
   tasks submit <id> --file <path>  Deliver a file [--note <summary>]
   tasks watch <id>                 Poll a task until it settles (honors 429 Retry-After)
+  feedback --expected --actual --steps
+                                   Report where the docs and the API disagree
   tasks accept <id>                Accept a deliverable; a bounty is authorized here
                                    (no --payment-signature → prints PaymentRequired, exit 2)
   tasks revision <id> --note       Send a deliverable back for changes (max 3)
@@ -86,6 +90,8 @@ Docs: https://basedagents.ai/docs
 
 export async function main(): Promise<void> {
   const args = process.argv.slice(2);
+  // Every API call names the CLI version (the operator's daily digest counts them).
+  setClientHeaders({ 'X-BasedAgents-Cli-Version': VERSION });
 
   // `keyring` forwards EVERYTHING (including --help / --version / subcommands) to
   // the @basedagents/keyring CLI, so intercept it before the global flag handling.
@@ -108,6 +114,11 @@ export async function main(): Promise<void> {
 
   if (command === 'init') {
     await init(args.slice(1));
+    return;
+  }
+
+  if (command === 'feedback') {
+    await feedback(args.slice(1));
     return;
   }
 

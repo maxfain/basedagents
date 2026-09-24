@@ -9,6 +9,9 @@ import { checkRateLimit } from './lib/rate-limiter.js';
 import { buildDescriptor } from './discovery/descriptor.js';
 import { agentFormat, NEGOTIATED_VARY } from './discovery/negotiate.js';
 import { SKILL_MD, SKILL_VERSION } from './discovery/skill.generated.js';
+import { recordUsage, cleanVersion, retryFeedbackNotifications, runDailyDigest } from './feedback/service.js';
+import { sweepIdempotencyKeys } from './lib/idempotency.js';
+import { emailSenderFromEnv } from './control/email.js';
 import { runBootstrapProber } from './bootstrap/prober.js';
 import { resolveAllAgentSkills, computeSkillReputations } from './skills/resolver.js';
 
@@ -36,6 +39,8 @@ import { billingRoutes, stripeWebhookRoutes } from './control/billing.js';
 import testingRoutes from './control/testing.js';
 import ladderRoutes from './control/ladder.js';
 import funnelRoutes, { VOTABLE_PROVIDERS } from './routes/funnel.js';
+import feedbackRoutes from './routes/feedback.js';
+import adminRoutes from './control/admin.js';
 import { runTaskCron } from './cron/tasks.js';
 import { requireAdmin } from './lib/admin-auth.js';
 import { paymentsDisabledReason } from './payments/index.js';
@@ -94,6 +99,9 @@ const RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
   // Settled-tasks feed (homepage "Recently paid"): 60s-edge-cached like the
   // Atom feed; this bounds clients that bypass the cache.
   '/v1/tasks/settled':         { max: 120, windowMs: 60_000 },
+  // (No global entry for /v1/feedback: its own per-agent 30/h and per-IP 5/h
+  // limits run after the Idempotency-Key replay check, so a retry of a filed
+  // report always gets its response back.)
 };
 // Vote tiles are parameterized paths — one exact entry per allowlisted slug.
 for (const p of VOTABLE_PROVIDERS) {
@@ -130,7 +138,7 @@ app.use('*', cors({
   },
   allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-Timestamp', 'X-Nonce', 'PAYMENT-SIGNATURE', 'X-PAYMENT-SIGNATURE', 'If-None-Match', 'Idempotency-Key', 'X-BasedAgents-Skill-Version', 'X-BasedAgents-Cli-Version'],
-  exposeHeaders: ['X-RateLimit-Remaining', 'PAYMENT-REQUIRED', 'PAYMENT-RESPONSE', 'Deprecation', 'ETag', 'Retry-After', 'X-BasedAgents-Skill-Latest'],
+  exposeHeaders: ['X-RateLimit-Remaining', 'PAYMENT-REQUIRED', 'PAYMENT-RESPONSE', 'Deprecation', 'ETag', 'Retry-After', 'X-BasedAgents-Skill-Latest', 'X-Request-Id', 'Idempotent-Replayed'],
   // The console authenticates with an httpOnly session cookie, so the browser
   // needs Access-Control-Allow-Credentials. Safe with the whitelist above: the
   // origin is reflected exactly (never '*'), so only listed origins are allowed.
@@ -157,12 +165,35 @@ app.use('*', async (c, next) => {
   await next();
 });
 
-// Every response names the latest skill version, so an agent notices an update
-// without polling skill.json. Registered before the rate limiter so its 429s
-// carry it too.
+// ─── Skill version, request id + agent telemetry ───
+// Every response names the latest skill version (an agent notices an update
+// without polling skill.json) and carries X-Request-Id (Cloudflare's ray id
+// when present) for an agent to cite in POST /v1/feedback. Signed requests
+// (with their CLI/skill version headers) and every 4xx/5xx add one count to
+// api_usage_daily for the daily digest (WS5). Registered
+// before the rate limiter so its 429s get the headers and are counted too.
+// Never blocks the response.
 app.use('*', async (c, next) => {
+  const requestId = c.req.header('CF-Ray') ?? crypto.randomUUID();
   await next();
   c.header('X-BasedAgents-Skill-Latest', SKILL_VERSION);
+  c.header('X-Request-Id', requestId);
+  const agentId = (c.get as (k: string) => string | undefined)('agentId') ?? '';
+  // Version values are kept only for signed requests: an unsigned header is
+  // anyone's to spoof, so it must not shape the digest's version breakdown.
+  const cli = agentId ? cleanVersion(c.req.header('X-BasedAgents-Cli-Version')) : '';
+  const skill = agentId ? cleanVersion(c.req.header('X-BasedAgents-Skill-Version')) : '';
+  const status = c.res.status;
+  const db = c.get('db');
+  if (!db || !(agentId || status >= 400)) return;
+  const work = (async () => {
+    let errorCode = '';
+    if (status >= 400) {
+      try { errorCode = String(((await c.res.clone().json()) as { error?: unknown }).error ?? '').slice(0, 64); } catch { /* not JSON */ }
+    }
+    await recordUsage(db, { day: new Date().toISOString().slice(0, 10), agentId, cliVersion: cli, skillVersion: skill, status, errorCode });
+  })().catch((err) => console.error('[telemetry] usage record failed:', err));
+  try { c.executionCtx.waitUntil(work); } catch { await work; }
 });
 
 // ─── Rate limiting middleware (durable) ───
@@ -510,6 +541,10 @@ app.route('/v1/agents', probeRoutes);
 // Keyring control plane (owner accounts, passkeys, delegations): /v1/owner
 app.route('/v1/owner', ownerRoutes);
 app.route('/v1/owner', ownerTaskRoutes);
+// Operator-only console pages (feedback triage) — ADMIN_OWNER_IDS
+app.route('/v1/owner', adminRoutes);
+// Agent feedback (WS5)
+app.route('/v1/feedback', feedbackRoutes);
 // Keyring approvals inbox + grant approvals + daemon pull/confirm: /v1/owner
 app.route('/v1/owner', approvalRoutes);
 // Keyring account recovery (magic link + recovery code → passkey rotation): /v1/owner
@@ -582,6 +617,18 @@ const scheduled = async (_event: unknown, env: any, _ctx: unknown) => {
     console.log(`[cron] Task cron done: ${JSON.stringify(summary)}`);
   } catch (err) {
     console.error('[cron] Task cron failed:', err);
+  }
+
+  // ─── Feedback: retry failed notifications, the daily digest, idempotency sweep (WS5) ───
+  try {
+    const nowIso = new Date().toISOString();
+    const sender = emailSenderFromEnv(env);
+    const retried = await retryFeedbackNotifications(db, env, sender, nowIso);
+    const digest = await runDailyDigest(db, env, sender, new Date());
+    await sweepIdempotencyKeys(db, nowIso);
+    console.log(`[cron] Feedback cron done: retried=${retried} digest=${digest}`);
+  } catch (err) {
+    console.error('[cron] Feedback cron failed:', err);
   }
 };
 
