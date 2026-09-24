@@ -78,9 +78,19 @@ export async function feedback(args: string[]): Promise<void> {
     cliVersion: VERSION,
   };
 
+  // Signed unless --anonymous. An explicit --keypair that can't be loaded is an
+  // error, never a silent downgrade to anonymous; with no --keypair and no
+  // local keys at all, the report goes anonymous and says so.
   let keypair = null;
   if (!args.includes('--anonymous')) {
-    try { keypair = loadKeypair(flag('--keypair')); } catch { keypair = null; }
+    const explicit = flag('--keypair');
+    try {
+      keypair = loadKeypair(explicit);
+    } catch (err) {
+      const noKeys = !explicit && err instanceof Error && err.message.startsWith('No keypairs found');
+      if (!noKeys) return fail(`Could not load the keypair${explicit ? ` ${explicit}` : ''}: ${err instanceof Error ? err.message : 'unknown error'}. Fix it, or pass --anonymous.`);
+      console.error(dim('  No local keypair: sending anonymously (register for a higher limit).'));
+    }
   }
 
   const client = new RegistryClient(flag('--api') ?? DEFAULT_API_URL);

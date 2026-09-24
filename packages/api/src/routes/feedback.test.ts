@@ -12,7 +12,8 @@ import { setupTestDb, createTestAgent, signRequest, type TestKeypair } from '../
 import type { SQLiteAdapter } from '../db/sqlite-adapter.js';
 import { ControlStore } from '../control/store.js';
 import { sha256, bytesToHex } from '../crypto/index.js';
-import { buildDigest, formatDigest, runDailyDigest, retryFeedbackNotifications, recordUsage, type FeedbackRow } from '../feedback/service.js';
+import { buildDigest, formatDigest, runDailyDigest, retryFeedbackNotifications, recordUsage, cleanVersion, MAX_VERSIONS_PER_DAY, DIGEST_MAX_ATTEMPTS, type FeedbackRow } from '../feedback/service.js';
+import { reserveIdempotent, completeIdempotent } from '../lib/idempotency.js';
 import { FEEDBACK_LIMITS } from './feedback.js';
 
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'migrations');
@@ -143,6 +144,43 @@ describe('POST /v1/feedback', () => {
     expect(await replay.json()).toEqual(await first.json());
   });
 
+  it('concurrent requests with one key reserve it once: the second waits (409), then replays', async () => {
+    const body = JSON.stringify(report());
+    const now = new Date().toISOString();
+    expect((await reserveIdempotent(db, 'anon:x', 'race-key-0001', body, now)).kind).toBe('reserved');
+    expect((await reserveIdempotent(db, 'anon:x', 'race-key-0001', body, now)).kind).toBe('in_progress');
+    await completeIdempotent(db, 'anon:x', 'race-key-0001', 201, { feedback_id: 'fb_first' });
+    expect(await reserveIdempotent(db, 'anon:x', 'race-key-0001', body, now)).toEqual({ kind: 'replay', status: 201, body: { feedback_id: 'fb_first' } });
+    // Over HTTP: two at once file one report.
+    const [a, b] = await Promise.all([post(report(), { 'Idempotency-Key': 'race-key-0002' }), post(report(), { 'Idempotency-Key': 'race-key-0002' })]);
+    expect([a.status, b.status].sort()).toEqual(a.status === b.status ? [201, 201] : [201, 409]);
+    expect((await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM feedback'))!.n).toBe(1);
+  });
+
+  it('identifier fields must be identifiers (they are relayed as-is)', async () => {
+    expect((await post(report({ scope: 'task', taskId: 'task 1 my token is abc' }))).status).toBe(400);
+    expect((await post(report({ errorCodes: ['conflict', 'Bearer xyz'] }))).status).toBe(400);
+    expect((await post(report({ requestIds: ['a b'] }))).status).toBe(400);
+  });
+
+  it('a channel that failed is retried alone; the one that worked is not re-sent', async () => {
+    fetchSpy.mockResolvedValue(new Response('down', { status: 500 })); // Slack down, email (log sender) fine
+    const res = await post(report());
+    const id = ((await res.json()) as { feedback_id: string }).feedback_id;
+    let row = (await rowOf(id))!;
+    expect(row.email_notified_at).toBeTruthy();
+    expect(row.slack_notified_at).toBeNull();
+    expect(row.notified_at).toBeNull();
+    fetchSpy.mockResolvedValue(new Response('ok', { status: 200 }));
+    const sender = { send: vi.fn() };
+    const later = new Date(Date.now() + 120_000).toISOString();
+    expect(await retryFeedbackNotifications(db, env, sender, later)).toBe(1);
+    expect(sender.send).not.toHaveBeenCalled();
+    row = (await rowOf(id))!;
+    expect(row.slack_notified_at).toBe(later);
+    expect(row.notified_at).toBe(later);
+  });
+
   it('stores silently when no notification channel is configured', async () => {
     env = { ADMIN_OWNER_IDS: ADMIN };
     const res = await post(report());
@@ -176,6 +214,23 @@ describe('request ids + telemetry', () => {
       { cli_version: '0.9.0', skill_version: '1.1.0', status: 200, error_code: '', count: 1 },
       { cli_version: '0.9.0', skill_version: '', status: 404, error_code: 'not_found', count: 1 },
     ]);
+  });
+});
+
+describe('version values are bounded', () => {
+  it('stores semver-shaped values, "other" for anything else, and caps distinct values per day', async () => {
+    expect(cleanVersion('0.9.0')).toBe('0.9.0');
+    expect(cleanVersion('1.2.3-beta.1')).toBe('1.2.3-beta.1');
+    expect(cleanVersion("x'; drop table")).toBe('other');
+    expect(cleanVersion('')).toBe('');
+    for (let i = 0; i < MAX_VERSIONS_PER_DAY + 5; i++) {
+      await recordUsage(db, { day: '2026-09-23', agentId: '', cliVersion: `0.0.${i}`, skillVersion: '', status: 200, errorCode: '' });
+    }
+    await recordUsage(db, { day: '2026-09-23', agentId: '', cliVersion: '0.0.1', skillVersion: '', status: 200, errorCode: '' });
+    const rows = await db.all<{ cli_version: string; count: number }>(`SELECT cli_version, count FROM api_usage_daily WHERE day = '2026-09-23'`);
+    expect(rows.length).toBe(MAX_VERSIONS_PER_DAY + 1);
+    expect(rows.find((r) => r.cli_version === 'other')!.count).toBe(5);
+    expect(rows.find((r) => r.cli_version === '0.0.1')!.count).toBe(2);
   });
 });
 
@@ -217,6 +272,24 @@ describe('daily digest', () => {
     expect(await runDailyDigest(db, envNotify, sender, new Date('2026-09-24T07:05:00Z'))).toBe('already_sent');
     expect(await runDailyDigest(db, {}, sender, new Date('2026-09-25T08:00:00Z'))).toBe('no_channel');
   });
+
+  it('a digest that failed is retried every 30 minutes, then given up', async () => {
+    const sender = { send: vi.fn().mockRejectedValue(new Error('resend down')) };
+    const envNotify = { FEEDBACK_NOTIFY_EMAIL: 'ops@example.com' };
+    const at = (min: number) => new Date(Date.parse('2026-09-24T07:00:00Z') + min * 60_000);
+    expect(await runDailyDigest(db, envNotify, sender, at(0))).toBe('failed');
+    expect(await runDailyDigest(db, envNotify, sender, at(10))).toBe('failed'); // too soon: not attempted
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    sender.send.mockResolvedValue(undefined);
+    expect(await runDailyDigest(db, envNotify, sender, at(31))).toBe('sent');
+    expect(await runDailyDigest(db, envNotify, sender, at(70))).toBe('already_sent');
+
+    const failing = { send: vi.fn().mockRejectedValue(new Error('down')) };
+    const day2 = (min: number) => new Date(Date.parse('2026-09-25T07:00:00Z') + min * 60_000);
+    for (let i = 0; i < DIGEST_MAX_ATTEMPTS; i++) expect(await runDailyDigest(db, envNotify, failing, day2(i * 31))).toBe('failed');
+    expect(await runDailyDigest(db, envNotify, failing, day2(DIGEST_MAX_ATTEMPTS * 31))).toBe('gave_up');
+    expect(failing.send).toHaveBeenCalledTimes(DIGEST_MAX_ATTEMPTS);
+  });
 });
 
 describe('operator triage (/v1/owner/admin/feedback)', () => {
@@ -245,6 +318,15 @@ describe('operator triage (/v1/owner/admin/feedback)', () => {
     expect(upd.status).toBe(200);
     expect(((await upd.json()) as { feedback: { status: string; status_note: string } }).feedback).toMatchObject({ status: 'fixed', status_note: 'min_usdc shipped' });
     expect((await call(`/v1/owner/admin/feedback/fb_nope`, { method: 'POST', headers: { Cookie: admin, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'fixed' }) })).status).toBe(404);
+
+    // Pagination survives timestamp ties.
+    const tie = '2026-09-20T00:00:00.000Z';
+    for (const fid of ['fb_t1', 'fb_t2', 'fb_t3']) {
+      await db.run(`INSERT INTO feedback (feedback_id, scope, environment, expected_behavior, actual_behavior, steps_to_reproduce, status, created_at, updated_at) VALUES (?, 'general', 'e', 'x', 'y', 'z', 'wont_fix', ?, ?)`, fid, tie, tie);
+    }
+    const p1 = await (await call('/v1/owner/admin/feedback?status=wont_fix&limit=2', { headers: { Cookie: admin } })).json() as { feedback: Array<{ feedback_id: string }>; next_before: string };
+    const p2 = await (await call(`/v1/owner/admin/feedback?status=wont_fix&limit=2&before=${encodeURIComponent(p1.next_before)}`, { headers: { Cookie: admin } })).json() as { feedback: Array<{ feedback_id: string }> };
+    expect([...p1.feedback, ...p2.feedback].map((f) => f.feedback_id)).toEqual(['fb_t3', 'fb_t2', 'fb_t1']);
 
     const meAdmin = await (await call('/v1/owner/me', { headers: { Cookie: admin } })).json() as { is_admin: boolean };
     const meOther = await (await call('/v1/owner/me', { headers: { Cookie: other } })).json() as { is_admin: boolean };

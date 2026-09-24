@@ -99,8 +99,9 @@ const RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
   // Settled-tasks feed (homepage "Recently paid"): 60s-edge-cached like the
   // Atom feed; this bounds clients that bypass the cache.
   '/v1/tasks/settled':         { max: 120, windowMs: 60_000 },
-  // Per-IP backstop; the route adds per-agent (30/h) and anonymous (5/h) limits.
-  '/v1/feedback':              { max: 20, windowMs: 60_000 },
+  // (No global entry for /v1/feedback: its own per-agent 30/h and per-IP 5/h
+  // limits run after the Idempotency-Key replay check, so a retry of a filed
+  // report always gets its response back.)
 };
 // Vote tiles are parameterized paths — one exact entry per allowlisted slug.
 for (const p of VOTABLE_PROVIDERS) {

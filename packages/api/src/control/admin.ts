@@ -3,7 +3,7 @@
  *
  * PROPRIETARY control-plane code — see ./LICENSE and LICENSING.md.
  *
- *   GET  /v1/owner/admin/feedback?status=open|fixed|wont_fix|all&limit=50&before=<created_at>
+ *   GET  /v1/owner/admin/feedback?status=open|fixed|wont_fix|all&limit=50&before=<next_before>
  *   POST /v1/owner/admin/feedback/:id   { status: open|fixed|wont_fix, note? }
  *
  * Behind the owner session, then ADMIN_OWNER_IDS (comma-separated ow_… ids).
@@ -42,19 +42,26 @@ admin.get('/admin/feedback', ownerSession, requireAdmin, async (c) => {
     return c.json({ error: 'bad_request', message: `status must be one of ${[...STATUSES, 'all'].join(', ')}` }, 400);
   }
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '50', 10) || 50, 1), 200);
+  // Cursor `<created_at>|<feedback_id>`: ordering by both keeps reports that
+  // share a timestamp reachable across a page boundary.
   const before = c.req.query('before');
   const where: string[] = [];
   const params: unknown[] = [];
   if (status !== 'all') { where.push('status = ?'); params.push(status); }
-  if (before) { where.push('created_at < ?'); params.push(before); }
+  if (before) {
+    const [at, id] = before.split('|');
+    if (!at || !id) return c.json({ error: 'bad_request', message: 'before must be the next_before value of a previous page' }, 400);
+    where.push('(created_at < ? OR (created_at = ? AND feedback_id < ?))');
+    params.push(at, at, id);
+  }
   const rows = await db.all<FeedbackRow>(
-    `SELECT * FROM feedback ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY created_at DESC LIMIT ?`, ...params, limit,
+    `SELECT * FROM feedback ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY created_at DESC, feedback_id DESC LIMIT ?`, ...params, limit,
   );
   const counts = await db.all<{ status: string; n: number }>('SELECT status, COUNT(*) AS n FROM feedback GROUP BY status');
   return c.json({
     feedback: rows.map(shape),
     counts: Object.fromEntries(STATUSES.map((s) => [s, counts.find((x) => x.status === s)?.n ?? 0])),
-    next_before: rows.length === limit ? rows[rows.length - 1].created_at : null,
+    next_before: rows.length === limit ? `${rows[rows.length - 1].created_at}|${rows[rows.length - 1].feedback_id}` : null,
   });
 });
 

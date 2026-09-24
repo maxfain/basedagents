@@ -72,6 +72,12 @@ describe('basedagents feedback', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('an explicit --keypair that cannot be loaded fails instead of going anonymous', async () => {
+    await expect(feedback([...REQUIRED, '--keypair', join(dir, 'missing-keypair.json'), '--json'])).rejects.toMatchObject({ code: 1 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(logs.join('\n')).toMatch(/Could not load the keypair/);
+  });
+
   it('requires --expected, --actual and --steps', async () => {
     await expect(feedback(['--expected', 'x'])).rejects.toMatchObject({ code: 1 });
     expect(fetchMock).not.toHaveBeenCalled();

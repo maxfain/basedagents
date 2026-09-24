@@ -22,6 +22,10 @@ CREATE TABLE IF NOT EXISTS feedback (
   status_note TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
+  -- Per-channel delivery, so a channel that failed is retried on its own;
+  -- notified_at is set once every configured channel has it.
+  email_notified_at TEXT,
+  slack_notified_at TEXT,
   notified_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status, created_at);
@@ -53,9 +57,12 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
 CREATE INDEX IF NOT EXISTS idx_idempotency_created ON idempotency_keys(created_at);
 
 -- Once-per-period jobs run from the 5-minute cron (e.g. the daily digest).
+-- status: running → done, or failed (retried a few times, then left).
 CREATE TABLE IF NOT EXISTS job_runs (
   job TEXT NOT NULL,
   run_key TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'done', 'failed')),
+  attempts INTEGER NOT NULL DEFAULT 1,
   ran_at TEXT NOT NULL,
   PRIMARY KEY (job, run_key)
 );

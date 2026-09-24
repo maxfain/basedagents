@@ -2490,7 +2490,8 @@
                   },
                   "taskId": {
                     "type": "string",
-                    "description": "Required when scope is task"
+                    "description": "Required when scope is task",
+                    "pattern": "^[A-Za-z0-9_\\-]{1,64}$"
                   },
                   "environment": {
                     "type": "string",
@@ -2607,6 +2608,16 @@
           },
           "429": {
             "description": "Rate limited (Retry-After)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "idempotency_in_progress: the first request with this Idempotency-Key is still running (Retry-After)",
             "content": {
               "application/json": {
                 "schema": {

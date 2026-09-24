@@ -5,8 +5,10 @@
  *
  * Auth is optional. A signed request (AgentSig) records the agent and gets a
  * roomier limit (30 an hour per agent); an anonymous one is allowed at 5 an
- * hour per IP. `Idempotency-Key` makes a retry return the first response.
- * Free-text fields are stored after secret redaction.
+ * hour per IP. `Idempotency-Key` makes a retry return the first response
+ * (reserved before the write, so concurrent retries can't file twice).
+ * Free text is stored after secret redaction; identifier fields must match
+ * strict formats.
  */
 import { Hono } from 'hono';
 import type { Context, MiddlewareHandler } from 'hono';
@@ -16,7 +18,7 @@ import { agentAuth } from '../middleware/auth.js';
 import { checkRateLimit } from '../lib/rate-limiter.js';
 import { generatePublicId } from '../lib/ids.js';
 import { redactSecrets } from '../lib/redact.js';
-import { beginIdempotent, finishIdempotent } from '../lib/idempotency.js';
+import { reserveIdempotent, completeIdempotent, releaseIdempotent } from '../lib/idempotency.js';
 import { sha256, bytesToHex } from '../crypto/index.js';
 import { emailSenderFromEnv, type EmailSender } from '../control/email.js';
 import { notifyFeedback, cleanVersion, type FeedbackRow } from '../feedback/service.js';
@@ -25,15 +27,21 @@ const feedback = new Hono<AppEnv>();
 
 export const FEEDBACK_LIMITS = { anonymousPerHour: 5, agentPerHour: 30 } as const;
 
+// Identifier-shaped fields get strict formats: they're relayed to email and
+// Slack as-is, so they can't carry free text (or a pasted token) past redaction.
+const ID = /^[A-Za-z0-9_\-]{1,64}$/;
+const CODE = /^[A-Za-z0-9_.:\-]{1,64}$/;
+const REQUEST_ID = /^[A-Za-z0-9_.:\-]{1,128}$/;
+
 export const FeedbackSchema = z.object({
   scope: z.enum(['task', 'general']),
-  taskId: z.string().min(1).max(64).optional(),
+  taskId: z.string().regex(ID).optional(),
   environment: z.string().min(1).max(1000),
   expectedBehavior: z.string().min(1).max(4000),
   actualBehavior: z.string().min(1).max(4000),
   stepsToReproduce: z.string().min(1).max(4000),
-  errorCodes: z.array(z.string().min(1).max(64)).max(20).optional(),
-  requestIds: z.array(z.string().min(1).max(128)).max(20).optional(),
+  errorCodes: z.array(z.string().regex(CODE)).max(20).optional(),
+  requestIds: z.array(z.string().regex(REQUEST_ID)).max(20).optional(),
   suggestedImprovement: z.string().max(4000).optional(),
   skillVersion: z.string().min(1).max(32),
   cliVersion: z.string().max(32).optional(),
@@ -68,9 +76,13 @@ feedback.post('/', optionalAgentAuth, async (c) => {
   const raw = await c.req.text();
   const scope = agentId ?? `anon:${ipBucket}`;
   const idemKey = c.req.header('Idempotency-Key');
-  const idem = await beginIdempotent(db, scope, idemKey, raw, nowIso);
+  const idem = await reserveIdempotent(db, scope, idemKey, raw, nowIso);
   if (idem.kind === 'invalid') return c.json({ error: 'bad_request', message: 'Idempotency-Key must be 8–128 characters of [A-Za-z0-9_-:.]' }, 400);
   if (idem.kind === 'conflict') return c.json({ error: 'idempotency_key_reused', message: 'This Idempotency-Key was already used with a different body' }, 422);
+  if (idem.kind === 'in_progress') {
+    c.header('Retry-After', '1');
+    return c.json({ error: 'idempotency_in_progress', message: 'A request with this Idempotency-Key is still being processed; retry shortly' }, 409);
+  }
   if (idem.kind === 'replay') {
     c.header('Idempotent-Replayed', 'true');
     return c.json(idem.body as Record<string, unknown>, idem.status as 201);
@@ -82,14 +94,18 @@ feedback.post('/', optionalAgentAuth, async (c) => {
     ? await checkRateLimit(db, `feedback:agent:${agentId}`, FEEDBACK_LIMITS.agentPerHour, 3_600_000)
     : await checkRateLimit(db, `feedback:anon:${ipBucket}`, FEEDBACK_LIMITS.anonymousPerHour, 3_600_000);
   if (!limit.allowed) {
+    await releaseIdempotent(db, scope, idemKey);
     c.header('Retry-After', String(Math.ceil((limit.retryAfterMs ?? 3_600_000) / 1000)));
     return c.json({ error: 'rate_limited', message: agentId ? 'Feedback limit reached for this agent; retry later.' : 'Anonymous feedback is limited per hour; sign the request for a higher limit.' }, 429);
   }
 
   let body: unknown;
-  try { body = JSON.parse(raw); } catch { return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400); }
+  try { body = JSON.parse(raw); } catch { await releaseIdempotent(db, scope, idemKey); return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400); }
   const parsed = FeedbackSchema.safeParse(body);
-  if (!parsed.success) return c.json({ error: 'bad_request', message: 'Validation failed', details: parsed.error.flatten() }, 400);
+  if (!parsed.success) {
+    await releaseIdempotent(db, scope, idemKey);
+    return c.json({ error: 'bad_request', message: 'Validation failed', details: parsed.error.flatten() }, 400);
+  }
   const d = parsed.data;
 
   const row: FeedbackRow = {
@@ -106,18 +122,25 @@ feedback.post('/', optionalAgentAuth, async (c) => {
     suggested_improvement: d.suggestedImprovement ? redactSecrets(d.suggestedImprovement) : null,
     skill_version: cleanVersion(d.skillVersion) || null,
     cli_version: cleanVersion(d.cliVersion ?? c.req.header('X-BasedAgents-Cli-Version')) || null,
-    user_agent: (c.req.header('User-Agent') ?? '').slice(0, 200) || null,
+    user_agent: redactSecrets((c.req.header('User-Agent') ?? '').slice(0, 200)) || null,
     status: 'open',
     status_note: null,
     created_at: nowIso,
     updated_at: nowIso,
+    email_notified_at: null,
+    slack_notified_at: null,
     notified_at: null,
   };
   const cols = Object.keys(row) as Array<keyof FeedbackRow>;
-  await db.run(`INSERT INTO feedback (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`, ...cols.map((k) => row[k]));
+  try {
+    await db.run(`INSERT INTO feedback (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`, ...cols.map((k) => row[k]));
+  } catch (err) {
+    await releaseIdempotent(db, scope, idemKey);
+    throw err;
+  }
 
   const response = { ok: true, feedback_id: row.feedback_id, status: row.status, anonymous: agentId === null, created_at: nowIso };
-  await finishIdempotent(db, scope, idemKey, raw, 201, response, nowIso);
+  await completeIdempotent(db, scope, idemKey, 201, response);
   await afterResponse(c, notifyFeedback(db, c.env ?? {}, emailSender(c), row, new Date().toISOString()));
   return c.json(response, 201);
 });

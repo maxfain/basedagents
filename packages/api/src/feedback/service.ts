@@ -34,6 +34,9 @@ export interface FeedbackRow {
   status_note: string | null;
   created_at: string;
   updated_at: string;
+  email_notified_at: string | null;
+  slack_notified_at: string | null;
+  /** Set once every configured channel has the report. */
   notified_at: string | null;
 }
 
@@ -70,49 +73,74 @@ export function feedbackMessage(row: FeedbackRow): { subject: string; text: stri
   return { subject, text: lines.join('\n') };
 }
 
-/** Send one message to every configured channel. True when at least one accepted it. */
-async function broadcast(env: NotifyEnv, sender: EmailSender, subject: string, text: string): Promise<boolean> {
-  let delivered = false;
-  if (env.FEEDBACK_NOTIFY_EMAIL) {
-    try { await sender.send({ to: env.FEEDBACK_NOTIFY_EMAIL, subject, text }); delivered = true; }
-    catch (err) { console.error('[feedback] email notify failed:', err instanceof Error ? err.message : err); }
-  }
-  if (env.FEEDBACK_SLACK_WEBHOOK_URL) {
-    try {
-      const res = await fetch(env.FEEDBACK_SLACK_WEBHOOK_URL, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: `*${subject}*\n${clip(text, 3500)}` }),
-      });
-      if (res.ok) delivered = true; else console.error(`[feedback] slack notify failed: HTTP ${res.status}`);
-    } catch (err) { console.error('[feedback] slack notify failed:', err instanceof Error ? err.message : err); }
-  }
-  return delivered;
+type Channel = 'email' | 'slack';
+
+async function sendEmail(env: NotifyEnv, sender: EmailSender, subject: string, text: string): Promise<boolean> {
+  try { await sender.send({ to: env.FEEDBACK_NOTIFY_EMAIL!, subject, text }); return true; }
+  catch (err) { console.error('[feedback] email notify failed:', err instanceof Error ? err.message : err); return false; }
 }
 
-export function notifyConfigured(env: NotifyEnv): boolean {
-  return !!(env.FEEDBACK_NOTIFY_EMAIL || env.FEEDBACK_SLACK_WEBHOOK_URL);
+async function sendSlack(env: NotifyEnv, subject: string, text: string): Promise<boolean> {
+  try {
+    const res = await fetch(env.FEEDBACK_SLACK_WEBHOOK_URL!, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: `*${subject}*\n${clip(text, 3500)}` }),
+    });
+    if (!res.ok) console.error(`[feedback] slack notify failed: HTTP ${res.status}`);
+    return res.ok;
+  } catch (err) { console.error('[feedback] slack notify failed:', err instanceof Error ? err.message : err); return false; }
 }
 
-/** Notify about one report; marks notified_at on success. */
-export async function notifyFeedback(db: DBAdapter, env: NotifyEnv, sender: EmailSender, row: FeedbackRow, nowIso: string): Promise<boolean> {
-  if (!notifyConfigured(env)) return false;
-  const { subject, text } = feedbackMessage(row);
-  const ok = await broadcast(env, sender, subject, text);
-  if (ok) await db.run('UPDATE feedback SET notified_at = ? WHERE feedback_id = ? AND notified_at IS NULL', nowIso, row.feedback_id);
+function channels(env: NotifyEnv): Channel[] {
+  return [...(env.FEEDBACK_NOTIFY_EMAIL ? ['email' as const] : []), ...(env.FEEDBACK_SLACK_WEBHOOK_URL ? ['slack' as const] : [])];
+}
+
+/** Send to the given channels; returns the ones that accepted it. */
+async function deliver(env: NotifyEnv, sender: EmailSender, to: Channel[], subject: string, text: string): Promise<Channel[]> {
+  const ok: Channel[] = [];
+  for (const ch of to) {
+    if (ch === 'email' ? await sendEmail(env, sender, subject, text) : await sendSlack(env, subject, text)) ok.push(ch);
+  }
   return ok;
 }
 
-/** Cron: retry notifications that didn't go out (older than 1 min, younger than 24 h). */
+export function notifyConfigured(env: NotifyEnv): boolean {
+  return channels(env).length > 0;
+}
+
+/**
+ * Notify about one report on every configured channel it hasn't reached yet.
+ * Each channel's success is recorded on its own (email_notified_at,
+ * slack_notified_at), so a channel that failed is retried later without
+ * re-sending the one that worked. notified_at is set when all are done.
+ */
+export async function notifyFeedback(db: DBAdapter, env: NotifyEnv, sender: EmailSender, row: FeedbackRow, nowIso: string): Promise<boolean> {
+  const configured = channels(env);
+  if (!configured.length) return false;
+  const pending = configured.filter((ch) => !(ch === 'email' ? row.email_notified_at : row.slack_notified_at));
+  const { subject, text } = feedbackMessage(row);
+  const ok = pending.length ? await deliver(env, sender, pending, subject, text) : [];
+  for (const ch of ok) {
+    await db.run(`UPDATE feedback SET ${ch === 'email' ? 'email_notified_at' : 'slack_notified_at'} = ? WHERE feedback_id = ?`, nowIso, row.feedback_id);
+  }
+  const allDone = pending.every((ch) => ok.includes(ch));
+  if (allDone) await db.run('UPDATE feedback SET notified_at = COALESCE(notified_at, ?) WHERE feedback_id = ?', nowIso, row.feedback_id);
+  return allDone;
+}
+
+/** Cron: retry channels that didn't get a report (older than 1 min, younger than 24 h). */
 export async function retryFeedbackNotifications(db: DBAdapter, env: NotifyEnv, sender: EmailSender, nowIso: string): Promise<number> {
-  if (!notifyConfigured(env)) return 0;
+  const configured = channels(env);
+  if (!configured.length) return 0;
+  const missing = configured.map((ch) => `${ch === 'email' ? 'email_notified_at' : 'slack_notified_at'} IS NULL`).join(' OR ');
   const now = Date.parse(nowIso);
   const rows = await db.all<FeedbackRow>(
-    `SELECT * FROM feedback WHERE notified_at IS NULL AND created_at < ? AND created_at > ? ORDER BY created_at LIMIT 20`,
+    `SELECT * FROM feedback WHERE (${missing}) AND created_at < ? AND created_at > ? ORDER BY created_at LIMIT 20`,
     new Date(now - 60_000).toISOString(), new Date(now - 24 * 3_600_000).toISOString(),
   );
-  let sent = 0;
-  for (const row of rows) if (await notifyFeedback(db, env, sender, row, nowIso)) sent++;
-  return sent;
+  let done = 0;
+  for (const row of rows) if (await notifyFeedback(db, env, sender, row, nowIso)) done++;
+  return done;
 }
 
 // ─── Telemetry ───
@@ -126,17 +154,43 @@ export interface UsageRecord {
   errorCode: string;
 }
 
+/** Distinct values of each version column kept per day; later new values count as "other". */
+export const MAX_VERSIONS_PER_DAY = 50;
+
+const KEY = 'day = ? AND agent_id = ? AND cli_version = ? AND skill_version = ? AND status = ? AND error_code = ?';
+
+/**
+ * One count per request. Version headers are untrusted (anyone can send any
+ * value), so the number of distinct values stored per day is capped: a value
+ * the day hasn't seen, once MAX_VERSIONS_PER_DAY exist, is folded into
+ * "other". The cap costs one extra read, only when a new row would be created.
+ */
 export async function recordUsage(db: DBAdapter, r: UsageRecord): Promise<void> {
+  const bump = (cli: string, skill: string) => db.run(`UPDATE api_usage_daily SET count = count + 1 WHERE ${KEY}`, r.day, r.agentId, cli, skill, r.status, r.errorCode);
+  if ((await bump(r.cliVersion, r.skillVersion)).changes === 1) return;
+  const capped = async (col: 'cli_version' | 'skill_version', v: string): Promise<string> => {
+    if (!v || v === 'other') return v;
+    const seen = await db.get<{ n: number; has: number }>(
+      `SELECT COUNT(DISTINCT ${col}) AS n, MAX(${col} = ?) AS has FROM api_usage_daily WHERE day = ?`, v, r.day,
+    );
+    return seen && !seen.has && seen.n >= MAX_VERSIONS_PER_DAY ? 'other' : v;
+  };
+  const cli = await capped('cli_version', r.cliVersion);
+  const skill = await capped('skill_version', r.skillVersion);
   await db.run(
     `INSERT INTO api_usage_daily (day, agent_id, cli_version, skill_version, status, error_code, count) VALUES (?, ?, ?, ?, ?, ?, 1)
      ON CONFLICT(day, agent_id, cli_version, skill_version, status, error_code) DO UPDATE SET count = count + 1`,
-    r.day, r.agentId, r.cliVersion, r.skillVersion, r.status, r.errorCode,
+    r.day, r.agentId, cli, skill, r.status, r.errorCode,
   );
 }
 
-/** Keep version headers short and printable before they reach the table or a log line. */
+const VERSION_RE = /^\d{1,4}\.\d{1,4}\.\d{1,4}(?:-[0-9A-Za-z.]{1,16})?$/;
+
+/** A version header as stored: a semver-shaped value, "other" for anything else, "" when absent. */
 export function cleanVersion(v: string | undefined | null): string {
-  return (v ?? '').replace(/[^0-9A-Za-z.+\-_]/g, '').slice(0, 32);
+  const s = (v ?? '').trim();
+  if (!s) return '';
+  return VERSION_RE.test(s) ? s : 'other';
 }
 
 // ─── Daily digest ───
@@ -204,18 +258,43 @@ export function formatDigest(d: Digest): { subject: string; text: string } {
 /** The digest hour (UTC): the 5-minute cron sends yesterday's digest on its first run at or after it. */
 export const DIGEST_HOUR_UTC = 7;
 
+/** A digest that failed to go out is retried on later cron runs, at most this many times. */
+export const DIGEST_MAX_ATTEMPTS = 5;
+const DIGEST_RETRY_AFTER_MS = 30 * 60_000;
+
 /**
- * Cron: send yesterday's digest once. job_runs makes it once-only across the
- * 288 cron runs a day. The marker is written even with no channel configured,
- * so the work isn't redone every 5 minutes.
+ * Cron: send yesterday's digest once. A job_runs row claims the day
+ * ('running'), becomes 'done' when at least one channel accepts it, or
+ * 'failed' when building or every channel failed, and a failed day is retried
+ * every 30 minutes, up to DIGEST_MAX_ATTEMPTS. With no channel configured the
+ * day is marked done untouched, so the work isn't redone every 5 minutes.
  */
-export async function runDailyDigest(db: DBAdapter, env: NotifyEnv, sender: EmailSender, now: Date): Promise<'sent' | 'no_channel' | 'already_sent' | 'not_yet'> {
+export async function runDailyDigest(db: DBAdapter, env: NotifyEnv, sender: EmailSender, now: Date): Promise<'sent' | 'no_channel' | 'already_sent' | 'not_yet' | 'failed' | 'gave_up'> {
   if (now.getUTCHours() < DIGEST_HOUR_UTC) return 'not_yet';
   const day = new Date(now.getTime() - 86_400_000).toISOString().slice(0, 10);
-  const claimed = await db.run(`INSERT OR IGNORE INTO job_runs (job, run_key, ran_at) VALUES ('daily_digest', ?, ?)`, day, now.toISOString());
-  if (claimed.changes === 0) return 'already_sent';
-  if (!notifyConfigured(env)) return 'no_channel';
-  const { subject, text } = formatDigest(await buildDigest(db, day));
-  await broadcast(env, sender, subject, text);
-  return 'sent';
+  const nowIso = now.toISOString();
+  const claimed = await db.run(`INSERT OR IGNORE INTO job_runs (job, run_key, status, attempts, ran_at) VALUES ('daily_digest', ?, 'running', 1, ?)`, day, nowIso);
+  if (claimed.changes === 0) {
+    const row = await db.get<{ status: string; attempts: number; ran_at: string }>(`SELECT status, attempts, ran_at FROM job_runs WHERE job = 'daily_digest' AND run_key = ?`, day);
+    if (!row || row.status !== 'failed') return 'already_sent';
+    if (row.attempts >= DIGEST_MAX_ATTEMPTS) return 'gave_up';
+    if (Date.parse(row.ran_at) > now.getTime() - DIGEST_RETRY_AFTER_MS) return 'failed';
+    const retry = await db.run(
+      `UPDATE job_runs SET status = 'running', attempts = attempts + 1, ran_at = ? WHERE job = 'daily_digest' AND run_key = ? AND status = 'failed'`, nowIso, day,
+    );
+    if (retry.changes === 0) return 'already_sent';
+  }
+  const finish = (status: 'done' | 'failed') => db.run(`UPDATE job_runs SET status = ?, ran_at = ? WHERE job = 'daily_digest' AND run_key = ?`, status, nowIso, day);
+  const configured = channels(env);
+  if (!configured.length) { await finish('done'); return 'no_channel'; }
+  try {
+    const { subject, text } = formatDigest(await buildDigest(db, day));
+    const ok = await deliver(env, sender, configured, subject, text);
+    await finish(ok.length ? 'done' : 'failed');
+    return ok.length ? 'sent' : 'failed';
+  } catch (err) {
+    console.error('[feedback] digest failed:', err instanceof Error ? err.message : err);
+    await finish('failed');
+    return 'failed';
+  }
 }
