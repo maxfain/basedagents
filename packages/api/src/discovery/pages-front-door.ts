@@ -41,5 +41,8 @@ export async function frontDoor(ctx: PagesContext, rootHeaders: Record<string, s
     for (const [name, value] of Object.entries(rootHeaders)) res.headers.set(name, value);
   }
   res.headers.set('Vary', NEGOTIATED_VARY);
+  // Preview deployments (<hash>.<project>.pages.dev) must never be indexed as
+  // a copy of the site; ROOT_HEADERS carries production's `index, follow`.
+  if (new URL(request.url).hostname.endsWith('.pages.dev')) res.headers.set('X-Robots-Tag', 'noindex');
   return res;
 }

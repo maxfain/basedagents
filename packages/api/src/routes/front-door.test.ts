@@ -169,3 +169,41 @@ describe('GET /v1/tasks?min_usdc', () => {
     expect(((await res.json()) as { error: string }).error).toBe('invalid_min_usdc');
   });
 });
+
+describe('Pages front door (site + console `/`)', () => {
+  const ROOT = { 'Content-Security-Policy': "default-src 'self'", 'X-Robots-Tag': 'index, follow' };
+  const ctx = (url: string, accept: string) => {
+    const assets: string[] = [];
+    return {
+      assets,
+      ctx: {
+        request: new Request(url, { headers: { Accept: accept, 'If-None-Match': '"x"' } }),
+        env: { ASSETS: { fetch: async (r: Request) => { assets.push(`${new URL(r.url).pathname} ${r.headers.get('If-None-Match')}`); return new Response('asset', { headers: { ETag: '"x"', 'Content-Type': 'text/plain' } }); } } },
+        next: async () => new Response('<html>', { headers: { 'Content-Type': 'text/html' } }),
+      },
+    };
+  };
+
+  it('serves the skill asset for markdown, forwarding If-None-Match', async () => {
+    const { frontDoor } = await import('../discovery/pages-front-door.js');
+    const t = ctx('https://basedagents.ai/', 'text/markdown');
+    const res = await frontDoor(t.ctx, ROOT);
+    expect(t.assets).toEqual(['/skill.md "x"']);
+    expect(res.headers.get('Content-Type')).toBe('text/markdown; charset=utf-8');
+    expect(res.headers.get('Vary')).toBe('Accept');
+  });
+
+  it('passes browsers through with the _headers for `/` re-applied', async () => {
+    const { frontDoor } = await import('../discovery/pages-front-door.js');
+    const res = await frontDoor(ctx('https://basedagents.ai/', 'text/html,*/*').ctx, ROOT);
+    expect(await res.text()).toBe('<html>');
+    expect(res.headers.get('Content-Security-Policy')).toBe("default-src 'self'");
+    expect(res.headers.get('X-Robots-Tag')).toBe('index, follow');
+  });
+
+  it('never lets a *.pages.dev preview be indexed', async () => {
+    const { frontDoor } = await import('../discovery/pages-front-door.js');
+    const res = await frontDoor(ctx('https://868f361e.auth-ai-web.pages.dev/', 'text/html').ctx, ROOT);
+    expect(res.headers.get('X-Robots-Tag')).toBe('noindex');
+  });
+});

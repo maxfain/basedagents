@@ -4,6 +4,14 @@
   X-Robots-Tag: index, follow
   Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://*.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; connect-src 'self' https://api.basedagents.ai https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com; img-src 'self' https://api.basedagents.ai https://*.google-analytics.com https://*.googletagmanager.com data: blob:; font-src 'self' https://fonts.gstatic.com data:; frame-ancestors 'none'
 
+# Preview deployments (*.pages.dev) are never indexed. Pages joins repeated
+# headers with a comma, and crawlers honor the most restrictive (noindex).
+https://:project.pages.dev/*
+  X-Robots-Tag: noindex
+
+https://:version.:project.pages.dev/*
+  X-Robots-Tag: noindex
+
 /
   Link: </.well-known/agent.json>; rel="agent-instructions", </skill.md>; rel="alternate"; type="text/markdown", </.well-known/basedagents.json>; rel="service-desc"; type="application/json"
 
