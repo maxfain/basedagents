@@ -133,9 +133,16 @@ describe('/v1 aliases and headers', () => {
     expect(d.paths['/.well-known/basedagents.json']).toBeTruthy();
   });
 
-  it('every response names the latest skill version', async () => {
+  it('every response names the latest skill version, rate-limited ones included', async () => {
     const res = await get('/v1/health');
     expect(res.headers.get('X-BasedAgents-Skill-Latest')).toBe(SKILL_VERSION);
+    // /v1/register/init allows 5 a minute per IP; the 6th is a 429 from the limiter itself.
+    let last: Response | undefined;
+    for (let i = 0; i < 6; i++) {
+      last = await worker.fetch(new Request(`${BASE}/v1/register/init`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '198.51.100.7' }, body: '{}' }), {} as never, { waitUntil() {}, passThroughOnException() {} } as never);
+    }
+    expect(last!.status).toBe(429);
+    expect(last!.headers.get('X-BasedAgents-Skill-Latest')).toBe(SKILL_VERSION);
   });
 
   it('a public GET without its own Cache-Control gets a revalidate default and an ETag', async () => {
@@ -163,10 +170,12 @@ describe('GET /v1/tasks?min_usdc', () => {
     expect(await ids('&min_usdc=5.000001')).toEqual([]);
   });
 
-  it('a malformed value is a 400, not a silently ignored filter', async () => {
-    const res = await get('/v1/tasks?min_usdc=1.2345678');
-    expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toBe('invalid_min_usdc');
+  it('a malformed or empty value is a 400, not a silently ignored filter', async () => {
+    for (const bad of ['1.2345678', '', 'abc']) {
+      const res = await get(`/v1/tasks?min_usdc=${bad}`);
+      expect(res.status, bad).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toBe('invalid_min_usdc');
+    }
   });
 });
 

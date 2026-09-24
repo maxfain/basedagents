@@ -157,6 +157,14 @@ app.use('*', async (c, next) => {
   await next();
 });
 
+// Every response names the latest skill version, so an agent notices an update
+// without polling skill.json. Registered before the rate limiter so its 429s
+// carry it too.
+app.use('*', async (c, next) => {
+  await next();
+  c.header('X-BasedAgents-Skill-Latest', SKILL_VERSION);
+});
+
 // ─── Rate limiting middleware (durable) ───
 app.use('*', async (c, next) => {
   const path = new URL(c.req.url).pathname;
@@ -195,11 +203,9 @@ app.use('*', async (c, next) => {
 // Every GET gets an ETag (If-None-Match → 304), so watch loops and skill
 // checks cost a round trip, not a body. A route that sets no Cache-Control
 // gets a revalidate-always default: `private` when the request carried
-// credentials, `public` otherwise. Every response names the latest skill
-// version so an agent notices an update without polling skill.json.
+// credentials, `public` otherwise.
 app.use('*', async (c, next) => {
   await next();
-  c.header('X-BasedAgents-Skill-Latest', SKILL_VERSION);
   if ((c.req.method === 'GET' || c.req.method === 'HEAD') && !c.res.headers.has('Cache-Control')) {
     const credentialed = !!(c.req.header('Authorization') || c.req.header('Cookie'));
     c.header('Cache-Control', c.res.status >= 400 ? 'no-store' : credentialed ? 'private, no-cache' : 'public, max-age=0, must-revalidate');

@@ -27,16 +27,22 @@ const API_URL = DEFAULT_API_URL;
  * warning when there is more than one. Shared by every authenticated command.
  */
 export function loadKeypair(keypairFile?: string): AgentKeypair {
+  return deserializeKeypair(readFileSync(resolveKeypairPath(keypairFile), 'utf8'));
+}
+
+/**
+ * The file `loadKeypair` reads: the --keypair path (a path, or a filename in
+ * ~/.basedagents/keys/), else the last `*-keypair.json` in that directory in
+ * sorted order. Shared with `basedagents id` so the path it reports is the
+ * key it used. Warnings go to stderr so a command's `--json` stdout stays
+ * one parseable object.
+ */
+export function resolveKeypairPath(keypairFile?: string): string {
   const keysDir = join(homedir(), '.basedagents', 'keys');
-  if (keypairFile) {
-    // Explicit keypair path provided via --keypair flag
-    const keypairPath = keypairFile.includes('/') ? keypairFile : join(keysDir, keypairFile);
-    const raw = readFileSync(keypairPath, 'utf8');
-    return deserializeKeypair(raw);
-  }
+  if (keypairFile) return keypairFile.includes('/') ? keypairFile : join(keysDir, keypairFile);
   let files: string[];
   try {
-    files = readdirSync(keysDir).filter(f => f.endsWith('-keypair.json'));
+    files = readdirSync(keysDir).filter(f => f.endsWith('-keypair.json')).sort();
   } catch {
     throw new Error(`No keypairs found in ${keysDir}. Register first: npx basedagents register`);
   }
@@ -45,12 +51,10 @@ export function loadKeypair(keypairFile?: string): AgentKeypair {
   }
   // Use the last alphabetical keypair; warn if multiple exist (NEW-2)
   if (files.length > 1) {
-    console.log(yellow(`  ⚠ Multiple keypairs found. Using: ${files[files.length - 1]}`));
-    console.log(yellow(`  To use a specific keypair, pass --keypair <file>`));
+    console.error(yellow(`  ⚠ Multiple keypairs found. Using: ${files[files.length - 1]}`));
+    console.error(yellow(`  To use a specific keypair, pass --keypair <file>`));
   }
-  const keypairPath = join(keysDir, files[files.length - 1]);
-  const raw = readFileSync(keypairPath, 'utf8');
-  return deserializeKeypair(raw);
+  return join(keysDir, files[files.length - 1]);
 }
 
 export async function wallet(args: string[]): Promise<void> {

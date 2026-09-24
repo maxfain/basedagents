@@ -10,11 +10,9 @@
  * the private key. Exit 1 when there is no local keypair (register first),
  * exit 2 when the key is not registered on this API.
  */
-import { existsSync, readdirSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { RegistryClient, DEFAULT_API_URL, publicKeyToAgentId, base58Encode, ApiError } from '../index.js';
-import { loadKeypair } from './wallet.js';
+import { readFileSync } from 'node:fs';
+import { RegistryClient, DEFAULT_API_URL, publicKeyToAgentId, base58Encode, ApiError, deserializeKeypair } from '../index.js';
+import { resolveKeypairPath } from './wallet.js';
 
 const R = '\x1b[0m';
 const bold = (s: string) => `\x1b[1m${s}${R}`;
@@ -31,15 +29,6 @@ and the registry profile (name, status, wallet). Never prints the private key.
 Exit codes: 0 registered · 1 no local keypair (run basedagents register) · 2 key not registered
 `;
 
-/** The file `loadKeypair` would pick, for display. */
-function keypairPathFor(spec: string | undefined): string | null {
-  const keysDir = join(homedir(), '.basedagents', 'keys');
-  if (spec) return spec.includes('/') ? spec : join(keysDir, spec);
-  if (!existsSync(keysDir)) return null;
-  const files = readdirSync(keysDir).filter((f) => f.endsWith('-keypair.json')).sort();
-  return files.length ? join(keysDir, files[files.length - 1]) : null;
-}
-
 export async function id(args: string[]): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) {
     console.log(HELP);
@@ -51,8 +40,10 @@ export async function id(args: string[]): Promise<void> {
   const apiUrl = flag('--api') ?? process.env.BASEDAGENTS_API_URL ?? DEFAULT_API_URL;
 
   let kp;
+  let keypairPath: string;
   try {
-    kp = loadKeypair(keypairFile);
+    keypairPath = resolveKeypairPath(keypairFile);
+    kp = deserializeKeypair(readFileSync(keypairPath, 'utf8'));
   } catch (err) {
     const message = err instanceof Error ? err.message : 'No keypair found';
     if (jsonMode) console.log(JSON.stringify({ registered: false, agent_id: null, error: 'no_keypair', message }, null, 2));
@@ -65,7 +56,7 @@ export async function id(args: string[]): Promise<void> {
     registered: false,
     agent_id: agentId,
     public_key: base58Encode(kp.publicKey),
-    keypair_path: keypairPathFor(keypairFile),
+    keypair_path: keypairPath,
   };
 
   const client = new RegistryClient(apiUrl);

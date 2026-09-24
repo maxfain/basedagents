@@ -30,7 +30,7 @@ import { basename } from 'path';
 import { VERSION } from '../version.js';
 import {
   RegistryClient, DEFAULT_API_URL, TASK_STATUSES, TASK_CATEGORIES, BOUNTY_NETWORKS,
-  usdcToAtomic, ApiError, PaymentRequiredError, PaymentInvalidError,
+  usdcToAtomic, ApiError, PaymentRequiredError, PaymentInvalidError, redactSecrets,
   type AgentKeypair, type Task, type TaskCreateOptions, type DeliverOptions,
 } from '../index.js';
 import { loadKeypair } from './wallet.js';
@@ -79,8 +79,9 @@ function row(label: string, value: string, labelWidth = 16): string {
   return `  ${dim(label.padEnd(labelWidth))} ${value}`;
 }
 
+/** Every error line goes through here, redacted: server messages and echoed input are untrusted. */
 function fail(message: string, code = 1): never {
-  console.error(red(`\n  ✗ ${message}\n`));
+  console.error(red(`\n  ✗ ${redactSecrets(message)}\n`));
   process.exit(code);
 }
 
@@ -102,7 +103,7 @@ function keypairOrExit(keypairFile: string | undefined): AgentKeypair {
 }
 
 /** Flags that take no value; every other `--flag` consumes the next token. */
-const BOOLEAN_FLAGS = new Set(['--json', '--help', '-h', '--no-escrow', '--once']);
+const BOOLEAN_FLAGS = new Set(['--json', '--help', '-h', '--no-escrow', '--once', '--force']);
 
 /**
  * The first positional argument, wherever it sits among the flags —
@@ -261,6 +262,7 @@ ${bold('submit options:')}
   --file <path>              Required. Up to 50,000 characters.
   --note <text>              One-line summary for the buyer (default: "Delivered <file name>")
   --type json|link           Override the inferred submission type
+  --force                    Deliver even when the file doesn't match the task's output_format
 
 ${bold('watch options:')}
   --max-hours <n>            Give up after n hours (default 24); exit 3
@@ -626,16 +628,20 @@ export async function tasksSubmit(args: string[]): Promise<void> {
   const summary = (getFlag(args, '--note') ?? `Delivered ${basename(file)}`).slice(0, 2000);
 
   const client = new RegistryClient(apiUrl);
-  // Warn (never block) when the file doesn't match the format the buyer asked for.
-  try {
-    const detail = await client.getTask(taskId);
-    const wanted = detail.task.output_format;
-    if (wanted === 'json' && type === 'json' && !inferred.isJson) {
-      console.error(yellow(`  ⚠ This task asks for JSON output and ${basename(file)} is not valid JSON. Delivering it as inline text.`));
-    } else if (wanted === 'link' && type !== 'link') {
-      console.error(yellow('  ⚠ This task asks for links. Consider a file with one URL per line.'));
-    }
-  } catch { /* the deliver call below reports any real problem */ }
+  // Refuse (unless --force) to send a file that doesn't match the format the
+  // buyer asked for: the API stores any text, so a mismatch would "succeed"
+  // and leave the buyer with a deliverable they can't use.
+  let wanted: string | undefined;
+  try { wanted = (await client.getTask(taskId)).task.output_format; } catch { /* the deliver call below reports any real problem */ }
+  const mismatch = wanted === 'json' && !(type === 'json' && inferred.isJson)
+    ? `This task asks for JSON output and ${basename(file)} is not valid JSON. Wrap it, e.g. {"report": "..."}.`
+    : wanted === 'link' && type !== 'link'
+      ? `This task asks for links and ${basename(file)} is not a list of URLs (one per line).`
+      : null;
+  if (mismatch) {
+    if (!args.includes('--force')) return fail(`${mismatch}\n  Pass --force to deliver it anyway.`);
+    console.error(yellow(`  ⚠ ${mismatch} Delivering anyway (--force).`));
+  }
 
   const delivery: DeliverOptions = { summary, submission_type: type };
   if (type === 'link') {
@@ -667,6 +673,19 @@ export async function tasksSubmit(args: string[]): Promise<void> {
 // ─── watch ───
 
 const TERMINAL_STATUSES = new Set(['verified', 'closed', 'cancelled']);
+/** Payment states after which nothing more will happen to the money. */
+const PAYMENT_FINAL = new Set(['none', 'settled', 'refunded', 'expired']);
+
+/**
+ * Done watching: cancelled/closed, or accepted with the payout final. An
+ * accepted bounty whose transfer is still pending/settling (or failed and
+ * being retried by the registry) keeps the watch going.
+ */
+export function watchIsDone(t: { status?: unknown; payment_status?: unknown }): boolean {
+  if (!TERMINAL_STATUSES.has(String(t.status))) return false;
+  if (t.status !== 'verified') return true;
+  return PAYMENT_FINAL.has(String(t.payment_status ?? 'none'));
+}
 
 /**
  * The poll interval (ms) for `tasks watch`, per the skill's watch loop: every
@@ -690,7 +709,10 @@ export function nextActionHint(t: Pick<Task, 'status'> & Partial<Task>): string 
     case 'open': return 'claimable';
     case 'claimed': return task.review_note ? 'revise and deliver again (the buyer requested changes)' : `deliver${task.claim_expires_at ? ` before ${task.claim_expires_at}` : ''}`;
     case 'submitted': return `waiting for review${task.auto_release_at ? `; auto-accepts at ${task.auto_release_at}` : ''}`;
-    case 'verified': return task.payment_status === 'settled' ? 'paid' : task.payment_status && task.payment_status !== 'none' ? `accepted; payment ${task.payment_status}` : 'accepted';
+    case 'verified':
+      if (task.payment_status === 'settled') return 'paid';
+      if (task.payment_status === 'failed') return 'accepted; payout failed and is being retried (check tasks payment)';
+      return task.payment_status && task.payment_status !== 'none' ? `accepted; payout ${task.payment_status}` : 'accepted';
     case 'cancelled': return 'none (cancelled)';
     case 'closed': return 'none (closed)';
     default: return 're-fetch the task';
@@ -772,7 +794,7 @@ export async function tasksWatch(args: string[]): Promise<void> {
     if (once) {
       process.exit(t ? 0 : 1);
     }
-    if (t && TERMINAL_STATUSES.has(String(t.status))) {
+    if (t && watchIsDone(t)) {
       emit({ event: 'done', task_id: taskId, reason: 'terminal', status: t.status, payment_status: t.payment_status ?? null }, `  ${green('✓')} ${taskId} is ${t.status}. Done.`);
       process.exit(0);
     }

@@ -5,11 +5,11 @@
  * key. Same harness as tasks.test.ts: stubbed fetch, process.exit throws.
  */
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll, type MockInstance } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'fs';
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { generateKeypair, serializeKeypair, publicKeyToAgentId, containsSecret, redactSecrets, REDACTED, type AgentKeypair } from '../index.js';
-import { tasksList, tasksSubmit, tasksWatch, tasks, inferSubmission, watchDelayMs, nextActionHint } from './tasks.js';
+import { tasksList, tasksSubmit, tasksWatch, tasks, inferSubmission, watchDelayMs, nextActionHint, watchIsDone } from './tasks.js';
 import { id } from './id.js';
 import { register } from './register.js';
 import { wallet } from './wallet.js';
@@ -86,6 +86,28 @@ describe('basedagents id', () => {
     expect(JSON.parse(stdout())).toMatchObject({ registered: false, error: 'not_registered' });
   });
 
+  it('with several local keypairs: JSON stdout stays clean and the path is the key it used', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'ba-home-'));
+    const keys = join(home, '.basedagents', 'keys');
+    mkdirSync(keys, { recursive: true });
+    const other = await generateKeypair();
+    writeFileSync(join(keys, 'zeta-keypair.json'), serializeKeypair(kp));
+    writeFileSync(join(keys, 'alpha-keypair.json'), serializeKeypair(other));
+    const prevHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      fetchMock.mockResolvedValue(mockResponse({ agent_id: agentId, name: 'Scout', status: 'active' }));
+      expect(await exits(id(['--json']))).toBe(0);
+      const out = JSON.parse(stdout());
+      expect(out.agent_id).toBe(agentId);
+      expect(out.keypair_path).toBe(join(keys, 'zeta-keypair.json'));
+      expect(errSpy.mock.calls.map((c) => c.join(' ')).join('\n')).toContain('Multiple keypairs');
+    } finally {
+      process.env.HOME = prevHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it('exits 1 with no local keypair', async () => {
     expect(await exits(id(['--keypair', join(dir, 'missing.json'), '--json']))).toBe(1);
     expect(JSON.parse(stdout())).toMatchObject({ registered: false, error: 'no_keypair' });
@@ -138,6 +160,21 @@ describe('tasks submit --file', () => {
     expect(JSON.parse(stdout())).toMatchObject({ receipt_id: 'rcpt_1', submission_type: 'json', file: 'result.json' });
   });
 
+  it('refuses a non-JSON file for a JSON task unless --force', async () => {
+    const file = join(dir, 'report.md');
+    writeFileSync(file, '# Report\nplain text');
+    fetchMock.mockResolvedValue(mockResponse({ ok: true, task: { task_id: 'task_1', output_format: 'json' } }));
+    expect(await exits(tasksSubmit(['task_1', '--file', file, '--keypair', keypairPath]))).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // only the GET: nothing delivered
+    expect(errSpy.mock.calls.map((c) => c.join(' ')).join('\n')).toMatch(/not valid JSON.*--force/s);
+
+    fetchMock.mockReset()
+      .mockResolvedValueOnce(mockResponse({ ok: true, task: { task_id: 'task_1', output_format: 'json' } }))
+      .mockResolvedValueOnce(mockResponse({ ok: true, task_id: 'task_1', receipt_id: 'rcpt_2', status: 'submitted', revision_count: 0, chain_sequence: 2, chain_entry_hash: 'cd' }));
+    await tasksSubmit(['task_1', '--file', file, '--force', '--keypair', keypairPath, '--json']);
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/deliver');
+  });
+
   it('requires --file', async () => {
     expect(await exits(tasksSubmit(['task_1', '--keypair', keypairPath]))).toBe(1);
   });
@@ -167,6 +204,28 @@ describe('tasks watch', () => {
     expect(line).toMatchObject({ event: 'state', task_id: 'task_1', status: 'submitted' });
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit & { headers: Record<string, string> }];
     expect(init.headers['X-BasedAgents-Cli-Version']).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
+  it('is done only when the payout is final', () => {
+    expect(watchIsDone({ status: 'verified', payment_status: 'none' })).toBe(true);
+    expect(watchIsDone({ status: 'verified', payment_status: 'settled' })).toBe(true);
+    expect(watchIsDone({ status: 'verified', payment_status: 'settling' })).toBe(false);
+    expect(watchIsDone({ status: 'verified', payment_status: 'failed' })).toBe(false);
+    expect(watchIsDone({ status: 'cancelled', payment_status: 'refunded' })).toBe(true);
+    expect(watchIsDone({ status: 'submitted' })).toBe(false);
+  });
+
+  it('keeps watching an accepted bounty until the transfer settles', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, advanceTimeDelta: 20_000 });
+    fetchMock
+      .mockResolvedValueOnce(mockResponse({ ok: true, task: { task_id: 'task_1', status: 'verified', payment_status: 'settling' } }))
+      .mockResolvedValueOnce(mockResponse({ ok: true, task: { task_id: 'task_1', status: 'verified', payment_status: 'settled', payment_tx_hash: '0xab' } }));
+    expect(await exits(tasksWatch(['task_1', '--json']))).toBe(0);
+    vi.useRealTimers();
+    const lines = stdout().split('\n').map((l) => JSON.parse(l));
+    expect(lines.map((l) => l.event)).toEqual(['state', 'state', 'done']);
+    expect(lines[0].next_action).toBe('accepted; payout settling');
+    expect(lines.at(-1)).toMatchObject({ reason: 'terminal', payment_status: 'settled' });
   });
 
   it('stops with "done" on a terminal state', async () => {

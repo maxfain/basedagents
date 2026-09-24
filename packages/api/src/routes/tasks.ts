@@ -223,7 +223,7 @@ tasks.get('/', async (c) => {
   // value is a 400 instead of silently dropping every other filter.
   const minUsdcRaw = c.req.query('min_usdc');
   let minAtomic: bigint | null = null;
-  if (minUsdcRaw !== undefined && minUsdcRaw !== '') {
+  if (minUsdcRaw !== undefined) {
     if (!/^\d{1,9}(\.\d{1,6})?$/.test(minUsdcRaw)) {
       return c.json({ error: 'invalid_min_usdc', message: 'min_usdc must be a USDC amount with up to 6 decimals, e.g. 1.00' }, 400);
     }

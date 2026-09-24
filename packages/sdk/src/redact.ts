@@ -1,9 +1,11 @@
 /**
  * Secret redaction (agent-first plan §0.2). Private keys must never reach
- * stdout, logs, transcripts or API responses. The CLI never prints a key, and
- * this is the backstop for anything that echoes user-supplied or remote text.
- * The CLI output tests scan with `containsSecret` against the real key
- * material of their throwaway keypairs.
+ * stdout, logs, transcripts or API responses. The CLI never prints a key; this
+ * is the backstop on its diagnostic output: every `tasks` error line (which
+ * can echo server messages and user input) passes through redactSecrets.
+ * Data outputs (--json results) are printed verbatim, since rewriting a
+ * deliverable would corrupt it. The CLI output tests scan every captured line
+ * with `containsSecret` against the real key material of their test keypairs.
  *
  * Patterns are deliberately narrow. A bare 0x + 64 hex is also a transaction
  * hash, which the CLI prints on purpose, so it is only redacted when a key-ish
