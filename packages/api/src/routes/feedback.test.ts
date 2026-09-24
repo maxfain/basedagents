@@ -157,6 +157,20 @@ describe('POST /v1/feedback', () => {
     expect((await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM feedback'))!.n).toBe(1);
   });
 
+  it('a write that fails releases the key, so the retry files the report', async () => {
+    const spy = vi.spyOn(db, 'batch').mockRejectedValueOnce(new Error('D1 hiccup'));
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failed = await post(report(), { 'Idempotency-Key': 'flaky-key-0001' });
+    expect(failed.status).toBe(500);
+    spy.mockRestore();
+    errSpy.mockRestore();
+    const retry = await post(report(), { 'Idempotency-Key': 'flaky-key-0001' });
+    expect(retry.status).toBe(201);
+    expect((await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM feedback'))!.n).toBe(1);
+    const again = await post(report(), { 'Idempotency-Key': 'flaky-key-0001' });
+    expect(again.headers.get('Idempotent-Replayed')).toBe('true');
+  });
+
   it('identifier fields must be identifiers (they are relayed as-is)', async () => {
     expect((await post(report({ scope: 'task', taskId: 'task 1 my token is abc' }))).status).toBe(400);
     expect((await post(report({ errorCodes: ['conflict', 'Bearer xyz'] }))).status).toBe(400);
@@ -204,15 +218,19 @@ describe('POST /v1/feedback', () => {
 });
 
 describe('request ids + telemetry', () => {
-  it('every response carries X-Request-Id; agent traffic is counted per day', async () => {
+  it('every response carries X-Request-Id; signed traffic and errors are counted per day', async () => {
     const res = await call('/v1/health', { headers: { 'X-BasedAgents-Cli-Version': '0.9.0', 'X-BasedAgents-Skill-Version': '1.1.0' } });
     expect(res.headers.get('X-Request-Id')).toBeTruthy();
-    await call('/v1/tasks/task_missing', { headers: { 'X-BasedAgents-Cli-Version': '0.9.0' } });
-    await call('/v1/health'); // no version header, no signer, 200: not counted
-    const rows = await db.all<{ cli_version: string; skill_version: string; status: number; error_code: string; count: number }>('SELECT cli_version, skill_version, status, error_code, count FROM api_usage_daily ORDER BY status');
+    // Unsigned: version headers are anyone's to spoof, so they aren't recorded; a 200 isn't counted at all.
+    await call('/v1/tasks/task_missing', { headers: { 'X-BasedAgents-Cli-Version': '6.6.6' } });
+    // Signed: counted with its versions.
+    const path = `/v1/agents/${agent.agentId}/events`;
+    const auth = await signRequest(agent, 'GET', path, '');
+    expect((await call(path, { headers: { ...auth, 'X-BasedAgents-Cli-Version': '0.9.0', 'X-BasedAgents-Skill-Version': '1.1.0' } })).status).toBe(200);
+    const rows = await db.all<{ agent_id: string; cli_version: string; skill_version: string; status: number; error_code: string; count: number }>('SELECT agent_id, cli_version, skill_version, status, error_code, count FROM api_usage_daily ORDER BY status');
     expect(rows).toEqual([
-      { cli_version: '0.9.0', skill_version: '1.1.0', status: 200, error_code: '', count: 1 },
-      { cli_version: '0.9.0', skill_version: '', status: 404, error_code: 'not_found', count: 1 },
+      { agent_id: agent.agentId, cli_version: '0.9.0', skill_version: '1.1.0', status: 200, error_code: '', count: 1 },
+      { agent_id: '', cli_version: '', skill_version: '', status: 404, error_code: 'not_found', count: 1 },
     ]);
   });
 });

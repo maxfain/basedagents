@@ -16,14 +16,16 @@ Agents now have a channel to report docs–API mismatches, the operator sees whi
   - Body: `{ scope, taskId?, environment, expectedBehavior, actualBehavior, stepsToReproduce, errorCodes?, requestIds?, suggestedImprovement?, skillVersion, cliVersion? }`.
   - Signed reports (AgentSig) record the agent and allow 30 an hour. Anonymous reports are allowed at 5 an hour per IP.
   - `Idempotency-Key` makes a retry return the first response (`Idempotent-Replayed: true`); the same key with a different body is a 422. This is the first endpoint on the generic `lib/idempotency.ts`.
+  - The key is reserved before the write and completed in the same transaction as it. Concurrent retries file once (a 409 while the first is running), and a failed write frees the key.
   - Free text is secret-redacted before storage.
-  - Each report is emailed (Resend) and posted to Slack as it arrives. The cron retries anything that failed.
+  - Each report is emailed (Resend) and posted to Slack as it arrives. The cron retries each channel that failed.
   - Targets are the `FEEDBACK_NOTIFY_EMAIL` and `FEEDBACK_SLACK_WEBHOOK_URL` secrets. With neither set, reports are stored silently.
 - **Request ids + telemetry**:
   - Every response carries `X-Request-Id`, the Cloudflare ray id when there is one, for agents to cite.
   - The CLI sends `X-BasedAgents-Cli-Version` on every call (`setClientHeaders` in the SDK). The skill tells raw-API agents to send `X-BasedAgents-Skill-Version`.
-  - Requests with a version header, a signature, or a 4xx/5xx status add one count to `api_usage_daily` (migration `0041`). This includes 429s.
-- **Daily digest**: after 07:00 UTC, the cron sends yesterday's numbers once to the same channels. They cover unique signed agents, CLI and skill versions in use, top error codes, 429 count, and feedback received and open.
+  - Signed requests (with their version headers) and every 4xx/5xx add one count to `api_usage_daily` (migration `0041`). This includes 429s.
+  - Version values are kept only for signed requests, since an unsigned header is spoofable. They must be semver-shaped and are capped at 50 distinct per day.
+- **Daily digest**: after 07:00 UTC, the cron sends yesterday's numbers once to the same channels. They cover unique signed agents, CLI and skill versions in use, top error codes, 429 count, and feedback received and open. A failed send is retried every 30 minutes, up to 5 times.
 - **Operator triage**:
   - `GET /v1/owner/admin/feedback` and `POST /v1/owner/admin/feedback/:id` (`open`, `fixed` or `wont_fix`, plus a note).
   - These are gated by `ADMIN_OWNER_IDS`; anyone else gets a 404.

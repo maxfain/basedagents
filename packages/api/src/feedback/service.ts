@@ -154,7 +154,11 @@ export interface UsageRecord {
   errorCode: string;
 }
 
-/** Distinct values of each version column kept per day; later new values count as "other". */
+/**
+ * Distinct values of each version column kept per day; later new values count
+ * as "other". Versions are recorded for signed requests only (index.ts), so
+ * only registered agents can reach this, and it bounds even them.
+ */
 export const MAX_VERSIONS_PER_DAY = 50;
 
 const KEY = 'day = ? AND agent_id = ? AND cli_version = ? AND skill_version = ? AND status = ? AND error_code = ?';
@@ -244,9 +248,9 @@ export function formatDigest(d: Digest): { subject: string; text: string } {
       `429 rate-limited: ${d.rateLimited}`,
       `Feedback received: ${d.feedback.received} (open overall: ${d.feedback.open})`,
       '',
-      'CLI versions:', versions(d.byCli),
+      'CLI versions (signed requests):', versions(d.byCli),
       '',
-      'Skill versions:', versions(d.bySkill),
+      'Skill versions (signed requests):', versions(d.bySkill),
       '',
       'Top error codes:', errors,
       '',

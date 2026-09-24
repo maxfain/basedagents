@@ -11,7 +11,8 @@
  *   'replay'      → return the stored response
  *   'conflict'    → 422: the same key was used with a different body
  *   'in_progress' → 409: the first request with this key hasn't finished
- *   'reserved'    → do the write, then completeIdempotent(…); on failure releaseIdempotent(…)
+ *   'reserved'    → do the write in one db.batch with completeIdempotentStatement(…);
+ *                   on failure releaseIdempotent(…)
  *   'none'        → no key sent; just do the write
  */
 import type { DBAdapter } from '../db/adapter.js';
@@ -58,13 +59,24 @@ export async function reserveIdempotent(db: DBAdapter, scope: string, key: strin
   return { kind: 'in_progress' };
 }
 
-/** Store the response for a reserved key (the first response wins; replays return it). */
+/**
+ * The statement that stores the response for a reserved key. Run it in the
+ * SAME db.batch as the write it guards, so the write and its stored response
+ * commit together: a report can't be filed while its key stays in progress.
+ * null when no key was sent.
+ */
+export function completeIdempotentStatement(scope: string, key: string | undefined, status: number, response: unknown): { sql: string; params: unknown[] } | null {
+  if (!key || !KEY_RE.test(key)) return null;
+  return {
+    sql: 'UPDATE idempotency_keys SET status = ?, response = ? WHERE scope = ? AND idem_key = ? AND status = ?',
+    params: [status, JSON.stringify(response), scope, key, IN_PROGRESS],
+  };
+}
+
+/** Store the response for a reserved key on its own (prefer completeIdempotentStatement in a batch). */
 export async function completeIdempotent(db: DBAdapter, scope: string, key: string | undefined, status: number, response: unknown): Promise<void> {
-  if (!key || !KEY_RE.test(key)) return;
-  await db.run(
-    'UPDATE idempotency_keys SET status = ?, response = ? WHERE scope = ? AND idem_key = ? AND status = ?',
-    status, JSON.stringify(response), scope, key, IN_PROGRESS,
-  );
+  const st = completeIdempotentStatement(scope, key, status, response);
+  if (st) await db.run(st.sql, ...st.params);
 }
 
 /** Give a reservation back when the write failed, so a retry can run it. */

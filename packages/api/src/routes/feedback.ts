@@ -18,7 +18,7 @@ import { agentAuth } from '../middleware/auth.js';
 import { checkRateLimit } from '../lib/rate-limiter.js';
 import { generatePublicId } from '../lib/ids.js';
 import { redactSecrets } from '../lib/redact.js';
-import { reserveIdempotent, completeIdempotent, releaseIdempotent } from '../lib/idempotency.js';
+import { reserveIdempotent, completeIdempotentStatement, releaseIdempotent } from '../lib/idempotency.js';
 import { sha256, bytesToHex } from '../crypto/index.js';
 import { emailSenderFromEnv, type EmailSender } from '../control/email.js';
 import { notifyFeedback, cleanVersion, type FeedbackRow } from '../feedback/service.js';
@@ -131,16 +131,18 @@ feedback.post('/', optionalAgentAuth, async (c) => {
     slack_notified_at: null,
     notified_at: null,
   };
+  // The report and its stored idempotent response commit in one transaction:
+  // either both land (a retry replays) or neither does (a retry files it).
+  const response = { ok: true, feedback_id: row.feedback_id, status: row.status, anonymous: agentId === null, created_at: nowIso };
   const cols = Object.keys(row) as Array<keyof FeedbackRow>;
+  const insert = { sql: `INSERT INTO feedback (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`, params: cols.map((k) => row[k]) };
+  const complete = completeIdempotentStatement(scope, idemKey, 201, response);
   try {
-    await db.run(`INSERT INTO feedback (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`, ...cols.map((k) => row[k]));
+    await db.batch(complete ? [insert, complete] : [insert]);
   } catch (err) {
     await releaseIdempotent(db, scope, idemKey);
     throw err;
   }
-
-  const response = { ok: true, feedback_id: row.feedback_id, status: row.status, anonymous: agentId === null, created_at: nowIso };
-  await completeIdempotent(db, scope, idemKey, 201, response);
   await afterResponse(c, notifyFeedback(db, c.env ?? {}, emailSender(c), row, new Date().toISOString()));
   return c.json(response, 201);
 });

@@ -168,9 +168,9 @@ app.use('*', async (c, next) => {
 // ─── Skill version, request id + agent telemetry ───
 // Every response names the latest skill version (an agent notices an update
 // without polling skill.json) and carries X-Request-Id (Cloudflare's ray id
-// when present) for an agent to cite in POST /v1/feedback. Agent-relevant
-// requests (a CLI or skill version header, a signed request, or any 4xx/5xx)
-// add one count to api_usage_daily for the daily digest (WS5). Registered
+// when present) for an agent to cite in POST /v1/feedback. Signed requests
+// (with their CLI/skill version headers) and every 4xx/5xx add one count to
+// api_usage_daily for the daily digest (WS5). Registered
 // before the rate limiter so its 429s get the headers and are counted too.
 // Never blocks the response.
 app.use('*', async (c, next) => {
@@ -178,12 +178,14 @@ app.use('*', async (c, next) => {
   await next();
   c.header('X-BasedAgents-Skill-Latest', SKILL_VERSION);
   c.header('X-Request-Id', requestId);
-  const cli = cleanVersion(c.req.header('X-BasedAgents-Cli-Version'));
-  const skill = cleanVersion(c.req.header('X-BasedAgents-Skill-Version'));
   const agentId = (c.get as (k: string) => string | undefined)('agentId') ?? '';
+  // Version values are kept only for signed requests: an unsigned header is
+  // anyone's to spoof, so it must not shape the digest's version breakdown.
+  const cli = agentId ? cleanVersion(c.req.header('X-BasedAgents-Cli-Version')) : '';
+  const skill = agentId ? cleanVersion(c.req.header('X-BasedAgents-Skill-Version')) : '';
   const status = c.res.status;
   const db = c.get('db');
-  if (!db || !(cli || skill || agentId || status >= 400)) return;
+  if (!db || !(agentId || status >= 400)) return;
   const work = (async () => {
     let errorCode = '';
     if (status >= 400) {
