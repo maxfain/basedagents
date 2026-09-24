@@ -2596,6 +2596,16 @@
               }
             }
           },
+          "409": {
+            "description": "idempotency_in_progress: the first request with this Idempotency-Key is still running (Retry-After)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "422": {
             "description": "idempotency_key_reused: same key, different body",
             "content": {
@@ -2608,16 +2618,6 @@
           },
           "429": {
             "description": "Rate limited (Retry-After)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "idempotency_in_progress: the first request with this Idempotency-Key is still running (Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
