@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { marketplace } from '../api/control.js';
 import type { PublicTask, TaskStatus } from '../api/types.js';
-import { fmtDate, taskErrText } from '../components/TaskBits.js';
+import { fmtDate, mdExcerpt, taskErrText } from '../components/TaskBits.js';
 
 /** Public task detail lives on the marketing site; the console detail is owner-only. */
 const PUBLIC_SITE = 'https://basedagents.ai';
@@ -55,7 +55,7 @@ function TaskCard({ task }: { task: PublicTask }) {
           )}
           {task.category && <span className="pill">{task.category}</span>}
         </div>
-        <p className="card-note" style={{ fontStyle: 'normal' }}>{task.description}</p>
+        <p className="card-excerpt">{mdExcerpt(task.description)}</p>
         <div className="card-meta">
           <span>Posted {fmtDate(task.created_at)}</span>
           <span className="dot">·</span>
