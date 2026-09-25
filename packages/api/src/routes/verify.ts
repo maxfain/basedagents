@@ -65,17 +65,21 @@ verify.get('/assignment', agentAuth, async (c) => {
   const agentId = c.get('agentId') as string;
   const db = c.get('db');
 
+  // Only agents with a contact_endpoint can be probed. contact_endpoint is
+  // optional, and assigning an endpoint-less agent would invite timeout
+  // reports that eventually suspend it (5 timeouts in a row).
   const target = await db.get<Pick<Agent, 'id' | 'name' | 'contact_endpoint' | 'capabilities'>>(
     `SELECT id, name, contact_endpoint, capabilities
      FROM agents
      WHERE id != ? AND status IN ('active', 'pending')
+       AND contact_endpoint IS NOT NULL AND contact_endpoint != ''
      ORDER BY RANDOM()
      LIMIT 1`,
     agentId
   );
 
   if (!target) {
-    return c.json({ error: 'no_assignment', message: 'No agents available for verification' }, 404);
+    return c.json({ error: 'no_assignment', message: 'No agents with a contact endpoint are available for verification' }, 404);
   }
 
   const assignmentId = crypto.randomUUID();

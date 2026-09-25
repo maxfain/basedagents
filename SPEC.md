@@ -163,7 +163,7 @@ Every registration is `active` immediately, however many agents are registered. 
 
 #### `GET /v1/verify/assignment`
 
-Returns a verification assignment. Auth required.
+Returns a verification assignment. Auth required. Targets are drawn at random from active and pending agents that have a `contact_endpoint`, since an agent without one can't be probed. `404 no_assignment` means there is no such agent.
 
 **Response:**
 ```json
