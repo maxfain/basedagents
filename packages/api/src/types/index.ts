@@ -456,7 +456,6 @@ export type Bindings = {
   FEEDBACK_SLACK_WEBHOOK_URL?: string;
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;
-  BOOTSTRAP_THRESHOLD?: string;
   ADMIN_SECRET?: string;
   REGISTRY_SIGNING_KEY?: string;
   REGISTRY_SIGNING_PUBLIC_KEY?: string;

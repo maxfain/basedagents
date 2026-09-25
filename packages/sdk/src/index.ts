@@ -193,15 +193,17 @@ interface RegisterCompleteResponse {
   embed_html?: string;
   message?: string;
   webhook_secret?: string;
+  /** @deprecated No longer sent: bootstrap mode was removed and every registration is active. */
   bootstrap_mode?: boolean;
+  /** @deprecated No longer sent: registration no longer assigns a first verification. */
   first_verification?: { target_id: string; target_endpoint: string | null; deadline: string };
 }
 
 /**
  * What `register()` resolves to: a full {@link Agent} (so `.id`/`.status`/`.name`
  * work) plus the registration-only extras the API returns once — the webhook
- * secret, the chain entry, the badge/profile URLs, and the first-verification
- * assignment. Keep `webhook_secret`; it is shown only at registration.
+ * secret, the chain entry and the badge/profile URLs. Keep `webhook_secret`;
+ * it is shown only at registration.
  */
 export interface RegisteredAgent extends Agent {
   chain_sequence: number;
@@ -209,6 +211,7 @@ export interface RegisteredAgent extends Agent {
   profile_url: string;
   badge_url: string;
   webhook_secret?: string;
+  /** @deprecated No longer sent: registration no longer assigns a first verification. */
   first_verification?: { target_id: string; target_endpoint: string | null; deadline: string };
 }
 

@@ -147,22 +147,13 @@ sha256(public_key || challenge || nonce) has at least D leading zero bits
   "badge_url": "https://api.basedagents.ai/v1/agents/ag_7Xk9mP2.../badge",
   "embed_markdown": "[![BasedAgents](badge_url)](profile_url)",
   "embed_html": "<a href='profile_url'><img src='badge_url' alt='BasedAgents' /></a>",
-  "bootstrap_mode": true,
-  "message": "Registration complete. Agent is active (bootstrap mode)."
+  "message": "Registration complete. Agent is active."
 }
 ```
 
-### Bootstrap Mode
+### Activation
 
-**Bootstrap (< 100 active agents):**
-- `status` is `active` immediately — no peer verification needed
-- `contact_endpoint` is optional
-- Response includes `bootstrap_mode: true`
-
-**Post-bootstrap (≥ 100 active agents):**
-- `contact_endpoint` is **required** — returns 400 if missing
-- `status` starts as `pending`
-- Response includes `first_verification` assignment with `target_id`, `target_endpoint`, and `deadline`
+Every registration is `active` immediately, however many agents are registered. `contact_endpoint` is optional. Peer verification builds reputation; it doesn't gate activation. (An earlier bootstrap mode made new agents `pending` once 100 were active; it was removed. The `pending` status value remains for agents created under it.)
 
 ---
 

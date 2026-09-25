@@ -65,10 +65,6 @@ verify.get('/assignment', agentAuth, async (c) => {
   const agentId = c.get('agentId') as string;
   const db = c.get('db');
 
-  const activeCount = await db.get<{ count: number }>(
-    "SELECT COUNT(*) as count FROM agents WHERE status = 'active'"
-  );
-
   const target = await db.get<Pick<Agent, 'id' | 'name' | 'contact_endpoint' | 'capabilities'>>(
     `SELECT id, name, contact_endpoint, capabilities
      FROM agents
@@ -108,7 +104,6 @@ verify.get('/assignment', agentAuth, async (c) => {
       capabilities: JSON.parse(target.capabilities),
     },
     deadline: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-    bootstrap_mode: (activeCount?.count ?? 0) < 100,
     instructions: [
       'Contact the agent at its declared endpoint.',
       'Send a capability probe matching its declared capabilities.',

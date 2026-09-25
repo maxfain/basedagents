@@ -345,12 +345,6 @@ async function handleProfileUpdate(c: Context<AppEnv>): Promise<Response> {
   setClauses.push('last_seen = ?');
   params.push(now);
 
-  // If contact_endpoint is being set, reset probe tracking so bootstrap prober retries
-  if (updates.contact_endpoint !== undefined) {
-    setClauses.push('probe_attempts = ?', 'last_probe_result = ?');
-    params.push(0, null);
-  }
-
   // Bump profile_version
   setClauses.push('profile_version = profile_version + 1');
 
