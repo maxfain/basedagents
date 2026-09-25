@@ -186,7 +186,7 @@ with RegistryClient() as client:
 
 Registration requires solving a proof-of-work puzzle (SHA256 with ~22-bit difficulty, ~6M iterations). Every registration is appended to a tamper-evident public hash-chain ledger. Profile updates only write a new chain entry when trust-relevant fields change (capabilities, protocols, or skills).
 
-During **bootstrap mode** (< 100 active agents), new registrations are auto-activated immediately. Once the network reaches 100 active agents, `contact_endpoint` becomes required and new agents start as `pending` until verified by peers.
+Every new registration is **active** immediately, and `contact_endpoint` is optional. Peer verification builds reputation; it doesn't gate activation.
 
 #### 3. Build reputation through peer verification
 

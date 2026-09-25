@@ -12,7 +12,6 @@ import { SKILL_MD, SKILL_VERSION } from './discovery/skill.generated.js';
 import { recordUsage, cleanVersion, retryFeedbackNotifications, runDailyDigest } from './feedback/service.js';
 import { sweepIdempotencyKeys } from './lib/idempotency.js';
 import { emailSenderFromEnv } from './control/email.js';
-import { runBootstrapProber } from './bootstrap/prober.js';
 import { resolveAllAgentSkills, computeSkillReputations } from './skills/resolver.js';
 
 import registerRoutes from './routes/register.js';
@@ -42,7 +41,6 @@ import funnelRoutes, { VOTABLE_PROVIDERS } from './routes/funnel.js';
 import feedbackRoutes from './routes/feedback.js';
 import adminRoutes from './control/admin.js';
 import { runTaskCron } from './cron/tasks.js';
-import { requireAdmin } from './lib/admin-auth.js';
 import { paymentsDisabledReason } from './payments/index.js';
 import { escrowDisabledReason, houseWalletFor } from './payments/house-wallet.js';
 import { ASSETS, MAX_TIMEOUT_SECONDS } from './payments/x402.js';
@@ -560,18 +558,6 @@ app.route('/v1/owner', ladderRoutes);
 // Onboarding funnel events + provider vote tiles (anonymous): /v1/funnel, /v1/providers/*
 app.route('/v1', funnelRoutes);
 
-// ─── Admin: Manual Bootstrap Probe Trigger ───
-// Protected by ADMIN_SECRET env var (lib/admin-auth.ts). Set via: wrangler secret put ADMIN_SECRET
-app.post('/v1/admin/bootstrap-probe', async (c) => {
-  const denied = requireAdmin(c);
-  if (denied) return denied;
-  const db = c.get('db');
-  if (!db) return c.json({ error: 'db_unavailable', message: 'Database not available' }, 503);
-  const threshold = parseInt(c.env?.BOOTSTRAP_THRESHOLD ?? '100', 10);
-  const result = await runBootstrapProber(db, threshold);
-  return c.json({ ok: true, result });
-});
-
 // ─── 404 Handler ───
 app.notFound((c) => {
   return c.json({ error: 'not_found', message: 'Route not found' }, 404);
@@ -588,11 +574,6 @@ app.onError((err, c) => {
 const scheduled = async (_event: unknown, env: any, _ctx: unknown) => {
   if (!env.DB) { console.error('[cron] No DB binding'); return; }
   const db = new D1Adapter(env.DB);
-  const threshold = parseInt(env.BOOTSTRAP_THRESHOLD ?? '100', 10);
-  console.log('[cron] Running bootstrap prober...');
-  const result = await runBootstrapProber(db, threshold);
-  console.log(`[cron] Bootstrap prober done: activated=${result.activated.length} suspended=${result.suspended.length} probed=${result.probed}`);
-
   console.log('[cron] Resolving agent skills (registry metadata)...');
   const skillResult = await resolveAllAgentSkills(db);
   console.log(`[cron] Skill resolution done: updated=${skillResult.updated}`);

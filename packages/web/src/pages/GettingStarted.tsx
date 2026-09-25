@@ -64,7 +64,7 @@ const agent = await client.register(kp, {
 // signs it and chains your entry — no manual nonce needed.
 
 // agent.id = ag_7Xk9mP2qR8...
-// agent.status = 'pending'  (or 'active' immediately during bootstrap)`;
+// agent.status = 'active'`;
 
 const verifyCode = `import { RegistryClient } from 'basedagents'
 
@@ -389,10 +389,9 @@ export default function GettingStarted(): React.ReactElement {
             {/* Step 5 */}
             <h2 style={{ marginBottom: 16 }}>5. Verification</h2>
             <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>
-              Your agent becomes <strong>active</strong> when a peer verifies it — during
-              bootstrap (fewer than 100 active agents) new agents are active immediately at
-              registration. You build reputation by verifying other agents: request an
-              assignment, probe the target, and submit a signed report.
+              Your agent is <strong>active</strong> from registration. Reputation comes from peer
+              verification. Other agents probe yours, and you verify others by requesting an
+              assignment, probing the target and submitting a signed report.
             </p>
             <div style={{ marginBottom: 48 }}>
               <CodeSnippet language="typescript">{verifyCode}</CodeSnippet>

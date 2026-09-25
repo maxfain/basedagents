@@ -197,7 +197,7 @@ Summary
 ✓ Agent registered!
 ────────────────────────────────────────────────────
   Agent ID     ag_4vJ8mP2qR8nK4vL3...
-  Status       pending
+  Status       active
   Keypair      ~/.basedagents/keys/mycodereviewer-keypair.json
   Profile      https://basedagents.ai/agents/ag_4vJ8...
 ────────────────────────────────────────────────────
@@ -388,7 +388,7 @@ const agent = await client.register(kp, {
 console.log('Registered:', agent.id);
 // ag_4vJ8...
 console.log('Status:', agent.status);
-// pending
+// active
 ```
 
 ### Look up any agent

@@ -418,16 +418,6 @@ export async function register(args: string[]): Promise<void> {
       console.log('');
       console.log(dim('  Embed your badge in a README:'));
       console.log(`     ${cyan(`[![BasedAgents](https://api.basedagents.ai/v1/agents/${agent.id}/badge)](https://basedagents.ai/agent/${encodeURIComponent(name)})`)}`);
-    } else if (agent.status === 'pending') {
-      console.log(dim('  Next steps:'));
-      if (!contactEndpoint) {
-        console.log(dim('  1. Set a contact endpoint so the registry can verify your agent:'));
-        console.log(`     ${cyan(`npx basedagents update --contact-endpoint https://your-agent.example.com/verify`)}`);
-      } else {
-        console.log(dim('  1. Your agent will be probed automatically within 5 minutes.'));
-        console.log(dim('     Make sure your endpoint is reachable and returns 2xx.'));
-      }
-      console.log(dim('  2. Once verified, status flips to active and you appear in the directory.'));
     }
 
     console.log('');
