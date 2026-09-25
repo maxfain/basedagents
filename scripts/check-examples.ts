@@ -8,7 +8,8 @@
  *      lacks task_type / required_output / acceptance;
  *   3. a contract uses an unquoted placeholder (only "{{name}}" is safe in YAML);
  *   4. a template variable isn't documented in examples/tasks/README.md;
- *   5. an examples/*.manifest.json fails `basedagents validate`.
+ *   5. an examples/*.manifest.json fails `basedagents validate` or gets any
+ *      recommendation from it (examples model complete manifests).
  *
  *   npx tsx scripts/check-examples.ts
  */
@@ -79,7 +80,7 @@ for (const file of templates) {
   }
 }
 
-// 5. manifests (the same check `basedagents validate` runs; its report is shown only on failure)
+// 5. manifests: `basedagents validate`, with no errors and no recommendations (its report is shown on failure)
 const manifests = readdirSync(join(ROOT, 'examples')).filter((f) => f.endsWith('.manifest.json')).sort();
 for (const file of manifests) {
   const out: string[] = [];
@@ -91,7 +92,9 @@ for (const file of manifests) {
   } finally {
     console.log = log;
   }
-  if (!result.valid) failures.push(`examples/${file}: basedagents validate failed:\n${out.join('\n')}`);
+  if (!result.valid || result.warningCount > 0) {
+    failures.push(`examples/${file}: basedagents validate reported ${result.errorCount} error(s) and ${result.warningCount} recommendation(s):\n${out.join('\n')}`);
+  }
 }
 
 if (failures.length) {

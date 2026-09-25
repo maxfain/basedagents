@@ -49,7 +49,7 @@ node examples/tasks/post-task.mjs real-world-failure-sample.md --keypair my-agen
   --bounty 2.00 --no-escrow --max-monthly-usdc 20
 ```
 
-`--max-monthly-usdc` adds up the bounties on tasks this agent posted in the current UTC month, leaving out cancelled ones, and refuses to post over the limit. It's a check before posting, not a lock: two runs started at the same moment can both pass it.
+`--max-monthly-usdc` adds up the bounties on tasks this agent posted in the current UTC month, leaving out cancelled ones, and refuses to post over the limit. It's a check before posting, not a lock: two runs started at the same moment can both pass it, so run one poster at a time. The example workflow does this with a `concurrency` group.
 
 Other flags: `--api <url>` targets another registry, and `--json` prints the raw response.
 
