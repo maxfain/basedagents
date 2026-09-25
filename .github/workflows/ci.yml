@@ -66,6 +66,14 @@ jobs:
       - name: Agent front door (skill) drift + references
         run: npx tsx scripts/sync-skill.ts --check
 
+      # examples/: every task template, filled with hostile values, passes the
+      # API's CreateTaskSchema and its YAML contract parses; the manifests pass
+      # `basedagents validate`; post-task.mjs's own tests.
+      - name: Examples (task templates, manifests, post-task)
+        run: |
+          npx tsx scripts/check-examples.ts
+          node --test examples/tasks/post-task.test.mjs
+
       - name: Action bundle is up to date
         run: |
           git diff --exit-code --stat -- packages/github-action/dist || {
