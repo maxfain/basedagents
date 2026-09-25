@@ -24,8 +24,10 @@ permissions:
 
 # One commission at a time: the budget check reads this month's tasks, so two
 # releases published together must not both check before either has posted.
-# (GitHub keeps one run waiting; a third release in that window replaces it,
-# so a burst of releases can get fewer tests, never more spend.)
+# GitHub keeps at most one run waiting. If another release is published while
+# one waits, the waiting run is cancelled and the newest release is tested
+# instead: a release that is already superseded doesn't need its own paid
+# test, and spend never passes the cap.
 concurrency:
   group: basedagents-commission
   cancel-in-progress: false
