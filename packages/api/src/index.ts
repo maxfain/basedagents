@@ -36,6 +36,11 @@ import approvalRoutes from './control/approvals.js';
 import recoveryRoutes from './control/recovery.js';
 import { billingRoutes, stripeWebhookRoutes } from './control/billing.js';
 import testingRoutes from './control/testing.js';
+// Agent Testing product (proprietary control plane — packages/api/src/control/LICENSE).
+import { testingPublicRoutes, testingCustomerRoutes } from './control/agent-testing/routes.js';
+import { testingAdminRoutes } from './control/agent-testing/admin.js';
+import { runTestingJobs } from './control/agent-testing/jobs.js';
+import { testingStripeFromEnv } from './control/agent-testing/checkout.js';
 import ladderRoutes from './control/ladder.js';
 import funnelRoutes, { VOTABLE_PROVIDERS } from './routes/funnel.js';
 import feedbackRoutes from './routes/feedback.js';
@@ -553,6 +558,11 @@ app.route('/v1/owner', billingRoutes);
 app.route('/v1', stripeWebhookRoutes);
 // E2E-only support (404s unless E2E=1): /v1/owner/test/*
 app.route('/v1/owner', testingRoutes);
+// Agent Testing product: public catalog + worker briefs, customer service
+// orders, operator queue. All feature-flagged (TESTING_PRODUCT_ENABLED).
+app.route('/v1/testing', testingPublicRoutes);
+app.route('/v1/owner/testing', testingCustomerRoutes);
+app.route('/v1/owner/admin/testing', testingAdminRoutes);
 // The authority ladder (link codes, magic-link claim/login, invites, connect cards): /v1/owner
 app.route('/v1/owner', ladderRoutes);
 // Onboarding funnel events + provider vote tiles (anonymous): /v1/funnel, /v1/providers/*
@@ -610,6 +620,20 @@ const scheduled = async (_event: unknown, env: any, _ctx: unknown) => {
     console.log(`[cron] Feedback cron done: retried=${retried} digest=${digest}`);
   } catch (err) {
     console.error('[cron] Feedback cron failed:', err);
+  }
+
+  // ─── Agent Testing: inbox drain, durable operations, task sync, alerts,
+  // notifications, expiry + retention. Recovery jobs run regardless of the
+  // checkout/fulfillment kill switches (those only stop NEW commitments).
+  try {
+    const summary = await runTestingJobs(db, {
+      stripe: testingStripeFromEnv(env),
+      emailSender: emailSenderFromEnv(env),
+      env,
+    }, new Date().toISOString());
+    console.log(`[cron] Testing jobs done: ${JSON.stringify(summary)}`);
+  } catch (err) {
+    console.error('[cron] Testing jobs failed:', err);
   }
 };
 

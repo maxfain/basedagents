@@ -39,7 +39,7 @@ import {
   type Actor, type TaskRow, loadTask, creatorMatches, logPaymentEvent, recordFunnel,
   creatorTarget, recomputeReputation, publicTaskShape, paymentView, bountyView, creatorSqlParts, escrowView,
   claimGate, deliverGate, acceptUnpaidGate, revisionGate, disputeGate, cancelGate, cancelRefusal, afterAccept,
-  notifyMatchingAgents, writeDeliveryReceipt, MAX_REVISIONS,
+  notifyMatchingAgents, writeDeliveryReceipt, MAX_REVISIONS, claimAllowedFor,
 } from '../tasks/service.js';
 
 const tasks = new Hono<AppEnv>();
@@ -570,6 +570,11 @@ tasks.post('/:id/claim', agentAuth, async (c) => {
   if (!task) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
   if (creatorMatches(task, actor)) return c.json({ error: 'bad_request', message: 'Cannot claim your own task' }, 400);
   if (task.status !== 'open') return c.json({ error: 'conflict', message: 'Task is not open for claiming' }, 409);
+  // Restricted task (task_claim_allowlist): friendly refusal here; the
+  // authoritative re-check is inside the atomic claim gate below.
+  if (!(await claimAllowedFor(db, taskId, agentId))) {
+    return c.json({ error: 'worker_ineligible', message: 'This task is restricted to a pre-approved worker pool.' }, 403);
+  }
   if (task.escrow && task.escrow_status !== 'funded') {
     return c.json({
       error: 'escrow_not_funded',

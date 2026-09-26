@@ -113,6 +113,48 @@ export interface TaskRow {
 export type EscrowStatus = 'funding' | 'unfunded' | 'funded' | 'releasing' | 'released' | 'refunding' | 'refunded';
 export type EscrowLeg = 'deposit' | 'release' | 'refund';
 
+// ─── Restricted tasks (task_claim_allowlist, 0042) ───
+//
+// A task that has rows in task_claim_allowlist is claimable only by a listed
+// agent. Generic marketplace feature: any creator-side policy can populate the
+// table; tasks with no rows behave exactly as before. The check lives INSIDE
+// the atomic claim UPDATE, so eligibility is re-verified at the claim boundary,
+// not just at read time. Deploys without the table (pre-0042) skip the
+// fragment via the same lazy per-isolate probe pattern as certification.
+
+let allowlistPresent: boolean | null = null;
+
+export async function claimAllowlistTablePresent(db: DBAdapter): Promise<boolean> {
+  if (allowlistPresent !== null) return allowlistPresent;
+  const row = await db.get<{ name: string }>(
+    `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_claim_allowlist'`,
+  );
+  allowlistPresent = row !== null;
+  return allowlistPresent;
+}
+
+/** Test-only: reset the per-isolate probe (fresh in-memory DBs per test). */
+export function resetClaimAllowlistProbeForTests(): void {
+  allowlistPresent = null;
+}
+
+/**
+ * Whether `agentId` may claim `taskId` under the allowlist: true when the
+ * task is unrestricted (no rows) or the agent is listed. Read-side helper for
+ * friendly route errors — the authoritative check is inside claimGate.
+ */
+export async function claimAllowedFor(db: DBAdapter, taskId: string, agentId: string): Promise<boolean> {
+  if (!(await claimAllowlistTablePresent(db))) return true;
+  const restricted = await db.get<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM task_claim_allowlist WHERE task_id = ?', taskId,
+  );
+  if (!restricted || restricted.n === 0) return true;
+  const listed = await db.get<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM task_claim_allowlist WHERE task_id = ? AND agent_id = ?', taskId, agentId,
+  );
+  return (listed?.n ?? 0) > 0;
+}
+
 /** Buyer review window: a delivered task is auto-accepted after this long (N3). */
 export const REVIEW_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 /** Claim window: a claimed task with no delivery is returned to `open` after this long (cron). */
@@ -418,14 +460,26 @@ export function paymentView(t: TaskRow): Record<string, unknown> {
 /** A recipient agent id + the event to drop in its inbox atomically with the gate. */
 export interface GateNotify { recipientAgentId: string | null; event: WebhookEvent | null }
 
-/** T2: open → claimed. The creator can never claim their own task. Arms the claim-delivery timer. */
+/**
+ * T2: open → claimed. The creator can never claim their own task. Arms the
+ * claim-delivery timer. When the task is restricted (task_claim_allowlist has
+ * rows for it), only a listed agent wins the gate — checked inside the same
+ * atomic UPDATE so a revoked listing loses the race, not just the pre-read.
+ */
 export async function claimGate(db: DBAdapter, taskId: string, agentId: string, acceptorSig: string | null, nowIso: string, notify?: GateNotify): Promise<boolean> {
+  const restrictable = await claimAllowlistTablePresent(db);
+  const allowlistPredicate = restrictable
+    ? ` AND (NOT EXISTS (SELECT 1 FROM task_claim_allowlist w WHERE w.task_id = tasks.task_id)
+         OR EXISTS (SELECT 1 FROM task_claim_allowlist w WHERE w.task_id = tasks.task_id AND w.agent_id = ?))`
+    : '';
+  const params: unknown[] = [agentId, nowIso, isoPlus(nowIso, CLAIM_WINDOW_MS), acceptorSig, taskId, agentId];
+  if (restrictable) params.push(agentId);
   return gateWithEvent(db, {
     sql: `UPDATE tasks SET claimed_by_agent_id = ?, status = 'claimed', claimed_at = ?, claim_expires_at = ?, acceptor_signature = ?
      WHERE task_id = ? AND status = 'open' AND claimed_by_agent_id IS NULL
        AND (creator_agent_id IS NULL OR creator_agent_id <> ?)
-       AND (escrow = 0 OR escrow_status = 'funded')`,
-    params: [agentId, nowIso, isoPlus(nowIso, CLAIM_WINDOW_MS), acceptorSig, taskId, agentId],
+       AND (escrow = 0 OR escrow_status = 'funded')${allowlistPredicate}`,
+    params,
   }, notify?.recipientAgentId ?? null, notify?.event ?? null, nowIso);
 }
 
