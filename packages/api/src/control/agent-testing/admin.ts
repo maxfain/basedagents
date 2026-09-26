@@ -98,8 +98,18 @@ app.get('/queue', async (c) => {
     id: o.id, payment_state: o.payment_state, fulfillment_state: o.fulfillment_state,
     risk_hold: o.risk_hold === 1, cancel_requested_at: o.cancel_requested_at, updated_at: o.updated_at,
   });
+  const pkg = activePackage(c.env);
   return c.json({
     now,
+    package: {
+      price_cents: pkg.price_cents,
+      currency: pkg.currency,
+      worker_cap_usdc_atomic: pkg.maximum_worker_commitment_usdc_atomic,
+      worker_bounty_usdc_atomic: pkg.worker_bounty_usdc_atomic,
+      external_run_slots: pkg.initial_external_run_slots,
+      quote_validity_days: pkg.quote_validity_days,
+      min_operator_groups: pkg.minimum_distinct_operator_groups,
+    },
     intake_review: submitted.map((r) => ({ id: r.id, owner_id: r.owner_id, version: r.version, updated_at: r.updated_at, source: r.source })),
     needs_changes: needsChanges.map((r) => ({ id: r.id, version: r.version, updated_at: r.updated_at })),
     awaiting_payment: awaitingPayment.map(shape),

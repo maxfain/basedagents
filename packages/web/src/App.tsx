@@ -16,6 +16,8 @@ import Privacy from './pages/Privacy';
 import Register from './pages/Register';
 import Integrations from './pages/Integrations';
 import Keyring from './pages/Keyring';
+import Testing from './pages/Testing';
+import TestingSample from './pages/TestingSample';
 import Blog from './pages/Blog';
 import BlogPost from './pages/BlogPost';
 import TaskDetail from './pages/TaskDetail';
@@ -118,6 +120,8 @@ export function AppRoutes(): React.ReactElement {
                   fallback) — required to read without JS. The old in-browser
                   demo lives on at /keyring/demo. */}
               <Route path="/keyring/demo"        element={<Keyring />} />
+              <Route path="/testing"             element={<Testing />} />
+              <Route path="/testing/sample"      element={<TestingSample />} />
               <Route path="/status"              element={<Status />} />
               <Route path="/register"            element={<Register />} />
               <Route path="/blog"                element={<Blog />} />

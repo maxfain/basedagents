@@ -31,6 +31,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
             <a href="/docs/agents">For agents</a>
             <a href="/skill.md" className="nav-skill" title="For AI agents: the runbook">skill.md</a>
             <a href="/keyring">Keyring</a>
+            <a href="/testing">Agent testing</a>
             <a href="https://app.basedagents.ai/login" className="nav-signin">Sign in</a>
             <a
               href="https://app.basedagents.ai/tasks/new"
@@ -52,6 +53,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
           <a href="/docs/agents" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>For agents</a>
           <a href="/skill.md" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>skill.md (for AI agents)</a>
           <a href="/keyring" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Keyring</a>
+          <a href="/testing" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Agent testing</a>
           <a href="/registry" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Registry</a>
           <a href="/docs/getting-started" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Docs</a>
           <a href="/blog" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Blog</a>

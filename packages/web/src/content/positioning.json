@@ -90,7 +90,9 @@
       "/chain",
       "/docs/getting-started",
       "/blog",
-      "/board"
+      "/board",
+      "/testing",
+      "/testing/sample"
     ]
   },
   "routeMeta": {
@@ -109,6 +111,14 @@
     "/keyring/demo": {
       "title": "Keyring demo — BasedAgents",
       "description": "Keyring: give agents scoped, revocable access instead of your keys."
+    },
+    "/testing": {
+      "title": "Agent testing — can an AI agent actually use your product? — BasedAgents",
+      "description": "Buy a scoped agent-compatibility audit: one workflow, executed in independently operated agent environments, reviewed evidence, one private report with the first failure point and reproduction steps."
+    },
+    "/testing/sample": {
+      "title": "Sample agent compatibility report (illustrative) — BasedAgents",
+      "description": "An illustrative sample of the Agent Testing report format: coverage matrix, baseline comparison, evidence-backed findings and limitations. Not an actual test result."
     }
   }
 }

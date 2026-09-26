@@ -196,7 +196,6 @@ describe('retention (spec §14.4, §20.4)', () => {
     const removed = await store.deleteStaleDrafts('2024-01-01T00:00:00.000Z');
     expect(removed).toBe(1);
     expect(await store.getRequest(draftId)).toBeNull();
-    expect(await store.getRequest(orderId.replace('tord', 'treq'))).toBeDefined; // unrelated
   });
 
   it('a risk hold blocks evidence redaction', async () => {

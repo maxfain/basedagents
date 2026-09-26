@@ -21,7 +21,6 @@ import * as ed from '@noble/ed25519';
 import { hmac } from '@noble/hashes/hmac';
 import { sha256 as nobleSha256 } from '@noble/hashes/sha256';
 import { bytesToHex as nobleBytesToHex } from '@noble/hashes/utils';
-import { expect } from 'vitest';
 
 import { SQLiteAdapter } from '../../db/sqlite-adapter.js';
 import { runnerMigrationFiles, RUNNER_LOCAL_STATEMENTS } from '../../db/migration-list.js';
@@ -51,6 +50,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, '..', '..', '..', 'migrations');
 
 const te = new TextEncoder();
+
+/** Minimal assertion so this module works outside vitest (screenshot/demo drivers). */
+function check(cond: unknown, message: string): asserts cond {
+  if (!cond) throw new Error(`harness: ${message}`);
+}
 export const RP_ID = 'basedagents.ai';
 export const ORIGIN = 'https://app.basedagents.ai';
 export const WEBHOOK_SECRET = 'whsec_test_secret';
@@ -362,7 +366,7 @@ export function makeHarness(envOverrides: Record<string, string> = {}): Harness 
   app.route('/v1/owner/testing', testingCustomerRoutes);
   app.route('/v1/owner/admin/testing', testingAdminRoutes);
 
-  const request = (path: string, init: RequestInit = {}) => app.request(path, init, env);
+  const request = (path: string, init: RequestInit = {}) => Promise.resolve(app.request(path, init, env));
   const withBody = (method: string) => (path: string, body: unknown, cookie?: string) =>
     request(path, {
       method,
@@ -410,11 +414,11 @@ let buyerCount = 0;
 
 /** New buyer through the real ladder: /start/email → magic link → /start/finish → /start/buyer. */
 export async function signupBuyer(h: Harness, emailAddr = `buyer${++buyerCount}@example.com`): Promise<{ cookie: string; ownerId: string; email: string }> {
-  expect((await h.post('/v1/owner/start/email', { email: emailAddr })).status).toBe(200);
+  check((await h.post('/v1/owner/start/email', { email: emailAddr })).status === 200, 'start/email failed');
   const mail = h.email.latest(emailAddr, /#t=/);
   const token = /#t=([A-Za-z0-9_-]+)/.exec(mail.text)![1];
   const finish = await h.post('/v1/owner/start/finish', { token });
-  expect(finish.status).toBe(200);
+  check(finish.status === 200, 'start/finish failed');
   const finishBody = (await finish.json()) as { has_account: boolean; start_code?: string };
   if (finishBody.has_account) {
     const cookie = sessionCookieOf(finish);
@@ -422,7 +426,7 @@ export async function signupBuyer(h: Harness, emailAddr = `buyer${++buyerCount}@
     return { cookie, ownerId: me.owner_id, email: emailAddr };
   }
   const buyer = await h.post('/v1/owner/start/buyer', { start_code: finishBody.start_code });
-  expect(buyer.status).toBe(200);
+  check(buyer.status === 200, 'start/buyer failed');
   const body = (await buyer.json()) as { owner_id: string };
   return { cookie: sessionCookieOf(buyer), ownerId: body.owner_id, email: emailAddr };
 }
@@ -432,10 +436,10 @@ export async function setupOperator(h: Harness): Promise<{ cookie: string; owner
   const passkey = await Passkey.create();
   const begin = (await (await h.post('/v1/owner/register/begin', { vault_public_key: passkey.vaultB58, email: `operator-${passkey.ownerId.slice(-6)}@example.com` })).json()) as { options: { challenge: string } };
   const reg = passkey.registration(begin.options.challenge);
-  expect((await h.post('/v1/owner/register/finish', { vault_public_key: passkey.vaultB58, attestationObject: reg.attestationObject, clientDataJSON: reg.clientDataJSON })).status).toBe(200);
+  check((await h.post('/v1/owner/register/finish', { vault_public_key: passkey.vaultB58, attestationObject: reg.attestationObject, clientDataJSON: reg.clientDataJSON })).status === 200, 'register/finish failed');
   const loginBegin = (await (await h.post('/v1/owner/login/begin', { owner_id: passkey.ownerId })).json()) as { challenge: string };
   const login = await h.post('/v1/owner/login/finish', await passkey.assert(loginBegin.challenge, ++h.ceremonies.count));
-  expect(login.status).toBe(200);
+  check(login.status === 200, 'login/finish failed');
   h.env.ADMIN_OWNER_IDS = h.env.ADMIN_OWNER_IDS ? `${h.env.ADMIN_OWNER_IDS},${passkey.ownerId}` : passkey.ownerId;
   return { cookie: sessionCookieOf(login), ownerId: passkey.ownerId, passkey };
 }
@@ -448,7 +452,7 @@ export async function operatorSign(
   params: Record<string, unknown>,
 ): Promise<{ nonce: string; assertion: Awaited<ReturnType<Passkey['assert']>> }> {
   const begin = await h.post('/v1/owner/action/begin', { action_type: actionType, params }, op.cookie);
-  expect(begin.status).toBe(200);
+  check(begin.status === 200, 'action/begin failed');
   const body = (await begin.json()) as { challenge: string; nonce: string };
   return { nonce: body.nonce, assertion: await op.passkey.assert(body.challenge, ++h.ceremonies.count) };
 }
@@ -626,9 +630,9 @@ export async function paidOrder(h: Harness, op: { cookie: string; ownerId: strin
 }> {
   const buyer = await signupBuyer(h);
   const created = await h.post('/v1/owner/testing/requests', sampleIntake(), buyer.cookie);
-  expect(created.status).toBe(200);
+  check(created.status === 200, 'request create failed');
   const request = ((await created.json()) as { request: { id: string; version: number } }).request;
-  expect((await h.post(`/v1/owner/testing/requests/${request.id}/submit`, { expected_version: request.version }, buyer.cookie)).status).toBe(200);
+  check((await h.post(`/v1/owner/testing/requests/${request.id}/submit`, { expected_version: request.version }, buyer.cookie)).status === 200, 'submit failed');
 
   const scope = sampleScope();
   const deliveryTarget = new Date(Date.now() + 5 * 86_400_000).toISOString();
@@ -636,7 +640,7 @@ export async function paidOrder(h: Harness, op: { cookie: string; ownerId: strin
   const approved = await h.post(`/v1/owner/admin/testing/requests/${request.id}/approve-quote`, {
     request_version: 1, scope, delivery_target_at: deliveryTarget, checklist_confirmed: true, ...signed,
   }, op.cookie);
-  expect(approved.status).toBe(200);
+  check(approved.status === 200, 'approve-quote failed');
   const quote = ((await approved.json()) as { quote: { id: string; scope_hash: string; terms_version: string; disclosure_version: string } }).quote;
 
   const checkout = await h.post(`/v1/owner/testing/quotes/${quote.id}/checkout`, {
@@ -646,12 +650,12 @@ export async function paidOrder(h: Harness, op: { cookie: string; ownerId: strin
     disclosure_version: quote.disclosure_version,
     idempotency_key: `idem-${request.id}`,
   }, buyer.cookie);
-  expect(checkout.status).toBe(200);
+  check(checkout.status === 200, 'checkout failed');
   const checkoutBody = (await checkout.json()) as { checkout_url: string; order_id: string };
   const sessionId = checkoutBody.checkout_url.split('/').pop()!;
 
   const session = h.stripe.completePayment(sessionId);
-  expect((await h.sendStripeEvent(stripeEvent('checkout.session.completed', { object: 'checkout.session', id: session.id, metadata: session.metadata }))).status).toBe(200);
+  check((await h.sendStripeEvent(stripeEvent('checkout.session.completed', { object: 'checkout.session', id: session.id, metadata: session.metadata }))).status === 200, 'webhook failed');
   await h.runJobs(); // create_plan operation
 
   return { buyer, requestId: request.id, quoteId: quote.id, orderId: checkoutBody.order_id, scopeHash: quote.scope_hash, sessionId };

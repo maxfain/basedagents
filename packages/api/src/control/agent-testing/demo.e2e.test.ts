@@ -14,7 +14,7 @@
  *
  * PROPRIETARY control-plane code — see ../LICENSE and LICENSING.md.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { it, expect, beforeEach, afterEach } from 'vitest';
 import {
   makeHarness, setupOperator, operatorSign, paidOrder, registerWorkerAgent, workerRequest,
   buildWorkerResult, sha256hexStr, type Harness, type Worker,
@@ -76,7 +76,7 @@ it('full journey: buyer → paid order → 3 fixture submissions (one product fa
   await h.runJobs();
 
   // Customer status: Testing (real active assignments exist now).
-  let view = (await (await h.get(`/v1/owner/testing/orders/${orderId}`, buyer.cookie)).json()) as { order: { stage: string } };
+  let view = (await (await h.get(`/v1/owner/testing/orders/${orderId}`, buyer.cookie)).json()) as { order: { stage: string; external_runs_complete?: number } };
   expect(view.order.stage).toBe('Testing');
 
   // 11b. three fixture workers claim, fetch briefs, execute, submit evidence.
@@ -129,7 +129,7 @@ it('full journey: buyer → paid order → 3 fixture submissions (one product fa
 
   // Customer status now shows 3/3 valid reviewed runs.
   view = (await (await h.get(`/v1/owner/testing/orders/${orderId}`, buyer.cookie)).json()) as { order: { stage: string; external_runs_complete?: number } };
-  expect((view.order as { external_runs_complete: number }).external_runs_complete).toBe(3);
+  expect(view.order.external_runs_complete).toBe(3);
 
   // 12a. deterministic draft from reviewed records; the failure appears as a
   // BLOCKING finding, not a rejected result.

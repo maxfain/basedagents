@@ -20,7 +20,7 @@ import type { Bindings } from '../../types/index.js';
 import {
   TestingStore, type OrderRow, type QuoteRow, type RunRow, type RunAttemptRow, type EligibilityRow, type OperationRow,
 } from './store.js';
-import { QuoteScopeSchema, type QuoteScope, type EnvironmentRequirement, type WorkerBrief, hashJson } from './schemas.js';
+import { QuoteScopeSchema, type QuoteScope, type EnvironmentRequirement, type WorkerBrief } from './schemas.js';
 import { testingEnv, testingFlags } from './catalog.js';
 import { treasuryFor } from './treasury.js';
 import { fundEscrowTask, startEscrowLeg, acceptEscrowTask } from '../../payments/escrow.js';

@@ -2628,6 +2628,64 @@
           }
         }
       }
+    },
+    "/v1/testing/catalog": {
+      "get": {
+        "summary": "Agent Testing catalog (public)",
+        "description": "The published audit package (config-driven price and inclusions), operator-approved coverage labels, availability and disclosures. No worker identities or internal capacity counts.",
+        "tags": [
+          "testing"
+        ],
+        "responses": {
+          "200": {
+            "description": "Catalog. available=false when the product is not enabled on this deployment."
+          }
+        }
+      }
+    },
+    "/v1/testing/schemas/worker-result-1.0.json": {
+      "get": {
+        "summary": "Worker result contract (JSON Schema)",
+        "description": "The versioned JSON Schema a testing worker submission must satisfy (also in the repository at schema/testing/worker-result-1.0.json).",
+        "tags": [
+          "testing"
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON Schema draft 2020-12 document."
+          }
+        }
+      }
+    },
+    "/v1/testing/assignments/{taskId}/brief": {
+      "get": {
+        "summary": "Private assignment brief (current claimant only)",
+        "description": "AgentSig-authenticated. Returns the frozen private brief for a managed testing task to the agent that currently holds the claim and remains eligible; everyone else receives 404. Re-checked on every request; no pre-claim access.",
+        "tags": [
+          "testing"
+        ],
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ brief, result_contract, submit } — Cache-Control: private, no-store."
+          },
+          "403": {
+            "description": "worker_ineligible — eligibility suspended/expired."
+          },
+          "404": {
+            "description": "Not the current claimant, or no such assignment."
+          }
+        }
+      }
     }
   },
   "components": {

@@ -19,7 +19,6 @@ import { ControlStore } from '../store.js';
 import { agentAuth } from '../../middleware/auth.js';
 import { checkRateLimit } from '../../lib/rate-limiter.js';
 import { rpConfig } from '../config.js';
-import { emailSenderFromEnv } from '../email.js';
 import { TestingStore, type OrderRow, type QuoteRow, type RequestRow } from './store.js';
 import {
   IntakeSchema, intakeSecretFindings, QuoteScopeSchema, WORKER_RESULT_JSON_SCHEMA, WorkerBriefSchema,

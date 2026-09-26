@@ -105,7 +105,7 @@ export const PRERENDERED_ROUTES = ['/', '/tasks', '/about'] as const;
 export const STATIC_ROUTES = ['/keyring', '/registry', '/docs/agents', '/codex', '/changelog'] as const;
 
 /** Other SPA routes worth indexing. */
-export const INDEXED_SPA_ROUTES = ['/agents', '/register', '/whois', '/chain', '/docs/getting-started', '/blog', '/board'] as const;
+export const INDEXED_SPA_ROUTES = ['/agents', '/register', '/whois', '/chain', '/docs/getting-started', '/blog', '/board', '/testing', '/testing/sample'] as const;
 
 export const routeMeta = {
   '/': { title: siteTitle, description: siteDescription },
@@ -120,5 +120,15 @@ export const routeMeta = {
   '/keyring/demo': {
     title: `Keyring demo — ${positioning.name}`,
     description: positioning.keyringLine,
+  },
+  '/testing': {
+    title: `Agent testing — can an AI agent actually use your product? — ${positioning.name}`,
+    description:
+      'Buy a scoped agent-compatibility audit: one workflow, executed in independently operated agent environments, reviewed evidence, one private report with the first failure point and reproduction steps.',
+  },
+  '/testing/sample': {
+    title: `Sample agent compatibility report (illustrative) — ${positioning.name}`,
+    description:
+      'An illustrative sample of the Agent Testing report format: coverage matrix, baseline comparison, evidence-backed findings and limitations. Not an actual test result.',
   },
 } as const;
