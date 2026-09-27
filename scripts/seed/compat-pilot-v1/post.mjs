@@ -27,7 +27,8 @@ const LIMITS = { title: 200, description: 10_000, expected_output: 2_000 };
 const argv = process.argv.slice(2);
 const flag = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
 const publish = argv.includes('--publish');
-const api = flag('--api') ?? 'https://api.basedagents.ai';
+const normApi = (u) => u.replace(/\/+$/, '');
+const api = normApi(flag('--api') ?? 'https://api.basedagents.ai');
 const LEDGER_PATH = flag('--ledger') ?? join(HERE, 'ledger.json');
 const problems = [];
 
@@ -64,7 +65,7 @@ const client = new sdk.RegistryClient(api);
 console.log(`Posting as ${creator}`);
 
 const ledger = existsSync(LEDGER_PATH) ? JSON.parse(readFileSync(LEDGER_PATH, 'utf8')) : { batch: SEED.batch, creator, api, entries: {} };
-if (ledger.creator !== creator || (ledger.api ?? 'https://api.basedagents.ai') !== api) {
+if (ledger.creator !== creator || normApi(ledger.api ?? 'https://api.basedagents.ai') !== api) {
   fail(`${LEDGER_PATH} belongs to ${ledger.creator} on ${ledger.api ?? 'https://api.basedagents.ai'}, not ${creator} on ${api}. Pass --ledger <file> for another target.`);
 }
 ledger.api ??= api;
