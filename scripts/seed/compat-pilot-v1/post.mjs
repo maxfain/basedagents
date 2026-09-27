@@ -3,13 +3,15 @@
  * Seed the ba-compat-pilot-v1 batch: 10 free compatibility tasks (no bounty).
  *
  *   node scripts/seed/compat-pilot-v1/post.mjs                          # dry run: validate, write dry-run.json
- *   node scripts/seed/compat-pilot-v1/post.mjs --publish [--keypair <file>] [--api <url>]
+ *   node scripts/seed/compat-pilot-v1/post.mjs --publish [--keypair <file>] [--api <url>] [--ledger <file>]
  *
  * Idempotent: a task whose "Task key:" marker is already on the board (any
  * status) under the posting agent is never posted again, and neither is one
  * the ledger records. After an uncertain response (network error, 5xx) the
  * script re-reads the board instead of retrying, and stops if the task isn't
- * there.
+ * there. The ledger records the agent and API it belongs to; seeding another
+ * target needs its own --ledger file. Exits 1 unless every task is posted and
+ * confirmed.
  *
  * The key: --keypair <file> (same JSON as the CLI), or BASEDAGENTS_BOT_PUBLIC_KEY
  * and BASEDAGENTS_BOT_PRIVATE_KEY (hex) in the environment. It is never printed.
@@ -20,13 +22,14 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SEED = JSON.parse(readFileSync(join(HERE, 'seed.json'), 'utf8'));
-const LEDGER_PATH = join(HERE, 'ledger.json');
 const LIMITS = { title: 200, description: 10_000, expected_output: 2_000 };
 
 const argv = process.argv.slice(2);
 const flag = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
 const publish = argv.includes('--publish');
 const api = flag('--api') ?? 'https://api.basedagents.ai';
+const LEDGER_PATH = flag('--ledger') ?? join(HERE, 'ledger.json');
+const problems = [];
 
 function fail(msg) { console.error(`post: ${msg}`); process.exit(1); }
 const keyOf = (description) => description.match(/^Task key: (ba-compat-pilot-v1-\d\d)$/m)?.[1] ?? null;
@@ -60,7 +63,11 @@ const creator = sdk.publicKeyToAgentId(kp.publicKey);
 const client = new sdk.RegistryClient(api);
 console.log(`Posting as ${creator}`);
 
-const ledger = existsSync(LEDGER_PATH) ? JSON.parse(readFileSync(LEDGER_PATH, 'utf8')) : { batch: SEED.batch, creator, entries: {} };
+const ledger = existsSync(LEDGER_PATH) ? JSON.parse(readFileSync(LEDGER_PATH, 'utf8')) : { batch: SEED.batch, creator, api, entries: {} };
+if (ledger.creator !== creator || (ledger.api ?? 'https://api.basedagents.ai') !== api) {
+  fail(`${LEDGER_PATH} belongs to ${ledger.creator} on ${ledger.api ?? 'https://api.basedagents.ai'}, not ${creator} on ${api}. Pass --ledger <file> for another target.`);
+}
+ledger.api ??= api;
 const saveLedger = () => writeFileSync(LEDGER_PATH, JSON.stringify(ledger, null, 2) + '\n');
 
 async function liveByKey() {
@@ -82,6 +89,7 @@ for (const { key, payload } of SEED.tasks) {
   }
   if (ledger.entries[key]?.task_id) {
     console.log(`  ${key}  ledger has ${ledger.entries[key].task_id} but the board doesn't list it; not recreating. Check it by hand.`);
+    problems.push(`${key}: in the ledger but not on the board`);
     continue;
   }
   try {
@@ -91,7 +99,11 @@ for (const { key, payload } of SEED.tasks) {
     console.log(`  ${key}  posted: ${res.task_id}`);
   } catch (err) {
     const status = err instanceof sdk.ApiError ? err.status : null;
-    if (status !== null && status < 500) { console.log(`  ${key}  refused (${status}): ${err.message}`); continue; }
+    if (status !== null && status < 500) {
+      console.log(`  ${key}  refused (${status}): ${err.message}`);
+      problems.push(`${key}: refused (${status})`);
+      continue;
+    }
     // Uncertain: the task may or may not exist. Re-read the board; never retry blind.
     const again = await liveByKey().catch(() => ({}));
     if (again[key]) {
@@ -100,6 +112,7 @@ for (const { key, payload } of SEED.tasks) {
       console.log(`  ${key}  posted (reconciled): ${again[key].task_id}`);
     } else {
       console.log(`  ${key}  uncertain (${err.message}) and not on the board; stopping. Rerun to continue.`);
+      problems.push(`${key}: uncertain response, stopped`);
       break;
     }
   }
@@ -109,7 +122,11 @@ saveLedger();
 // ── 4. confirm every created task as the API shows it ──
 for (const { key, payload } of SEED.tasks) {
   const id = ledger.entries[key]?.task_id;
-  if (!id) { console.log(`${key}  not posted`); continue; }
+  if (!id) {
+    console.log(`${key}  not posted`);
+    if (!problems.some((p) => p.startsWith(key))) problems.push(`${key}: not posted`);
+    continue;
+  }
   const d = await client.getTask(id);
   const t = d.task ?? d;
   const checks = {
@@ -121,5 +138,13 @@ for (const { key, payload } of SEED.tasks) {
   Object.assign(ledger.entries[key], { status: t.status, url: `https://basedagents.ai/tasks/${id}`, title: t.title, checks, checked_at: new Date().toISOString() });
   const ok = Object.values(checks).every(Boolean);
   console.log(`${key}  ${id}  ${t.status}  ${ok ? 'confirmed' : `CHECK FAILED ${JSON.stringify(checks)}`}`);
+  if (!ok) problems.push(`${key}: confirmation failed ${JSON.stringify(checks)}`);
 }
 saveLedger();
+
+if (problems.length) {
+  console.error(`\nIncomplete: ${problems.length} of ${SEED.tasks.length} tasks need attention:\n  ${problems.join('\n  ')}`);
+  process.exitCode = 1;
+} else {
+  console.log(`\nAll ${SEED.tasks.length} tasks posted and confirmed.`);
+}
