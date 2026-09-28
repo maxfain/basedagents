@@ -325,8 +325,9 @@ keyring publish is a **pair**: bump the sdk a patch, raise its
 (sdk + cli), `@basedagents/mcp` and the PyPI `basedagents` with **trusted
 publishing**: the GitHub Actions job's OIDC identity is the credential, so
 there is no npm token, no PyPI token and no `.env` to leak. It runs **after CI
-finishes on a push to `main`, and only if CI passed** (and on manual dispatch,
-which also requires a green CI run on that commit), so a commit whose tests
+finishes on `main`, and only if CI passed** (a push, or a manual CI re-run
+after a cancelled or flaky one; a manual Publish dispatch also requires a
+green CI run on `main` for that commit), so a commit whose tests
 fail never reaches a registry. A gate job asks each registry whether the
 checked-in version is already published and only the packages with an
 unpublished version run — so the workflow is idempotent: merging a bump PR

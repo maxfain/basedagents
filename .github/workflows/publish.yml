@@ -3,8 +3,8 @@
 # the checked-in manifest is already published and skips when it is, so the
 # workflow is safe to run at any time — it only ever ships a version bump.
 #
-# Runs after CI finishes on a push to main, and only when CI passed: a commit
-# whose tests fail never reaches a registry. The gate job checks that, then asks
+# Runs after CI finishes on main (a push, or a manual CI re-run), and only when
+# CI passed: a commit whose tests fail never reaches a registry. The gate job checks that, then asks
 # each registry which versions are unpublished, so the publish jobs only run
 # when there is a bump to ship. Manual dispatch (re-run a failed publish) also
 # requires a green CI run on the dispatched commit.
@@ -41,12 +41,14 @@ permissions:
 jobs:
   gate:
     name: CI passed + what to publish
-    # Only a successful CI run for a push to main in this repository (never a
-    # pull request, including one from a fork's branch named main).
+    # Only a successful CI run on main in this repository: a push, or a manual
+    # re-run of CI after a cancelled or flaky one. Never a pull request,
+    # including one from a fork's branch named main.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
+       (github.event.workflow_run.event == 'push' ||
+        github.event.workflow_run.event == 'workflow_dispatch') &&
        github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -72,7 +74,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ steps.sha.outputs.sha }}
         run: |
-          n=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${SHA}&event=push&status=success" --jq '.total_count')
+          n=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${SHA}&branch=main&status=success" \
+            --jq "[.workflow_runs[] | select(.event == \"push\" or .event == \"workflow_dispatch\") | select(.head_repository.full_name == \"${GITHUB_REPOSITORY}\")] | length")
           if [ "$n" = "0" ]; then echo "::error::CI has not passed on ${SHA}; not publishing"; exit 1; fi
       - uses: actions/checkout@v4
         with:

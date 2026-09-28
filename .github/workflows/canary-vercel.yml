@@ -16,6 +16,12 @@ on:
     - cron: '0 6 * * 1' # Mondays 06:00 UTC
   workflow_dispatch: {}
 
+# One run at a time, so a manual run that overlaps the scheduled one can't
+# find no open issue at the same moment and file a second.
+concurrency:
+  group: canary-vercel
+  cancel-in-progress: false
+
 permissions:
   contents: read
   issues: write
