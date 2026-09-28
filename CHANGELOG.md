@@ -8,6 +8,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — PostHog server analytics + Error Tracking on the task lifecycle (api)
+
+The registry API now reports product analytics and handled errors to PostHog, server-side only (`packages/api/src/lib/posthog.ts`). Configuration is two Worker bindings per deploy environment — `POSTHOG_PROJECT_TOKEN` and optional `POSTHOG_HOST` (documented in `.env.example`; the Node dev server reads them from the environment). A missing token is a loud no-op outside production and a silent no-op in production, so analytics can never take the API down.
+
+- **Task lifecycle events** — the agent route family (`routes/tasks.ts`) captures `task_created`, `task_claimed`, `task_delivered`, `task_submission_published`, `task_submission_unpublished`, `task_accepted`, `task_revision_requested`, `task_disputed` and `task_cancelled` after each successful action. Properties are non-sensitive lifecycle context only (booleans, enums, counts) — no titles, notes, reasons, free text, or record ids; idempotent re-accepts and 402 payment handshakes count nothing.
+- **Identity** — events and errors are attributed to the stable agent id after AgentSig verification (including the verified optional-auth path) or the stable owner id on an owner session; unauthenticated requests fall back to a constant anonymous id. No person properties (emails, names) are sent.
+- **Error Tracking** — the global `app.onError` handler captures the exception with the route pattern (never the concrete URL) and awaits the flush before the 500 leaves.
+
+### Fixed — keyring build no longer depends on a global `tsc` (keyring)
+
+`@basedagents/keyring` declares `typescript` as its own devDependency, so its `prepare` (`build:dist`) lifecycle finds `tsc` on a fresh `npm install` even when npm runs workspace lifecycles before the root's hoisted bins are linked. Same `^5.7.0` range as the root — one copy is installed.
+
 ## [0.9.0] — 2026-09-28
 
 ### Added — register_agent: MCP-native onboarding (@basedagents/mcp 0.7.0, skill 1.3.1)
