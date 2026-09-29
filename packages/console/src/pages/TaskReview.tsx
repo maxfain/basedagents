@@ -23,7 +23,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { control, payments, ControlApiError, paymentChallengeOf } from '../api/control.js';
-import type { SignedAction } from '../api/control.js';
+import type { SignedAction, TaskRating } from '../api/control.js';
 import type { OwnerTaskDetail, OwnerTaskReceipt, TaskPaymentResponse } from '../api/types.js';
 import { sha256hex } from '../lib/action.js';
 import { runAction } from '../lib/ceremony.js';
@@ -137,6 +137,9 @@ export default function TaskReview() {
   const { owner } = useOwner();
   const [detail, setDetail] = useState<OwnerTaskDetail | null>(null);
   const [note, setNote] = useState('');
+  // Optional 1-5 rating sent with an accept or a dispute (decision D11).
+  const [rating, setRating] = useState<number | null>(null);
+  const [ratingComment, setRatingComment] = useState('');
   const [busy, setBusy] = useState<string | null>(null); // 'accept' | 'revision' | 'dispute' | 'cancel'
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -201,6 +204,13 @@ export default function TaskReview() {
     }
   }
 
+  /** The rating to send, if one was picked. */
+  function ratingPayload(): TaskRating | undefined {
+    if (rating === null) return undefined;
+    const comment = ratingComment.trim();
+    return { rating, ...(comment ? { rating_comment: comment } : {}) };
+  }
+
   async function onAccept(): Promise<void> {
     const text = note.trim();
     const bounty = detail?.task.bounty ?? null;
@@ -214,10 +224,10 @@ export default function TaskReview() {
         if (!pay.requirements) throw new Error(payUnavailableText(pay.requirements_unavailable_reason));
         const { header } = await signBountyPayment(pay.requirements);
         const signed = await sign(`task.accept:${taskId}:${sha256hex(text)}`);
-        await control.acceptTask(taskId, text ? text : undefined, signed, header);
+        await control.acceptTask(taskId, text ? text : undefined, signed, header, ratingPayload());
       } else {
         const signed = await sign(`task.accept:${taskId}:${sha256hex(text)}`);
-        await control.acceptTask(taskId, text ? text : undefined, signed);
+        await control.acceptTask(taskId, text ? text : undefined, signed, undefined, ratingPayload());
       }
     });
   }
@@ -243,7 +253,7 @@ export default function TaskReview() {
     if (!window.confirm('Dispute this work? Automatic acceptance pauses until you accept or cancel.')) return;
     await run('dispute', async () => {
       const signed = await sign(`task.dispute:${taskId}:${sha256hex(text)}`);
-      await control.disputeTask(taskId, text, signed);
+      await control.disputeTask(taskId, text, signed, ratingPayload());
     });
   }
 
@@ -464,6 +474,16 @@ export default function TaskReview() {
             <p className="prewrap card-note">{task.review_note}</p>
           </>
         )}
+        {task.rating != null && (
+          <>
+            <div className="side-head">Your rating</div>
+            <p className="card-note" data-testid="task-rating">
+              {'★'.repeat(task.rating)}{'☆'.repeat(5 - task.rating)} {task.rating} of 5
+              {task.rating_context === 'dispute' && ' (given with the dispute)'}
+              {task.rating_comment && <span className="prewrap"> — {task.rating_comment}</span>}
+            </p>
+          </>
+        )}
       </section>
 
       {(reviewing || cancellable) && (
@@ -486,6 +506,40 @@ export default function TaskReview() {
                   maxLength={MAX_NOTE}
                   disabled={busy !== null}
                 />
+              </div>
+              <div className="field">
+                <span className="field-label" id="review-rating-label">Rating (optional)</span>
+                <div className="rating-picker" role="radiogroup" aria-labelledby="review-rating-label">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      role="radio"
+                      aria-checked={rating === n}
+                      aria-label={`${n} of 5`}
+                      className={`rating-star${rating !== null && n <= rating ? ' on' : ''}`}
+                      onClick={() => setRating(rating === n ? null : n)}
+                      disabled={busy !== null}
+                    >
+                      ★
+                    </button>
+                  ))}
+                  {rating !== null && <span className="muted rating-value">{rating} of 5</span>}
+                </div>
+                {rating !== null && (
+                  <input
+                    type="text"
+                    value={ratingComment}
+                    onChange={(ev) => setRatingComment(ev.target.value)}
+                    placeholder="Optional: a line about the work, shown with the rating."
+                    maxLength={500}
+                    disabled={busy !== null}
+                    aria-label="Rating comment"
+                  />
+                )}
+                <span className="field-hint">
+                  Sent when you accept or dispute. Shown on the task and averaged on the agent&apos;s profile.
+                </span>
               </div>
             </div>
           )}

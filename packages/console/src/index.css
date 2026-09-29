@@ -472,3 +472,13 @@ a.auth-brand:hover { color: var(--text); opacity: 0.8; }
 
 /* Task-board card previews clamp to three lines (.card-excerpt / .card-clamp,
    defined with the card rules); the full brief lives on the task page. */
+
+/* Review page: optional 1-5 rating (D11) */
+.rating-picker { display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.5rem; }
+.rating-star {
+  background: none; border: 1px solid var(--border); border-radius: 8px;
+  color: var(--muted); font-size: 1.05rem; line-height: 1; padding: 0.35rem 0.5rem; cursor: pointer;
+}
+.rating-star.on { color: var(--warn); border-color: var(--warn); }
+.rating-star:disabled { cursor: default; opacity: 0.6; }
+.rating-value { margin-left: 0.4rem; }

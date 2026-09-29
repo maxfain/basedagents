@@ -448,6 +448,89 @@ describe('Task Marketplace', () => {
 
   // ─── POST /v1/tasks/:id/claim — Claim task ───
 
+  // ─── D11: optional ratings on accept and dispute ───
+  describe('optional ratings (D11)', () => {
+    const signedPost = async (kp: TestKeypair, path: string, body?: Record<string, unknown>) => {
+      const text = body === undefined ? undefined : JSON.stringify(body);
+      const headers = await signRequest(kp, 'POST', path, text);
+      return app.request(path, { method: 'POST', headers: { ...(text ? { 'Content-Type': 'application/json' } : {}), ...headers }, body: text });
+    };
+    const delivered = async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+      await submitDeliverable(claimer, taskId);
+      return taskId;
+    };
+    const publicTask = async (taskId: string) => ((await (await app.request(`/v1/tasks/${taskId}`)).json()) as { task: Record<string, unknown> }).task;
+    const profileRatings = async () => ((await (await app.request(`/v1/agents/${claimer.agentId}`)).json()) as { ratings: unknown }).ratings;
+
+    it('accept with a rating stores it publicly and the deliverer\'s profile averages it', async () => {
+      expect(await profileRatings()).toEqual({ count: 0, average: null });
+      const a = await delivered();
+      const res = await signedPost(creator, `/v1/tasks/${a}/accept`, { note: 'Thanks', rating: 5, rating_comment: '  Fast and exact  ' });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ status: 'verified', accepted_by: 'creator', rating: 5 });
+      expect(await publicTask(a)).toMatchObject({ rating: 5, rating_comment: 'Fast and exact', rating_context: 'accept', review_note: 'Thanks' });
+      expect((await publicTask(a)).rated_at).toBeTypeOf('string');
+
+      const b = await delivered();
+      expect((await signedPost(creator, `/v1/tasks/${b}/accept`, { rating: 4 })).status).toBe(200);
+      expect(await publicTask(b)).toMatchObject({ rating: 4, rating_comment: null });
+      expect(await profileRatings()).toEqual({ count: 2, average: 4.5 });
+
+      // No rating: nothing is stored, and the average is unchanged.
+      const c2 = await delivered();
+      const plain = await signedPost(creator, `/v1/tasks/${c2}/accept`);
+      expect(plain.status).toBe(200);
+      expect(await plain.json()).not.toHaveProperty('rating');
+      expect((await publicTask(c2)).rating).toBeNull();
+      expect(await profileRatings()).toEqual({ count: 2, average: 4.5 });
+    });
+
+    it('validates the rating: an integer 1-5; a comment needs a rating and stays under 500 characters', async () => {
+      const taskId = await delivered();
+      for (const bad of [{ rating: 0 }, { rating: 6 }, { rating: 4.5 }, { rating: '5' }, { rating_comment: 'no score' }, { rating: 3, rating_comment: 'x'.repeat(501) }]) {
+        const res = await signedPost(creator, `/v1/tasks/${taskId}/accept`, bad);
+        expect(res.status, JSON.stringify(bad)).toBe(400);
+      }
+      expect((await publicTask(taskId)).status).toBe('submitted'); // nothing was accepted
+    });
+
+    it('a re-accept can add a rating; only the creator can rate', async () => {
+      const taskId = await delivered();
+      expect((await signedPost(claimer, `/v1/tasks/${taskId}/accept`, { rating: 5 })).status).toBe(403);
+      expect((await signedPost(creator, `/v1/tasks/${taskId}/accept`)).status).toBe(200);
+      const again = await signedPost(creator, `/v1/tasks/${taskId}/accept`, { rating: 3, rating_comment: 'late' });
+      expect(again.status).toBe(200);
+      expect(await publicTask(taskId)).toMatchObject({ status: 'verified', rating: 3, rating_comment: 'late', rating_context: 'accept' });
+    });
+
+    it('a dispute rating is dropped by a revision request, and replaced or cleared by the eventual accept', async () => {
+      const taskId = await delivered();
+      const disputed = await signedPost(creator, `/v1/tasks/${taskId}/dispute`, { reason: 'Wrong format', rating: 2, rating_comment: 'CSV, not JSON' });
+      expect(disputed.status).toBe(200);
+      expect(await disputed.json()).toMatchObject({ review_state: 'disputed', rating: 2 });
+      expect(await publicTask(taskId)).toMatchObject({ rating: 2, rating_context: 'dispute' });
+
+      // Asking for changes withdraws the dispute, and its rating with it.
+      expect((await signedPost(creator, `/v1/tasks/${taskId}/revision`, { note: 'Send JSON' })).status).toBe(200);
+      expect(await publicTask(taskId)).toMatchObject({ rating: null, rating_comment: null, rating_context: null, rated_at: null });
+
+      // Dispute again (rated), then accept without a rating: the dispute-time rating goes.
+      expect((await submitDeliverable(claimer, taskId)).status).toBe(200);
+      expect((await signedPost(creator, `/v1/tasks/${taskId}/dispute`, { reason: 'Still off', rating: 1 })).status).toBe(200);
+      expect((await signedPost(creator, `/v1/tasks/${taskId}/accept`)).status).toBe(200);
+      expect(await publicTask(taskId)).toMatchObject({ status: 'verified', rating: null, rating_context: null });
+
+      // And an accept WITH a rating after a rated dispute replaces it.
+      const other = await delivered();
+      expect((await signedPost(creator, `/v1/tasks/${other}/dispute`, { reason: 'Hmm', rating: 1 })).status).toBe(200);
+      expect((await signedPost(creator, `/v1/tasks/${other}/accept`, { rating: 4 })).status).toBe(200);
+      expect(await publicTask(other)).toMatchObject({ rating: 4, rating_context: 'accept' });
+      expect(await profileRatings()).toEqual({ count: 1, average: 4 });
+    });
+  });
+
   describe('POST /v1/tasks/:id/claim — Claim task', () => {
     it('claims an open task successfully', async () => {
       const taskId = await createTask(creator);

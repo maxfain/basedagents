@@ -832,6 +832,20 @@ describe('RegistryClient', () => {
       await expect(client.disputeTask(kp, 'task_abc', '')).rejects.toThrow('reason');
       expect(mockFetch).not.toHaveBeenCalled();
     });
+
+    it('sends an optional rating; refuses one outside 1-5 or a comment without one (no request made)', async () => {
+      const kp = await generateKeypair();
+      mockFetch.mockResolvedValueOnce(makeMockResponse({ ok: true, task_id: 'task_abc', status: 'submitted', review_state: 'disputed', disputed_at: 'x', payment_status: 'none', rating: 1 }));
+      const client = new RegistryClient('https://api.test.local');
+      await client.disputeTask(kp, 'task_abc', 'Wrong file', { rating: 1, ratingComment: 'Not what was asked' });
+      expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ reason: 'Wrong file', rating: 1, rating_comment: 'Not what was asked' });
+
+      mockFetch.mockClear();
+      await expect(client.disputeTask(kp, 'task_abc', 'x', { rating: 6 })).rejects.toThrow('1 to 5');
+      await expect(client.acceptTask(kp, 'task_abc', { rating: 2.5 })).rejects.toThrow('1 to 5');
+      await expect(client.acceptTask(kp, 'task_abc', { ratingComment: 'nice' })).rejects.toThrow('needs a rating');
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
   });
 
   // ── getTaskPayment ──
