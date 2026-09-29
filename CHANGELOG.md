@@ -8,9 +8,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Fixed — `wallet set` keeps every pending bind message (sdk 0.9.5)
+### Fixed — `wallet set` keeps every pending bind message (sdk 0.9.5, console)
 
-A second unsigned `basedagents wallet set` no longer overwrites the first one's message. `~/.basedagents/wallet-bind-pending.json` keeps the recent messages (the 15-minute window) per agent, wallet and network, and `--signature` uses the message that signature recovers to (the newest one for a smart-wallet signature, which can't be recovered locally). A pending file written by 0.9.4 still reads. The SDK exports `recoverWalletBindSigner(message, signature)`.
+A second unsigned `basedagents wallet set` no longer overwrites the first one's message. Each printed message now waits in its own file, `~/.basedagents/wallet-bind-pending/<nonce>.json` (fresh for 15 minutes), so concurrent commands never rewrite each other's. `--signature` finds its message by `--nonce`, which the command printed by the CLI and by the console's signing page now includes. Without `--nonce` it uses the message a plain-key signature recovers to. When several messages wait and the signature can't be matched (a smart wallet's), it asks for `--nonce` instead of guessing. Clearing the pending files after a bind can't turn a successful bind into an error. A pending file written by 0.9.4 still reads. The SDK exports `recoverWalletBindSigner(message, signature)`.
 
 ### Added — open tasks expire when nobody claims them (D13; api, console, web, skill 1.3.6)
 

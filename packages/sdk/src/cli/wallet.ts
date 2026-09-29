@@ -166,35 +166,54 @@ export function discardNewKeypair(staged: string): void {
 
 /** Exit code when a signature is needed before the wallet can be set (same convention as the payment flows). */
 export const EXIT_SIGNATURE_REQUIRED = 2;
-/** Where bind messages wait between `wallet set` printing them and the signed rerun. No secrets: message text only. */
-function pendingBindPath(): string {
+/**
+ * Where bind messages wait between `wallet set` printing them and the signed
+ * rerun: one file per message, named by its nonce, so concurrent commands never
+ * rewrite each other's (no secrets: message text only). 0.9.4 kept a single
+ * file, wallet-bind-pending.json, which is still read.
+ */
+function pendingBindDir(): string {
+  return join(homedir(), '.basedagents', 'wallet-bind-pending');
+}
+function legacyPendingBindPath(): string {
   return join(homedir(), '.basedagents', 'wallet-bind-pending.json');
 }
-interface PendingBind { agent_id: string; address: string; network: string; message: string; created_at: string }
-/**
- * The unsigned bind messages still fresh enough to use, newest last. Several
- * can wait at once (another `wallet set` before the first was signed), so a
- * signature is matched to its own message rather than to the latest one.
- */
-function readPendingBinds(now = Date.now()): PendingBind[] {
-  if (!existsSync(pendingBindPath())) return [];
-  let raw: unknown;
-  try { raw = JSON.parse(readFileSync(pendingBindPath(), 'utf8')); } catch { return []; }
-  // Older CLIs kept a single object; read it as a list of one.
-  const list = Array.isArray((raw as { pending?: unknown })?.pending) ? (raw as { pending: PendingBind[] }).pending
-    : raw && typeof raw === 'object' && 'message' in raw ? [raw as PendingBind] : [];
-  return list.filter((p) => typeof p?.message === 'string' && now - Date.parse(p.created_at) <= WALLET_BIND_MAX_AGE_MS);
+interface PendingBind { agent_id: string; address: string; network: string; message: string; created_at: string; file: string }
+const NONCE_RE = /^[A-Za-z0-9_-]{8,64}$/;
+/** The `Nonce:` of a bind message (the name of its pending file). */
+export function bindMessageNonce(message: string): string | null {
+  const m = /^Nonce: ([A-Za-z0-9_-]{8,64})$/m.exec(message);
+  return m ? m[1] : null;
 }
-function writePendingBinds(list: PendingBind[]): void {
-  if (list.length === 0) {
-    try { unlinkSync(pendingBindPath()); } catch { /* none pending */ }
-    return;
+/** Park a freshly printed bind message under its own nonce (exclusive create: nothing else is touched). */
+function savePendingBind(p: Omit<PendingBind, 'file'>): void {
+  const nonce = bindMessageNonce(p.message);
+  if (!nonce) return;
+  mkdirSync(pendingBindDir(), { recursive: true });
+  writeFileSync(join(pendingBindDir(), `${nonce}.json`), JSON.stringify(p, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+}
+/** The waiting bind messages for this agent, wallet and network that are still fresh; stale files are swept on the way. */
+function pendingBinds(agentId: string, address: string, network: string, now = Date.now()): PendingBind[] {
+  const files = existsSync(pendingBindDir())
+    ? readdirSync(pendingBindDir()).filter((f) => f.endsWith('.json')).map((f) => join(pendingBindDir(), f))
+    : [];
+  if (existsSync(legacyPendingBindPath())) files.push(legacyPendingBindPath());
+  const out: PendingBind[] = [];
+  for (const file of files) {
+    let p: Omit<PendingBind, 'file'>;
+    try { p = JSON.parse(readFileSync(file, 'utf8')); } catch { continue; }
+    if (typeof p?.message !== 'string' || !(now - Date.parse(p.created_at) <= WALLET_BIND_MAX_AGE_MS)) {
+      try { unlinkSync(file); } catch { /* already gone */ }
+      continue;
+    }
+    if (p.agent_id === agentId && p.address.toLowerCase() === address.toLowerCase() && p.network === network) out.push({ ...p, file });
   }
-  mkdirSync(dirname(pendingBindPath()), { recursive: true });
-  writeFileSync(pendingBindPath(), JSON.stringify({ pending: list.slice(-10) }, null, 2) + '\n', { mode: 0o600 });
+  return out.sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
 }
-const sameBind = (p: PendingBind, agentId: string, address: string, network: string) =>
-  p.agent_id === agentId && p.address.toLowerCase() === address.toLowerCase() && p.network === network;
+/** Best effort: never turns a finished command into a failure. */
+function dropPendingBinds(list: PendingBind[]): void {
+  for (const p of list) { try { unlinkSync(p.file); } catch { /* already gone */ } }
+}
 /** The browser page that asks a wallet to sign a bind message (the message rides in the URL fragment, never sent to a server). */
 export function signPageUrl(message: string): string {
   return `https://app.basedagents.ai/sign-wallet#m=${Buffer.from(message, 'utf8').toString('base64url')}`;
@@ -228,6 +247,8 @@ ${bold('Usage:')}
 ${bold('Options:')}
   --network <chain>   eip155 chain (default: eip155:8453 = Base mainnet)
   --signature <0x..>  The wallet's personal_sign signature of the bind message
+  --nonce <nonce>     Which printed message the signature is for (the signing
+                      page's command includes it)
   --message <v>       The signed bind message (text, @file or - for stdin);
                       default: the one the last 'wallet set' printed
   --keypair <file>    Path to keypair file (or filename in ~/.basedagents/keys/);
@@ -305,14 +326,29 @@ ${bold('Options:')}
   if (signature) {
     let message: string | undefined;
     const messageFlag = flag('--message');
+    const nonceFlag = flag('--nonce');
+    const setCmd = `basedagents wallet set ${address}${network !== 'eip155:8453' ? ` --network ${network}` : ''}`;
     if (messageFlag) {
       message = readMessageFlag(messageFlag);
     } else {
-      // The message this signature signed: for a plain key, the one it recovers
-      // to; otherwise (a smart wallet) the newest one for this wallet.
-      const candidates = readPendingBinds().filter((p) => sameBind(p, agentId, address, network)).reverse();
-      const signed = candidates.find((p) => recoverWalletBindSigner(p.message, signature) === address.toLowerCase());
-      message = (signed ?? candidates[0])?.message;
+      // The message this signature signed: named by --nonce, else the one a
+      // plain-key signature recovers to, else the only one waiting.
+      const waiting = pendingBinds(agentId, address, network);
+      if (nonceFlag) {
+        if (!NONCE_RE.test(nonceFlag)) {
+          console.log(red(`\n  --nonce ${nonceFlag} is not a bind-message nonce.\n`));
+          process.exit(1);
+        }
+        message = waiting.find((p) => bindMessageNonce(p.message) === nonceFlag)?.message;
+      } else {
+        message = waiting.find((p) => recoverWalletBindSigner(p.message, signature) === address.toLowerCase())?.message;
+        if (!message && waiting.length > 1) {
+          const nonces = waiting.map((p) => bindMessageNonce(p.message)).join(', ');
+          console.log(red(`\n  ${waiting.length} bind messages are waiting for ${address} (nonces ${nonces}). Say which one was signed: ${setCmd} --nonce <nonce> --signature 0x... (the signing page's command includes it), or pass --message.\n`));
+          process.exit(1);
+        }
+        if (!message) message = waiting[0]?.message;
+      }
     }
     if (!message) {
       console.log(red(`\n  No bind message for ${address} on ${network}. Run: basedagents wallet set ${address}${network !== 'eip155:8453' ? ` --network ${network}` : ''} (it prints one to sign), or pass --message.\n`));
@@ -335,10 +371,11 @@ ${bold('Options:')}
 
   if (!proof) {
     const message = walletBindMessage({ agentId, address, network });
-    writePendingBinds([...readPendingBinds(), { agent_id: agentId, address, network, message, created_at: new Date().toISOString() }]);
+    savePendingBind({ agent_id: agentId, address, network, message, created_at: new Date().toISOString() });
     const url = signPageUrl(message);
+    const next = `basedagents wallet set ${address}${network !== 'eip155:8453' ? ` --network ${network}` : ''} --nonce ${bindMessageNonce(message)} --signature`;
     if (jsonMode) {
-      console.log(JSON.stringify({ signature_required: true, message, sign_url: url, next: `basedagents wallet set ${address}${network !== 'eip155:8453' ? ` --network ${network}` : ''} --signature <0x...>` }, null, 2));
+      console.log(JSON.stringify({ signature_required: true, message, sign_url: url, next: `${next} <0x...>` }, null, 2));
     } else {
       console.error('');
       console.error(`  ${bold('Sign to prove this wallet is yours.')} It costs nothing and moves no funds.`);
@@ -348,7 +385,7 @@ ${bold('Options:')}
       console.error('');
       console.log(message);
       console.error('');
-      console.error(`  Then run: ${cyan(`basedagents wallet set ${address}${network !== 'eip155:8453' ? ` --network ${network}` : ''} --signature 0x...`)}`);
+      console.error(`  Then run: ${cyan(`${next} 0x...`)}`);
       console.error(`  ${dim('An agent with the wallet key can instead set BASEDAGENTS_WALLET_PRIVATE_KEY and rerun.')}`);
       console.error('');
     }
@@ -357,8 +394,8 @@ ${bold('Options:')}
 
   try {
     const result = await client.setWallet(kp, { address, network, proof });
-    // This wallet is bound: its waiting messages are done; others stay.
-    writePendingBinds(readPendingBinds().filter((p) => !sameBind(p, agentId, address, network)));
+    // This wallet is bound: its waiting messages are done (best effort); others stay.
+    try { dropPendingBinds(pendingBinds(agentId, address, network)); } catch { /* the bind stands */ }
     printWallet(result, 'Wallet set and verified');
   } catch (err) {
     const body = err instanceof ApiError ? (err.body as { error?: string; reason?: string; message?: string } | undefined) : undefined;
