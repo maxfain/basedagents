@@ -6,7 +6,7 @@
 
 import { readFileSync, readdirSync } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { isAbsolute, join, win32 } from 'path';
 import { RegistryClient, DEFAULT_API_URL, deserializeKeypair, publicKeyToAgentId, type AgentKeypair } from '../index.js';
 
 // ─── ANSI ───
@@ -21,25 +21,38 @@ const yellow = (s: string) => `\x1b[33m${s}${R}`;
 const API_URL = DEFAULT_API_URL;
 
 /**
- * Load the agent keypair the CLI signs with. `keypairFile` may be a path (any
- * string containing `/`) or a filename inside `~/.basedagents/keys/`; without
- * it the last keypair (alphabetically) in that directory is used, with a
- * warning when there is more than one. Shared by every authenticated command.
+ * Load the agent keypair the CLI signs with, from the file `resolveKeypairPath`
+ * picks. Shared by every authenticated command.
  */
 export function loadKeypair(keypairFile?: string): AgentKeypair {
   return deserializeKeypair(readFileSync(resolveKeypairPath(keypairFile), 'utf8'));
 }
 
 /**
- * The file `loadKeypair` reads: the --keypair path (a path, or a filename in
- * ~/.basedagents/keys/), else the last `*-keypair.json` in that directory (the
- * order readdirSync returns, which is sorted). Shared with `basedagents id`
- * so the path it reports is the key it used. Warnings go to stderr so a command's `--json` stdout stays
- * one parseable object.
+ * Whether a --keypair value names a file by path rather than by name inside
+ * ~/.basedagents/keys/: it has a directory part in either separator, or it is
+ * absolute (POSIX, a Windows drive path, or a UNC path). A Windows path such as
+ * `C:\Users\me\.basedagents\keys\me-keypair.json` has no `/` at all.
  */
-export function resolveKeypairPath(keypairFile?: string): string {
+export function isKeypairPath(value: string): boolean {
+  return value.includes('/') || value.includes('\\') || isAbsolute(value) || win32.isAbsolute(value);
+}
+
+/**
+ * The file `loadKeypair` reads, in order:
+ *   1. --keypair: a path, or a filename in ~/.basedagents/keys/;
+ *   2. BASEDAGENTS_KEYPAIR_PATH, the variable the MCP server reads (and that
+ *      `basedagents init` tells you to set);
+ *   3. the last `*-keypair.json` in ~/.basedagents/keys/ (the order readdirSync
+ *      returns, which is sorted).
+ * Shared with `basedagents id` so the path it reports is the key it used.
+ * Warnings go to stderr so a command's `--json` stdout stays one parseable object.
+ */
+export function resolveKeypairPath(keypairFile?: string, env: NodeJS.ProcessEnv = process.env): string {
   const keysDir = join(homedir(), '.basedagents', 'keys');
-  if (keypairFile) return keypairFile.includes('/') ? keypairFile : join(keysDir, keypairFile);
+  if (keypairFile) return isKeypairPath(keypairFile) ? keypairFile : join(keysDir, keypairFile);
+  const fromEnv = env.BASEDAGENTS_KEYPAIR_PATH?.trim();
+  if (fromEnv) return fromEnv;
   let files: string[];
   try {
     // readdirSync already returns names sorted (libuv scandir, strcmp), so this is
@@ -55,7 +68,7 @@ export function resolveKeypairPath(keypairFile?: string): string {
   // Use the last alphabetical keypair; warn if multiple exist (NEW-2)
   if (files.length > 1) {
     console.error(yellow(`  ⚠ Multiple keypairs found. Using: ${files[files.length - 1]}`));
-    console.error(yellow(`  To use a specific keypair, pass --keypair <file>`));
+    console.error(yellow(`  To use a specific keypair, pass --keypair <file> or set BASEDAGENTS_KEYPAIR_PATH`));
   }
   return join(keysDir, files[files.length - 1]);
 }
@@ -74,7 +87,8 @@ ${bold('Usage:')}
 
 ${bold('Options:')}
   --network <chain>   Chain ID (default: eip155:8453 = Base mainnet)
-  --keypair <file>    Path to keypair file (or filename in ~/.basedagents/keys/)
+  --keypair <file>    Path to keypair file (or filename in ~/.basedagents/keys/);
+                      default $BASEDAGENTS_KEYPAIR_PATH, else the last key there
   --json              Output raw JSON
   --api <url>         Custom API endpoint
 `);

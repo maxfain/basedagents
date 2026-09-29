@@ -7,9 +7,10 @@
 import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { generateKeypair, serializeKeypair, deserializeKeypair, publicKeyToAgentId, base58Encode } from '../index.js';
-import { loadKeypair } from './wallet.js';
+import { isKeypairPath, loadKeypair, resolveKeypairPath } from './wallet.js';
 
 describe('loadKeypair — keypair round-trip (NEW-2)', () => {
   it('generates a valid keypair', async () => {
@@ -151,5 +152,64 @@ describe('loadKeypair — multi-keypair selection logic (NEW-2)', () => {
     const files = ['readme.txt', 'my-keypair.json', 'config.json', 'notes.md'];
     const { selectedFile } = simulateKeypairSelection(files);
     expect(selectedFile).toBe('my-keypair.json');
+  });
+});
+
+describe('resolveKeypairPath — which file a signed command uses', () => {
+  const keysDir = join(homedir(), '.basedagents', 'keys');
+
+  it('treats Windows drive, UNC and backslash-relative paths as paths, not names in the keys directory', () => {
+    // A first-task report: a backslash path was joined onto the keys directory,
+    // giving C:\Users\me\.basedagents\keys\C:\Users\me\... (ENOENT).
+    for (const p of [
+      'C:\\Users\\me\\.basedagents\\keys\\me-keypair.json',
+      'C:/Users/me/.basedagents/keys/me-keypair.json',
+      '\\\\server\\share\\me-keypair.json',
+      '.\\me-keypair.json',
+      'keys\\me-keypair.json',
+      '/home/me/.basedagents/keys/me-keypair.json',
+      './me-keypair.json',
+    ]) {
+      expect(isKeypairPath(p), p).toBe(true);
+      expect(resolveKeypairPath(p, {})).toBe(p);
+    }
+  });
+
+  it('resolves a bare filename inside ~/.basedagents/keys/', () => {
+    expect(isKeypairPath('me-keypair.json')).toBe(false);
+    expect(resolveKeypairPath('me-keypair.json', {})).toBe(join(keysDir, 'me-keypair.json'));
+  });
+
+  it('uses BASEDAGENTS_KEYPAIR_PATH when --keypair is not given', () => {
+    const file = '/profiles/jobs/home/.basedagents/keys/jobs-keypair.json';
+    expect(resolveKeypairPath(undefined, { BASEDAGENTS_KEYPAIR_PATH: file })).toBe(file);
+    expect(resolveKeypairPath(undefined, { BASEDAGENTS_KEYPAIR_PATH: `  ${file}\n` })).toBe(file);
+  });
+
+  it('--keypair wins over BASEDAGENTS_KEYPAIR_PATH', () => {
+    expect(resolveKeypairPath('/a/flag-keypair.json', { BASEDAGENTS_KEYPAIR_PATH: '/b/env-keypair.json' })).toBe('/a/flag-keypair.json');
+  });
+
+  it('an empty BASEDAGENTS_KEYPAIR_PATH falls through to the keys directory', () => {
+    let result: string | Error;
+    try { result = resolveKeypairPath(undefined, { BASEDAGENTS_KEYPAIR_PATH: '  ' }); } catch (e) { result = e as Error; }
+    // Either the last key in ~/.basedagents/keys/ or "No keypairs found in <that dir>": never the blank value.
+    if (result instanceof Error) expect(result.message).toContain(keysDir);
+    else expect(result.startsWith(keysDir)).toBe(true);
+  });
+
+  it('loadKeypair reads the file BASEDAGENTS_KEYPAIR_PATH names', async () => {
+    const kp = await generateKeypair();
+    const dir = mkdtempSync(join(tmpdir(), 'ba-env-keys-'));
+    const file = join(dir, 'jobs-keypair.json');
+    writeFileSync(file, serializeKeypair(kp));
+    const prev = process.env.BASEDAGENTS_KEYPAIR_PATH;
+    process.env.BASEDAGENTS_KEYPAIR_PATH = file;
+    try {
+      expect(loadKeypair().publicKey).toEqual(kp.publicKey);
+    } finally {
+      if (prev === undefined) delete process.env.BASEDAGENTS_KEYPAIR_PATH; else process.env.BASEDAGENTS_KEYPAIR_PATH = prev;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

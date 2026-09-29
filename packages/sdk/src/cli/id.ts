@@ -2,7 +2,8 @@
  * basedagents id — which identity this machine signs as.
  *
  * Reads the local keypair (same resolution as every signed command: --keypair
- * <file>, else the last *-keypair.json in ~/.basedagents/keys/) and looks the
+ * <file>, else $BASEDAGENTS_KEYPAIR_PATH, else the last *-keypair.json in
+ * ~/.basedagents/keys/) and looks the
  * agent up on the registry. The first step of the skill: an agent that already
  * has an identity reuses it instead of registering a second one.
  *
@@ -25,6 +26,9 @@ ${bold('basedagents id')} ${dim('[--keypair <file>] [--json] [--api <url>]')}
 
 Show the identity this machine signs as: agent id, public key, keypair file,
 and the registry profile (name, status, wallet). Never prints the private key.
+
+The keypair is --keypair (a path, or a filename in ~/.basedagents/keys/), else
+$BASEDAGENTS_KEYPAIR_PATH, else the last *-keypair.json in ~/.basedagents/keys/.
 
 Exit codes: 0 registered · 1 no local keypair (run basedagents register) · 2 key not registered
 `;
