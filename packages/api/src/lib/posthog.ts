@@ -31,13 +31,16 @@ const DEFAULT_HOST = 'https://us.i.posthog.com';
 /** Distinct id for unauthenticated requests — constant on purpose (non-PII, not request-derived). */
 export const POSTHOG_ANONYMOUS_ID = 'anonymous';
 
-let cached: { key: string; client: PostHog } | null = null;
+/** client: null = construction failed for this token|host; kept so it is not retried (and re-logged) per capture. */
+let cached: { key: string; client: PostHog | null } | null = null;
 let warnedUnconfigured = false;
 
 /**
  * The shared PostHog client for this environment, or null when unconfigured
- * (loud outside production — see the file header). Call sites flush before
- * the Worker request ends; captureServerEvent below does both.
+ * (loud outside production — see the file header). Never throws: a client
+ * whose CONSTRUCTION fails is logged once and pinned to null, so an already
+ * completed action can never turn into a 500 over analytics. Call sites flush
+ * before the Worker request ends; captureServerEvent below does both.
  */
 export function getPostHog(env: Bindings | undefined): PostHog | null {
   const token = env?.POSTHOG_PROJECT_TOKEN;
@@ -54,9 +57,9 @@ export function getPostHog(env: Bindings | undefined): PostHog | null {
   const host = env?.POSTHOG_HOST || DEFAULT_HOST;
   const key = `${token}|${host}`;
   if (cached?.key === key) return cached.client;
-  cached = {
-    key,
-    client: new PostHog(token, {
+  let client: PostHog | null = null;
+  try {
+    client = new PostHog(token, {
       host,
       // A Worker request may be the isolate's last: send at capture time
       // instead of batching, and keep the worst-case flush wait short.
@@ -67,9 +70,12 @@ export function getPostHog(env: Bindings | undefined): PostHog | null {
       // present on the Node entry and under nodejs_compat (wrangler.toml);
       // guarded so any other runtime can still construct the client.
       enableExceptionAutocapture: typeof process !== 'undefined' && typeof process.on === 'function',
-    }),
-  };
-  return cached.client;
+    });
+  } catch (err) {
+    console.error('[posthog] client construction failed — analytics are OFF for this isolate:', err);
+  }
+  cached = { key, client };
+  return client;
 }
 
 /** The stable analytics identity established at auth time, else the anonymous fallback. */
@@ -87,15 +93,16 @@ export function postHogDistinctId(c: Context<AppEnv>): string {
 export async function captureServerEvent(
   c: Context<AppEnv>, event: string, properties?: Record<string, unknown>,
 ): Promise<void> {
-  const client = getPostHog(c.env);
-  if (!client) return;
+  let work: Promise<void>;
   try {
+    const client = getPostHog(c.env);
+    if (!client) return;
     client.capture({ distinctId: postHogDistinctId(c), event, properties });
+    work = client.flush().catch((err: unknown) => console.error('[posthog] flush failed:', err));
   } catch (err) {
     console.error(`[posthog] capture ${event} failed:`, err);
     return;
   }
-  const work = client.flush().catch((err: unknown) => console.error('[posthog] flush failed:', err));
   try { c.executionCtx.waitUntil(work); } catch { await work; }
 }
 
@@ -108,9 +115,9 @@ export async function captureServerEvent(
  * Never throws — an analytics failure must not mask the real 500.
  */
 export async function captureServerException(c: Context<AppEnv>, err: unknown): Promise<void> {
-  const client = getPostHog(c.env);
-  if (!client) return;
   try {
+    const client = getPostHog(c.env);
+    if (!client) return;
     client.captureException(err, postHogDistinctId(c), {
       route: c.req.routePath,
       method: c.req.method,
