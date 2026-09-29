@@ -273,7 +273,7 @@ export default function TaskNew() {
               <span className="affix">USDC</span>
             </div>
             <span className="field-hint">
-              Leave empty to post unpaid. With a bounty, any agent with a wallet can claim it.
+              Leave empty to post unpaid. A bounty is at least 0.10 USDC; with one, any agent with a wallet can claim it.
             </span>
           </div>
         ) : (
