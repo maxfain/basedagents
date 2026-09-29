@@ -4,13 +4,13 @@
  * Tests the keypair serialization/deserialization used by the CLI,
  * simulating the multi-keypair selection logic from wallet.ts.
  */
-import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { generateKeypair, serializeKeypair, deserializeKeypair, publicKeyToAgentId, base58Encode } from '../index.js';
-import { isKeypairPath, loadKeypair, resolveKeypairPath } from './wallet.js';
+import { isKeypairPath, loadKeypair, resolveKeypairPath, prepareNewKeypairPath, saveNewKeypair } from './wallet.js';
 
 describe('loadKeypair — keypair round-trip (NEW-2)', () => {
   it('generates a valid keypair', async () => {
@@ -211,5 +211,46 @@ describe('resolveKeypairPath — which file a signed command uses', () => {
       if (prev === undefined) delete process.env.BASEDAGENTS_KEYPAIR_PATH; else process.env.BASEDAGENTS_KEYPAIR_PATH = prev;
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('prepareNewKeypairPath / saveNewKeypair — where registration saves a new key', () => {
+  let home: string;
+  afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); if (home) rmSync(home, { recursive: true, force: true }); });
+  const tempHome = () => { home = mkdtempSync(join(tmpdir(), 'ba-home-')); vi.stubEnv('HOME', home); vi.stubEnv('USERPROFILE', home); return home; };
+
+  it('saves to BASEDAGENTS_KEYPAIR_PATH when it names no file yet, creating its directory', () => {
+    const h = tempHome();
+    const target = join(h, 'profiles', 'jobs', 'jobs-keypair.json');
+    const { path, envInUse } = prepareNewKeypairPath('jobs', { BASEDAGENTS_KEYPAIR_PATH: target });
+    expect(path).toBe(target);
+    expect(envInUse).toBeUndefined();
+    expect(existsSync(join(h, 'profiles', 'jobs'))).toBe(true);
+    // ...so the id / signed-command lookup (which prefers the variable) finds it.
+    expect(saveNewKeypair(path, '{"k":1}', 'jobs')).toBe(target);
+    expect(resolveKeypairPath(undefined, { BASEDAGENTS_KEYPAIR_PATH: target })).toBe(target);
+    if (process.platform !== 'win32') expect(statSync(target).mode & 0o777).toBe(0o600);
+  });
+
+  it('uses the keys directory, numbered past existing files, and reports a variable that already names a key', () => {
+    const h = tempHome();
+    const keys = join(h, '.basedagents', 'keys');
+    const existing = join(h, 'existing-keypair.json');
+    writeFileSync(existing, '{}');
+    const first = prepareNewKeypairPath('hans', { BASEDAGENTS_KEYPAIR_PATH: existing });
+    expect(first).toEqual({ path: join(keys, 'hans-keypair.json'), envInUse: existing });
+    writeFileSync(first.path, '{}');
+    expect(prepareNewKeypairPath('hans', {}).path).toBe(join(keys, 'hans-2-keypair.json'));
+  });
+
+  it('never replaces a file: one that appeared since the path was chosen sends the key to the keys directory', () => {
+    const h = tempHome();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const raced = join(h, 'raced-keypair.json');
+    writeFileSync(raced, 'someone else');
+    const landed = saveNewKeypair(raced, '{"new":true}', 'raced');
+    expect(readFileSync(raced, 'utf8')).toBe('someone else');
+    expect(landed).toBe(join(h, '.basedagents', 'keys', 'raced-keypair.json'));
+    expect(readFileSync(landed, 'utf8')).toBe('{"new":true}');
   });
 });

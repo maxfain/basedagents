@@ -6,9 +6,7 @@
  */
 
 import { createInterface } from 'readline';
-import { writeFileSync, mkdirSync, existsSync } from 'fs';
-import { homedir } from 'os';
-import { join } from 'path';
+import { prepareNewKeypairPath, saveNewKeypair } from './wallet.js';
 import { generateKeypair, serializeKeypair } from '../index.js';
 import { RegistryClient, DEFAULT_API_URL } from '../index.js';
 
@@ -148,12 +146,10 @@ async function registerNonInteractive(identity: Record<string, unknown>, apiUrl:
   const keypair = await generateKeypair();
   if (!jsonMode) console.log(` ${green('✓')}`);
 
-  const keysDir = join(homedir(), '.basedagents', 'keys');
-  mkdirSync(keysDir, { recursive: true });
   const slug = slugify(name) || 'agent';
-  let keypairPath = join(keysDir, `${slug}-keypair.json`);
-  let i = 2;
-  while (existsSync(keypairPath)) keypairPath = join(keysDir, `${slug}-${i++}-keypair.json`);
+  const target = prepareNewKeypairPath(slug);
+  let keypairPath = target.path;
+  if (target.envInUse) say(yellow(`  ⚠ BASEDAGENTS_KEYPAIR_PATH names an existing keypair (${target.envInUse}). This one is saved to ${keypairPath}; signed commands keep using the variable's key until you change it.`));
   // PoW + Registration — keypair written to disk only after successful registration
   // (avoids orphaned key files on network/validation failure)
   const client = new RegistryClient(apiUrl);
@@ -188,7 +184,7 @@ async function registerNonInteractive(identity: Record<string, unknown>, apiUrl:
   if (!jsonMode) console.log(` ${green('✓')}`);
 
   // Write keypair only after successful registration — avoids orphaned key files on failure
-  writeFileSync(keypairPath, serializeKeypair(keypair), { mode: 0o600 });
+  keypairPath = saveNewKeypair(keypairPath, serializeKeypair(keypair), slug);
 
   const profileUrl = `https://basedagents.ai/agents/${agent.id}`;
   if (jsonMode) {
@@ -353,16 +349,11 @@ export async function register(args: string[]): Promise<void> {
     const keypair = await generateKeypair();
     console.log(` ${green('✓')}`);
 
-    // Save keypair
-    const keysDir = join(homedir(), '.basedagents', 'keys');
-    mkdirSync(keysDir, { recursive: true });
-    const slug = slugify(name);
-    let keypairPath = join(keysDir, `${slug}-keypair.json`);
-    // avoid collision
-    let i = 2;
-    while (existsSync(keypairPath)) {
-      keypairPath = join(keysDir, `${slug}-${i++}-keypair.json`);
-    }
+    // Where the keypair will be saved (BASEDAGENTS_KEYPAIR_PATH when it names no file yet)
+    const slug = slugify(name) || 'agent';
+    const target = prepareNewKeypairPath(slug);
+    let keypairPath = target.path;
+    if (target.envInUse) console.log(yellow(`  ⚠ BASEDAGENTS_KEYPAIR_PATH names an existing keypair (${target.envInUse}). This one is saved to ${keypairPath}; signed commands keep using the variable's key until you change it.`));
 
     if (dryRun) {
       console.log(dim('  --dry-run: skipping registration.\n'));
@@ -390,7 +381,7 @@ export async function register(args: string[]): Promise<void> {
     console.log(` ${green('✓')}`);
 
     // Write keypair only after successful registration — no orphaned files on failure
-    writeFileSync(keypairPath, serializeKeypair(keypair), { mode: 0o600 });
+    keypairPath = saveNewKeypair(keypairPath, serializeKeypair(keypair), slug);
     console.log(`  ${green('✓')} Keypair saved to ${cyan(keypairPath)}`);
     console.log('');
     console.log(yellow(`  ⚠  Back this file up. It is your agent's private key.`));

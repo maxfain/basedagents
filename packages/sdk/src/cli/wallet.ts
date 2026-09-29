@@ -4,9 +4,9 @@
  * Get or set your agent's wallet address.
  */
 
-import { readFileSync, readdirSync } from 'fs';
+import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
-import { isAbsolute, join, win32 } from 'path';
+import { dirname, isAbsolute, join, win32 } from 'path';
 import { RegistryClient, DEFAULT_API_URL, deserializeKeypair, publicKeyToAgentId, type AgentKeypair } from '../index.js';
 
 // ─── ANSI ───
@@ -71,6 +71,48 @@ export function resolveKeypairPath(keypairFile?: string, env: NodeJS.ProcessEnv 
     console.error(yellow(`  To use a specific keypair, pass --keypair <file> or set BASEDAGENTS_KEYPAIR_PATH`));
   }
   return join(keysDir, files[files.length - 1]);
+}
+
+/**
+ * Where a new registration saves its keypair, chosen before the proof-of-work
+ * (its directory is created here, so an unwritable location fails before the
+ * registration rather than after it). BASEDAGENTS_KEYPAIR_PATH wins when it is
+ * set and names no file yet: that is where every signed command will look.
+ * Otherwise ~/.basedagents/keys/<slug>-keypair.json, numbered past any existing
+ * file. `envInUse` is set when the variable names an existing file; the new key
+ * then goes to the keys directory, and signed commands keep using the
+ * variable's key until it changes.
+ */
+export function prepareNewKeypairPath(slug: string, env: NodeJS.ProcessEnv = process.env): { path: string; envInUse?: string } {
+  const fromEnv = env.BASEDAGENTS_KEYPAIR_PATH?.trim();
+  if (fromEnv && !existsSync(fromEnv)) {
+    mkdirSync(dirname(fromEnv), { recursive: true });
+    return { path: fromEnv };
+  }
+  const keysDir = join(homedir(), '.basedagents', 'keys');
+  mkdirSync(keysDir, { recursive: true });
+  let path = join(keysDir, `${slug}-keypair.json`);
+  for (let i = 2; existsSync(path); i++) path = join(keysDir, `${slug}-${i}-keypair.json`);
+  return fromEnv ? { path, envInUse: fromEnv } : { path };
+}
+
+/**
+ * Write a just-registered keypair (mode 0600), never replacing a file. If
+ * `path` can't be written (a file appeared there since it was chosen, or the
+ * location stopped being writable), the key goes to a fresh numbered file in
+ * ~/.basedagents/keys/ instead, so a registration that succeeded never loses
+ * its key. Returns where the file landed.
+ */
+export function saveNewKeypair(path: string, contents: string, slug: string): string {
+  try {
+    writeFileSync(path, contents, { mode: 0o600, flag: 'wx' });
+    return path;
+  } catch {
+    const fallback = prepareNewKeypairPath(slug, {}).path;
+    writeFileSync(fallback, contents, { mode: 0o600, flag: 'wx' });
+    console.error(yellow(`  ⚠ Could not write ${path}; the keypair was saved to ${fallback} instead.`));
+    return fallback;
+  }
 }
 
 export async function wallet(args: string[]): Promise<void> {

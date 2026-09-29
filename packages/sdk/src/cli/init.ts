@@ -6,14 +6,13 @@
  */
 
 import { createInterface } from 'readline';
-import { writeFileSync, mkdirSync, existsSync } from 'fs';
-import { homedir } from 'os';
-import { join } from 'path';
+import { prepareNewKeypairPath, saveNewKeypair } from './wallet.js';
 import { generateKeypair, serializeKeypair } from '../index.js';
 import { RegistryClient, DEFAULT_API_URL } from '../index.js';
 
 // ─── ANSI ───
 const R = '\x1b[0m';
+const yellow = (s: string) => `\x1b[33m${s}${R}`;
 const bold   = (s: string) => `\x1b[1m${s}${R}`;
 const dim    = (s: string) => `\x1b[2m${s}${R}`;
 const red    = (s: string) => `\x1b[31m${s}${R}`;
@@ -163,13 +162,11 @@ export async function init(args: string[]): Promise<void> {
       ...(homepage ? { homepage } : {}),
     };
 
-    // Prepare keypair path
-    const keysDir = join(homedir(), '.basedagents', 'keys');
-    mkdirSync(keysDir, { recursive: true });
-    const slug = slugify(name);
-    let keypairPath = join(keysDir, `${slug}-keypair.json`);
-    let i = 2;
-    while (existsSync(keypairPath)) keypairPath = join(keysDir, `${slug}-${i++}-keypair.json`);
+    // Prepare keypair path (BASEDAGENTS_KEYPAIR_PATH when it names no file yet)
+    let slug = slugify(name) || 'agent';
+    const target = prepareNewKeypairPath(slug);
+    let keypairPath = target.path;
+    if (target.envInUse) console.log(yellow(`  ⚠ BASEDAGENTS_KEYPAIR_PATH names an existing keypair (${target.envInUse}). This one is saved to ${keypairPath}; signed commands keep using the variable's key until you change it.`));
 
     let agent: Awaited<ReturnType<typeof client.register>>;
     while (true) {
@@ -186,10 +183,8 @@ export async function init(args: string[]): Promise<void> {
           name = await askRequired(rl, 'Pick another name:');
           profile.name = name;
           // Recalculate keypair path for new name
-          const newSlug = slugify(name);
-          keypairPath = join(keysDir, `${newSlug}-keypair.json`);
-          i = 2;
-          while (existsSync(keypairPath)) keypairPath = join(keysDir, `${newSlug}-${i++}-keypair.json`);
+          slug = slugify(name) || 'agent';
+          keypairPath = prepareNewKeypairPath(slug).path;
           continue;
         }
         throw err;
@@ -197,7 +192,7 @@ export async function init(args: string[]): Promise<void> {
     }
 
     // Write keypair only after successful registration
-    writeFileSync(keypairPath, serializeKeypair(keypair), { mode: 0o600 });
+    keypairPath = saveNewKeypair(keypairPath, serializeKeypair(keypair), slug);
 
     // ── Success ──
     console.log('');

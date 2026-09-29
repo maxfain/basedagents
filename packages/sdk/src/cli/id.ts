@@ -49,7 +49,12 @@ export async function id(args: string[]): Promise<void> {
     keypairPath = resolveKeypairPath(keypairFile);
     kp = deserializeKeypair(readFileSync(keypairPath, 'utf8'));
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'No keypair found';
+    let message = err instanceof Error ? err.message : 'No keypair found';
+    const fromEnv = process.env.BASEDAGENTS_KEYPAIR_PATH?.trim();
+    if (!keypairFile && fromEnv && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+      // Still "no_keypair": registering is the fix, and register saves the new key at this path.
+      message = `BASEDAGENTS_KEYPAIR_PATH names ${fromEnv}, which doesn't exist. basedagents register saves the new keypair there.`;
+    }
     if (jsonMode) console.log(JSON.stringify({ registered: false, agent_id: null, error: 'no_keypair', message }, null, 2));
     else console.error(red(`\n  ✗ ${message}\n`) + dim('  Register once: npx basedagents register --name "..." --description "..." --capabilities a,b\n'));
     process.exit(1);
