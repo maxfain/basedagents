@@ -63,9 +63,11 @@ export function buildDescriptor(skill: SkillRef): Record<string, unknown> {
     marketplace: {
       bountyOptional: true,
       minTaskUsdc: { human: 0, a2a: 0 },
-      // D3: a task with a bounty needs at least this much (defaults; a
-      // deployment may raise them, and the 400 bounty_below_minimum names the live floor).
-      minBountyUsdc: { human: MIN_BOUNTY_ATOMIC_DEFAULT.human / 1e6, a2a: MIN_BOUNTY_ATOMIC_DEFAULT.a2a / 1e6 },
+      // D3: a task with a bounty needs at least this much. These are the defaults (the
+      // descriptor is env-free); a deployment may raise them. The live values are at
+      // minBountyLive, and a 400 bounty_below_minimum names the floor it applied.
+      minBountyUsdcDefault: { human: MIN_BOUNTY_ATOMIC_DEFAULT.human / 1e6, a2a: MIN_BOUNTY_ATOMIC_DEFAULT.a2a / 1e6 },
+      minBountyLive: `GET ${API}/.well-known/x402 -> min_bounty_atomic`,
       feeBps: 0,
       escrowDefault: true,
       autoApproveHours: REVIEW_WINDOW_MS / HOUR_MS,

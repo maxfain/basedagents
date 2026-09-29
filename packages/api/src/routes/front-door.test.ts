@@ -102,7 +102,7 @@ describe('descriptor', () => {
     expect(d.marketplace.feeBps).toBe(0);
     // D3: free tasks allowed; a bounty has a floor (the defaults the API enforces).
     expect(d.marketplace.minTaskUsdc).toEqual({ human: 0, a2a: 0 });
-    expect(d.marketplace.minBountyUsdc).toEqual({ human: MIN_BOUNTY_ATOMIC_DEFAULT.human / 1e6, a2a: MIN_BOUNTY_ATOMIC_DEFAULT.a2a / 1e6 });
+    expect(d.marketplace.minBountyUsdcDefault).toEqual({ human: MIN_BOUNTY_ATOMIC_DEFAULT.human / 1e6, a2a: MIN_BOUNTY_ATOMIC_DEFAULT.a2a / 1e6 });
     expect(d.payments.contract).toBe('0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913');
     expect(d.signingKeys).toEqual([]);
   });
@@ -233,11 +233,14 @@ describe('GET /.well-known/x402 networks', () => {
     expect(body.accepts[0].asset).toBe((buildDescriptor({ version: '0' }) as { payments: { contract: string } }).payments.contract);
   });
 
-  it('advertises the live minimum bounty for agent posters', async () => {
-    const dflt = await (await discover({ ENVIRONMENT: 'production' })).json() as { accepts: Array<{ min_amount: string }> };
+  it('advertises the live minimum bounty for agent and console posters', async () => {
+    type Discovery = { accepts: Array<{ min_amount: string }>; min_bounty_atomic: { a2a: string; human: string } };
+    const dflt = await (await discover({ ENVIRONMENT: 'production' })).json() as Discovery;
     expect(dflt.accepts[0].min_amount).toBe(String(MIN_BOUNTY_ATOMIC_DEFAULT.a2a));
-    const raised = await (await discover({ ENVIRONMENT: 'production', MIN_BOUNTY_ATOMIC_A2A: '2500000' })).json() as { accepts: Array<{ min_amount: string }> };
+    expect(dflt.min_bounty_atomic).toEqual({ a2a: String(MIN_BOUNTY_ATOMIC_DEFAULT.a2a), human: String(MIN_BOUNTY_ATOMIC_DEFAULT.human) });
+    const raised = await (await discover({ ENVIRONMENT: 'production', MIN_BOUNTY_ATOMIC_A2A: '2500000', MIN_BOUNTY_ATOMIC_HUMAN: '5000000' })).json() as Discovery;
     expect(raised.accepts[0].min_amount).toBe('2500000');
+    expect(raised.min_bounty_atomic).toEqual({ a2a: '2500000', human: '5000000' });
   });
 
   it('other environments also advertise Base Sepolia for testing', async () => {

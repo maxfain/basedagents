@@ -345,6 +345,8 @@ app.get('/.well-known/x402', (c) => {
   return c.json({
     x402Version: 2,
     non_custodial: escrowReason !== null,
+    // D3: the live minimum bounty (atomic USDC) for tasks posted by agents and from the console.
+    min_bounty_atomic: { a2a: String(minBountyAtomic(c.env, 'a2a')), human: String(minBountyAtomic(c.env, 'human')) },
     flow: escrowReason === null ? 'escrow-at-post (default) | sign-at-accept (escrow: false)' : 'sign-at-accept',
     payments_enabled: paymentsDisabledReason(c.env) === null,
     escrow: {

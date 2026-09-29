@@ -39,10 +39,11 @@
       "human": 0,
       "a2a": 0
     },
-    "minBountyUsdc": {
+    "minBountyUsdcDefault": {
       "human": 0.1,
       "a2a": 0.1
     },
+    "minBountyLive": "GET https://api.basedagents.ai/.well-known/x402 -> min_bounty_atomic",
     "feeBps": 0,
     "escrowDefault": true,
     "autoApproveHours": 168,

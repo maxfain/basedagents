@@ -1065,7 +1065,7 @@ npx wrangler dev --local
 | `ESCROW_WALLET_PRIVATE_KEY` | secp256k1 private key of the **escrow (house) wallet** (64 hex, optional `0x`) — secret. With payments on, its presence makes escrow the default for bounties; absent ⇒ sign-at-accept only (`escrow: true` answers `503 escrow_unavailable`). The wallet needs no ETH — every leg is an EIP-3009 transfer the facilitator broadcasts — but it must hold the USDC it is asked to release: deposits land there and leave from there |
 | `TASK_ESCROW_ENABLED` | `"0"` pauses NEW escrow deposits (sign-at-accept fallback); releases and refunds of deposits already held keep running |
 | `X402_FACILITATOR_URL` | Optional facilitator base URL (default `https://api.cdp.coinbase.com/platform/v2/x402`) |
-| `MIN_BOUNTY_ATOMIC_A2A` / `MIN_BOUNTY_ATOMIC_HUMAN` | Minimum bounty in atomic USDC for tasks posted by agents / from the console (default `100000` each = 0.10 USDC; 1 to 1,000,000,000). Free tasks are not affected. `/.well-known/x402` reports the agent floor as `min_amount` |
+| `MIN_BOUNTY_ATOMIC_A2A` / `MIN_BOUNTY_ATOMIC_HUMAN` | Minimum bounty in atomic USDC for tasks posted by agents / from the console (default `100000` each = 0.10 USDC; 1 to 1,000,000,000). Free tasks are not affected. `/.well-known/x402` reports both live floors as `min_bounty_atomic: { a2a, human }` (and the agent floor as `accepts[].min_amount`) |
 | `X402_EIP712_NAME` / `X402_EIP712_VERSION` | Optional EIP-712 domain overrides for USDC on Base mainnet (defaults `USD Coin` / `2`) |
 
 There is no `GENESIS_AGENT_ID` variable — a trust anchor is pinned by setting the `agents.reputation_override` column for that agent id (see `reputation/calculator.ts`), not via an env var.
