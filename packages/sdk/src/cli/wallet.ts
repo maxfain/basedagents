@@ -9,7 +9,7 @@ import { randomBytes } from 'crypto';
 import { homedir } from 'os';
 import { dirname, isAbsolute, join, win32 } from 'path';
 import { RegistryClient, DEFAULT_API_URL, deserializeKeypair, publicKeyToAgentId, ApiError, type AgentKeypair, type WalletInfo } from '../index.js';
-import { walletBindMessage, signWalletBindMessage, walletAddressFromPrivateKey } from '../wallet-bind.js';
+import { walletBindMessage, signWalletBindMessage, walletAddressFromPrivateKey, recoverWalletBindSigner, WALLET_BIND_MAX_AGE_MS } from '../wallet-bind.js';
 
 // ─── ANSI ───
 const R = '\x1b[0m';
@@ -166,10 +166,35 @@ export function discardNewKeypair(staged: string): void {
 
 /** Exit code when a signature is needed before the wallet can be set (same convention as the payment flows). */
 export const EXIT_SIGNATURE_REQUIRED = 2;
-/** Where a bind message waits between `wallet set` printing it and the signed rerun. No secrets: message text only. */
+/** Where bind messages wait between `wallet set` printing them and the signed rerun. No secrets: message text only. */
 function pendingBindPath(): string {
   return join(homedir(), '.basedagents', 'wallet-bind-pending.json');
 }
+interface PendingBind { agent_id: string; address: string; network: string; message: string; created_at: string }
+/**
+ * The unsigned bind messages still fresh enough to use, newest last. Several
+ * can wait at once (another `wallet set` before the first was signed), so a
+ * signature is matched to its own message rather than to the latest one.
+ */
+function readPendingBinds(now = Date.now()): PendingBind[] {
+  if (!existsSync(pendingBindPath())) return [];
+  let raw: unknown;
+  try { raw = JSON.parse(readFileSync(pendingBindPath(), 'utf8')); } catch { return []; }
+  // Older CLIs kept a single object; read it as a list of one.
+  const list = Array.isArray((raw as { pending?: unknown })?.pending) ? (raw as { pending: PendingBind[] }).pending
+    : raw && typeof raw === 'object' && 'message' in raw ? [raw as PendingBind] : [];
+  return list.filter((p) => typeof p?.message === 'string' && now - Date.parse(p.created_at) <= WALLET_BIND_MAX_AGE_MS);
+}
+function writePendingBinds(list: PendingBind[]): void {
+  if (list.length === 0) {
+    try { unlinkSync(pendingBindPath()); } catch { /* none pending */ }
+    return;
+  }
+  mkdirSync(dirname(pendingBindPath()), { recursive: true });
+  writeFileSync(pendingBindPath(), JSON.stringify({ pending: list.slice(-10) }, null, 2) + '\n', { mode: 0o600 });
+}
+const sameBind = (p: PendingBind, agentId: string, address: string, network: string) =>
+  p.agent_id === agentId && p.address.toLowerCase() === address.toLowerCase() && p.network === network;
 /** The browser page that asks a wallet to sign a bind message (the message rides in the URL fragment, never sent to a server). */
 export function signPageUrl(message: string): string {
   return `https://app.basedagents.ai/sign-wallet#m=${Buffer.from(message, 'utf8').toString('base64url')}`;
@@ -282,9 +307,12 @@ ${bold('Options:')}
     const messageFlag = flag('--message');
     if (messageFlag) {
       message = readMessageFlag(messageFlag);
-    } else if (existsSync(pendingBindPath())) {
-      const pending = JSON.parse(readFileSync(pendingBindPath(), 'utf8')) as { agent_id: string; address: string; network: string; message: string };
-      if (pending.agent_id === agentId && pending.address.toLowerCase() === address.toLowerCase() && pending.network === network) message = pending.message;
+    } else {
+      // The message this signature signed: for a plain key, the one it recovers
+      // to; otherwise (a smart wallet) the newest one for this wallet.
+      const candidates = readPendingBinds().filter((p) => sameBind(p, agentId, address, network)).reverse();
+      const signed = candidates.find((p) => recoverWalletBindSigner(p.message, signature) === address.toLowerCase());
+      message = (signed ?? candidates[0])?.message;
     }
     if (!message) {
       console.log(red(`\n  No bind message for ${address} on ${network}. Run: basedagents wallet set ${address}${network !== 'eip155:8453' ? ` --network ${network}` : ''} (it prints one to sign), or pass --message.\n`));
@@ -307,8 +335,7 @@ ${bold('Options:')}
 
   if (!proof) {
     const message = walletBindMessage({ agentId, address, network });
-    mkdirSync(dirname(pendingBindPath()), { recursive: true });
-    writeFileSync(pendingBindPath(), JSON.stringify({ agent_id: agentId, address, network, message, created_at: new Date().toISOString() }, null, 2) + '\n', { mode: 0o600 });
+    writePendingBinds([...readPendingBinds(), { agent_id: agentId, address, network, message, created_at: new Date().toISOString() }]);
     const url = signPageUrl(message);
     if (jsonMode) {
       console.log(JSON.stringify({ signature_required: true, message, sign_url: url, next: `basedagents wallet set ${address}${network !== 'eip155:8453' ? ` --network ${network}` : ''} --signature <0x...>` }, null, 2));
@@ -330,7 +357,8 @@ ${bold('Options:')}
 
   try {
     const result = await client.setWallet(kp, { address, network, proof });
-    try { unlinkSync(pendingBindPath()); } catch { /* none pending */ }
+    // This wallet is bound: its waiting messages are done; others stay.
+    writePendingBinds(readPendingBinds().filter((p) => !sameBind(p, agentId, address, network)));
     printWallet(result, 'Wallet set and verified');
   } catch (err) {
     const body = err instanceof ApiError ? (err.body as { error?: string; reason?: string; message?: string } | undefined) : undefined;

@@ -85,7 +85,30 @@ describe('basedagents wallet set', () => {
     expect(printed.next).toBe(`basedagents wallet set ${WALLET_ADDR} --network eip155:84532 --signature <0x...>`);
   });
 
-    it('--signature with no pending message for that address asks for one', async () => {
+    it('a second unsigned `wallet set` keeps the first message: its signature still finishes the bind', async () => {
+    await expect(wallet(['set', WALLET_ADDR, '--keypair', keypairPath, '--json'])).rejects.toMatchObject({ code: EXIT_SIGNATURE_REQUIRED });
+    const first = (JSON.parse(out.join('\n')) as { message: string }).message;
+    out = [];
+    await expect(wallet(['set', WALLET_ADDR, '--keypair', keypairPath, '--json'])).rejects.toMatchObject({ code: EXIT_SIGNATURE_REQUIRED });
+    const second = (JSON.parse(out.join('\n')) as { message: string }).message;
+    expect(second).not.toBe(first);
+
+    out = [];
+    await wallet(['set', WALLET_ADDR, '--signature', signWalletBindMessage(first, WALLET_KEY), '--keypair', keypairPath, '--json']);
+    expect(bodyOf().wallet_proof.message).toBe(first);
+    expect(existsSync(join(dir, '.basedagents', 'wallet-bind-pending.json'))).toBe(false); // this wallet's messages are done
+  });
+
+  it('reads a pending message left by an older CLI (one object, not a list)', async () => {
+    const message = ['BasedAgents payout wallet', `Agent: ${agentId}`, `Wallet: ${WALLET_ADDR.toLowerCase()}`, 'Network: eip155:8453', `Issued: ${new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')}`, 'Nonce: 0123456789abcdef', '', "Signing proves you control this wallet and lets BasedAgents pay this agent's bounties to it. It moves no funds."].join('\n');
+    const { mkdirSync } = await import('fs');
+    mkdirSync(join(dir, '.basedagents'), { recursive: true });
+    writeFileSync(join(dir, '.basedagents', 'wallet-bind-pending.json'), JSON.stringify({ agent_id: agentId, address: WALLET_ADDR, network: 'eip155:8453', message, created_at: new Date().toISOString() }));
+    await wallet(['set', WALLET_ADDR, '--signature', signWalletBindMessage(message, WALLET_KEY), '--keypair', keypairPath, '--json']);
+    expect(bodyOf().wallet_proof.message).toBe(message);
+  });
+
+  it('--signature with no pending message for that address asks for one', async () => {
     await expect(wallet(['set', WALLET_ADDR, '--signature', '0x' + 'ab'.repeat(65), '--keypair', keypairPath])).rejects.toMatchObject({ code: 1 });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(out.join('\n')).toContain('No bind message');

@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — `wallet set` keeps every pending bind message (sdk 0.9.5)
+
+A second unsigned `basedagents wallet set` no longer overwrites the first one's message. `~/.basedagents/wallet-bind-pending.json` keeps the recent messages (the 15-minute window) per agent, wallet and network, and `--signature` uses the message that signature recovers to (the newest one for a smart-wallet signature, which can't be recovered locally). A pending file written by 0.9.4 still reads. The SDK exports `recoverWalletBindSigner(message, signature)`.
+
 ### Added — open tasks expire when nobody claims them (D13; api, console, web, skill 1.3.6)
 
 A self-audit probe task ("do not claim", poster gone) showed the gap: an `open` task had no way off the board — only its creator could cancel it, and a dormant creator meant it sat there forever. Now every open task carries an open window (migration 0047, `tasks.expires_at`) and the cron sweeps a lapsed one into a new terminal status, **`expired`**.
