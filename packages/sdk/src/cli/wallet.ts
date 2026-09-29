@@ -4,7 +4,7 @@
  * Get or set your agent's wallet address.
  */
 
-import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync } from 'fs';
+import { readFileSync, readdirSync, existsSync, mkdirSync, unlinkSync, openSync, closeSync, writeFileSync, linkSync } from 'fs';
 import { randomBytes } from 'crypto';
 import { homedir } from 'os';
 import { dirname, isAbsolute, join, win32 } from 'path';
@@ -98,6 +98,23 @@ export function prepareNewKeypairPath(slug: string, env: NodeJS.ProcessEnv = pro
 }
 
 /**
+ * Create `target` (mode 0600) holding `contents`, never replacing a file and
+ * never leaving a partial one: the create is exclusive (EEXIST if the name is
+ * taken), and a write that fails midway (disk full) removes the file it made.
+ */
+function writeNewFile(target: string, contents: string): void {
+  const fd = openSync(target, 'wx', 0o600);
+  let written = false;
+  try {
+    writeFileSync(fd, contents);
+    written = true;
+  } finally {
+    closeSync(fd);
+    if (!written) { try { unlinkSync(target); } catch { /* already gone */ } }
+  }
+}
+
+/**
  * Put a new keypair on disk BEFORE registering it, so a registration that
  * succeeds can never lose its key. The file (mode 0600) sits next to `path`
  * under a temporary name that no keypair lookup matches
@@ -108,15 +125,17 @@ export function prepareNewKeypairPath(slug: string, env: NodeJS.ProcessEnv = pro
  */
 export function stageNewKeypair(path: string, contents: string): string {
   const staged = `${path}.pending-${process.pid}-${randomBytes(4).toString('hex')}`;
-  writeFileSync(staged, contents, { mode: 0o600, flag: 'wx' });
+  writeNewFile(staged, contents);
   return staged;
 }
 
 /**
- * Give a staged keypair its final name without ever replacing a file, and
- * return where it ended up: `path` when it is still free and writable; else a
- * fresh numbered file in ~/.basedagents/keys/; else the staged file itself,
- * which already holds the key.
+ * Give a staged keypair its final name without ever replacing a file or
+ * exposing a partial one, and return where it ended up: `path` when it is
+ * still free; else a fresh numbered file in ~/.basedagents/keys/; else the
+ * staged file itself, which already holds the key. A hard link is tried first
+ * (atomic: the whole file appears at once, or nothing does); where links
+ * aren't supported, or across filesystems, the file is written anew.
  */
 export function commitNewKeypair(staged: string, path: string, slug: string): string {
   const contents = readFileSync(staged, 'utf8');
@@ -124,7 +143,12 @@ export function commitNewKeypair(staged: string, path: string, slug: string): st
   for (const next of candidates) {
     try {
       const target = next();
-      writeFileSync(target, contents, { mode: 0o600, flag: 'wx' });
+      try {
+        linkSync(staged, target);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') throw err;
+        writeNewFile(target, contents);
+      }
       discardNewKeypair(staged);
       if (target !== path) console.error(yellow(`  ⚠ Could not write ${path}; the keypair was saved to ${target} instead.`));
       return target;
