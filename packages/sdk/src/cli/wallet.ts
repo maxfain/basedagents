@@ -371,6 +371,7 @@ ${bold('Options:')}
 
   if (!proof) {
     const message = walletBindMessage({ agentId, address, network });
+    try { pendingBinds(agentId, address, network); } catch { /* sweeping stale files is best effort */ }
     savePendingBind({ agent_id: agentId, address, network, message, created_at: new Date().toISOString() });
     const url = signPageUrl(message);
     const next = `basedagents wallet set ${address}${network !== 'eip155:8453' ? ` --network ${network}` : ''} --nonce ${bindMessageNonce(message)} --signature`;

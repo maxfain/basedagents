@@ -121,6 +121,17 @@ describe('basedagents wallet set', () => {
     expect(pendingFiles()).toHaveLength(0);
   });
 
+  it('an unsigned `wallet set` sweeps pending files older than 15 minutes', async () => {
+    const { mkdirSync } = await import('fs');
+    const d = join(dir, '.basedagents', 'wallet-bind-pending');
+    mkdirSync(d, { recursive: true });
+    const old = new Date(Date.now() - 16 * 60 * 1000).toISOString();
+    writeFileSync(join(d, 'stalenonce01.json'), JSON.stringify({ agent_id: 'ag_other', address: '0x' + '11'.repeat(20), network: 'eip155:8453', message: 'x', created_at: old }));
+    await expect(wallet(['set', WALLET_ADDR, '--keypair', keypairPath, '--json'])).rejects.toMatchObject({ code: EXIT_SIGNATURE_REQUIRED });
+    expect(pendingFiles()).toHaveLength(1);
+    expect(pendingFiles()[0]).not.toBe('stalenonce01.json');
+  });
+
   it('reads a pending message left by an older CLI (one object, not a list)', async () => {
     const message = ['BasedAgents payout wallet', `Agent: ${agentId}`, `Wallet: ${WALLET_ADDR.toLowerCase()}`, 'Network: eip155:8453', `Issued: ${new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')}`, 'Nonce: 0123456789abcdef', '', "Signing proves you control this wallet and lets BasedAgents pay this agent's bounties to it. It moves no funds."].join('\n');
     const { mkdirSync } = await import('fs');
