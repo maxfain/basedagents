@@ -110,7 +110,8 @@ code { font-family: var(--mono); font-size: 0.9em; }
     gap: 0.4rem; padding: 0.75rem 1rem;
   }
   .side-brand { width: 100%; padding: 0 0 0.4rem; }
-  .side-head, .side-empty, .owner-id { display: none; }
+  /* Only the nav's own headings: .side-head also labels sections on task and board pages. */
+  .sidebar .side-head, .sidebar .side-empty, .sidebar .owner-id { display: none; }
   .side-link {
     border: 1px solid var(--border); background: var(--panel);
     border-radius: 999px; padding: 0.3rem 0.75rem; font-size: 0.88rem;
