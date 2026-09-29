@@ -144,6 +144,12 @@ export const CreateTaskSchema = z.object({
    * when accepting). Ignored without a `bounty`.
    */
   escrow: z.boolean().optional(),
+  /**
+   * Campaign cap (migration 0044): one agent may hold at most this many
+   * claimed-or-submitted tasks FROM THIS POSTER at a time. Omitted = no
+   * per-campaign cap (the global per-agent claim budget still applies).
+   */
+  max_active_claims_per_agent: z.number().int().min(1).max(1000).optional(),
 });
 
 export const SubmitDeliverableSchema = z.object({
@@ -441,6 +447,12 @@ export type Variables = {
   agentId: string;
   publicKey: Uint8Array;
   agentStatus: string;
+  /**
+   * Stable analytics identity for this request — the agent id (ag_…) after
+   * AgentSig auth, the owner id (ow_…) on an owner session. Read by
+   * lib/posthog.ts; unset means the anonymous fallback.
+   */
+  posthogDistinctId?: string;
 };
 
 // ─── App Bindings (for Cloudflare Workers + local) ───
@@ -449,7 +461,13 @@ export type Bindings = {
   DB?: D1Database;
   ENVIRONMENT?: string;            // 'production' | 'staging' — set per wrangler env (wrangler.toml)
   HOUSE_ACCOUNT_IDS?: string;      // comma-separated agent (ag_…) / owner (ow_…) ids whose paid tasks are labeled `sponsored`
-  BOOTSTRAP_THRESHOLD?: string;
+  // WS5 feedback + telemetry. ADMIN_OWNER_IDS: comma-separated owner ids (ow_…) that
+  // see the console's admin pages. The notify targets are secrets (wrangler secret put).
+  ADMIN_OWNER_IDS?: string;
+  FEEDBACK_NOTIFY_EMAIL?: string;
+  FEEDBACK_SLACK_WEBHOOK_URL?: string;
+  RESEND_API_KEY?: string;
+  EMAIL_FROM?: string;
   ADMIN_SECRET?: string;
   REGISTRY_SIGNING_KEY?: string;
   REGISTRY_SIGNING_PUBLIC_KEY?: string;
@@ -476,6 +494,25 @@ export type Bindings = {
   // Board: global uncertified-class write valve, posts/hour (default 2000).
   // The emergency dial for a PoW-identity spam wave — see routes/board.ts.
   BOARD_UNCERT_VALVE_HOURLY?: string;
+  // Claim governance (migration 0044, tasks/governance.ts). All optional with
+  // safe defaults; see claimGovernanceConfig for ranges.
+  CLAIM_BUDGET_BASE?: string;
+  CLAIM_BUDGET_MAX?: string;
+  CLAIM_BUDGET_FLOOR?: string;
+  CLAIM_BUDGET_PER_ACCEPT?: string;
+  CLAIM_BUDGET_PENALTY?: string;
+  CLAIM_BOND_PER_SLOT_ATOMIC?: string;
+  CLAIM_BOND_SLASH_ATOMIC?: string;         // slash on claim expiry
+  CLAIM_BOND_SLASH_DISPUTE_ATOMIC?: string; // slash on disputed bounty deliverable
+  CLAIM_BOND_REQUIRED?: string;             // '0' disables bond-backed bounty claims (default on)
+  // Minimum bounty (decision D3, tasks/bounty-minimum.ts), atomic USDC; default 100000 (0.10) each.
+  MIN_BOUNTY_ATOMIC_A2A?: string;           // tasks posted by agents
+  MIN_BOUNTY_ATOMIC_HUMAN?: string;         // tasks posted from the console
+  // PostHog product analytics + Error Tracking (lib/posthog.ts). Set per deploy
+  // environment as Worker bindings; a missing token is a loud no-op outside
+  // production and a silent no-op in production.
+  POSTHOG_PROJECT_TOKEN?: string;  // project API token (phc_…)
+  POSTHOG_HOST?: string;           // optional; defaults to https://us.i.posthog.com
 };
 
 /** Hono env type combining Bindings and Variables */

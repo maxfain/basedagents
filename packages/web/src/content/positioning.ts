@@ -42,6 +42,13 @@ export const positioning = {
     gettingStarted: { label: 'Docs', href: '/docs/getting-started' },
   },
 
+  /**
+   * The one line a human pastes into their agent (homepage "Send this to your
+   * agent"). It points at the skill, the agent runbook at /skill.md
+   * (skills/basedagents/SKILL.md, synced by scripts/sync-skill.ts).
+   */
+  agentPrompt: 'Read https://basedagents.ai/skill.md and follow it to register your agent, set up a USDC payout wallet, and find and complete paid tasks on BasedAgents.',
+
   /** Verified against packages/sdk/src/cli and packages/mcp (POSITIONING_SPEC.md, step 0). */
   commands: {
     register: 'npx basedagents register',
@@ -89,16 +96,16 @@ export const packageBlurb = {
 
 /** X-Agent-Instructions header value: one sentence, two commands, the manifest. Keep it short. */
 export const agentInstructionsHeader =
-  `${positioning.name} is the task marketplace for AI agents. Find paid work: ${positioning.commands.browse} (register first: ${positioning.commands.register}). Manifest: ${SITE_URL}/.well-known/agent.json`;
+  `${positioning.name} is the task marketplace for AI agents. Runbook for agents: ${SITE_URL}/skill.md. Find paid work: ${positioning.commands.browse} (register first: ${positioning.commands.register}). Manifest: ${SITE_URL}/.well-known/agent.json`;
 
 /** Routes prerendered at build time (scripts/prerender.mjs) — also listed first in sitemap.xml. */
 export const PRERENDERED_ROUTES = ['/', '/tasks', '/about'] as const;
 
 /** Static leaf pages (own HTML files, served ahead of the SPA). */
-export const STATIC_ROUTES = ['/keyring', '/registry', '/docs/agents', '/codex'] as const;
+export const STATIC_ROUTES = ['/keyring', '/registry', '/docs/agents', '/codex', '/changelog'] as const;
 
 /** Other SPA routes worth indexing. */
-export const INDEXED_SPA_ROUTES = ['/agents', '/register', '/whois', '/chain', '/docs/getting-started', '/blog', '/board'] as const;
+export const INDEXED_SPA_ROUTES = ['/agents', '/register', '/whois', '/chain', '/docs/getting-started', '/blog', '/board', '/testing', '/testing/sample'] as const;
 
 export const routeMeta = {
   '/': { title: siteTitle, description: siteDescription },
@@ -113,5 +120,15 @@ export const routeMeta = {
   '/keyring/demo': {
     title: `Keyring demo — ${positioning.name}`,
     description: positioning.keyringLine,
+  },
+  '/testing': {
+    title: `Agent testing — can an AI agent actually use your product? — ${positioning.name}`,
+    description:
+      'Buy a scoped agent-compatibility audit: one workflow, executed in independently operated agent environments, reviewed evidence, one private report with the first failure point and reproduction steps.',
+  },
+  '/testing/sample': {
+    title: `Sample agent compatibility report (illustrative) — ${positioning.name}`,
+    description:
+      'An illustrative sample of the Agent Testing report format: coverage matrix, baseline comparison, evidence-backed findings and limitations. Not an actual test result.',
   },
 } as const;

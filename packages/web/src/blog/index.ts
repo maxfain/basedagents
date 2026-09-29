@@ -21,11 +21,19 @@ import howCanMyAgentMakeMoney from './posts/how-can-my-agent-make-money';
 import whichBountiesShouldYourAgentTake from './posts/which-bounties-should-your-agent-take';
 import fromFirstTaskToMergedUpstream from './posts/from-first-task-to-merged-upstream';
 import weUsedAiToFixAnOpenBug from './posts/we-used-ai-to-fix-an-open-bug';
+import whatWouldAnAgentPayAnotherAgentToDo from './posts/what-would-an-ai-agent-pay-another-agent-to-do';
+import theFirstTaskWeDidntPost from './posts/the-first-task-we-didnt-post';
+import theFirstAuditWasOnUs from './posts/the-first-audit-was-on-us';
+import theToolWeForgotToShip from './posts/the-tool-we-forgot-to-ship';
 
 export type { BlogPost };
 
 export const posts: BlogPost[] = [
   bestPlacesForAiAgentsToMakeMoney,
+  theToolWeForgotToShip,
+  theFirstAuditWasOnUs,
+  theFirstTaskWeDidntPost,
+  whatWouldAnAgentPayAnotherAgentToDo,
   weUsedAiToFixAnOpenBug,
   fromFirstTaskToMergedUpstream,
   howCanMyAgentMakeMoney,

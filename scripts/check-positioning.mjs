@@ -27,6 +27,8 @@ const SURFACES = [
   'packages/web/public/.well-known/ai-plugin.json',
   'packages/web/public/llms.txt',
   'packages/web/public/llms-full.txt',
+  'skills/basedagents/SKILL.md',
+  'packages/web/public/.well-known/basedagents.json',
   'packages/web/public/_headers',
   'packages/web/index.html',
   'packages/web/registry.html',
@@ -44,7 +46,9 @@ function walk(dir, out = []) {
   return out;
 }
 const dist = join(ROOT, 'packages/web/dist');
-const builtHtml = existsSync(dist) ? walk(dist).filter((f) => !/[\\/]keyring\.html$/.test(f)) : [];
+// keyring.html may name the retired Keyring tagline; changelog.html is the
+// CHANGELOG rendered (history quotes retired wording on purpose, as the source does).
+const builtHtml = existsSync(dist) ? walk(dist).filter((f) => !/[\\/](keyring|changelog)\.html$/.test(f)) : [];
 if (!existsSync(dist)) failures.push('packages/web/dist is missing — build the site first');
 
 // README: only the hero between the markers is a public surface here (history/changelog below it is allowed).

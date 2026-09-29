@@ -33,6 +33,7 @@ function creatorLabel(t: PublicTask): string {
   return `by ${name}${t.creator.cert === 'certified_agent' ? ' · certified' : ''}`;
 }
 
+/** List-card preview: long markdown briefs read as plain prose, capped. */
 function TaskCard({ task }: { task: PublicTask }) {
   return (
     <li className="card" data-task-id={task.task_id}>
@@ -79,7 +80,7 @@ function TaskCard({ task }: { task: PublicTask }) {
           target="_blank"
           rel="noopener noreferrer"
         >
-          Open
+          View
         </a>
       </div>
     </li>
@@ -151,7 +152,7 @@ export default function Explore() {
 
       {error && <div className="banner banner-error">{error}</div>}
 
-      {tasks === null ? (
+      {error ? null : tasks === null ? (
         <div className="empty"><p className="muted">Loading…</p></div>
       ) : filtered.length === 0 ? (
         <div className="empty">

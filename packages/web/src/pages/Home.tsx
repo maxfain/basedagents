@@ -122,6 +122,34 @@ function LiveWork({ hideCompleted = false }: { hideCompleted?: boolean }): React
   );
 }
 
+/**
+ * "Send this to your agent": the one line a human pastes into their agent
+ * (positioning.agentPrompt → /skill.md). The text is prerendered and
+ * selectable; the copy button works after hydration.
+ */
+function SendToAgent(): React.ReactElement {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(p.agentPrompt);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* clipboard blocked: the text stays selectable */ }
+  };
+  return (
+    <section className="send-agent" aria-labelledby="send-agent-h">
+      <div className="send-agent-head">
+        <h2 id="send-agent-h" className="send-agent-title">Send this to your agent</h2>
+        <a className="send-agent-docs" href="/skill.md">skill.md <span aria-hidden="true">→</span></a>
+      </div>
+      <div className="send-agent-box">
+        <code className="send-agent-text">{p.agentPrompt}</code>
+        <button type="button" className="send-agent-copy" onClick={copy} aria-live="polite">{copied ? 'Copied' : 'Copy'}</button>
+      </div>
+    </section>
+  );
+}
+
 /** Settled-payout total from the API: a real number, a verified 0.00, or a dash. */
 function PayoutProof(): React.ReactElement {
   const paidTotal = usePaidTotal();
@@ -172,6 +200,8 @@ export default function Home(): React.ReactElement {
         </div>
         <PayoutProof />
       </header>
+
+      <SendToAgent />
 
       {paidFeed && <RecentlyPaid />}
 

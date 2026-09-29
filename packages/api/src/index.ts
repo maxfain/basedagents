@@ -1,11 +1,19 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
+import { etag } from 'hono/etag';
 import type { AppEnv } from './types/index.js';
+import { allowedBountyNetworks } from './types/index.js';
 import { D1Adapter } from './db/d1-adapter.js';
 import type { DBAdapter } from './db/adapter.js';
 import { checkRateLimit } from './lib/rate-limiter.js';
-import { runBootstrapProber } from './bootstrap/prober.js';
+import { buildDescriptor } from './discovery/descriptor.js';
+import { agentFormat, NEGOTIATED_VARY } from './discovery/negotiate.js';
+import { SKILL_MD, SKILL_VERSION } from './discovery/skill.generated.js';
+import { recordUsage, cleanVersion, retryFeedbackNotifications, runDailyDigest } from './feedback/service.js';
+import { sweepIdempotencyKeys } from './lib/idempotency.js';
+import { captureServerException } from './lib/posthog.js';
+import { emailSenderFromEnv } from './control/email.js';
 import { resolveAllAgentSkills, computeSkillReputations } from './skills/resolver.js';
 
 import registerRoutes from './routes/register.js';
@@ -30,13 +38,21 @@ import approvalRoutes from './control/approvals.js';
 import recoveryRoutes from './control/recovery.js';
 import { billingRoutes, stripeWebhookRoutes } from './control/billing.js';
 import testingRoutes from './control/testing.js';
+// Agent Testing product (proprietary control plane — packages/api/src/control/LICENSE).
+import { testingPublicRoutes, testingCustomerRoutes } from './control/agent-testing/routes.js';
+import { testingAdminRoutes } from './control/agent-testing/admin.js';
+import { runTestingJobs } from './control/agent-testing/jobs.js';
+import { testingStripeFromEnv } from './control/agent-testing/checkout.js';
 import ladderRoutes from './control/ladder.js';
 import funnelRoutes, { VOTABLE_PROVIDERS } from './routes/funnel.js';
+import feedbackRoutes from './routes/feedback.js';
+import adminRoutes from './control/admin.js';
 import { runTaskCron } from './cron/tasks.js';
-import { requireAdmin } from './lib/admin-auth.js';
+import claimBondRoutes from './routes/claim-bond.js';
 import { paymentsDisabledReason } from './payments/index.js';
 import { escrowDisabledReason, houseWalletFor } from './payments/house-wallet.js';
 import { ASSETS, MAX_TIMEOUT_SECONDS } from './payments/x402.js';
+import { minBountyAtomic } from './tasks/bounty-minimum.js';
 import { paidTotals } from './tasks/settled.js';
 
 const app = new Hono<AppEnv>();
@@ -90,6 +106,9 @@ const RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
   // Settled-tasks feed (homepage "Recently paid"): 60s-edge-cached like the
   // Atom feed; this bounds clients that bypass the cache.
   '/v1/tasks/settled':         { max: 120, windowMs: 60_000 },
+  // (No global entry for /v1/feedback: its own per-agent 30/h and per-IP 5/h
+  // limits run after the Idempotency-Key replay check, so a retry of a filed
+  // report always gets its response back.)
 };
 // Vote tiles are parameterized paths — one exact entry per allowlisted slug.
 for (const p of VOTABLE_PROVIDERS) {
@@ -125,8 +144,8 @@ app.use('*', cors({
     return null; // reject
   },
   allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Timestamp', 'X-Nonce', 'PAYMENT-SIGNATURE', 'X-PAYMENT-SIGNATURE'],
-  exposeHeaders: ['X-RateLimit-Remaining', 'PAYMENT-REQUIRED', 'PAYMENT-RESPONSE', 'Deprecation'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Timestamp', 'X-Nonce', 'PAYMENT-SIGNATURE', 'X-PAYMENT-SIGNATURE', 'If-None-Match', 'Idempotency-Key', 'X-BasedAgents-Skill-Version', 'X-BasedAgents-Cli-Version'],
+  exposeHeaders: ['X-RateLimit-Remaining', 'PAYMENT-REQUIRED', 'PAYMENT-RESPONSE', 'Deprecation', 'ETag', 'Retry-After', 'X-BasedAgents-Skill-Latest', 'X-Request-Id', 'Idempotent-Replayed'],
   // The console authenticates with an httpOnly session cookie, so the browser
   // needs Access-Control-Allow-Credentials. Safe with the whitelist above: the
   // origin is reflected exactly (never '*'), so only listed origins are allowed.
@@ -151,6 +170,37 @@ app.use('*', async (c, next) => {
     c.set('db', nodeAdapter);
   }
   await next();
+});
+
+// ─── Skill version, request id + agent telemetry ───
+// Every response names the latest skill version (an agent notices an update
+// without polling skill.json) and carries X-Request-Id (Cloudflare's ray id
+// when present) for an agent to cite in POST /v1/feedback. Signed requests
+// (with their CLI/skill version headers) and every 4xx/5xx add one count to
+// api_usage_daily for the daily digest (WS5). Registered
+// before the rate limiter so its 429s get the headers and are counted too.
+// Never blocks the response.
+app.use('*', async (c, next) => {
+  const requestId = c.req.header('CF-Ray') ?? crypto.randomUUID();
+  await next();
+  c.header('X-BasedAgents-Skill-Latest', SKILL_VERSION);
+  c.header('X-Request-Id', requestId);
+  const agentId = (c.get as (k: string) => string | undefined)('agentId') ?? '';
+  // Version values are kept only for signed requests: an unsigned header is
+  // anyone's to spoof, so it must not shape the digest's version breakdown.
+  const cli = agentId ? cleanVersion(c.req.header('X-BasedAgents-Cli-Version')) : '';
+  const skill = agentId ? cleanVersion(c.req.header('X-BasedAgents-Skill-Version')) : '';
+  const status = c.res.status;
+  const db = c.get('db');
+  if (!db || !(agentId || status >= 400)) return;
+  const work = (async () => {
+    let errorCode = '';
+    if (status >= 400) {
+      try { errorCode = String(((await c.res.clone().json()) as { error?: unknown }).error ?? '').slice(0, 64); } catch { /* not JSON */ }
+    }
+    await recordUsage(db, { day: new Date().toISOString().slice(0, 10), agentId, cliVersion: cli, skillVersion: skill, status, errorCode });
+  })().catch((err) => console.error('[telemetry] usage record failed:', err));
+  try { c.executionCtx.waitUntil(work); } catch { await work; }
 });
 
 // ─── Rate limiting middleware (durable) ───
@@ -187,9 +237,34 @@ app.use('*', async (c, next) => {
   await next();
 });
 
-// ─── Health Check ───
+// ─── Conditional GETs + cache headers (agent-first plan §0.2) ───
+// Every GET gets an ETag (If-None-Match → 304), so watch loops and skill
+// checks cost a round trip, not a body. A route that sets no Cache-Control
+// gets a revalidate-always default: `private` when the request carried
+// credentials, `public` otherwise.
+app.use('*', async (c, next) => {
+  await next();
+  if ((c.req.method === 'GET' || c.req.method === 'HEAD') && !c.res.headers.has('Cache-Control')) {
+    const credentialed = !!(c.req.header('Authorization') || c.req.header('Cookie'));
+    c.header('Cache-Control', c.res.status >= 400 ? 'no-store' : credentialed ? 'private, no-cache' : 'public, max-age=0, must-revalidate');
+  }
+});
+app.use('*', async (c, next) => {
+  if (c.req.method !== 'GET' && c.req.method !== 'HEAD') return next();
+  return etag()(c, next);
+});
+
+// ─── Front door: `/` negotiates; the descriptor + skill for agents (WS1) ───
 app.get('/', (c) => {
   const accept = c.req.header('Accept') ?? '';
+  c.header('Vary', NEGOTIATED_VARY);
+  const format = agentFormat(accept);
+  if (format === 'markdown') {
+    return c.body(SKILL_MD, 200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'public, max-age=300' });
+  }
+  if (format === 'json') {
+    return c.json(buildDescriptor({ version: SKILL_VERSION }), 200, { 'Cache-Control': 'public, max-age=300' });
+  }
   if (accept.includes('text/html')) {
     return c.redirect('https://basedagents.ai', 301);
   }
@@ -246,10 +321,16 @@ app.get('/', (c) => {
 });
 
 app.get('/health', (c) => c.json({ status: 'ok' }));
+app.get('/v1/health', (c) => c.json({ status: 'ok', skill_version: SKILL_VERSION }, 200, { 'Cache-Control': 'no-cache' }));
+
+/** The service descriptor, identical on all three hosts (scripts/sync-skill.ts writes the static copies). */
+app.get('/.well-known/basedagents.json', (c) =>
+  c.json(buildDescriptor({ version: SKILL_VERSION }), 200, { 'Cache-Control': 'public, max-age=300', 'Access-Control-Allow-Origin': '*' }));
 
 // ─── OpenAPI Spec ───
 import openApiSpec from './openapi.json';
 app.get('/openapi.json', (c) => c.json(openApiSpec));
+app.get('/v1/openapi.json', (c) => c.json(openApiSpec));
 
 // ─── x402 Payment Method Discovery ───
 // https://docs.cdp.coinbase.com/x402/welcome — x402 v2 (CAIP-2 networks).
@@ -265,6 +346,8 @@ app.get('/.well-known/x402', (c) => {
   return c.json({
     x402Version: 2,
     non_custodial: escrowReason !== null,
+    // D3: the live minimum bounty (atomic USDC) for tasks posted by agents and from the console.
+    min_bounty_atomic: { a2a: String(minBountyAtomic(c.env, 'a2a')), human: String(minBountyAtomic(c.env, 'human')) },
     flow: escrowReason === null ? 'escrow-at-post (default) | sign-at-accept (escrow: false)' : 'sign-at-accept',
     payments_enabled: paymentsDisabledReason(c.env) === null,
     escrow: {
@@ -273,7 +356,8 @@ app.get('/.well-known/x402', (c) => {
       wallet: house?.address ?? null,
       description: 'The bounty is deposited into the registry escrow wallet when the task is posted, released to the deliverer when the buyer (or the 7-day timer) accepts the delivery, and refunded to the paying wallet when the task is cancelled. Opt out per task with "escrow": false.',
     },
-    accepts: (Object.keys(ASSETS) as Array<keyof typeof ASSETS>).map((network) => ({
+    // Only the networks a bounty can use here: production is Base mainnet only (Sepolia is test-only).
+    accepts: (Object.keys(ASSETS) as Array<keyof typeof ASSETS>).filter((network) => allowedBountyNetworks(c.env).includes(network)).map((network) => ({
       scheme: 'exact',
       network,
       asset: ASSETS[network].asset,
@@ -281,6 +365,7 @@ app.get('/.well-known/x402', (c) => {
       extra: ASSETS[network].defaultExtra,
       payTo: house ? `escrow: ${house.address} at POST /v1/tasks; sign-at-accept: the deliverer wallet, see GET /v1/tasks/{id}/payment` : 'per task — the deliverer wallet, see GET /v1/tasks/{id}/payment',
       amount: 'per task, atomic units (6 decimals)',
+      min_amount: String(minBountyAtomic(c.env, 'a2a')),
       max_amount: '1000000000',
     })),
     endpoints: {
@@ -442,6 +527,8 @@ app.get('/v1/status', async (c) => {
 
 // ─── API Routes ───
 app.route('/v1/register', registerRoutes);
+// Claim governance (me/*) must register before any /:id agent route.
+app.route('/v1/agents', claimBondRoutes);
 app.route('/v1/agents', agentRoutes);
 app.route('/v1/verify', verifyRoutes);
 app.route('/v1/chain', chainRoutes);
@@ -467,6 +554,10 @@ app.route('/v1/agents', probeRoutes);
 // Keyring control plane (owner accounts, passkeys, delegations): /v1/owner
 app.route('/v1/owner', ownerRoutes);
 app.route('/v1/owner', ownerTaskRoutes);
+// Operator-only console pages (feedback triage) — ADMIN_OWNER_IDS
+app.route('/v1/owner', adminRoutes);
+// Agent feedback (WS5)
+app.route('/v1/feedback', feedbackRoutes);
 // Keyring approvals inbox + grant approvals + daemon pull/confirm: /v1/owner
 app.route('/v1/owner', approvalRoutes);
 // Keyring account recovery (magic link + recovery code → passkey rotation): /v1/owner
@@ -477,22 +568,15 @@ app.route('/v1/owner', billingRoutes);
 app.route('/v1', stripeWebhookRoutes);
 // E2E-only support (404s unless E2E=1): /v1/owner/test/*
 app.route('/v1/owner', testingRoutes);
+// Agent Testing product: public catalog + worker briefs, customer service
+// orders, operator queue. All feature-flagged (TESTING_PRODUCT_ENABLED).
+app.route('/v1/testing', testingPublicRoutes);
+app.route('/v1/owner/testing', testingCustomerRoutes);
+app.route('/v1/owner/admin/testing', testingAdminRoutes);
 // The authority ladder (link codes, magic-link claim/login, invites, connect cards): /v1/owner
 app.route('/v1/owner', ladderRoutes);
 // Onboarding funnel events + provider vote tiles (anonymous): /v1/funnel, /v1/providers/*
 app.route('/v1', funnelRoutes);
-
-// ─── Admin: Manual Bootstrap Probe Trigger ───
-// Protected by ADMIN_SECRET env var (lib/admin-auth.ts). Set via: wrangler secret put ADMIN_SECRET
-app.post('/v1/admin/bootstrap-probe', async (c) => {
-  const denied = requireAdmin(c);
-  if (denied) return denied;
-  const db = c.get('db');
-  if (!db) return c.json({ error: 'db_unavailable', message: 'Database not available' }, 503);
-  const threshold = parseInt(c.env?.BOOTSTRAP_THRESHOLD ?? '100', 10);
-  const result = await runBootstrapProber(db, threshold);
-  return c.json({ ok: true, result });
-});
 
 // ─── 404 Handler ───
 app.notFound((c) => {
@@ -500,8 +584,11 @@ app.notFound((c) => {
 });
 
 // ─── Error Handler ───
-app.onError((err, c) => {
+app.onError(async (err, c) => {
   console.error('Unhandled error:', err);
+  // Error Tracking: attributed to the authenticated agent/owner when auth ran,
+  // else anonymous. Awaited (never throws) — see lib/posthog.ts.
+  await captureServerException(c, err);
   return c.json({ error: 'internal_error', message: 'Internal server error' }, 500);
 });
 
@@ -510,11 +597,6 @@ app.onError((err, c) => {
 const scheduled = async (_event: unknown, env: any, _ctx: unknown) => {
   if (!env.DB) { console.error('[cron] No DB binding'); return; }
   const db = new D1Adapter(env.DB);
-  const threshold = parseInt(env.BOOTSTRAP_THRESHOLD ?? '100', 10);
-  console.log('[cron] Running bootstrap prober...');
-  const result = await runBootstrapProber(db, threshold);
-  console.log(`[cron] Bootstrap prober done: activated=${result.activated.length} suspended=${result.suspended.length} probed=${result.probed}`);
-
   console.log('[cron] Resolving agent skills (registry metadata)...');
   const skillResult = await resolveAllAgentSkills(db);
   console.log(`[cron] Skill resolution done: updated=${skillResult.updated}`);
@@ -539,6 +621,32 @@ const scheduled = async (_event: unknown, env: any, _ctx: unknown) => {
     console.log(`[cron] Task cron done: ${JSON.stringify(summary)}`);
   } catch (err) {
     console.error('[cron] Task cron failed:', err);
+  }
+
+  // ─── Feedback: retry failed notifications, the daily digest, idempotency sweep (WS5) ───
+  try {
+    const nowIso = new Date().toISOString();
+    const sender = emailSenderFromEnv(env);
+    const retried = await retryFeedbackNotifications(db, env, sender, nowIso);
+    const digest = await runDailyDigest(db, env, sender, new Date());
+    await sweepIdempotencyKeys(db, nowIso);
+    console.log(`[cron] Feedback cron done: retried=${retried} digest=${digest}`);
+  } catch (err) {
+    console.error('[cron] Feedback cron failed:', err);
+  }
+
+  // ─── Agent Testing: inbox drain, durable operations, task sync, alerts,
+  // notifications, expiry + retention. Recovery jobs run regardless of the
+  // checkout/fulfillment kill switches (those only stop NEW commitments).
+  try {
+    const summary = await runTestingJobs(db, {
+      stripe: testingStripeFromEnv(env),
+      emailSender: emailSenderFromEnv(env),
+      env,
+    }, new Date().toISOString());
+    console.log(`[cron] Testing jobs done: ${JSON.stringify(summary)}`);
+  } catch (err) {
+    console.error('[cron] Testing jobs failed:', err);
   }
 };
 

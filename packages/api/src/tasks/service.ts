@@ -23,6 +23,7 @@ import type { PaymentStatus, TaskStatus } from '../types/index.js';
 import { computeChainHash, GENESIS_HASH, sha256, bytesToHex, canonicalJsonStringify } from '../crypto/index.js';
 import { fireWebhook, type WebhookEvent } from '../lib/webhooks.js';
 import { gateWithEvent, recordEvent } from '../events/service.js';
+import { claimBudget, claimGovernanceConfig, claimWindowMsForBounty } from './governance.js';
 import { computeReputation } from '../reputation/calculator.js';
 import { generatePublicId } from '../lib/ids.js';
 import { atomicToDisplay } from '../payments/x402.js';
@@ -74,6 +75,8 @@ export interface TaskRow {
   auto_release_at: string | null;
   /** Claim-delivery timer: a `claimed` task past this returns to `open` (cron). Cleared on delivery/cancel. */
   claim_expires_at: string | null;
+  /** Campaign cap (migration 0044): max claimed+submitted per agent across this poster's tasks; NULL = uncapped. */
+  max_active_claims_per_agent: number | null;
   settle_attempts: number;
   settle_broadcast: number;
   settle_started_at: string | null;
@@ -112,6 +115,48 @@ export interface TaskRow {
  */
 export type EscrowStatus = 'funding' | 'unfunded' | 'funded' | 'releasing' | 'released' | 'refunding' | 'refunded';
 export type EscrowLeg = 'deposit' | 'release' | 'refund';
+
+// ─── Restricted tasks (task_claim_allowlist, 0042) ───
+//
+// A task that has rows in task_claim_allowlist is claimable only by a listed
+// agent. Generic marketplace feature: any creator-side policy can populate the
+// table; tasks with no rows behave exactly as before. The check lives INSIDE
+// the atomic claim UPDATE, so eligibility is re-verified at the claim boundary,
+// not just at read time. Deploys without the table (pre-0042) skip the
+// fragment via the same lazy per-isolate probe pattern as certification.
+
+let allowlistPresent: boolean | null = null;
+
+export async function claimAllowlistTablePresent(db: DBAdapter): Promise<boolean> {
+  if (allowlistPresent !== null) return allowlistPresent;
+  const row = await db.get<{ name: string }>(
+    `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_claim_allowlist'`,
+  );
+  allowlistPresent = row !== null;
+  return allowlistPresent;
+}
+
+/** Test-only: reset the per-isolate probe (fresh in-memory DBs per test). */
+export function resetClaimAllowlistProbeForTests(): void {
+  allowlistPresent = null;
+}
+
+/**
+ * Whether `agentId` may claim `taskId` under the allowlist: true when the
+ * task is unrestricted (no rows) or the agent is listed. Read-side helper for
+ * friendly route errors — the authoritative check is inside claimGate.
+ */
+export async function claimAllowedFor(db: DBAdapter, taskId: string, agentId: string): Promise<boolean> {
+  if (!(await claimAllowlistTablePresent(db))) return true;
+  const restricted = await db.get<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM task_claim_allowlist WHERE task_id = ?', taskId,
+  );
+  if (!restricted || restricted.n === 0) return true;
+  const listed = await db.get<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM task_claim_allowlist WHERE task_id = ? AND agent_id = ?', taskId, agentId,
+  );
+  return (listed?.n ?? 0) > 0;
+}
 
 /** Buyer review window: a delivered task is auto-accepted after this long (N3). */
 export const REVIEW_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -418,14 +463,62 @@ export function paymentView(t: TaskRow): Record<string, unknown> {
 /** A recipient agent id + the event to drop in its inbox atomically with the gate. */
 export interface GateNotify { recipientAgentId: string | null; event: WebhookEvent | null }
 
-/** T2: open → claimed. The creator can never claim their own task. Arms the claim-delivery timer. */
-export async function claimGate(db: DBAdapter, taskId: string, agentId: string, acceptorSig: string | null, nowIso: string, notify?: GateNotify): Promise<boolean> {
+/**
+ * T2: open → claimed. The creator can never claim their own task. Arms the
+ * claim-delivery timer. When the task is restricted (task_claim_allowlist has
+ * rows for it), only a listed agent wins the gate — checked inside the same
+ * atomic UPDATE so a revoked listing loses the race, not just the pre-read.
+ */
+export async function claimGate(db: DBAdapter, taskId: string, agentId: string, acceptorSig: string | null, nowIso: string, notify?: GateNotify, env?: unknown): Promise<boolean> {
+  const restrictable = await claimAllowlistTablePresent(db);
+  const allowlistPredicate = restrictable
+    ? ` AND (NOT EXISTS (SELECT 1 FROM task_claim_allowlist w WHERE w.task_id = tasks.task_id)
+         OR EXISTS (SELECT 1 FROM task_claim_allowlist w WHERE w.task_id = tasks.task_id AND w.agent_id = ?))`
+    : '';
+  // Claim governance (migration 0044): the window scales with the bounty (a
+  // $0.10 task is not lockable for a week), the agent's GLOBAL budget bounds
+  // how many 'claimed' tasks they hold at once, and the poster's per-campaign
+  // cap bounds claimed+submitted across THIS creator's tasks. The counts run
+  // inside this single UPDATE, so racing claims cannot both squeeze under a
+  // cap. The budget VALUE is read just before — a stale read only ever errs
+  // by the one in-flight reputational event, never by concurrent claims.
+  const task = await db.get<{ bounty_amount: string | null }>(
+    'SELECT bounty_amount FROM tasks WHERE task_id = ?', taskId,
+  );
+  const budget = (await claimBudget(db, env, agentId)).budget;
+  const budgetPredicate =
+    ` AND (SELECT COUNT(*) FROM tasks b WHERE b.claimed_by_agent_id = ? AND b.status = 'claimed') < ?`;
+  const campaignPredicate =
+    ` AND (tasks.max_active_claims_per_agent IS NULL OR (
+         SELECT COUNT(*) FROM tasks p WHERE p.claimed_by_agent_id = ?
+           AND p.status IN ('claimed','submitted')
+           AND ((tasks.creator_agent_id IS NOT NULL AND p.creator_agent_id = tasks.creator_agent_id)
+             OR (tasks.creator_owner_id IS NOT NULL AND p.creator_owner_id = tasks.creator_owner_id))
+       ) < tasks.max_active_claims_per_agent)`;
+  // Capital at risk for BOUNTY claims: one bonded bondPerSlotAtomic backs one
+  // concurrent bounty claim, occupied through claimed AND submitted (so a
+  // junk-submit does not free the slot — only acceptance or resolution does).
+  // Applied only when THIS task pays a bounty; free tasks stay bond-free.
+  // Counted inside the same atomic UPDATE for the same race-safety reasons.
+  const cfg = claimGovernanceConfig(env);
+  const targetHasBounty = !!task?.bounty_amount && /^[0-9]{1,15}$/.test(task.bounty_amount) && Number(task.bounty_amount) > 0;
+  const bondPredicate = cfg.bondRequiredForBounty && targetHasBounty
+    ? ` AND ((SELECT COUNT(*) FROM tasks bb WHERE bb.claimed_by_agent_id = ?
+           AND bb.status IN ('claimed','submitted')
+           AND bb.bounty_amount IS NOT NULL AND CAST(bb.bounty_amount AS INTEGER) > 0)
+         < (CAST(COALESCE((SELECT balance_atomic FROM agent_claim_bonds WHERE agent_id = ?), '0') AS INTEGER) / CAST(? AS INTEGER)))`
+    : '';
+  const expiresAt = isoPlus(nowIso, claimWindowMsForBounty(task?.bounty_amount ?? null));
+  const params: unknown[] = [agentId, nowIso, expiresAt, acceptorSig, taskId, agentId];
+  if (restrictable) params.push(agentId);
+  params.push(agentId, budget, agentId);
+  if (bondPredicate) params.push(agentId, agentId, cfg.bondPerSlotAtomic);
   return gateWithEvent(db, {
     sql: `UPDATE tasks SET claimed_by_agent_id = ?, status = 'claimed', claimed_at = ?, claim_expires_at = ?, acceptor_signature = ?
      WHERE task_id = ? AND status = 'open' AND claimed_by_agent_id IS NULL
        AND (creator_agent_id IS NULL OR creator_agent_id <> ?)
-       AND (escrow = 0 OR escrow_status = 'funded')`,
-    params: [agentId, nowIso, isoPlus(nowIso, CLAIM_WINDOW_MS), acceptorSig, taskId, agentId],
+       AND (escrow = 0 OR escrow_status = 'funded')${allowlistPredicate}${budgetPredicate}${campaignPredicate}${bondPredicate}`,
+    params,
   }, notify?.recipientAgentId ?? null, notify?.event ?? null, nowIso);
 }
 

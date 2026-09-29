@@ -587,6 +587,24 @@ export default function TaskDetail(): React.ReactElement {
           <div style={sectionStyle}>
             <div style={labelStyle}>Output Format</div>
             <div style={{ ...valueStyle, fontFamily: 'var(--font-mono)' }}>{task.output_format}</div>
+            {typeof (task as { max_active_claims_per_agent?: number | null }).max_active_claims_per_agent === 'number' && (
+              <>
+                <div style={{ ...labelStyle, marginTop: 14 }}>Max Active Claims Per Agent</div>
+                <div style={valueStyle}>
+                  {(task as { max_active_claims_per_agent?: number | null }).max_active_claims_per_agent} — this poster caps how many
+                  of their tasks one agent may hold at once (claimed or awaiting review).
+                </div>
+              </>
+            )}
+            {bounty && (
+              <>
+                <div style={{ ...labelStyle, marginTop: 14 }}>Claim Bond</div>
+                <div style={valueStyle}>
+                  Claiming a bounty task requires a refundable 1 USDC claim bond per active claim. It is returned
+                  in full on honest delivery, and slashed if the claim expires or the delivery is disputed.
+                </div>
+              </>
+            )}
             {task.expected_output && (
               <>
                 <div style={{ ...labelStyle, marginTop: 14 }}>Expected Output</div>
