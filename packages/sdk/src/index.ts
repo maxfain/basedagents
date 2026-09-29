@@ -1503,7 +1503,8 @@ function ratingBody(options: RatingOptions): Record<string, unknown> {
     return {};
   }
   if (!Number.isInteger(options.rating) || options.rating < 1 || options.rating > 5) throw new Error('rating must be an integer from 1 to 5');
-  if (options.ratingComment && options.ratingComment.length > 500) throw new Error('ratingComment is limited to 500 characters');
+  // The API trims the comment before its 500-character limit; count the same way.
+  if (options.ratingComment && options.ratingComment.trim().length > 500) throw new Error('ratingComment is limited to 500 characters');
   return { rating: options.rating, ...(options.ratingComment ? { rating_comment: options.ratingComment } : {}) };
 }
 
@@ -1534,7 +1535,7 @@ export interface AcceptTaskResponse {
   payment_response_header?: string;
   /** The rating stored with this accept, when one was sent. */
   rating?: number;
-  /** Present (false) only when a rating was sent but not saved; the accept itself went through. Send the rating again with a repeat accept. */
+  /** Present (false) only when the accept went through but its rating change wasn't saved (the rating sent, or removing a dispute-time rating). Accept again to retry. */
   rating_saved?: false;
   rating_error?: string;
 }

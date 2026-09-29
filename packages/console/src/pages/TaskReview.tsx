@@ -140,6 +140,8 @@ export default function TaskReview() {
   // Optional 1-5 rating sent with an accept or a dispute (decision D11).
   const [rating, setRating] = useState<number | null>(null);
   const [ratingComment, setRatingComment] = useState('');
+  // The accept went through but its rating change wasn't saved: keep the picks and offer a retry.
+  const [ratingUnsaved, setRatingUnsaved] = useState(false);
   const [busy, setBusy] = useState<string | null>(null); // 'accept' | 'revision' | 'dispute' | 'cancel'
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -193,10 +195,14 @@ export default function TaskReview() {
     setBusy(kind);
     setError(null);
     try {
-      await fn();
+      const result = await fn();
+      const unsaved = !!result && typeof result === 'object' && (result as { rating_saved?: unknown }).rating_saved === false;
       setNote('');
-      setRating(null);
-      setRatingComment('');
+      setRatingUnsaved(unsaved);
+      if (!unsaved) {
+        setRating(null);
+        setRatingComment('');
+      }
       await load();
     } catch (err) {
       setError(taskErrText(err));
@@ -226,11 +232,18 @@ export default function TaskReview() {
         if (!pay.requirements) throw new Error(payUnavailableText(pay.requirements_unavailable_reason));
         const { header } = await signBountyPayment(pay.requirements);
         const signed = await sign(`task.accept:${taskId}:${sha256hex(text)}`);
-        await control.acceptTask(taskId, text ? text : undefined, signed, header, ratingPayload());
-      } else {
-        const signed = await sign(`task.accept:${taskId}:${sha256hex(text)}`);
-        await control.acceptTask(taskId, text ? text : undefined, signed, undefined, ratingPayload());
+        return control.acceptTask(taskId, text ? text : undefined, signed, header, ratingPayload());
       }
+      const signed = await sign(`task.accept:${taskId}:${sha256hex(text)}`);
+      return control.acceptTask(taskId, text ? text : undefined, signed, undefined, ratingPayload());
+    });
+  }
+
+  /** Accept again (a repeat accept pays nothing) to save the rating change that didn't stick. */
+  async function onRetryRating(): Promise<void> {
+    await run('rate', async () => {
+      const signed = await sign(`task.accept:${taskId}:${sha256hex('')}`);
+      return control.acceptTask(taskId, undefined, signed, undefined, ratingPayload());
     });
   }
 
@@ -379,6 +392,18 @@ export default function TaskReview() {
           {bounty && escrow && escrow.status !== 'released' && ` The ${escrowAmount} held in escrow is being released to the deliverer (${task.payment_status}); it retries on its own.`}
           {bounty && !escrow && paid && ` The ${bounty.amount_display} ${bounty.token} bounty was paid to the deliverer's wallet.`}
           {bounty && !escrow && !paid && ` Payment of ${bounty.amount_display} ${bounty.token} is ${task.payment_status}.`}
+        </div>
+      )}
+      {task.status === 'verified' && ratingUnsaved && (
+        <div className="banner banner-warn" role="status" data-testid="rating-not-saved">
+          {rating !== null
+            ? 'The work is accepted, but your rating was not saved.'
+            : 'The work is accepted, but the rating you gave with the dispute may still show.'}
+          <div className="btn-row" style={{ marginTop: 8 }}>
+            <button className="btn btn-primary btn-sm" onClick={() => void onRetryRating()} disabled={busy !== null}>
+              {busy === 'rate' ? 'Saving…' : 'Try again'}
+            </button>
+          </div>
         </div>
       )}
       {task.status === 'cancelled' && (

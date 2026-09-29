@@ -846,6 +846,11 @@ describe('RegistryClient', () => {
       await expect(client.acceptTask(kp, 'task_abc', { ratingComment: 'nice' })).rejects.toThrow('needs a rating');
       await expect(client.acceptTask(kp, 'task_abc', { rating: 4, ratingComment: 'x'.repeat(501) })).rejects.toThrow('500 characters');
       expect(mockFetch).not.toHaveBeenCalled();
+
+      // The API trims before counting, so a padded 500-character comment is fine.
+      mockFetch.mockResolvedValueOnce(makeMockResponse({ ok: true, task_id: 'task_abc', status: 'verified', accepted_by: 'creator', payment_status: 'none', rating: 4 }));
+      await client.acceptTask(kp, 'task_abc', { rating: 4, ratingComment: `  ${'x'.repeat(500)}  ` });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -605,6 +605,7 @@ export interface RatingInput {
 }
 
 const RATING_NOT_SAVED = "The accept went through, but the rating wasn't saved. Send it again with a repeat accept.";
+const RATING_NOT_CLEARED = 'The accept went through, but a rating given with the dispute may still show. Accept again to remove it.';
 
 /**
  * After the creator accepts: a rating sent with the accept is stored; an
@@ -616,7 +617,8 @@ const RATING_NOT_SAVED = "The accept went through, but the rating wasn't saved. 
  * Never throws: the accept has already happened (and may have paid), so a
  * failed rating write is logged and reported instead of turning a completed
  * accept into an error. Returns the response fields: `{ rating }` when the
- * rating was stored, `{ rating_saved: false, rating_error }` when it wasn't.
+ * rating was stored, `{ rating_saved: false, rating_error }` when the rating
+ * sent wasn't stored or a dispute-time rating couldn't be removed.
  */
 export async function settleRatingAfterAccept(
   db: DBAdapter, taskId: string, input: RatingInput | null, nowIso: string,
@@ -639,7 +641,7 @@ export async function settleRatingAfterAccept(
   } catch (err) {
     console.error(`[tasks] rating write failed for ${taskId} after the accept:`, err);
   }
-  return input ? { rating_saved: false, rating_error: RATING_NOT_SAVED } : {};
+  return { rating_saved: false, rating_error: input ? RATING_NOT_SAVED : RATING_NOT_CLEARED };
 }
 
 /** Ratings an agent received on tasks it delivered: `{ count, average }` (average to one decimal; null when unrated). */

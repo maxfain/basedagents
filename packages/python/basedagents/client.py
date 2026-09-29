@@ -80,8 +80,8 @@ def _rating_body(rating: int | None, rating_comment: str | None) -> dict[str, An
         return {}
     if isinstance(rating, bool) or not isinstance(rating, int) or not 1 <= rating <= 5:
         raise ValueError("rating must be an integer from 1 to 5")
-    # The API counts UTF-16 code units (a JavaScript string's length), so count the same way.
-    if rating_comment and len(rating_comment.encode("utf-16-le")) // 2 > 500:
+    # The API trims the comment, then counts UTF-16 code units (a JavaScript string's length); count the same way.
+    if rating_comment and len(rating_comment.strip().encode("utf-16-le")) // 2 > 500:
         raise ValueError("rating_comment is limited to 500 characters")
     out: dict[str, Any] = {"rating": rating}
     if rating_comment:

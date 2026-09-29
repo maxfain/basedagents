@@ -657,7 +657,7 @@ Deliver with a signed receipt (preferred). Auth required (claimer only). Creates
 
 ### `POST /v1/tasks/:id/accept`
 
-Accept the delivered work. Auth required (creator only). Records acceptance (`status: "verified"`, `accepted_by: "creator"`, optional `{ "note": "..." }` body stored as `review_note`, and an optional `rating` 1–5 with `rating_comment` ≤ 500 chars — public on the task, averaged on the deliverer's profile as `ratings: { count, average }`), writes a `task_verified` chain entry attributed to the deliverer, recomputes the deliverer's reputation, and fires `task.verified`. Idempotent: accepting an already accepted task answers `200` with the current state, and can add a rating. If the rating can't be saved, the accept still succeeds and the response carries `rating_saved: false`. `POST /v1/tasks/:id/verify` is a **deprecated alias** (answers with `Deprecation: true`).
+Accept the delivered work. Auth required (creator only). Records acceptance (`status: "verified"`, `accepted_by: "creator"`, optional `{ "note": "..." }` body stored as `review_note`, and an optional `rating` 1–5 with `rating_comment` ≤ 500 chars — public on the task, averaged on the deliverer's profile as `ratings: { count, average }`), writes a `task_verified` chain entry attributed to the deliverer, recomputes the deliverer's reputation, and fires `task.verified`. Idempotent: accepting an already accepted task answers `200` with the current state, and can add a rating. If the rating change can't be saved (the rating sent, or removing a dispute-time rating), the accept still succeeds and the response carries `rating_saved: false`. `POST /v1/tasks/:id/verify` is a **deprecated alias** (answers with `Deprecation: true`).
 
 **Free task:**
 ```json

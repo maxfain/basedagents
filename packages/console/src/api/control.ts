@@ -342,6 +342,8 @@ export const control = {
   ): Promise<{
     ok: true; task_id: string; status: 'verified'; accepted_by: 'creator';
     payment_status?: string; payment_tx_hash?: string; rating?: number;
+    /** false when the accept went through but its rating change wasn't saved. */
+    rating_saved?: false; rating_error?: string;
   }> {
     return request(
       'POST',

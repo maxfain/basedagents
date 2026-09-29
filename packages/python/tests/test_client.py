@@ -748,6 +748,14 @@ class TestReviewFlow:
                 client.accept_task(kp, "task_1", **kwargs)
         mock_http.request.assert_not_called()
 
+    def test_padded_rating_comment_counts_like_the_api(self):
+        kp = generate_keypair()
+        client, mock_http = make_client_with_mock()
+        mock_http.request.return_value = make_mock_response(
+            {"ok": True, "task_id": "task_1", "status": "verified", "accepted_by": "creator", "payment_status": "none", "rating": 4})
+        client.accept_task(kp, "task_1", rating=4, rating_comment="  " + "x" * 500 + "  ")
+        mock_http.request.assert_called_once()
+
     def test_cancel_posts_and_returns_voided_payment(self):
         kp = generate_keypair()
         client, mock_http = make_client_with_mock()

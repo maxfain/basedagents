@@ -577,6 +577,25 @@ describe('Task Marketplace', () => {
       expect(await again.json()).toMatchObject({ rating: 5 });
       expect(await publicTask(taskId)).toMatchObject({ rating: 5, rating_context: 'accept' });
     });
+
+    it('an accept that cannot remove a dispute-time rating says so; accepting again removes it', async () => {
+      const taskId = await delivered();
+      expect((await signedPost(creator, `/v1/tasks/${taskId}/dispute`, { reason: 'Off', rating: 1 })).status).toBe(200);
+      const run = db.run.bind(db);
+      vi.spyOn(db, 'run').mockImplementation(async (sql, ...params) => {
+        if (/rating_context = 'dispute'/.test(sql) && /rating = NULL/.test(sql)) throw new Error('D1 unavailable');
+        return run(sql, ...params);
+      });
+      const res = await signedPost(creator, `/v1/tasks/${taskId}/accept`);
+      vi.restoreAllMocks();
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ status: 'verified', rating_saved: false });
+      expect(await publicTask(taskId)).toMatchObject({ rating: 1, rating_context: 'dispute' });
+
+      const again = await signedPost(creator, `/v1/tasks/${taskId}/accept`);
+      expect(await again.json()).not.toHaveProperty('rating_saved');
+      expect(await publicTask(taskId)).toMatchObject({ rating: null, rating_context: null });
+    });
   });
 
   describe('POST /v1/tasks/:id/claim — Claim task', () => {

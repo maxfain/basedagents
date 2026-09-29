@@ -3910,7 +3910,7 @@
             "enum": [
               false
             ],
-            "description": "Present (false) only when a rating was sent but could not be saved. The accept itself went through; send the rating again with a repeat accept."
+            "description": "Present (false) only when the accept went through but its rating change wasn't saved: the rating sent wasn't stored, or a rating given with the dispute couldn't be removed. Accept again to retry."
           },
           "rating_error": {
             "type": "string",
