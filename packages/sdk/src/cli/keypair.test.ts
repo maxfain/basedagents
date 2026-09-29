@@ -5,12 +5,12 @@
  * simulating the multi-keypair selection logic from wallet.ts.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync, statSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync, statSync, readdirSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { generateKeypair, serializeKeypair, deserializeKeypair, publicKeyToAgentId, base58Encode } from '../index.js';
-import { isKeypairPath, loadKeypair, resolveKeypairPath, prepareNewKeypairPath, saveNewKeypair } from './wallet.js';
+import { isKeypairPath, loadKeypair, resolveKeypairPath, prepareNewKeypairPath, stageNewKeypair, commitNewKeypair, discardNewKeypair } from './wallet.js';
 
 describe('loadKeypair — keypair round-trip (NEW-2)', () => {
   it('generates a valid keypair', async () => {
@@ -214,9 +214,13 @@ describe('resolveKeypairPath — which file a signed command uses', () => {
   });
 });
 
-describe('prepareNewKeypairPath / saveNewKeypair — where registration saves a new key', () => {
+describe('prepareNewKeypairPath + stage/commit — where registration saves a new key', () => {
   let home: string;
-  afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); if (home) rmSync(home, { recursive: true, force: true }); });
+  afterEach(() => {
+    vi.unstubAllEnvs(); vi.restoreAllMocks();
+    if (home && existsSync(home)) { chmodSync(home, 0o700); rmSync(home, { recursive: true, force: true }); }
+    home = '';
+  });
   const tempHome = () => { home = mkdtempSync(join(tmpdir(), 'ba-home-')); vi.stubEnv('HOME', home); vi.stubEnv('USERPROFILE', home); return home; };
 
   it('saves to BASEDAGENTS_KEYPAIR_PATH when it names no file yet, creating its directory', () => {
@@ -225,9 +229,10 @@ describe('prepareNewKeypairPath / saveNewKeypair — where registration saves a 
     const { path, envInUse } = prepareNewKeypairPath('jobs', { BASEDAGENTS_KEYPAIR_PATH: target });
     expect(path).toBe(target);
     expect(envInUse).toBeUndefined();
-    expect(existsSync(join(h, 'profiles', 'jobs'))).toBe(true);
+    const staged = stageNewKeypair(path, '{"k":1}');
+    expect(commitNewKeypair(staged, path, 'jobs')).toBe(target);
+    expect(existsSync(staged)).toBe(false);
     // ...so the id / signed-command lookup (which prefers the variable) finds it.
-    expect(saveNewKeypair(path, '{"k":1}', 'jobs')).toBe(target);
     expect(resolveKeypairPath(undefined, { BASEDAGENTS_KEYPAIR_PATH: target })).toBe(target);
     if (process.platform !== 'win32') expect(statSync(target).mode & 0o777).toBe(0o600);
   });
@@ -243,14 +248,39 @@ describe('prepareNewKeypairPath / saveNewKeypair — where registration saves a 
     expect(prepareNewKeypairPath('hans', {}).path).toBe(join(keys, 'hans-2-keypair.json'));
   });
 
+  it('the staged file is on disk before registration and invisible to the keypair lookup', () => {
+    const h = tempHome();
+    const path = prepareNewKeypairPath('solo', {}).path;
+    const staged = stageNewKeypair(path, '{"k":1}');
+    expect(readFileSync(staged, 'utf8')).toBe('{"k":1}');
+    expect(readdirSync(join(h, '.basedagents', 'keys')).filter((f) => f.endsWith('-keypair.json'))).toEqual([]);
+    discardNewKeypair(staged);
+    expect(existsSync(staged)).toBe(false);
+  });
+
   it('never replaces a file: one that appeared since the path was chosen sends the key to the keys directory', () => {
     const h = tempHome();
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const raced = join(h, 'raced-keypair.json');
+    const staged = stageNewKeypair(raced, '{"new":true}');
     writeFileSync(raced, 'someone else');
-    const landed = saveNewKeypair(raced, '{"new":true}', 'raced');
+    const landed = commitNewKeypair(staged, raced, 'raced');
     expect(readFileSync(raced, 'utf8')).toBe('someone else');
     expect(landed).toBe(join(h, '.basedagents', 'keys', 'raced-keypair.json'));
     expect(readFileSync(landed, 'utf8')).toBe('{"new":true}');
+  });
+
+  it('keeps the staged file when nothing else is writable, so a registered key is never lost', () => {
+    if (process.platform === 'win32' || process.getuid?.() === 0) return; // permission bits don't bind here
+    const h = tempHome();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const dir = join(h, 'jobs');
+    const target = prepareNewKeypairPath('jobs', { BASEDAGENTS_KEYPAIR_PATH: join(dir, 'jobs-keypair.json') }).path;
+    const staged = stageNewKeypair(target, '{"only":"copy"}');
+    writeFileSync(target, 'raced');           // the final name is taken
+    chmodSync(h, 0o500);                      // and ~/.basedagents/keys/ can't be created
+    const landed = commitNewKeypair(staged, target, 'jobs');
+    expect(landed).toBe(staged);
+    expect(readFileSync(staged, 'utf8')).toBe('{"only":"copy"}');
   });
 });

@@ -6,7 +6,7 @@
  */
 
 import { createInterface } from 'readline';
-import { prepareNewKeypairPath, saveNewKeypair } from './wallet.js';
+import { prepareNewKeypairPath, stageNewKeypair, commitNewKeypair, discardNewKeypair } from './wallet.js';
 import { generateKeypair, serializeKeypair } from '../index.js';
 import { RegistryClient, DEFAULT_API_URL } from '../index.js';
 
@@ -82,6 +82,8 @@ export async function init(args: string[]): Promise<void> {
   console.log('');
 
   const rl = makeRl();
+  // A keypair staged on disk while its registration is in flight (see stageNewKeypair).
+  let staged: string | undefined;
 
   // Graceful Ctrl+C
   rl.on('close', () => {});
@@ -167,6 +169,8 @@ export async function init(args: string[]): Promise<void> {
     const target = prepareNewKeypairPath(slug);
     let keypairPath = target.path;
     if (target.envInUse) console.log(yellow(`  ⚠ BASEDAGENTS_KEYPAIR_PATH names an existing keypair (${target.envInUse}). This one is saved to ${keypairPath}; signed commands keep using the variable's key until you change it.`));
+    // On disk under a temporary name before the proof-of-work; renamed once registered.
+    staged = stageNewKeypair(keypairPath, serializeKeypair(keypair));
 
     let agent: Awaited<ReturnType<typeof client.register>>;
     while (true) {
@@ -191,8 +195,8 @@ export async function init(args: string[]): Promise<void> {
       }
     }
 
-    // Write keypair only after successful registration
-    keypairPath = saveNewKeypair(keypairPath, serializeKeypair(keypair), slug);
+    keypairPath = commitNewKeypair(staged, keypairPath, slug);
+    staged = undefined;
 
     // ── Success ──
     console.log('');
@@ -209,6 +213,7 @@ export async function init(args: string[]): Promise<void> {
     console.log('');
 
   } catch (err: unknown) {
+    if (staged) discardNewKeypair(staged);
     console.log('');
     const msg = err instanceof Error ? err.message : String(err);
     console.log(red(`  ✗ ${msg}`));

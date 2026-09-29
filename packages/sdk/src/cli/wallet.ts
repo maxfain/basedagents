@@ -4,7 +4,8 @@
  * Get or set your agent's wallet address.
  */
 
-import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync } from 'fs';
+import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync } from 'fs';
+import { randomBytes } from 'crypto';
 import { homedir } from 'os';
 import { dirname, isAbsolute, join, win32 } from 'path';
 import { RegistryClient, DEFAULT_API_URL, deserializeKeypair, publicKeyToAgentId, type AgentKeypair } from '../index.js';
@@ -97,22 +98,45 @@ export function prepareNewKeypairPath(slug: string, env: NodeJS.ProcessEnv = pro
 }
 
 /**
- * Write a just-registered keypair (mode 0600), never replacing a file. If
- * `path` can't be written (a file appeared there since it was chosen, or the
- * location stopped being writable), the key goes to a fresh numbered file in
- * ~/.basedagents/keys/ instead, so a registration that succeeded never loses
- * its key. Returns where the file landed.
+ * Put a new keypair on disk BEFORE registering it, so a registration that
+ * succeeds can never lose its key. The file (mode 0600) sits next to `path`
+ * under a temporary name that no keypair lookup matches
+ * (`<path>.pending-<pid>-<random>`). After the API accepts the key,
+ * commitNewKeypair gives it its final name; if registration fails,
+ * discardNewKeypair removes it. Throws, before anything is registered, when
+ * the location can't be written.
  */
-export function saveNewKeypair(path: string, contents: string, slug: string): string {
-  try {
-    writeFileSync(path, contents, { mode: 0o600, flag: 'wx' });
-    return path;
-  } catch {
-    const fallback = prepareNewKeypairPath(slug, {}).path;
-    writeFileSync(fallback, contents, { mode: 0o600, flag: 'wx' });
-    console.error(yellow(`  ⚠ Could not write ${path}; the keypair was saved to ${fallback} instead.`));
-    return fallback;
+export function stageNewKeypair(path: string, contents: string): string {
+  const staged = `${path}.pending-${process.pid}-${randomBytes(4).toString('hex')}`;
+  writeFileSync(staged, contents, { mode: 0o600, flag: 'wx' });
+  return staged;
+}
+
+/**
+ * Give a staged keypair its final name without ever replacing a file, and
+ * return where it ended up: `path` when it is still free and writable; else a
+ * fresh numbered file in ~/.basedagents/keys/; else the staged file itself,
+ * which already holds the key.
+ */
+export function commitNewKeypair(staged: string, path: string, slug: string): string {
+  const contents = readFileSync(staged, 'utf8');
+  const candidates: Array<() => string> = [() => path, () => prepareNewKeypairPath(slug, {}).path];
+  for (const next of candidates) {
+    try {
+      const target = next();
+      writeFileSync(target, contents, { mode: 0o600, flag: 'wx' });
+      discardNewKeypair(staged);
+      if (target !== path) console.error(yellow(`  ⚠ Could not write ${path}; the keypair was saved to ${target} instead.`));
+      return target;
+    } catch { /* try the next location */ }
   }
+  console.error(yellow(`  ⚠ Could not write ${path} or ~/.basedagents/keys/; the keypair stays at ${staged}. Rename it to end in -keypair.json, or pass it with --keypair.`));
+  return staged;
+}
+
+/** Remove a staged keypair whose registration failed (never registered, so nothing is lost). */
+export function discardNewKeypair(staged: string): void {
+  try { unlinkSync(staged); } catch { /* already gone */ }
 }
 
 export async function wallet(args: string[]): Promise<void> {
