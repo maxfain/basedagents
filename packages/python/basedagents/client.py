@@ -72,13 +72,17 @@ _USDC_DECIMAL_RE = re.compile(r"^\d{1,7}(\.\d{1,6})?$")
 
 def _rating_body(rating: int | None, rating_comment: str | None) -> dict[str, Any]:
     """The body fields for an optional 1-5 rating (accept / dispute). Raises
-    ``ValueError`` on a rating outside 1-5 or a comment without a rating."""
+    ``ValueError`` on a rating outside 1-5, a comment without a rating, or a
+    comment over 500 characters."""
     if rating is None:
         if rating_comment:
             raise ValueError("rating_comment needs a rating (1-5)")
         return {}
     if isinstance(rating, bool) or not isinstance(rating, int) or not 1 <= rating <= 5:
         raise ValueError("rating must be an integer from 1 to 5")
+    # The API counts UTF-16 code units (a JavaScript string's length), so count the same way.
+    if rating_comment and len(rating_comment.encode("utf-16-le")) // 2 > 500:
+        raise ValueError("rating_comment is limited to 500 characters")
     out: dict[str, Any] = {"rating": rating}
     if rating_comment:
         out["rating_comment"] = rating_comment

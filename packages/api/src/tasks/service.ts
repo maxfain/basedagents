@@ -580,12 +580,21 @@ export async function revisionGate(db: DBAdapter, taskId: string, note: string, 
   }, notify?.recipientAgentId ?? null, notify?.event ?? null, nowIso);
 }
 
-/** T7: dispute flag on a submitted task; freezes auto-accept, touches no payment column. */
-export async function disputeGate(db: DBAdapter, taskId: string, reason: string, nowIso: string, notify?: GateNotify): Promise<boolean> {
+/**
+ * T7: dispute flag on a submitted task; freezes auto-accept, touches no payment column.
+ * D11: a rating given with the dispute is written by the same UPDATE, so it can't
+ * land after a concurrent revision request has withdrawn the dispute.
+ */
+export async function disputeGate(
+  db: DBAdapter, taskId: string, reason: string, nowIso: string, notify?: GateNotify, rating?: RatingInput | null,
+): Promise<boolean> {
+  const rated = rating
+    ? { sql: `, rating = ?, rating_comment = ?, rating_context = 'dispute', rated_at = ?`, params: [rating.rating, rating.comment, nowIso] }
+    : { sql: '', params: [] };
   return gateWithEvent(db, {
-    sql: `UPDATE tasks SET disputed_at = ?, review_note = ?, auto_release_at = NULL
+    sql: `UPDATE tasks SET disputed_at = ?, review_note = ?, auto_release_at = NULL${rated.sql}
      WHERE task_id = ? AND status = 'submitted' AND disputed_at IS NULL`,
-    params: [nowIso, reason, taskId],
+    params: [nowIso, reason, ...rated.params, taskId],
   }, notify?.recipientAgentId ?? null, notify?.event ?? null, nowIso);
 }
 
@@ -595,35 +604,42 @@ export interface RatingInput {
   comment: string | null;
 }
 
-/**
- * Store (or replace) the poster's rating. Public, like `review_note`: the
- * agent profile averages it. Called only from the creator's accept and
- * dispute routes, never from the auto-accept timer.
- */
-export async function recordRating(
-  db: DBAdapter, taskId: string, input: RatingInput, context: 'accept' | 'dispute', nowIso: string,
-): Promise<void> {
-  await db.run(
-    'UPDATE tasks SET rating = ?, rating_comment = ?, rating_context = ?, rated_at = ? WHERE task_id = ?',
-    input.rating, input.comment, context, nowIso, taskId,
-  );
-}
+const RATING_NOT_SAVED = "The accept went through, but the rating wasn't saved. Send it again with a repeat accept.";
 
 /**
  * After the creator accepts: a rating sent with the accept is stored; an
  * accept without one clears a rating left at dispute time (the dispute is
- * over). A rating given at an earlier accept stays.
+ * over). A rating given at an earlier accept stays. Ratings are public, like
+ * `review_note`, and the agent profile averages them. Called only from the
+ * creator's accept routes, never from the auto-accept timer.
+ *
+ * Never throws: the accept has already happened (and may have paid), so a
+ * failed rating write is logged and reported instead of turning a completed
+ * accept into an error. Returns the response fields: `{ rating }` when the
+ * rating was stored, `{ rating_saved: false, rating_error }` when it wasn't.
  */
-export async function settleRatingAfterAccept(db: DBAdapter, taskId: string, input: RatingInput | null, nowIso: string): Promise<void> {
-  if (input) {
-    await recordRating(db, taskId, input, 'accept', nowIso);
-    return;
+export async function settleRatingAfterAccept(
+  db: DBAdapter, taskId: string, input: RatingInput | null, nowIso: string,
+): Promise<Record<string, unknown>> {
+  try {
+    if (!input) {
+      await db.run(
+        `UPDATE tasks SET rating = NULL, rating_comment = NULL, rating_context = NULL, rated_at = NULL
+         WHERE task_id = ? AND status = 'verified' AND rating_context = 'dispute'`,
+        taskId,
+      );
+      return {};
+    }
+    const res = await db.run(
+      `UPDATE tasks SET rating = ?, rating_comment = ?, rating_context = 'accept', rated_at = ?
+       WHERE task_id = ? AND status = 'verified'`,
+      input.rating, input.comment, nowIso, taskId,
+    );
+    if (res.changes === 1) return { rating: input.rating };
+  } catch (err) {
+    console.error(`[tasks] rating write failed for ${taskId} after the accept:`, err);
   }
-  await db.run(
-    `UPDATE tasks SET rating = NULL, rating_comment = NULL, rating_context = NULL, rated_at = NULL
-     WHERE task_id = ? AND rating_context = 'dispute'`,
-    taskId,
-  );
+  return input ? { rating_saved: false, rating_error: RATING_NOT_SAVED } : {};
 }
 
 /** Ratings an agent received on tasks it delivered: `{ count, average }` (average to one decimal; null when unrated). */

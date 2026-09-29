@@ -25,7 +25,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../types/index.js';
-import { CreateTaskSchema, SubmitDeliverableSchema, DeliverTaskSchema, TaskQuerySchema, BOUNTY_NETWORKS, allowedBountyNetworks, RatingFields, withRatingRule, ratingInputOf } from '../types/index.js';
+import { CreateTaskSchema, SubmitDeliverableSchema, DeliverTaskSchema, TaskQuerySchema, BOUNTY_NETWORKS, allowedBountyNetworks, RatingFields, withRatingRule, ratingInputOf, isRatingIssue, RATING_RULE_MESSAGE } from '../types/index.js';
 import { agentAuth } from '../middleware/auth.js';
 import { bytesToHex } from '../crypto/index.js';
 import { generatePublicId } from '../lib/ids.js';
@@ -42,7 +42,7 @@ import {
   type Actor, type TaskRow, loadTask, creatorMatches, logPaymentEvent, recordFunnel,
   creatorTarget, recomputeReputation, publicTaskShape, paymentView, bountyView, creatorSqlParts, escrowView,
   claimGate, deliverGate, acceptUnpaidGate, revisionGate, disputeGate, cancelGate, cancelRefusal, afterAccept,
-  notifyMatchingAgents, writeDeliveryReceipt, MAX_REVISIONS, claimAllowedFor, recordRating, settleRatingAfterAccept,
+  notifyMatchingAgents, writeDeliveryReceipt, MAX_REVISIONS, claimAllowedFor, settleRatingAfterAccept,
 } from '../tasks/service.js';
 
 const tasks = new Hono<AppEnv>();
@@ -830,7 +830,6 @@ async function handleAccept(c: Ctx, deprecatedAlias: boolean): Promise<Response>
   // D11: an optional rating, stored only once the accept has gone through
   // (a 402 challenge writes nothing; the signed retry carries it again).
   const rating = ratingInputOf(parsed.data);
-  const rated = rating ? { rating: rating.rating } : {};
 
   const task = await loadTask(db, taskId);
   if (!task) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
@@ -864,7 +863,7 @@ async function handleAccept(c: Ctx, deprecatedAlias: boolean): Promise<Response>
     const outcome = await acceptEscrowTask(db, c.env, task, { note, actor, nowIso: now });
     for (const [k, v] of Object.entries(outcome.headers ?? {})) c.header(k, v);
     if (outcome.status !== 200) return c.json(outcome.body, outcome.status);
-    await settleRatingAfterAccept(db, taskId, rating, now);
+    const rated = await settleRatingAfterAccept(db, taskId, rating, now);
     if (wasSubmitted) await captureServerEvent(c, 'task_accepted', acceptedProps);
     return c.json({ ...(outcome.body as Record<string, unknown>), ...rated }, 200);
   }
@@ -873,7 +872,7 @@ async function handleAccept(c: Ctx, deprecatedAlias: boolean): Promise<Response>
 
   // Idempotent re-accept: nothing to do, nothing to charge (a rating sent with it is still stored).
   if (task.status === 'verified' && (!task.bounty_amount || alreadyPaidOrInFlight)) {
-    await settleRatingAfterAccept(db, taskId, rating, now);
+    const rated = await settleRatingAfterAccept(db, taskId, rating, now);
     const body: Record<string, unknown> = { ok: true, task_id: taskId, status: 'verified', accepted_by: task.accepted_by, ...rated };
     if (task.bounty_amount) {
       body.payment_status = task.payment_status;
@@ -891,7 +890,7 @@ async function handleAccept(c: Ctx, deprecatedAlias: boolean): Promise<Response>
     }
     const fresh = (await loadTask(db, taskId)) as TaskRow;
     const side = await afterAccept(db, fresh, { acceptedBy: 'creator', by: actor, nowIso: now, paymentStatus: 'none' });
-    await settleRatingAfterAccept(db, taskId, rating, now);
+    const rated = await settleRatingAfterAccept(db, taskId, rating, now);
     await captureServerEvent(c, 'task_accepted', acceptedProps);
     return c.json({
       ok: true, task_id: taskId, status: 'verified', accepted_by: 'creator', payment_status: 'none',
@@ -905,7 +904,7 @@ async function handleAccept(c: Ctx, deprecatedAlias: boolean): Promise<Response>
   });
   for (const [k, v] of Object.entries(outcome.headers ?? {})) c.header(k, v);
   if (outcome.status !== 200) return c.json(outcome.body, outcome.status);
-  await settleRatingAfterAccept(db, taskId, rating, now);
+  const rated = await settleRatingAfterAccept(db, taskId, rating, now);
   if (wasSubmitted) await captureServerEvent(c, 'task_accepted', acceptedProps);
   return c.json({ ...(outcome.body as Record<string, unknown>), ...rated }, 200);
 }
@@ -964,7 +963,7 @@ tasks.post('/:id/dispute', agentAuth, async (c) => {
   const json = await readJson(c);
   if (!json.ok) return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400);
   const parsed = DisputeBodySchema.safeParse(json.body);
-  if (!parsed.success) return c.json({ error: 'bad_request', message: 'A reason is required to dispute a deliverable', details: parsed.error.flatten() }, 400);
+  if (!parsed.success) return c.json({ error: 'bad_request', message: isRatingIssue(parsed.error) ? RATING_RULE_MESSAGE : 'A reason is required to dispute a deliverable', details: parsed.error.flatten() }, 400);
 
   const task = await loadTask(db, taskId);
   if (!task) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
@@ -973,17 +972,16 @@ tasks.post('/:id/dispute', agentAuth, async (c) => {
   if (task.disputed_at) return c.json({ error: 'already_disputed', message: 'This deliverable is already disputed', disputed_at: task.disputed_at }, 409);
 
   const now = new Date().toISOString();
+  const rating = ratingInputOf(parsed.data);
   const disputed = await disputeGate(db, taskId, parsed.data.reason, now, {
     recipientAgentId: task.claimed_by_agent_id,
     event: { type: 'task.disputed', agent_id: task.claimed_by_agent_id ?? '', task_id: taskId, reason: parsed.data.reason },
-  });
+  }, rating);
   if (!disputed) {
     return c.json({ error: 'conflict', message: 'Task changed while you were reviewing it' }, 409);
   }
   await logPaymentEvent(db, taskId, 'disputed', { reason: parsed.data.reason, disputed_by: agentId, payment_status: task.payment_status }, now);
   await recordFunnel(db, 'task_disputed', taskId, null);
-  const rating = ratingInputOf(parsed.data);
-  if (rating) await recordRating(db, taskId, rating, 'dispute', now);
 
   // A disputed BOUNTY deliverable slashes the worker's claim bond (once per
   // task, min(balance, configured slash)); an empty bond never blocks the dispute.

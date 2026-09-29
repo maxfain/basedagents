@@ -1496,13 +1496,14 @@ export interface RatingOptions {
   ratingComment?: string;
 }
 
-/** The body fields for a rating (throws on a comment without a rating, or a rating outside 1–5). */
+/** The body fields for a rating (throws on a comment without a rating, a comment over 500 characters, or a rating outside 1–5). */
 function ratingBody(options: RatingOptions): Record<string, unknown> {
   if (options.rating === undefined) {
     if (options.ratingComment) throw new Error('ratingComment needs a rating (1-5)');
     return {};
   }
   if (!Number.isInteger(options.rating) || options.rating < 1 || options.rating > 5) throw new Error('rating must be an integer from 1 to 5');
+  if (options.ratingComment && options.ratingComment.length > 500) throw new Error('ratingComment is limited to 500 characters');
   return { rating: options.rating, ...(options.ratingComment ? { rating_comment: options.ratingComment } : {}) };
 }
 
@@ -1533,6 +1534,9 @@ export interface AcceptTaskResponse {
   payment_response_header?: string;
   /** The rating stored with this accept, when one was sent. */
   rating?: number;
+  /** Present (false) only when a rating was sent but not saved; the accept itself went through. Send the rating again with a repeat accept. */
+  rating_saved?: false;
+  rating_error?: string;
 }
 
 export interface WalletInfo {

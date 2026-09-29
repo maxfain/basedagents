@@ -742,7 +742,8 @@ class TestReviewFlow:
     def test_rating_is_checked_before_sending(self):
         kp = generate_keypair()
         client, mock_http = make_client_with_mock()
-        for kwargs in ({"rating": 0}, {"rating": 6}, {"rating": 4.5}, {"rating": True}, {"rating_comment": "no score"}):
+        for kwargs in ({"rating": 0}, {"rating": 6}, {"rating": 4.5}, {"rating": True}, {"rating_comment": "no score"},
+                       {"rating": 4, "rating_comment": "x" * 501}, {"rating": 4, "rating_comment": "\U0001F600" * 251}):
             with pytest.raises(ValueError):
                 client.accept_task(kp, "task_1", **kwargs)
         mock_http.request.assert_not_called()

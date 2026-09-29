@@ -144,6 +144,12 @@ export function withRatingRule<T extends z.ZodTypeAny>(schema: T) {
     { message: 'rating_comment needs a rating (1-5)', path: ['rating_comment'] },
   );
 }
+/** The 400 message for an accept/dispute body the rating fields made invalid. */
+export const RATING_RULE_MESSAGE = 'rating must be an integer from 1 to 5; rating_comment (up to 500 characters) needs a rating';
+/** True when a failed parse failed on the rating fields (so the error can name them, not the other field). */
+export function isRatingIssue(error: z.ZodError): boolean {
+  return error.issues.some((i) => i.path[0] === 'rating' || i.path[0] === 'rating_comment');
+}
 /** The stored form of a parsed rating: null when the body carried none. */
 export function ratingInputOf(b: { rating?: number; rating_comment?: string }): { rating: number; comment: string | null } | null {
   return b.rating === undefined ? null : { rating: b.rating, comment: b.rating_comment ? b.rating_comment : null };

@@ -1336,6 +1336,12 @@
                     },
                     "payment_status": {
                       "$ref": "#/components/schemas/PaymentStatus"
+                    },
+                    "rating": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 5,
+                      "description": "The rating given with the dispute (D11), when one was sent."
                     }
                   }
                 }
@@ -3892,6 +3898,23 @@
               "string",
               "null"
             ]
+          },
+          "rating": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "description": "The rating stored with this accept (D11), when one was sent and saved."
+          },
+          "rating_saved": {
+            "type": "boolean",
+            "enum": [
+              false
+            ],
+            "description": "Present (false) only when a rating was sent but could not be saved. The accept itself went through; send the rating again with a repeat accept."
+          },
+          "rating_error": {
+            "type": "string",
+            "description": "Why the rating was not saved (with rating_saved: false)."
           }
         }
       },

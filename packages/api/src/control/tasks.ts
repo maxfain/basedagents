@@ -34,7 +34,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../types/index.js';
-import { CreateTaskSchema, allowedBountyNetworks, RatingFields, withRatingRule, ratingInputOf } from '../types/index.js';
+import { CreateTaskSchema, allowedBountyNetworks, RatingFields, withRatingRule, ratingInputOf, isRatingIssue, RATING_RULE_MESSAGE } from '../types/index.js';
 import type { DBAdapter } from '../db/adapter.js';
 import { ownerSession, verifyAndRecordAction, AssertionSchema } from './routes.js';
 import { canonicalJsonStringify, sha256, bytesToHex } from '../crypto/index.js';
@@ -46,7 +46,7 @@ import {
   type Actor, type TaskRow, loadTask, creatorMatches, logPaymentEvent, recordFunnel, publicTaskShape, paymentView,
   creatorSqlParts, recomputeReputation, notifyMatchingAgents, bountyView,
   acceptUnpaidGate, revisionGate, disputeGate, cancelGate, cancelRefusal, afterAccept, MAX_REVISIONS,
-  recordRating, settleRatingAfterAccept,
+  settleRatingAfterAccept,
 } from '../tasks/service.js';
 import { paymentProviderFor } from '../payments/index.js';
 import { acceptBountyTask } from '../payments/accept.js';
@@ -385,13 +385,12 @@ app.post('/tasks/:id/accept', ownerSession, async (c) => {
   const json = await readJson(c);
   if (!json.ok) return err(c, 400, 'bad_request', 'invalid JSON body');
   const parsed = AcceptSchema.safeParse(json.body);
-  if (!parsed.success) return err(c, 400, 'bad_request', 'validation failed');
+  if (!parsed.success) return err(c, 400, 'bad_request', isRatingIssue(parsed.error) ? RATING_RULE_MESSAGE : 'validation failed');
   const mine = await loadMine(c, db, ownerId, taskId);
   if ('res' in mine) return mine.res;
   const task = mine.task;
   const note = parsed.data.note ?? null;
   const rating = ratingInputOf(parsed.data);
-  const rated = rating ? { rating: rating.rating } : {};
 
   // Analytics: a fresh acceptance always starts from `submitted` — a task
   // already `verified` here is an idempotent re-accept (or a payment retry)
@@ -413,13 +412,13 @@ app.post('/tasks/:id/accept', ownerSession, async (c) => {
     const outcome = await acceptEscrowTask(db, c.env, task, { note, actor, nowIso, assertionId: cer.assertionId });
     for (const [k, v] of Object.entries(outcome.headers ?? {})) c.header(k, v);
     if (outcome.status !== 200) return c.json(outcome.body, outcome.status);
-    await settleRatingAfterAccept(db, taskId, rating, nowIso);
+    const rated = await settleRatingAfterAccept(db, taskId, rating, nowIso);
     if (wasSubmitted) await captureServerEvent(c, 'task_accepted', acceptedProps);
     return c.json({ ...(outcome.body as Record<string, unknown>), ...rated }, 200);
   }
 
   if (task.status === 'verified') {
-    await settleRatingAfterAccept(db, taskId, rating, new Date().toISOString());
+    const rated = await settleRatingAfterAccept(db, taskId, rating, new Date().toISOString());
     return c.json({ ok: true, task_id: taskId, status: 'verified', accepted_by: task.accepted_by, ...rated });
   }
   if (task.status !== 'submitted') return err(c, 409, 'invalid_state', `Task is ${task.status}; only delivered work can be accepted`, { status: task.status });
@@ -447,7 +446,7 @@ app.post('/tasks/:id/accept', ownerSession, async (c) => {
     const outcome = await acceptBountyTask(db, c.env, task, { note, rawHeader, actor, nowIso, assertionId });
     for (const [k, v] of Object.entries(outcome.headers ?? {})) c.header(k, v);
     if (outcome.status !== 200) return c.json(outcome.body, outcome.status);
-    await settleRatingAfterAccept(db, taskId, rating, nowIso);
+    const rated = await settleRatingAfterAccept(db, taskId, rating, nowIso);
     if (wasSubmitted) await captureServerEvent(c, 'task_accepted', acceptedProps);
     return c.json({ ...(outcome.body as Record<string, unknown>), ...rated }, 200);
   }
@@ -461,7 +460,7 @@ app.post('/tasks/:id/accept', ownerSession, async (c) => {
   }
   const fresh = (await loadTask(db, taskId)) as TaskRow;
   const side = await afterAccept(db, fresh, { acceptedBy: 'creator', by: actor, nowIso: now, paymentStatus: fresh.payment_status });
-  await settleRatingAfterAccept(db, taskId, rating, now);
+  const rated = await settleRatingAfterAccept(db, taskId, rating, now);
   await captureServerEvent(c, 'task_accepted', acceptedProps);
   return c.json({
     ok: true, task_id: taskId, status: 'verified', accepted_by: 'creator',
@@ -507,7 +506,7 @@ app.post('/tasks/:id/dispute', ownerSession, async (c) => {
   const json = await readJson(c);
   if (!json.ok) return err(c, 400, 'bad_request', 'invalid JSON body');
   const parsed = DisputeSchema.safeParse(json.body);
-  if (!parsed.success) return err(c, 400, 'bad_request', 'A reason is required to dispute delivered work');
+  if (!parsed.success) return err(c, 400, 'bad_request', isRatingIssue(parsed.error) ? RATING_RULE_MESSAGE : 'A reason is required to dispute delivered work');
   const mine = await loadMine(c, db, ownerId, taskId);
   if ('res' in mine) return mine.res;
   const task = mine.task;
@@ -518,13 +517,12 @@ app.post('/tasks/:id/dispute', ownerSession, async (c) => {
   if (!cer.ok) return cer.res;
 
   const now = new Date().toISOString();
-  if (!(await disputeGate(db, taskId, parsed.data.reason, now))) return err(c, 409, 'conflict', 'Task changed while you were reviewing it');
+  const rating = ratingInputOf(parsed.data);
+  if (!(await disputeGate(db, taskId, parsed.data.reason, now, undefined, rating))) return err(c, 409, 'conflict', 'Task changed while you were reviewing it');
   if (cer.assertionId) await db.run('UPDATE tasks SET review_assertion_id = ? WHERE task_id = ?', cer.assertionId, taskId);
   await logPaymentEvent(db, taskId, 'disputed', { reason: parsed.data.reason, disputed_by: 'owner', payment_status: task.payment_status }, now);
   if (task.claimed_by_agent_id) await recordEvent(db, task.claimed_by_agent_id, { type: 'task.disputed', agent_id: task.claimed_by_agent_id, task_id: taskId, reason: parsed.data.reason }, now);
   await recordFunnel(db, 'task_disputed', taskId, null);
-  const rating = ratingInputOf(parsed.data);
-  if (rating) await recordRating(db, taskId, rating, 'dispute', now);
   // Same accountability as the agent-route dispute: a disputed BOUNTY
   // deliverable slashes the worker's claim bond, once per task.
   let bondSlashed = '0';

@@ -195,6 +195,8 @@ export default function TaskReview() {
     try {
       await fn();
       setNote('');
+      setRating(null);
+      setRatingComment('');
       await load();
     } catch (err) {
       setError(taskErrText(err));

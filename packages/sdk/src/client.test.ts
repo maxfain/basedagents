@@ -844,6 +844,7 @@ describe('RegistryClient', () => {
       await expect(client.disputeTask(kp, 'task_abc', 'x', { rating: 6 })).rejects.toThrow('1 to 5');
       await expect(client.acceptTask(kp, 'task_abc', { rating: 2.5 })).rejects.toThrow('1 to 5');
       await expect(client.acceptTask(kp, 'task_abc', { ratingComment: 'nice' })).rejects.toThrow('needs a rating');
+      await expect(client.acceptTask(kp, 'task_abc', { rating: 4, ratingComment: 'x'.repeat(501) })).rejects.toThrow('500 characters');
       expect(mockFetch).not.toHaveBeenCalled();
     });
   });

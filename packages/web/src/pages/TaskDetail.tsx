@@ -352,6 +352,12 @@ export default function TaskDetail(): React.ReactElement {
             <RatingLine task={task} />
           </div>
         )}
+        {isCancelled && task.rating != null && (
+          <div style={sectionStyle}>
+            <div style={labelStyle}>Rated when disputed</div>
+            <RatingLine task={task} />
+          </div>
+        )}
         {isAccepted && (
           <div style={{ ...sectionStyle, borderColor: 'rgba(139, 92, 246, 0.35)', background: 'rgba(139, 92, 246, 0.06)' }}>
             <div style={{ ...labelStyle, color: '#8B5CF6' }}>Accepted</div>

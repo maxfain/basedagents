@@ -529,6 +529,54 @@ describe('Task Marketplace', () => {
       expect(await publicTask(other)).toMatchObject({ rating: 4, rating_context: 'accept' });
       expect(await profileRatings()).toEqual({ count: 1, average: 4 });
     });
+
+    it('a revision that commits mid-dispute withdraws the dispute rating for good (it rides in the dispute gate)', async () => {
+      const taskId = await delivered();
+      // Interleave a revision request right after the dispute gate commits. A
+      // rating written by a separate, later UPDATE would come back here.
+      const revise = () => db.run(
+        `UPDATE tasks SET status = 'claimed', disputed_at = NULL, rating = NULL, rating_comment = NULL, rating_context = NULL, rated_at = NULL WHERE task_id = ?`,
+        taskId,
+      );
+      const isDisputeGate = (sql: string) => /SET disputed_at = \?/.test(sql);
+      const batch = db.batch.bind(db);
+      const run = db.run.bind(db);
+      vi.spyOn(db, 'batch').mockImplementation(async (stmts) => {
+        const out = await batch(stmts);
+        if (stmts.some((st) => isDisputeGate(st.sql))) await revise();
+        return out;
+      });
+      vi.spyOn(db, 'run').mockImplementation(async (sql, ...params) => {
+        const out = await run(sql, ...params);
+        if (isDisputeGate(sql)) await revise();
+        return out;
+      });
+      const res = await signedPost(creator, `/v1/tasks/${taskId}/dispute`, { reason: 'Wrong format', rating: 1 });
+      vi.restoreAllMocks();
+      expect(res.status).toBe(200);
+      expect(await publicTask(taskId)).toMatchObject({ status: 'claimed', rating: null, rating_context: null, rated_at: null });
+    });
+
+    it('an accept whose rating cannot be saved still succeeds, and says the rating was not saved', async () => {
+      const taskId = await delivered();
+      const run = db.run.bind(db);
+      vi.spyOn(db, 'run').mockImplementation(async (sql, ...params) => {
+        if (/rating_context = 'accept'/.test(sql)) throw new Error('D1 unavailable');
+        return run(sql, ...params);
+      });
+      const res = await signedPost(creator, `/v1/tasks/${taskId}/accept`, { rating: 5 });
+      vi.restoreAllMocks();
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toMatchObject({ status: 'verified', rating_saved: false });
+      expect(body).not.toHaveProperty('rating');
+      expect(await publicTask(taskId)).toMatchObject({ status: 'verified', rating: null });
+
+      // A repeat accept stores it.
+      const again = await signedPost(creator, `/v1/tasks/${taskId}/accept`, { rating: 5 });
+      expect(await again.json()).toMatchObject({ rating: 5 });
+      expect(await publicTask(taskId)).toMatchObject({ rating: 5, rating_context: 'accept' });
+    });
   });
 
   describe('POST /v1/tasks/:id/claim — Claim task', () => {
