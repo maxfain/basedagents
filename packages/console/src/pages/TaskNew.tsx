@@ -15,7 +15,7 @@
  * Base-case surface — the banned-words rule applies (scripts/lint-ui-words.mjs).
  */
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { control, payments, paymentChallengeOf } from '../api/control.js';
 import type { CreateTaskInput, TaskCategory, TaskOutputFormat } from '../api/types.js';
 import { usdcToAtomic } from '../lib/money.js';
@@ -52,13 +52,22 @@ export function parseCapabilities(raw: string): string[] {
 export default function TaskNew() {
   const { owner, refresh } = useOwner();
   const navigate = useNavigate();
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [category, setCategory] = useState<'' | TaskCategory>('');
-  const [capabilities, setCapabilities] = useState('');
-  const [expectedOutput, setExpectedOutput] = useState('');
-  const [outputFormat, setOutputFormat] = useState<TaskOutputFormat>('json');
-  const [bounty, setBounty] = useState('');
+  // Prefill from the query string (?title=…&description=…): the handoff target
+  // for drafts composed elsewhere — the hosted MCP server's draft_task_link
+  // tool (ChatGPT, claude.ai) builds these URLs. Everything is clamped to the
+  // composer's own limits and re-validated on submit; a bogus enum value falls
+  // back to the default. The Protected gate keeps the query across sign-in.
+  const [params] = useSearchParams();
+  const [title, setTitle] = useState(() => (params.get('title') ?? '').slice(0, MAX_TITLE));
+  const [description, setDescription] = useState(() => (params.get('description') ?? '').slice(0, MAX_DESCRIPTION));
+  const [category, setCategory] = useState<'' | TaskCategory>(() => {
+    const v = params.get('category');
+    return CATEGORIES.some((c) => c.value === v) ? (v as TaskCategory) : '';
+  });
+  const [capabilities, setCapabilities] = useState(() => params.get('capabilities') ?? '');
+  const [expectedOutput, setExpectedOutput] = useState(() => (params.get('expected_output') ?? '').slice(0, MAX_EXPECTED));
+  const [outputFormat, setOutputFormat] = useState<TaskOutputFormat>(() => (params.get('output_format') === 'link' ? 'link' : 'json'));
+  const [bounty, setBounty] = useState(() => params.get('bounty') ?? '');
   const [maxClaims, setMaxClaims] = useState('');
   const [expiresDays, setExpiresDays] = useState('');
   const [paymentsOn, setPaymentsOn] = useState(false);
