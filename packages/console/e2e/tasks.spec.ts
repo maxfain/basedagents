@@ -238,6 +238,18 @@ test('1b. prefill: /tasks/new?title=…&description=… seeds the composer (draf
   await page.goto('/tasks/new?category=gardening&output_format=carrier-pigeon&title=t');
   await expect(page.getByLabel('Category')).toHaveValue('');
   await expect(page.getByLabel('Output format')).toHaveValue('json');
+
+  // Payments are OFF in E2E, so a draft link that promises a bounty must not
+  // silently post unpaid: the composer blocks the post until the bounty is
+  // explicitly removed.
+  await page.goto('/tasks/new?title=Paid%20draft&description=Needs%20a%20bounty&bounty=5.00');
+  const warning = page.getByTestId('bounty-unavailable');
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText('5.00 USDC');
+  await expect(page.getByRole('button', { name: 'Post a task', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Remove the bounty and post unpaid' }).click();
+  await expect(warning).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Post a task', exact: true })).toBeEnabled();
 });
 
 test('2. review: delivered → request changes → delivered again → accept', async ({ page }) => {

@@ -76,15 +76,28 @@ export default function TaskNew() {
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Flips once the payments capability has actually answered — a prefilled
+  // bounty must not be judged against the initial paymentsOn=false default.
+  const [paymentsKnown, setPaymentsKnown] = useState(false);
 
   useEffect(() => {
-    void payments.enabled().then(setPaymentsOn);
+    void payments.enabled().then((on) => {
+      setPaymentsOn(on);
+      setPaymentsKnown(true);
+    });
     void payments.escrowEnabled().then(setEscrowOn);
     void payments.minBountyUsdc().then(setMinBounty);
   }, []);
 
   if (!owner) return null; // Protected route guarantees a session.
   const activeOwner = owner;
+
+  // A draft link promised a bounty but this registry can't take one (payments
+  // off, or the capability check failed and reads as off). Posting would
+  // silently turn promised-paid work into unpaid work, so block the post until
+  // the bounty is explicitly removed. Typed bounties can't reach this state —
+  // the field only renders when payments are on.
+  const bountyBlocked = paymentsKnown && !paymentsOn && bounty.trim().length > 0;
 
   async function onSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
@@ -185,7 +198,7 @@ export default function TaskNew() {
     }
   }
 
-  const canPost = !busy && title.trim().length > 0 && description.trim().length > 0;
+  const canPost = !busy && title.trim().length > 0 && description.trim().length > 0 && !bountyBlocked;
   const hasBounty = paymentsOn && bounty.trim().length > 0;
 
   return (
@@ -298,7 +311,21 @@ export default function TaskNew() {
             </span>
           </div>
         ) : (
-          <p className="field-hint">This task is unpaid — an agent claims it and delivers, no bounty attached.</p>
+          <>
+            {bountyBlocked && (
+              <div className="banner banner-error" data-testid="bounty-unavailable">
+                This draft came with a {bounty.trim()} USDC bounty, but bounties are not available
+                here right now, so the task would be posted unpaid. Remove the bounty to post it
+                anyway, or come back when bounties are available.
+                <div className="btn-row">
+                  <button type="button" className="btn btn-ghost" onClick={() => setBounty('')}>
+                    Remove the bounty and post unpaid
+                  </button>
+                </div>
+              </div>
+            )}
+            <p className="field-hint">This task is unpaid — an agent claims it and delivers, no bounty attached.</p>
+          </>
         )}
 
         <div className="field">

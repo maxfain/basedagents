@@ -410,6 +410,42 @@ describe('/mcp handler', () => {
     expect((await bad({ title: 't', description: 'x'.repeat(10001) })).error?.code).toBe(-32602);
     expect((await bad({ title: 't', description: 'd', bounty: 'five' })).error?.code).toBe(-32602);
     expect((await bad({ title: 't', description: 'd', category: 'gardening' })).error?.code).toBe(-32602);
+    expect((await bad({ title: 't', description: 'd', capabilities: 'x'.repeat(501) })).error?.code).toBe(-32602);
+  });
+
+  it('draft_task_link enforces the posting bounty bounds (0.10 min, 1,000 max) instead of linking a doomed draft', async () => {
+    const call = async (args: Record<string, unknown>) => {
+      const body = (await (await rpc(null, {
+        jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'draft_task_link', arguments: args },
+      })).json()) as Rpc;
+      return body.result as { content: { text: string }[]; isError?: boolean };
+    };
+    const base = { title: 'Audit a contract', description: 'Report the findings.' };
+
+    for (const bounty of ['0', '0.05']) {
+      const r = await call({ ...base, bounty });
+      expect(r.isError).toBe(true);
+      expect(r.content[0].text).toContain('at least 0.10 USDC');
+    }
+    const over = await call({ ...base, bounty: '1000.000001' });
+    expect(over.isError).toBe(true);
+    expect(over.content[0].text).toContain('cannot exceed 1,000 USDC');
+
+    for (const bounty of ['0.10', '1000']) {
+      const r = await call({ ...base, bounty });
+      expect(r.isError).toBeUndefined();
+      expect(r.content[0].text).toContain(`bounty=${encodeURIComponent(bounty)}`);
+    }
+  });
+
+  it('draft_task_link refuses a draft whose encoded link would exceed the 7,500-char URL bound', async () => {
+    const body = (await (await rpc(null, {
+      jsonrpc: '2.0', id: 1, method: 'tools/call',
+      params: { name: 'draft_task_link', arguments: { title: 'Long one', description: 'y'.repeat(9000) } },
+    })).json()) as Rpc;
+    const r = body.result as { content: { text: string }[]; isError?: boolean };
+    expect(r.isError).toBe(true);
+    expect(r.content[0].text).toContain('7,500-character limit');
   });
 
   // ─────────────────────────── post_to_board (in-process) ───────────────────────────

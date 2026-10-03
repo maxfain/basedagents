@@ -709,10 +709,10 @@ const TOOLS: ToolDef[] = [
       title: { type: 'string', minLength: 1, maxLength: 200, description: 'One line: what needs doing' },
       description: { type: 'string', minLength: 1, maxLength: 10000, description: 'Everything an agent needs to do this well: context, constraints, links, what done means' },
       category: enm(TASK_CATEGORY_VALUES, 'Task category'),
-      capabilities: str('Comma-separated capabilities an agent must list to claim the task, e.g. "web-search, python"'),
+      capabilities: { type: 'string', maxLength: 500, description: 'Comma-separated capabilities an agent must list to claim the task, e.g. "web-search, python"' },
       expected_output: { type: 'string', maxLength: 2000, description: 'What the user wants handed back, e.g. a JSON list of 20 leads with name, company, email' },
       output_format: enm(['json', 'link'], 'How the result is delivered: structured JSON or a link (default json)'),
-      bounty: str('Optional USDC bounty as a decimal string, e.g. "5.00" (minimum 0.10). Deposited into the registry\'s escrow wallet at post by default.'),
+      bounty: str('Optional USDC bounty as a decimal string, e.g. "5.00" — at least 0.10 (the registry minimum), at most 1000 per task. Deposited into the registry\'s escrow wallet at post by default.'),
     }, ['title', 'description']),
     validate: (a) => {
       const title = asString(a.title);
@@ -720,7 +720,7 @@ const TOOLS: ToolDef[] = [
       if (!title || title.length > 200 || !description || description.length > 10000) return null;
       const out: Record<string, unknown> = { title, description };
       if (a.category !== undefined) { const v = inEnum(a.category, TASK_CATEGORY_VALUES); if (!v) return null; out.category = v; }
-      if (a.capabilities !== undefined) { const v = asString(a.capabilities); if (v === undefined) return null; out.capabilities = v; }
+      if (a.capabilities !== undefined) { const v = asString(a.capabilities); if (v === undefined || v.length > 500) return null; out.capabilities = v; }
       if (a.expected_output !== undefined) { const v = asString(a.expected_output); if (v === undefined || v.length > 2000) return null; out.expected_output = v; }
       if (a.output_format !== undefined) { const v = inEnum(a.output_format, ['json', 'link']); if (!v) return null; out.output_format = v; }
       if (a.bounty !== undefined) {
@@ -731,11 +731,43 @@ const TOOLS: ToolDef[] = [
       return out;
     },
     execute: async (a, ctx) => {
+      // Enforce the posting bounds HERE, not at the form: a link that the
+      // console or API would reject at post time is a broken promise to the
+      // user. BigInt over 6 decimals, mirroring the console's usdcToAtomic
+      // (packages/console/src/lib/money.ts) and the API's 1,000-USDC ceiling;
+      // 0.10 USDC is the registry minimum the service descriptor advertises.
+      if (a.bounty !== undefined) {
+        const [whole, frac = ''] = String(a.bounty).split('.');
+        const atomic = BigInt(whole) * 1_000_000n + BigInt(frac.padEnd(6, '0'));
+        if (atomic < 100_000n) {
+          return {
+            content: [{ type: 'text', text: 'Error: the bounty must be at least 0.10 USDC (the registry minimum). Raise the amount, or drop the bounty to draft an unpaid task.' }],
+            isError: true,
+          };
+        }
+        if (atomic > 1_000_000_000n) {
+          return {
+            content: [{ type: 'text', text: 'Error: the bounty cannot exceed 1,000 USDC (the per-task ceiling). Lower the amount or split the work into several tasks.' }],
+            isError: true,
+          };
+        }
+      }
       const qs = new URLSearchParams();
       for (const k of ['title', 'description', 'category', 'capabilities', 'expected_output', 'output_format', 'bounty'] as const) {
         if (a[k] !== undefined && String(a[k]).length > 0) qs.set(k, String(a[k]));
       }
       const url = `${ctx.consoleBase}/tasks/new?${qs}`;
+      // Bound the handoff: URLs past ~8k characters are unreliable across
+      // browsers, proxies and chat clients, and a silently truncated task
+      // description would be worse than no link. Field caps alone don't bound
+      // the encoded whole (a 10,000-char description is legal), so cap the
+      // final URL and ask for a shorter draft instead.
+      if (url.length > 7500) {
+        return {
+          content: [{ type: 'text', text: `Error: this draft encodes to a ${url.length}-character link, past the 7,500-character limit a prefilled URL can reliably carry. Shorten the description (keep the acceptance criteria, link out to long context) and try again.` }],
+          isError: true,
+        };
+      }
       const bounty = a.bounty ? String(a.bounty) : null;
       return text(
         [
