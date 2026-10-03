@@ -20,11 +20,13 @@
  * is accepted for BIND_MAX_AGE_MS after `Issued` and each nonce once per agent.
  *
  * Verification: an EOA signature is recovered with secp256k1 (no network).
- * Otherwise, on Base (eip155:8453 / 84532), a deployed smart-contract wallet
- * is asked through ERC-1271 isValidSignature over JSON-RPC (BASE_RPC_URL /
- * BASE_SEPOLIA_RPC_URL; public endpoints by default). A counterfactual
- * (ERC-6492-wrapped) signature is refused with a clear reason: deploy the
- * wallet first.
+ * Otherwise, on Base (eip155:8453 / 84532), over JSON-RPC (BASE_RPC_URL /
+ * BASE_SEPOLIA_RPC_URL first, then public endpoints), the ERC-6492 reference validator runs
+ * as one deployless eth_call, pinned to the freshest block the nodes report:
+ *  - a deployed smart-contract wallet is asked through ERC-1271 isValidSignature;
+ *  - a signature wrapped per ERC-6492 (a smart wallet not deployed yet, such as
+ *    a fresh Coinbase Smart Wallet) is checked counterfactually: nothing is
+ *    deployed and no gas is spent.
  */
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { keccak_256 } from '@noble/hashes/sha3';
@@ -43,7 +45,16 @@ const ISSUED_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 const AGENT_RE = /^ag_[1-9A-HJ-NP-Za-km-z]{20,60}$/;
 /** ERC-6492 wrapper suffix: a signature from a smart wallet that isn't deployed yet. */
 const ERC6492_SUFFIX = '6492649264926492649264926492649264926492649264926492649264926492';
-const ERC1271_MAGIC = '1626ba7e';
+/**
+ * Creation code of the ERC-6492 reference validator (ValidateSigOffchain),
+ * taken verbatim from viem 2.57.2, constants/contracts.js
+ * `erc6492SignatureValidatorByteCode` (MIT). Run with constructor args
+ * (address signer, bytes32 hash, bytes signature) as a deployless eth_call, it
+ * deploys the wallet in the call's sandbox when needed, asks it ERC-1271
+ * isValidSignature, and returns 0x01 for a valid signature. bind.test.ts pins
+ * its sha256.
+ */
+export const ERC6492_VALIDATOR_BYTECODE = '0x608060405234801561001057600080fd5b5060405161069438038061069483398101604081905261002f9161051e565b600061003c848484610048565b9050806000526001601ff35b60007f64926492649264926492649264926492649264926492649264926492649264926100748361040c565b036101e7576000606080848060200190518101906100929190610577565b60405192955090935091506000906001600160a01b038516906100b69085906105dd565b6000604051808303816000865af19150503d80600081146100f3576040519150601f19603f3d011682016040523d82523d6000602084013e6100f8565b606091505b50509050876001600160a01b03163b60000361016057806101605760405162461bcd60e51b815260206004820152601e60248201527f5369676e617475726556616c696461746f723a206465706c6f796d656e74000060448201526064015b60405180910390fd5b604051630b135d3f60e11b808252906001600160a01b038a1690631626ba7e90610190908b9087906004016105f9565b602060405180830381865afa1580156101ad573d6000803e3d6000fd5b505050506040513d601f19601f820116820180604052508101906101d19190610633565b6001600160e01b03191614945050505050610405565b6001600160a01b0384163b1561027a57604051630b135d3f60e11b808252906001600160a01b03861690631626ba7e9061022790879087906004016105f9565b602060405180830381865afa158015610244573d6000803e3d6000fd5b505050506040513d601f19601f820116820180604052508101906102689190610633565b6001600160e01b031916149050610405565b81516041146102df5760405162461bcd60e51b815260206004820152603a602482015260008051602061067483398151915260448201527f3a20696e76616c6964207369676e6174757265206c656e6774680000000000006064820152608401610157565b6102e7610425565b5060208201516040808401518451859392600091859190811061030c5761030c61065d565b016020015160f81c9050601b811480159061032b57508060ff16601c14155b1561038c5760405162461bcd60e51b815260206004820152603b602482015260008051602061067483398151915260448201527f3a20696e76616c6964207369676e617475726520762076616c756500000000006064820152608401610157565b60408051600081526020810180835289905260ff83169181019190915260608101849052608081018390526001600160a01b0389169060019060a0016020604051602081039080840390855afa1580156103ea573d6000803e3d6000fd5b505050602060405103516001600160a01b0316149450505050505b9392505050565b600060208251101561041d57600080fd5b508051015190565b60405180606001604052806003906020820280368337509192915050565b6001600160a01b038116811461045857600080fd5b50565b634e487b7160e01b600052604160045260246000fd5b60005b8381101561048c578181015183820152602001610474565b50506000910152565b600082601f8301126104a657600080fd5b81516001600160401b038111156104bf576104bf61045b565b604051601f8201601f19908116603f011681016001600160401b03811182821017156104ed576104ed61045b565b60405281815283820160200185101561050557600080fd5b610516826020830160208701610471565b949350505050565b60008060006060848603121561053357600080fd5b835161053e81610443565b6020850151604086015191945092506001600160401b0381111561056157600080fd5b61056d86828701610495565b9150509250925092565b60008060006060848603121561058c57600080fd5b835161059781610443565b60208501519093506001600160401b038111156105b357600080fd5b6105bf86828701610495565b604086015190935090506001600160401b0381111561056157600080fd5b600082516105ef818460208701610471565b9190910192915050565b828152604060208201526000825180604084015261061e816060850160208701610471565b601f01601f1916919091016060019392505050565b60006020828403121561064557600080fd5b81516001600160e01b03198116811461040557600080fd5b634e487b7160e01b600052603260045260246000fdfe5369676e617475726556616c696461746f72237265636f7665725369676e6572';
 
 export interface BindFields {
   agentId: string;
@@ -125,24 +136,50 @@ export function recoverSigner(digest: Uint8Array, signatureHex: string): `0x${st
 
 export type ProofFailure =
   | 'malformed_message' | 'agent_mismatch' | 'address_mismatch' | 'network_mismatch'
-  | 'expired' | 'issued_in_future' | 'bad_signature' | 'undeployed_smart_wallet';
+  | 'expired' | 'issued_in_future' | 'bad_signature';
 
 export type ProofResult =
   | { ok: true; signerKind: 'eoa' | 'erc1271'; fields: BindFields }
   | { ok: false; reason: ProofFailure; detail: string }
   | { ok: false; reason: 'rpc_unavailable'; detail: string };
 
-const RPC_DEFAULTS: Record<string, { env: string; url: string }> = {
-  'eip155:8453': { env: 'BASE_RPC_URL', url: 'https://mainnet.base.org' },
-  'eip155:84532': { env: 'BASE_SEPOLIA_RPC_URL', url: 'https://sepolia.base.org' },
+// Public endpoints, tried in order after any configured in the env var (a comma-separated
+// list). Each was checked for eth_getCode, eth_call and a deployless eth_call (ERC-6492).
+// Public nodes rate-limit, and Workers share egress IPs, so one 429 must not fail a bind.
+const RPC_DEFAULTS: Record<string, { env: string; urls: string[] }> = {
+  'eip155:8453': { env: 'BASE_RPC_URL', urls: ['https://mainnet.base.org', 'https://base-rpc.publicnode.com', 'https://base.drpc.org'] },
+  'eip155:84532': { env: 'BASE_SEPOLIA_RPC_URL', urls: ['https://sepolia.base.org', 'https://base-sepolia-rpc.publicnode.com', 'https://base-sepolia.drpc.org'] },
 };
+
+/** The endpoints to try for a chain: the configured ones first, then the public defaults. */
+export function rpcEndpoints(env: unknown, network: string): string[] {
+  const chain = RPC_DEFAULTS[network];
+  if (!chain) return [];
+  const configured = (((env ?? {}) as Record<string, string | undefined>)[chain.env] ?? '')
+    .split(',').map((u) => u.trim()).filter(Boolean);
+  return [...new Set([...configured, ...chain.urls])];
+}
 
 /** The node processed the call and refused it (e.g. the wallet's isValidSignature reverted): a "no", not an outage. */
 class RpcRejected extends Error {}
 
-async function rpc(url: string, method: string, params: unknown[]): Promise<string> {
+/** Asking the nodes for their head block settles within this. */
+export const RPC_HEAD_BUDGET_MS = 3_000;
+/**
+ * The check itself settles within this. With the head lookup, a smart-wallet proof
+ * takes at most 12 s, well inside the SDK's 30 s request timeout.
+ */
+export const RPC_CALL_BUDGET_MS = 9_000;
+/** A call that hasn't answered by then also goes to the next endpoint (a hedged request); head answers arriving within this of the first one are counted. */
+export const RPC_HEDGE_MS = 1_500;
+/** When no node could answer at the pinned block, ask them all again after this (one Base block), so nodes a block behind have caught up. */
+export const RPC_RETRY_MS = 2_000;
+
+async function rpcOnce(url: string, method: string, params: unknown[], timeoutMs: number, cancel: AbortSignal): Promise<string> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8000);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const onCancel = () => ctrl.abort();
+  cancel.addEventListener('abort', onCancel);
   try {
     const res = await fetch(url, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -157,22 +194,117 @@ async function rpc(url: string, method: string, params: unknown[]): Promise<stri
     throw new Error(`RPC ${method}: ${reason}`);
   } finally {
     clearTimeout(timer);
+    cancel.removeEventListener('abort', onCancel);
   }
 }
 
-/** ABI-encode isValidSignature(bytes32 hash, bytes signature). */
-function isValidSignatureCall(digest: Uint8Array, signatureHex: string): string {
-  const sig = signatureHex.replace(/^0x/, '');
-  const hex = (n: number) => n.toString(16).padStart(64, '0');
-  const padded = sig.padEnd(Math.ceil(sig.length / 64) * 64, '0');
+/**
+ * The freshest block any node reports: every endpoint is asked for its head at once, and
+ * answers that arrive within RPC_HEDGE_MS of the first one (or before all have answered)
+ * count; the highest wins. Pinning the check to it means a node that lags can't answer
+ * from old state: it doesn't have the block yet, so it errors and is skipped.
+ */
+function freshestBlock(urls: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const cancel = new AbortController();
+    let best = -1n;
+    let pending = urls.length;
+    let done = false;
+    let window: ReturnType<typeof setTimeout> | undefined;
+    let last: unknown = new Error(`RPC eth_blockNumber: no endpoint answered within ${RPC_HEAD_BUDGET_MS / 1000} s`);
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(window);
+      clearTimeout(overall);
+      cancel.abort();
+      if (best >= 0n) resolve(`0x${best.toString(16)}`);
+      else reject(last);
+    };
+    const overall = setTimeout(finish, RPC_HEAD_BUDGET_MS);
+    if (pending === 0) finish();
+    for (const url of urls) {
+      rpcOnce(url, 'eth_blockNumber', [], RPC_HEAD_BUDGET_MS, cancel.signal).then(
+        (head) => {
+          if (!/^0x[0-9a-f]{1,16}$/i.test(head)) return;
+          const n = BigInt(head);
+          if (n > best) best = n;
+          window ??= setTimeout(finish, RPC_HEDGE_MS);
+        },
+        (err: unknown) => { last = err; },
+      ).finally(() => { if (--pending === 0) finish(); });
+    }
+  });
+}
+
+/**
+ * Ask the endpoints one question pinned to a block, so every node that can answer gives
+ * the same answer: the first one wins, and a revert is an answer (a no). A failure (429,
+ * 5xx, a node that doesn't have the block yet, one that lacks the method) starts the next
+ * endpoint at once, and so does RPC_HEDGE_MS of silence, so a hanging node never keeps a
+ * healthy one from being asked. When every endpoint has failed (say the node that reported
+ * the block is rate limiting us and the rest are a block behind), the round starts over
+ * after RPC_RETRY_MS, at the same block. Rejects only when no node answered in the budget.
+ */
+function askEndpoints(urls: string[], method: string, params: unknown[], isYes: (result: string) => boolean): Promise<'yes' | 'no'> {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + RPC_CALL_BUDGET_MS;
+    const queue = [...urls];
+    const cancel = new AbortController();
+    let inFlight = 0;
+    let done = false;
+    let hedge: ReturnType<typeof setTimeout> | undefined;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let last: unknown = new Error(`RPC ${method}: no endpoint answered within ${RPC_CALL_BUDGET_MS / 1000} s`);
+    const finish = (settle: () => void) => {
+      if (done) return;
+      done = true;
+      clearTimeout(hedge);
+      clearTimeout(retry);
+      cancel.abort();
+      settle();
+    };
+    const launch = (): void => {
+      clearTimeout(hedge);
+      if (done) return;
+      const left = deadline - Date.now();
+      const url = left > 0 ? queue.shift() : undefined;
+      if (!url) {
+        if (inFlight > 0) return;
+        if (left > RPC_RETRY_MS) retry = setTimeout(() => { queue.push(...urls); launch(); }, RPC_RETRY_MS);
+        else finish(() => reject(last));
+        return;
+      }
+      inFlight++;
+      rpcOnce(url, method, params, left, cancel.signal).then(
+        (result) => finish(() => resolve(isYes(result) ? 'yes' : 'no')),
+        (err: unknown) => {
+          inFlight--;
+          if (err instanceof RpcRejected) { finish(() => resolve('no')); return; }
+          last = err;
+          launch();
+        },
+      );
+      if (queue.length > 0) hedge = setTimeout(launch, RPC_HEDGE_MS);
+    };
+    launch();
+  });
+}
+
+/** ABI-encode the validator's constructor args: (address signer, bytes32 hash, bytes signature). */
+function erc6492ValidatorCall(address: string, digest: Uint8Array, signatureHex: string): string {
+  const sig = signatureHex.replace(/^0x/, '').toLowerCase();
+  const word = (n: number) => n.toString(16).padStart(64, '0');
+  const addr = address.replace(/^0x/, '').toLowerCase().padStart(64, '0');
   const digestHex = Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
-  return `0x${ERC1271_MAGIC}${digestHex}${hex(64)}${hex(sig.length / 2)}${padded}`;
+  const padded = sig.padEnd(Math.ceil(sig.length / 64) * 64, '0');
+  return `${ERC6492_VALIDATOR_BYTECODE}${addr}${digestHex}${word(96)}${word(sig.length / 2)}${padded}`;
 }
 
 /**
  * Check a bind proof for `agentId` binding `address` on `network`. The message
  * must be canonical and name exactly those three, be fresh, and be signed by
- * the address (EOA, or ERC-1271 on Base). Nonce reuse is the caller's check
+ * the address (EOA, or ERC-1271 / ERC-6492 on Base). Nonce reuse is the caller's check
  * (it needs the database).
  */
 export async function verifyBindProof(
@@ -195,20 +327,27 @@ export async function verifyBindProof(
 
   const sig = args.signature.replace(/^0x/, '').toLowerCase();
   if (sig.length % 2 !== 0 || !/^[0-9a-f]+$/.test(sig)) return { ok: false, reason: 'bad_signature', detail: 'The signature is not whole bytes of hex.' };
-  const chain = RPC_DEFAULTS[args.network];
-  if (!chain) return { ok: false, reason: 'bad_signature', detail: 'The signature was not made by this wallet.' };
-  if (sig.endsWith(ERC6492_SUFFIX)) {
-    return { ok: false, reason: 'undeployed_smart_wallet', detail: 'This is a smart wallet that is not deployed yet. Send one transaction from it (or use a regular wallet), then sign again.' };
-  }
-  const url = ((env ?? {}) as Record<string, string | undefined>)[chain.env] || chain.url;
+  const urls = rpcEndpoints(env, args.network);
+  if (urls.length === 0) return { ok: false, reason: 'bad_signature', detail: 'The signature was not made by this wallet.' };
+  const unavailable = (err: unknown): ProofResult => ({ ok: false, reason: 'rpc_unavailable', detail: `Could not reach ${args.network} to check the smart-wallet signature: ${err instanceof Error ? err.message : String(err)}` });
+  // Any smart wallet, deployed or not, is checked by the ERC-6492 reference validator in one
+  // deployless eth_call. It answers 0x01 only for a valid signature: wrapped per ERC-6492, it
+  // deploys the wallet inside the call; with code at the address, it asks isValidSignature
+  // (ERC-1271); with none, it recovers the signer. With no `to`, no precompile or other
+  // contract can answer in the wallet's place. The call is pinned to the freshest block a
+  // node reports, so a lagging node can neither hide a wallet deployed seconds ago nor
+  // approve with a signer the wallet has since removed.
   try {
-    const code = await rpc(url, 'eth_getCode', [args.address, 'latest']);
-    if (!code || code === '0x') return { ok: false, reason: 'bad_signature', detail: 'The signature was not made by this wallet.' };
-    const result = await rpc(url, 'eth_call', [{ to: args.address, data: isValidSignatureCall(digest, args.signature) }, 'latest']);
-    if (result.replace(/^0x/, '').slice(0, 8).toLowerCase() === ERC1271_MAGIC) return { ok: true, signerKind: 'erc1271', fields };
-    return { ok: false, reason: 'bad_signature', detail: 'The smart wallet did not accept this signature (ERC-1271).' };
+    const block = await freshestBlock(urls);
+    const verdict = await askEndpoints(urls, 'eth_call', [{ data: erc6492ValidatorCall(args.address, digest, args.signature) }, block], (r) => /^0x0*1$/i.test(r));
+    if (verdict === 'yes') return { ok: true, signerKind: 'erc1271', fields };
+    return {
+      ok: false, reason: 'bad_signature',
+      detail: sig.endsWith(ERC6492_SUFFIX)
+        ? 'The smart wallet did not accept this signature (checked per ERC-6492).'
+        : 'The signature was not made by this wallet (no key or smart wallet at this address accepted it, per ERC-1271).',
+    };
   } catch (err) {
-    if (err instanceof RpcRejected) return { ok: false, reason: 'bad_signature', detail: 'The smart wallet did not accept this signature (ERC-1271).' };
-    return { ok: false, reason: 'rpc_unavailable', detail: `Could not reach ${args.network} to check the smart-wallet signature: ${err instanceof Error ? err.message : String(err)}` };
+    return unavailable(err);
   }
 }
