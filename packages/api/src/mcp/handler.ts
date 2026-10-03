@@ -725,7 +725,9 @@ const TOOLS: ToolDef[] = [
       if (a.output_format !== undefined) { const v = inEnum(a.output_format, ['json', 'link']); if (!v) return null; out.output_format = v; }
       if (a.bounty !== undefined) {
         const v = asString(a.bounty);
-        if (v === undefined || !/^\d+(\.\d{1,6})?$/.test(v)) return null; // USDC: 6 decimals max
+        // ≤7 integer digits (the console's own bound) so the BigInt parse in
+        // execute never sees an attacker-length digit run; 6 decimals max (USDC).
+        if (v === undefined || !/^\d{1,7}(\.\d{1,6})?$/.test(v)) return null;
         out.bounty = v;
       }
       return out;

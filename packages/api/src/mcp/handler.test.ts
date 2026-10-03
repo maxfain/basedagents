@@ -409,6 +409,9 @@ describe('/mcp handler', () => {
     expect((await bad({ title: 'x'.repeat(201), description: 'd' })).error?.code).toBe(-32602);
     expect((await bad({ title: 't', description: 'x'.repeat(10001) })).error?.code).toBe(-32602);
     expect((await bad({ title: 't', description: 'd', bounty: 'five' })).error?.code).toBe(-32602);
+    // An attacker-length digit run is refused by the validator's 7-digit bound
+    // BEFORE any BigInt parse (Worker-CPU guard).
+    expect((await bad({ title: 't', description: 'd', bounty: '9'.repeat(100_000) })).error?.code).toBe(-32602);
     expect((await bad({ title: 't', description: 'd', category: 'gardening' })).error?.code).toBe(-32602);
     expect((await bad({ title: 't', description: 'd', capabilities: 'x'.repeat(501) })).error?.code).toBe(-32602);
   });
