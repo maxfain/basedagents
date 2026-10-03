@@ -210,9 +210,8 @@ test('1. post: /tasks/new → the task shows on /tasks and on the public list as
 });
 
 test('1b. prefill: /tasks/new?title=…&description=… seeds the composer (draft_task_link handoff)', async ({ page }) => {
-  const init = await initLink();
   await addAuthenticator(page);
-  await claim(page, init);
+  await startWithEmail(page);
 
   // The URL shape the hosted MCP server's draft_task_link tool emits. The query
   // survives the Protected sign-in redirect (rememberIntent keeps the search),
