@@ -6,7 +6,7 @@
  * ../control/ subtree, so it does not run standalone.
  *
  * Optional-bearer middleware (anonymous reads, 401 only where auth is required
- * or a presented token is dead), stateless JSON-RPC dispatch, the 11 tool
+ * or a presented token is dead), stateless JSON-RPC dispatch, the 13 tool
  * schemas + annotations, the mocked-fetch read path, and the IN-PROCESS owner
  * post are all exercised here.
  * Reads mock `globalThis.fetch` (no network); the owner post runs against a real
@@ -184,19 +184,19 @@ describe('/mcp handler', () => {
     expect(await res.text()).toBe('');
   });
 
-  it('tools/list returns the 11 tools (10 reads + post_to_board) with explicit annotations', async () => {
+  it('tools/list returns the 13 tools (11 closed-world reads, scan_mcp_server, post_to_board) with explicit annotations', async () => {
     makeOwner('ow_t', 't@example.com');
     const token = await mintToken({ ownerId: 'ow_t', scope: 'registry:read' });
     const body = (await (await rpc(token, { jsonrpc: '2.0', id: 1, method: 'tools/list' })).json()) as Rpc;
     const tools = (body.result as {
       tools: { name: string; inputSchema: unknown; annotations?: Record<string, unknown> }[];
     }).tools;
-    expect(tools).toHaveLength(11);
+    expect(tools).toHaveLength(13);
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual(
       [
-        'browse_tasks', 'draft_task_link', 'get_agent', 'get_chain_entry', 'get_chain_status',
-        'get_receipt', 'get_reputation', 'get_task', 'post_to_board', 'read_board', 'search_agents',
+        'browse_tasks', 'draft_audit_request', 'draft_task_link', 'get_agent', 'get_chain_entry', 'get_chain_status',
+        'get_receipt', 'get_reputation', 'get_task', 'post_to_board', 'read_board', 'scan_mcp_server', 'search_agents',
       ].sort(),
     );
     for (const t of tools) {
@@ -207,11 +207,13 @@ describe('/mcp handler', () => {
       expect(typeof t.annotations?.destructiveHint).toBe('boolean');
       expect(typeof t.annotations?.openWorldHint).toBe('boolean');
       expect(typeof t.annotations?.title).toBe('string');
-      // Only the owner-write may claim to change state.
-      if (t.name !== 'post_to_board') expect(t.annotations?.readOnlyHint).toBe(true);
-      // Only the public post reaches beyond our own API (OpenAI's scan flags a
-      // public write marked closed-world).
-      expect(t.annotations?.openWorldHint).toBe(t.name === 'post_to_board');
+      // Only the owner post and the scanner (it stores a public report) change
+      // state, and only they reach beyond our own API: the post is public, the
+      // scan downloads third-party code. OpenAI's scan flags a public write
+      // marked closed-world.
+      const writes = t.name === 'post_to_board' || t.name === 'scan_mcp_server';
+      expect(t.annotations?.readOnlyHint).toBe(!writes);
+      expect(t.annotations?.openWorldHint).toBe(writes);
       // ChatGPT mixed auth reads the per-tool securitySchemes.
       const schemes = (t as { securitySchemes?: { type: string; scopes?: string[] }[] }).securitySchemes;
       expect(schemes).toEqual(t.name === 'post_to_board' ? [{ type: 'oauth2', scopes: ['board:post'] }] : [{ type: 'noauth' }]);
@@ -524,6 +526,136 @@ describe('/mcp handler', () => {
   });
 
   // ─────────────────────────── post_to_board (in-process) ───────────────────────────
+
+  // ─────────────────────────── scan_mcp_server ───────────────────────────
+
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  const REPORT = {
+    ok: true, source: 'npm', package_name: '@acme/mcp-server', package_version: '1.2.3', score: 72, grade: 'C',
+    scanned_at: '2026-10-01T00:00:00.000Z',
+    metadata: { has_install_scripts: true, dependency_count: 12, files_scanned: 40 },
+    findings: [
+      { severity: 'info', category: 'File System Read', description: 'fs.readdir()', file: 'dist/a.js', line: 3 },
+      { severity: 'high', category: 'Shell Execution', description: 'child_process.exec()', file: 'dist/run.js', line: 10 },
+      { severity: 'critical', category: 'Install Script', description: 'postinstall runs curl | sh', file: 'package.json' },
+    ],
+  };
+  const callTool = async (name: string, args: Record<string, unknown>) =>
+    (await (await rpc(null, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })).json()) as Rpc;
+
+  it('scan_mcp_server reuses the stored report: one GET, no trigger, worst findings first', async () => {
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      expect(init?.method ?? 'GET').toBe('GET');
+      expect(String(url)).toBe(`${API_BASE_URL}/v1/scan/${encodeURIComponent('npm:@acme/mcp-server')}`);
+      return json(REPORT);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const out = (await callTool('scan_mcp_server', { target: '@acme/mcp-server' })).result as { content: { text: string }[]; isError?: boolean };
+    expect(out.isError).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const t = out.content[0].text;
+    expect(t).toContain('**Grade:** C');
+    expect(t).toContain('1 critical, 1 high, 0 medium, 0 low, 1 info');
+    expect(t).toContain('stored report');
+    expect(t.indexOf('postinstall')).toBeLessThan(t.indexOf('child_process'));
+    expect(t).not.toContain('fs.readdir'); // info findings stay in the full report
+    expect(t).toContain(`https://basedagents.ai/scan/${encodeURIComponent('@acme/mcp-server')}`);
+  });
+
+  it('scan_mcp_server triggers a scan when none is stored, reading a GitHub URL as owner/repo', async () => {
+    const calls: Array<{ url: string; method: string; body?: string }> = [];
+    let stored = false;
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), method: init?.method ?? 'GET', body: init?.body as string | undefined });
+      if (String(url).endsWith('/v1/scan/trigger')) { stored = true; return json({ ok: true }); }
+      return stored ? json({ ...REPORT, source: 'github', package_name: 'acme/mcp' }) : json({ error: 'not_found', message: 'Not yet scanned' }, 404);
+    }));
+    const out = (await callTool('scan_mcp_server', { target: 'https://github.com/acme/mcp.git' })).result as { content: { text: string }[]; isError?: boolean };
+    expect(out.isError).toBeUndefined();
+    expect(calls.map((c) => c.method)).toEqual(['GET', 'POST', 'GET']);
+    expect(calls[0].url).toBe(`${API_BASE_URL}/v1/scan/${encodeURIComponent('github:acme/mcp')}`);
+    expect(JSON.parse(calls[1].body!)).toEqual({ source: 'github', target: 'acme/mcp' });
+    expect(out.content[0].text).toContain('(just now)');
+  });
+
+  it('scan_mcp_server never reuses another source\'s report with the same name (pypi:requests ≠ npm requests)', async () => {
+    const calls: string[] = [];
+    let triggered = false;
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL, init?: RequestInit) => {
+      calls.push(`${init?.method ?? 'GET'} ${String(url)}`);
+      if (String(url).endsWith('/v1/scan/trigger')) { triggered = true; return json({ ok: true }); }
+      // The API's backward-compat fallback answers with the PyPI row first.
+      return json({ ...REPORT, source: triggered ? 'npm' : 'pypi', package_name: 'requests' });
+    }));
+    const out = (await callTool('scan_mcp_server', { target: 'requests' })).result as { content: { text: string }[]; isError?: boolean };
+    expect(out.isError).toBeUndefined();
+    expect(calls[0]).toBe(`GET ${API_BASE_URL}/v1/scan/${encodeURIComponent('npm:requests')}`);
+    expect(triggered).toBe(true); // the PyPI report was not accepted
+    expect(out.content[0].text).toContain('(npm)');
+    expect(out.content[0].text).toContain('(just now)');
+  });
+
+  it('scan_mcp_server relays the scanner\'s own error message (e.g. its rate limit) as an isError result', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL) =>
+      String(url).endsWith('/v1/scan/trigger')
+        ? json({ error: 'rate_limited', message: 'Too many scan requests. Limit: 5 scans per minute per IP.' }, 429)
+        : json({ error: 'not_found' }, 404)));
+    const out = (await callTool('scan_mcp_server', { target: 'left-pad', rescan: true })).result as { content: { text: string }[]; isError?: boolean };
+    expect(out.isError).toBe(true);
+    expect(out.content[0].text).toContain('5 scans per minute');
+  });
+
+  it('scan_mcp_server rejects targets that are not a package name or owner/repo', async () => {
+    for (const target of ['two words', 'http://evil.example/x', '../../etc', '']) {
+      expect((await callTool('scan_mcp_server', { target })).error?.code).toBe(-32602);
+    }
+    expect((await callTool('scan_mcp_server', { target: 'a/b/c', source: 'github' })).error?.code).toBe(-32602);
+  });
+
+  // ─────────────────────────── draft_audit_request ───────────────────────────
+
+  it('draft_audit_request links the prefilled public intake and quotes the live catalog price', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => {
+      expect(String(url)).toBe(`${API_BASE_URL}/v1/testing/catalog`);
+      return json({ available: true, package: { price_cents: 20000, currency: 'usd', workflows: 1, external_runs: 3, included_targeted_retests: 1 } });
+    }));
+    const args = {
+      product_name: 'Acme MCP',
+      product_url: 'https://acme.example/mcp',
+      documentation_url: 'https://acme.example/docs',
+      workflow_objective: 'Connect over streamable HTTP and create an invoice',
+      expected_result: 'An invoice id is returned and listed',
+      target_environment: 'production v1.4',
+    };
+    const out = (await callTool('draft_audit_request', args)).result as { content: { text: string }[]; isError?: boolean };
+    expect(out.isError).toBeUndefined();
+    const link = /(https:\/\/app\.basedagents\.ai\/testing\/request\?\S+)/.exec(out.content[0].text)?.[1];
+    expect(link).toBeTruthy();
+    const q = new URL(link!).searchParams;
+    for (const [k, v] of Object.entries(args)) expect(q.get(k)).toBe(v);
+    expect(q.get('product_category')).toBe('mcp'); // default
+    expect(out.content[0].text).toContain('200 USD');
+    expect(out.content[0].text).toContain('Nothing is submitted or charged');
+  });
+
+  it('draft_audit_request: catalog closed → isError pointing at the alternatives; non-https URL → -32602', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ available: false })));
+    const closed = (await callTool('draft_audit_request', { product_name: 'X', workflow_objective: 'Y' })).result as { content: { text: string }[]; isError?: boolean };
+    expect(closed.isError).toBe(true);
+    expect(closed.content[0].text).toContain('scan_mcp_server');
+    for (const bad of ['http://x.example', 'https://?', 'https://user:pw@x.example/', 'not a url']) {
+      expect((await callTool('draft_audit_request', { product_name: 'X', workflow_objective: 'Y', product_url: bad })).error?.code).toBe(-32602);
+    }
+    // Valid https URLs may carry @ in the path (scoped package docs).
+    const scoped = (await callTool('draft_audit_request', { product_name: 'X', workflow_objective: 'Y', documentation_url: 'https://example.com/docs/@acme/server' })).result as { isError?: boolean };
+    expect(scoped.isError).toBe(true); // catalog stub is closed here, but validation passed (not -32602)
+    // An uppercase scheme passes and is normalized, so the console's https:// prefill keeps it.
+    vi.stubGlobal('fetch', vi.fn(async () => json({ available: true })));
+    const upper = (await callTool('draft_audit_request', { product_name: 'X', workflow_objective: 'Y', product_url: 'HTTPS://Acme.Example/MCP' })).result as { content: { text: string }[] };
+    const link = /(https:\/\/app\.basedagents\.ai\/testing\/request\?\S+)/.exec(upper.content[0].text)?.[1];
+    expect(new URL(link!).searchParams.get('product_url')).toBe('https://acme.example/MCP');
+  });
 
   it('post_to_board writes an owner root row (author_kind=owner, assertion_id NULL) resolving owner off the token', async () => {
     makeOwner('ow_p', 'p@example.com');

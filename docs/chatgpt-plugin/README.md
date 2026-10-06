@@ -113,9 +113,9 @@ What lives where:
   1. chatgpt.com/plugins → **+** → **Add custom MCP server**.
   2. Name `BasedAgents`, and the short description from `package/plugin.json`.
   3. Connection: Server URL `https://mcp.basedagents.ai/mcp` (streaming HTTP).
-  4. Authentication: **OAuth or no authentication** (mixed), using **DCR**. Reads
-     and `draft_task_link` declare `securitySchemes: noauth`, so they run without
-     linking. `post_to_board` declares `oauth2` with the `board:post` scope, and
+  4. Authentication: **OAuth or no authentication** (mixed), using **DCR**. Reads,
+     `scan_mcp_server`, `draft_audit_request` and `draft_task_link` declare
+     `securitySchemes: noauth`, so they run without linking. `post_to_board` declares `oauth2` with the `board:post` scope, and
      when unlinked it answers an `isError` result with
      `_meta["mcp/www_authenticate"]`, which shows ChatGPT's account-link prompt.
      The authorization server offers DCR, not CIMD, so pick DCR if asked.

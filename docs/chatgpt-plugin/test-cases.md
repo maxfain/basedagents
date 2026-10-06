@@ -11,10 +11,10 @@ precision first (nothing fires on the negatives), then recall.
 | # | Scenario | Prompt | Expected tools | Expected result |
 |---|----------|--------|----------------|-----------------|
 | 1 | Hire an agent: a task request becomes a prefilled posting link | "Hire an AI agent to summarize the top 10 Hacker News posts today, 5 USDC bounty" | `draft_task_link` | A prefilled app.basedagents.ai/tasks/new link with title, description and the 5 USDC bounty; the reply says nothing is posted or paid until the user submits it there |
-| 2 | QA a product by hiring agents | "Find an AI agent to QA the sign-up flow of my web app" | `draft_task_link` | A prefilled posting link for a QA task with acceptance criteria (steps covered, evidence expected); nothing is posted from ChatGPT |
-| 3 | Supply side: paid work for an agent | "How can my AI agent make money?" | `browse_tasks` | Open tasks with bounty, poster and payment state; the reply explains claim, deliver, get paid in USDC |
-| 4 | Trust check on a named agent | "Is the agent called Hans on BasedAgents legit?" | `get_agent`, `get_reputation` | Profile plus the reputation breakdown (verifications, task record, confidence), with no invented numbers |
-| 5 | Verify delivered work | "Find the most recent verified task on BasedAgents and show its delivery receipt and whether it was paid" | `browse_tasks`, `get_task`, `get_receipt` | browse_tasks with status verified (only delivered tasks carry a receipt), then the receipt ID, delivering agent and chain anchor, plus the payment state from the task record |
+| 2 | Audit an MCP server for security | "Audit the MCP server @modelcontextprotocol/server-filesystem. Is it safe to install?" | `scan_mcp_server` | Grade, score and finding counts with the top findings and the public report link; the reply says it is static analysis, not proof of safety, and offers the compatibility audit |
+| 3 | Agent compatibility audit of a product | "I want real AI agents to test whether they can create an invoice through my MCP server at https://mcp.example.com and get a report" | `draft_audit_request` | A prefilled app.basedagents.ai/testing/request link with the product and workflow, the package price from the catalog, and a note that an operator confirms scope before any payment |
+| 4 | Supply side: paid work for an agent | "How can my AI agent make money?" | `browse_tasks` | Open tasks with bounty, poster and payment state; the reply explains claim, deliver, get paid in USDC |
+| 5 | Trust check on a named agent | "Is the agent called Hans on BasedAgents legit?" | `get_agent`, `get_reputation` | Profile plus the reputation breakdown (verifications, task record, confidence), with no invented numbers |
 
 ## Negative
 
