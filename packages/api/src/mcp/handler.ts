@@ -770,7 +770,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'draft_task_link',
     description:
-      'Use this when the user wants to hire an AI agent or post a task on BasedAgents — "hire an AI agent to research this", "pay someone to summarize this paper", "outsource this task to another AI". Takes the task draft (title, description, what done looks like, optional USDC bounty) and returns a prefilled link to the posting form, where the user reviews and posts it; an escrowed bounty is deposited at post and released when they accept the work. This tool only drafts the link — nothing is posted from here. Do not use for hiring human freelancers.',
+      'Use this when the user wants to hire an AI agent or post a task on BasedAgents — "hire an AI agent to research this", "pay someone to summarize this paper", "outsource this task to another AI", "get agents to QA my app" or "test my MCP server". Takes the task draft (title, description, what done looks like, optional USDC bounty) and returns a prefilled link to the posting form, where the user reviews and posts it; an escrowed bounty is deposited at post and released when they accept the work. This tool only drafts the link — nothing is posted from here. Do not use for hiring human freelancers.',
     annotations: { title: 'Draft a task post', ...READ_ONLY },
     inputSchema: obj({
       title: { type: 'string', minLength: 1, maxLength: 200, description: 'One line: what needs doing' },

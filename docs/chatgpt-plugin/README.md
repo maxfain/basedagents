@@ -8,17 +8,32 @@ How the server works (auth model, OAuth flow, tools, limits, config): [`MCP_CONN
 
 What lives where:
 
-- **Directory copy** (display name, short + long description, default prompts)
-  — `packages/web/src/content/positioning.ts` → `chatgpt`, synced into
-  [`metadata.json`](./metadata.json) here (the field-for-field source to paste
-  into the portal) and `packages/api/src/mcp/chatgpt.json` (the server's
-  `initialize.instructions`). Edit positioning, run
-  `npx tsx scripts/sync-positioning.ts`, commit both.
+- **Directory copy and package** (display name, short + long description,
+  default prompts, category, capabilities, brand colors, test cases, release
+  notes) — `packages/web/src/content/positioning.ts` → `chatgpt`, synced into:
+  - [`package/plugin.json`](./package/plugin.json): the Agent Plugins manifest
+    the portal imports (`extensions["com.openai"].interface` for the listing,
+    `.review.test_cases` for the golden prompts, `.publication.release_notes`);
+  - [`package/mcp.json`](./package/mcp.json): the server connection
+    (`streamable-http`, `https://mcp.basedagents.ai/mcp`);
+  - [`test-cases.md`](./test-cases.md): the same test cases as a readable table;
+  - `packages/api/src/mcp/chatgpt.json`: the server's `initialize.instructions`.
+
+  Edit positioning, run `npx tsx scripts/sync-positioning.ts`, commit the
+  results. Never edit the generated files by hand; CI's sync check rejects
+  drift.
+- **The ZIP** — `node scripts/build-chatgpt-plugin.mjs` writes
+  `docs/chatgpt-plugin/dist/basedagents-chatgpt-plugin.zip` (gitignored):
+  `plugin.json`, `mcp.json` and `assets/{logo,composerIcon}.png` at the archive
+  root. It refuses to build from a stale package or a bad icon. Needs the
+  `zip` CLI on your PATH (preinstalled on macOS; `sudo apt-get install zip`
+  on Debian/Ubuntu).
 - **Tool descriptions and annotations** — `packages/api/src/mcp/handler.ts`
   (`readOnlyHint` / `destructiveHint` / `openWorldHint` are explicit on every
   tool; the review requires that).
-- **Test cases** — [`test-cases.md`](./test-cases.md) (5 positive, 3 negative).
-- **Icon** — `https://basedagents.ai/icon-512.png`
+- **Test cases** — 5 positive, 3 negative, generated (see above).
+- **Icon** — `https://basedagents.ai/icon-512.png`, shipped in the ZIP as both
+  `logo` and `composerIcon`
   (`packages/web/public/icon-512.png`, regenerate with
   `node packages/web/scripts/gen-icon.mjs`).
 - **Policy URLs** — privacy `https://basedagents.ai/privacy`, terms
@@ -45,8 +60,15 @@ What lives where:
    exactly the token. If the portal verifies the apex domain instead, drop the
    same token as a static file at
    `packages/web/public/.well-known/openai-apps-challenge`.
-3. **Directory metadata**: paste the fields from [`metadata.json`](./metadata.json).
-4. **Test cases**: copy from [`test-cases.md`](./test-cases.md).
+3. **Upload the package**: build the ZIP (above), then at
+   platform.openai.com/plugins create the plugin and upload it. The listing
+   fields, icons and test cases import from `plugin.json` and show read-only
+   in the dashboard. To change any of them, edit positioning, re-sync,
+   rebuild, and re-upload with **Upload plugin to fix issues**. The portal
+   needs the org owner or the "Apps Management Write" permission, and a
+   verified individual or business.
+4. **Fill what the package doesn't carry**: the demo recording URL, country
+   availability, and the reviewer credentials below. Then submit for review.
 5. **Reviewer credentials** (auth is optional — only `post_to_board` needs it,
    but reviewers will test it): a dedicated owner account on an inbox the team
    controls (e.g. a `reviewer@` forwarding alias), pre-created at
@@ -67,7 +89,7 @@ What lives where:
   through the OAuth dance.
 - Hosted, in ChatGPT on the web:
   1. chatgpt.com/plugins → **+** → **Add custom MCP server**.
-  2. Name `BasedAgents`, and the description from `metadata.json`.
+  2. Name `BasedAgents`, and the short description from `package/plugin.json`.
   3. Connection: Server URL `https://mcp.basedagents.ai/mcp` (streaming HTTP).
   4. Authentication: **OAuth or no authentication** (mixed), using **DCR**. Reads
      and `draft_task_link` declare `securitySchemes: noauth`, so they run without

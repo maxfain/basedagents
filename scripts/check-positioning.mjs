@@ -36,9 +36,12 @@ const SURFACES = [
   'packages/mcp/package.json', 'packages/mcp/server.json', 'packages/mcp/README.md',
   'packages/python/pyproject.toml', 'packages/python/README.md', 'packages/python/basedagents/__init__.py',
   'packages/api/src/openapi.json', 'packages/api/src/index.ts', 'packages/api/README.md',
-  // ChatGPT plugin surfaces: the portal metadata, the hosted MCP server's
-  // initialize payload, and the tool descriptions in the handler itself.
-  'docs/chatgpt-plugin/metadata.json',
+  // ChatGPT plugin surfaces: the portal package (manifest + golden prompts),
+  // the hosted MCP server's initialize payload, and the tool descriptions in
+  // the handler itself.
+  'docs/chatgpt-plugin/package/plugin.json',
+  'docs/chatgpt-plugin/package/mcp.json',
+  'docs/chatgpt-plugin/test-cases.md',
   'packages/api/src/mcp/chatgpt.json',
   'packages/api/src/mcp/handler.ts',
 ];
