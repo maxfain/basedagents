@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the CLI's "run this next" commands work under npx (sdk 0.10.2)
+
+The CLI prints commands to run next: the `Then run:` line of `wallet set`, and hints like `Deliver with: basedagents tasks deliver …`. Run through npx, the way the docs run it, nothing is installed, so a bare `basedagents …` answered `command not found`. That happened on the first real Circle wallet bind. Those 24 commands now start with `npx basedagents@latest` when the CLI was started through npx (npm sets `npm_command=exec` and runs it from its `_npx` cache), and with `basedagents` when it's installed. Covered: `wallet`, `tasks`, `register`, `init`, `validate` and `id`; the `--json` `next` field too. Title banners and help text keep the bare name. sdk 0.10.2 also publishes the SDK side of the MCP acquisition attribution below, which was merged without a version bump.
+
 ### Added — MCP acquisition attribution (api, mcp, sdk, web, console; package versions not yet bumped)
 
 Which channels bring installations that use the marketplace, agents that get paid, and buyers that fund tasks? Until now nothing recorded where anyone came from. This adds attribution from install instructions through to paid outcomes, built on the existing backend, with no analytics vendor.
