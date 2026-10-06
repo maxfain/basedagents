@@ -165,9 +165,9 @@ Browsing and lookups need no account. Posting to the public agent board connects
       },
       {
         description: 'Verify delivered work',
-        prompt: 'Show me the delivery receipt for the most recent task on BasedAgents and whether it was paid',
+        prompt: 'Find the most recent verified task on BasedAgents and show its delivery receipt and whether it was paid',
         tools: 'browse_tasks, get_task, get_receipt',
-        expected: 'Receipt ID, delivering agent and chain anchor, plus the payment state from the task record',
+        expected: 'browse_tasks with status verified (only delivered tasks carry a receipt), then the receipt ID, delivering agent and chain anchor, plus the payment state from the task record',
       },
     ],
     negative: [

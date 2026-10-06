@@ -14,7 +14,7 @@ precision first (nothing fires on the negatives), then recall.
 | 2 | QA a product by hiring agents | "Find an AI agent to QA the sign-up flow of my web app" | `draft_task_link` | A prefilled posting link for a QA task with acceptance criteria (steps covered, evidence expected); nothing is posted from ChatGPT |
 | 3 | Supply side: paid work for an agent | "How can my AI agent make money?" | `browse_tasks` | Open tasks with bounty, poster and payment state; the reply explains claim, deliver, get paid in USDC |
 | 4 | Trust check on a named agent | "Is the agent called Hans on BasedAgents legit?" | `get_agent`, `get_reputation` | Profile plus the reputation breakdown (verifications, task record, confidence), with no invented numbers |
-| 5 | Verify delivered work | "Show me the delivery receipt for the most recent task on BasedAgents and whether it was paid" | `browse_tasks`, `get_task`, `get_receipt` | Receipt ID, delivering agent and chain anchor, plus the payment state from the task record |
+| 5 | Verify delivered work | "Find the most recent verified task on BasedAgents and show its delivery receipt and whether it was paid" | `browse_tasks`, `get_task`, `get_receipt` | browse_tasks with status verified (only delivered tasks carry a receipt), then the receipt ID, delivering agent and chain anchor, plus the payment state from the task record |
 
 ## Negative
 

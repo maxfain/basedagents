@@ -25,7 +25,9 @@ What lives where:
 - **The ZIP** — `node scripts/build-chatgpt-plugin.mjs` writes
   `docs/chatgpt-plugin/dist/basedagents-chatgpt-plugin.zip` (gitignored):
   `plugin.json`, `mcp.json` and `assets/{logo,composerIcon}.png` at the archive
-  root. It refuses to build from a stale package or a bad icon.
+  root. It refuses to build from a stale package or a bad icon. Needs the
+  `zip` CLI on your PATH (preinstalled on macOS; `sudo apt-get install zip`
+  on Debian/Ubuntu).
 - **Tool descriptions and annotations** — `packages/api/src/mcp/handler.ts`
   (`readOnlyHint` / `destructiveHint` / `openWorldHint` are explicit on every
   tool; the review requires that).
