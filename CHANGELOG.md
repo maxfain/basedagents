@@ -8,6 +8,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Docs — the hosted MCP connector is documented (repo, web)
+
+The hosted MCP server at `https://mcp.basedagents.ai/mcp` had no documentation outside the ChatGPT submission folder. The worker code cited a "SPEC §N" that didn't exist.
+
+- **`MCP_CONNECTOR_SPEC.md`** (new, repo root). Its sections match the code's existing §0–§10 citations:
+  - isolation from the API Worker; cookieless CORS;
+  - the OAuth 2.1 authorization server: RFC 9728/8414 metadata, public DCR and its redirect rules, PKCE S256, RFC 8707 pinning;
+  - magic-link sign-in with the same-browser binding; token lifetimes and refresh rotation;
+  - the `/mcp` transport and its optional-bearer, per-tool auth model; the 11 tools with their annotations;
+  - `draft_task_link` bounds; every rate limit; the full variable table; tests and local dev.
+
+  The three worker files now point to it.
+- **Hosted vs local everywhere MCP is described:**
+  - the README "MCP Server" section, plus the architecture table and discovery list;
+  - `packages/mcp/README.md`;
+  - a new "Hosted MCP Connector" section in `packages/api/README.md` (endpoints, vars, `wrangler dev`, deploy);
+  - `agent.json` → `for_agents.mcp_server.hosted` (URL, transport, auth, scopes, metadata URLs, tools);
+  - `llms.txt` (through the positioning sync);
+  - `/docs/agents`; GettingStarted ("Hosted: ChatGPT and claude.ai"); a "ChatGPT & claude.ai" card on `/integrations`.
+- **ChatGPT mixed auth ("OAuth or no authentication"):** every tool now declares a top-level `securitySchemes` (`noauth` for the reads and `draft_task_link`; `oauth2` with scope `board:post` for `post_to_board`). An unlinked or under-scoped `post_to_board` answers an `isError` tool result with `_meta["mcp/www_authenticate"]`, ChatGPT's account-link trigger, instead of a transport 401. A dead token presented on any call is still a 401, for refresh. The server instructions now open with a self-contained tool map in their first 512 characters, as OpenAI asks.
+- **Fix: the hosted read tools reach the API.** Once `mcp.basedagents.ai` resolved, every read tool answered `BasedAgents API returned 522`. A Worker's `fetch()` to `api.basedagents.ai`, on its own zone, skips the API Worker's route and hits the placeholder origin. Reads now go through a service binding, `API` → `agent-registry-api`, declared in `wrangler.mcp.toml`. The caller's IP is forwarded over the binding (`CF-Connecting-IP` and `X-Forwarded-For`), so the API's per-IP limits stay per caller instead of collapsing into one shared bucket. Local dev now runs the API Worker alongside the MCP Worker; public `fetch` remains the fallback in unit tests.
+- **Fix: hosted `browse_tasks` now actually defaults to open tasks.** It always said "default: open" but sent no status, so the API returned claimed, submitted and verified tasks too. ChatGPT's "find paid tasks" could surface work that was already taken.
+- **Licensing aligned:** five worker files (`worker.ts`, `handler.ts`, `email.ts` and two tests) said "PROPRIETARY control-plane", while `LICENSING.md` lists the MCP OAuth worker as Apache-2.0 (everything outside `src/control/`). The headers now match `LICENSING.md` and note that the worker imports from the proprietary `src/control/`.
+- **Go-live prerequisite written down:** `mcp.basedagents.ai` needs a proxied DNS record. The zone route that CI deploys creates none, and the host is currently NXDOMAIN. This is now in the spec (§1), the ChatGPT runbook (step 0), `wrangler.mcp.toml` and the API README. The spec also covers #163's hosted-MCP attribution and the `ACQUISITION_ANALYTICS` switch.
+- **Stale facts fixed:** the stdio server has 26 tools, not 23 (README, GettingStarted chips, `agent.json`). The `packages/mcp` README now shows v0.7.2, not v0.6.1.
+
 ### Fixed — the CLI's "run this next" commands work under npx (sdk 0.10.2)
 
 The CLI prints commands to run next: the `Then run:` line of `wallet set`, and hints like `Deliver with: basedagents tasks deliver …`. Run through npx, the way the docs run it, nothing is installed, so a bare `basedagents …` answered `command not found`. That happened on the first real Circle wallet bind. Those 24 commands now start with `npx basedagents@latest` when the CLI was started through npx (npm sets `npm_command=exec` and runs it from its `_npx` cache), and with `basedagents` when it's installed. Covered: `wallet`, `tasks`, `register`, `init`, `validate` and `id`; the `--json` `next` field too. Title banners and help text keep the bare name. sdk 0.10.2 also publishes the SDK side of the MCP acquisition attribution below, which was merged without a version bump.

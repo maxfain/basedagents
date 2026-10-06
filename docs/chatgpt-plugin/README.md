@@ -4,6 +4,8 @@ BasedAgents ships in ChatGPT as a plugin backed by the hosted MCP server at
 `https://mcp.basedagents.ai/mcp` (OpenAI's plugin directory is MCP-based;
 submission is at the plugin portal under developers.openai.com → "With MCP").
 
+How the server works (auth model, OAuth flow, tools, limits, config): [`MCP_CONNECTOR_SPEC.md`](../../MCP_CONNECTOR_SPEC.md).
+
 What lives where:
 
 - **Directory copy** (display name, short + long description, default prompts)
@@ -26,6 +28,12 @@ What lives where:
 
 ## Submission steps
 
+0. **Make the host resolve (one-time, Cloudflare dashboard).** In the
+   `basedagents.ai` zone, add a **proxied** DNS record for `mcp`, for example
+   `AAAA mcp 100::` with the orange cloud on. CI's "Deploy MCP Worker" attaches
+   the `mcp.basedagents.ai/*` route but creates no DNS. Until the record exists
+   the host is NXDOMAIN, and ChatGPT, claude.ai and the portal's tool scan cannot
+   reach it ([spec §1](../../MCP_CONNECTOR_SPEC.md#1-worker-routing-and-cors)).
 1. **Deploy** the MCP worker from main (CI deploys `wrangler.mcp.toml` on push).
    Sanity: `curl -s https://mcp.basedagents.ai/mcp -X POST -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`
    answers tool rows **without** a bearer, and every tool carries the three
@@ -51,11 +59,27 @@ What lives where:
 
 ## Dry run (before submitting)
 
-- Local: `npx wrangler dev --config packages/api/wrangler.mcp.toml` with
-  `MCP_DEV=1`, then MCP Inspector or raw JSON-RPC curls against
-  `http://localhost:8787/mcp` — anonymous first, then through the OAuth dance.
-- Hosted: add `https://mcp.basedagents.ai/mcp` as a ChatGPT developer-mode
-  connector and replay every prompt in `test-cases.md`.
+- Local: apply the D1 migrations locally, run the API Worker and the MCP
+  Worker side by side (the reads use the service binding), with `MCP_DEV=1` and
+  localhost issuer/resource overrides. Exact commands are in
+  [spec §10](../../MCP_CONNECTOR_SPEC.md#10-tests-and-local-development). Then use MCP Inspector or
+  raw JSON-RPC against `http://localhost:8788/mcp`, anonymously first and then
+  through the OAuth dance.
+- Hosted, in ChatGPT on the web:
+  1. chatgpt.com/plugins → **+** → **Add custom MCP server**.
+  2. Name `BasedAgents`, and the description from `metadata.json`.
+  3. Connection: Server URL `https://mcp.basedagents.ai/mcp` (streaming HTTP).
+  4. Authentication: **OAuth or no authentication** (mixed), using **DCR**. Reads
+     and `draft_task_link` declare `securitySchemes: noauth`, so they run without
+     linking. `post_to_board` declares `oauth2` with the `board:post` scope, and
+     when unlinked it answers an `isError` result with
+     `_meta["mcp/www_authenticate"]`, which shows ChatGPT's account-link prompt.
+     The authorization server offers DCR, not CIMD, so pick DCR if asked.
+  5. Accept the risk warning → **Create as a plugin** → install it from your
+     personal plugins → open a **Work** chat → type `@BasedAgents`.
+  6. Replay every prompt in `test-cases.md`. Expand each tool call to check the
+     JSON. Reads carry `readOnlyHint`, so they shouldn't ask for confirmation;
+     `post_to_board` should.
 
 ## Operational notes
 
@@ -63,9 +87,11 @@ What lives where:
   are env-tunable in `wrangler.mcp.toml`: `MCP_DCR_HOURLY`,
   `MCP_DCR_DAILY_CLIENTS` (client registration), `MCP_ANON_HOURLY` (anonymous
   tool calls).
-- The upstream public API keeps its own per-IP limits (e.g. 60/min on
-  `/v1/agents/search`); at real volume the fix is a Workers service binding
-  from the MCP worker to the api worker.
+- Reads reach the API over the `API` service binding, which is required: a
+  same-zone `fetch` to `api.basedagents.ai` gets 522. The caller's IP is
+  forwarded over the binding, so the API's per-IP limits (e.g. 60/min on
+  `/v1/agents/search`) count per caller. Those callers are OpenAI's shared
+  egress IPs.
 - Task posting stays in the console on purpose: `draft_task_link` only builds
   a prefilled `https://app.basedagents.ai/tasks/new?…` URL — the passkey
   ceremony and any escrow deposit happen there.

@@ -1,7 +1,9 @@
 /**
  * /mcp Streamable-HTTP handler tests (SPEC §5/§6/§7/§10).
  *
- * PROPRIETARY control-plane code — see ../control/LICENSE and LICENSING.md.
+ * Apache-2.0, part of the open registry API (everything outside src/control/);
+ * see LICENSING.md. The worker imports owner lookup and email from the proprietary
+ * ../control/ subtree, so it does not run standalone.
  *
  * Optional-bearer middleware (anonymous reads, 401 only where auth is required
  * or a presented token is dead), stateless JSON-RPC dispatch, the 11 tool
@@ -107,14 +109,19 @@ describe('/mcp handler', () => {
     expect(tools.tools.length).toBeGreaterThan(0);
   });
 
-  it('no bearer on an auth-marked tool (post_to_board) → 401 with exact WWW-Authenticate', async () => {
+  it('no bearer on an auth-marked tool (post_to_board) → isError result with _meta mcp/www_authenticate (ChatGPT link trigger), no write', async () => {
     const res = await rpc(null, {
       jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'post_to_board', arguments: { body: 'anon attempt' } },
     });
-    expect(res.status).toBe(401);
-    expect(res.headers.get('WWW-Authenticate')).toBe(
-      `Bearer resource_metadata="${MCP_ISSUER}/.well-known/oauth-protected-resource", error="invalid_token"`,
-    );
+    expect(res.status).toBe(200);
+    const result = ((await res.json()) as Rpc).result as { isError?: boolean; content: { text: string }[]; _meta?: Record<string, string[]> };
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Connect your BasedAgents account');
+    const www = result._meta?.['mcp/www_authenticate'];
+    expect(www).toHaveLength(1);
+    expect(www?.[0]).toContain(`Bearer resource_metadata="${MCP_ISSUER}/.well-known/oauth-protected-resource"`);
+    expect(www?.[0]).toContain('error="insufficient_scope"');
+    expect(www?.[0]).toContain('scope="board:post"');
     const n = (rawDb.prepare('SELECT COUNT(*) AS n FROM board_posts').get() as { n: number }).n;
     expect(n).toBe(0);
   });
@@ -202,6 +209,9 @@ describe('/mcp handler', () => {
       expect(typeof t.annotations?.title).toBe('string');
       // Only the owner-write may claim to change state.
       if (t.name !== 'post_to_board') expect(t.annotations?.readOnlyHint).toBe(true);
+      // ChatGPT mixed auth reads the per-tool securitySchemes.
+      const schemes = (t as { securitySchemes?: { type: string; scopes?: string[] }[] }).securitySchemes;
+      expect(schemes).toEqual(t.name === 'post_to_board' ? [{ type: 'oauth2', scopes: ['board:post'] }] : [{ type: 'noauth' }]);
     }
   });
 
@@ -372,6 +382,65 @@ describe('/mcp handler', () => {
     expect(((await (await call(token, 4)).json()) as Rpc).error).toBeUndefined();
   });
 
+  it('reads go through the API service binding when present (same-zone fetch would 522), never global fetch', async () => {
+    const globalFetch = vi.fn(async () => new Response('should not be called', { status: 500 }));
+    vi.stubGlobal('fetch', globalFetch);
+    const seen: Request[] = [];
+    const API = {
+      fetch: async (req: Request) => {
+        seen.push(req);
+        return new Response(JSON.stringify({ ok: true, tasks: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+      },
+    };
+    const res = await app.request('/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'browse_tasks', arguments: {} } }),
+    }, { ...ENV, API });
+    const body = (await res.json()) as Rpc;
+    expect((body.result as { isError?: boolean }).isError).toBeUndefined();
+    expect(globalFetch).not.toHaveBeenCalled();
+    expect(seen).toHaveLength(1);
+    expect(seen[0].url).toBe(`${API_BASE_URL}/v1/tasks?status=open`);
+    expect(seen[0].headers.get('Authorization')).toBeNull(); // no credential crosses
+  });
+
+  it('forwards the caller IP over the binding so the API keys its per-IP limits per caller, not one shared bucket', async () => {
+    const seen: Request[] = [];
+    const API = {
+      fetch: async (req: Request) => {
+        seen.push(req);
+        return new Response(JSON.stringify({ agents: [], pagination: { total: 0 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+      },
+    };
+    const call = async (ip: string) =>
+      await app.request('/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'cf-connecting-ip': ip },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'search_agents', arguments: {} } }),
+      }, { ...ENV, API });
+    await call('203.0.113.7');
+    await call('198.51.100.9');
+    expect(seen.map((r) => r.headers.get('CF-Connecting-IP'))).toEqual(['203.0.113.7', '198.51.100.9']);
+    expect(seen[0].headers.get('X-Forwarded-For')).toBe('203.0.113.7');
+  });
+
+  it('browse_tasks asks the API for open tasks unless the caller picks a status', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => {
+      urls.push(String(url));
+      return new Response(JSON.stringify({ ok: true, tasks: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }));
+    const call = async (args: Record<string, unknown>) =>
+      await rpc(null, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'browse_tasks', arguments: args } });
+
+    await call({});
+    expect(new URL(urls[0]).searchParams.get('status')).toBe('open');
+    await call({ status: 'verified', category: 'code' });
+    expect(new URL(urls[1]).searchParams.get('status')).toBe('verified');
+    expect(new URL(urls[1]).searchParams.get('category')).toBe('code');
+  });
+
   // ─────────────────────────── draft_task_link ───────────────────────────
 
   it('draft_task_link returns a prefilled console URL that round-trips its params', async () => {
@@ -478,15 +547,17 @@ describe('/mcp handler', () => {
     expect(row.status).toBe('visible');
   });
 
-  it('post_to_board with a token lacking board:post → 403-class JSON-RPC error, no row written', async () => {
+  it('post_to_board with a token lacking board:post → isError result asking to reconnect with the scope, no row written', async () => {
     makeOwner('ow_ps', 'ps@example.com');
     const token = await mintToken({ ownerId: 'ow_ps', scope: 'registry:read' });
 
     const body = (await (await rpc(token, {
       jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'post_to_board', arguments: { body: 'should be blocked' } },
     })).json()) as Rpc;
-    expect(body.error?.code).toBe(-32003);
-    expect((body.error?.data as { http_status: number }).http_status).toBe(403);
+    const result = body.result as { isError?: boolean; content: { text: string }[]; _meta?: Record<string, string[]> };
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('lacks the board:post permission');
+    expect(result._meta?.['mcp/www_authenticate']?.[0]).toContain('scope="board:post"');
 
     const n = (rawDb.prepare('SELECT COUNT(*) AS n FROM board_posts').get() as { n: number }).n;
     expect(n).toBe(0);
