@@ -33,6 +33,7 @@ beforeEach(() => {
   vi.stubEnv('HOME', dir);
   vi.stubEnv('USERPROFILE', dir);
   vi.stubEnv('BASEDAGENTS_WALLET_PRIVATE_KEY', '');
+  vi.stubEnv('npm_command', ''); // as if installed; the npx case is tested on its own
   fetchMock = vi.fn().mockResolvedValue(ok({ agent_id: 'x', wallet_address: WALLET_ADDR, wallet_network: 'eip155:8453', wallet_verified: true, signer_kind: 'eoa' }));
   vi.stubGlobal('fetch', fetchMock);
   vi.spyOn(process, 'exit').mockImplementation(((c?: number) => { throw new ExitSignal(Number(c ?? 0)); }) as never);
@@ -100,6 +101,13 @@ describe('basedagents wallet set', () => {
     await expect(wallet(['set', WALLET_ADDR, '--network', 'eip155:84532', '--keypair', keypairPath, '--json'])).rejects.toMatchObject({ code: EXIT_SIGNATURE_REQUIRED });
     const printed = JSON.parse(out.join('\n')) as { next: string };
     expect(printed.next).toMatch(new RegExp(`^basedagents wallet set ${WALLET_ADDR} --network eip155:84532 --nonce [0-9a-f]{16} --signature <0x\\.\\.\\.>$`));
+  });
+
+  it('started through npx, the next step is an npx command too (a bare `basedagents` is not installed)', async () => {
+    vi.stubEnv('npm_command', 'exec');
+    await expect(wallet(['set', WALLET_ADDR, '--keypair', keypairPath, '--json'])).rejects.toMatchObject({ code: EXIT_SIGNATURE_REQUIRED });
+    const printed = JSON.parse(out.join('\n')) as { next: string };
+    expect(printed.next).toMatch(new RegExp(`^npx basedagents@latest wallet set ${WALLET_ADDR} --nonce [0-9a-f]{16} --signature <0x\\.\\.\\.>$`));
   });
 
     it('a second unsigned `wallet set` keeps the first message: its signature still finishes the bind', async () => {

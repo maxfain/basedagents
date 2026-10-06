@@ -9,6 +9,7 @@ import { createInterface } from 'readline';
 import { prepareNewKeypairPath, stageNewKeypair, commitNewKeypair, discardNewKeypair } from './wallet.js';
 import { generateKeypair, serializeKeypair } from '../index.js';
 import { RegistryClient, DEFAULT_API_URL, cliRegistrationAttribution } from '../index.js';
+import { cliCommand } from './invocation.js';
 
 // ─── ANSI ───
 const R = '\x1b[0m';
@@ -71,7 +72,7 @@ export async function init(args: string[]): Promise<void> {
   // Non-interactive guard
   if (!process.stdin.isTTY) {
     console.error(red('\n  ✗ basedagents init requires an interactive terminal.'));
-    console.error(dim('    Use `basedagents register --manifest <file>` for non-interactive registration.\n'));
+    console.error(dim(`    Use \`${cliCommand()} register --manifest <file>\` for non-interactive registration.\n`));
     process.exit(1);
   }
 
@@ -140,7 +141,7 @@ export async function init(args: string[]): Promise<void> {
     const proceed = await confirm(rl, 'Continue? (Y/n)');
     if (!proceed) {
       console.log('');
-      console.log(dim('No problem. Run `basedagents init` when ready.'));
+      console.log(dim(`No problem. Run \`${cliCommand()} init\` when ready.`));
       console.log('');
       rl.close();
       return;
