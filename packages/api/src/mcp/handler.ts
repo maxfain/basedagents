@@ -214,13 +214,13 @@ async function apiFetch(
 // Same text the stdio server produces, so a model gets identical read output on
 // either transport.
 
-/** The intake's own URL rule (IntakeSchema httpsUrl): parses, https, no embedded credentials. */
-function isIntakeUrl(v: string): boolean {
+/** The intake's own URL rule (IntakeSchema httpsUrl): parses, https, no embedded credentials. Returns the normalized URL, or null. */
+function intakeUrl(v: string): string | null {
   try {
     const u = new URL(v);
-    return u.protocol === 'https:' && u.username === '' && u.password === '' && u.hostname !== '';
+    return u.protocol === 'https:' && u.username === '' && u.password === '' && u.hostname !== '' ? u.href : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -1006,8 +1006,10 @@ const TOOLS: ToolDef[] = [
       if (!out.product_category) return null;
       for (const k of ['product_url', 'documentation_url'] as const) {
         if (a[k] === undefined) continue;
-        const v = asString(a[k])?.trim();
-        if (!v || v.length > 2048 || !isIntakeUrl(v)) return null;
+        // Normalized (lowercase scheme/host), so the console's https:// prefill
+        // check keeps what this check accepted.
+        const v = intakeUrl(asString(a[k])?.trim() ?? '');
+        if (!v || v.length > 2048) return null;
         out[k] = v;
       }
       const caps = { expected_result: 4000, target_environment: 500, suspected_failure: 2000 } as const;

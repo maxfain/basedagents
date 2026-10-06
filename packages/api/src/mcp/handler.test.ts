@@ -650,6 +650,11 @@ describe('/mcp handler', () => {
     // Valid https URLs may carry @ in the path (scoped package docs).
     const scoped = (await callTool('draft_audit_request', { product_name: 'X', workflow_objective: 'Y', documentation_url: 'https://example.com/docs/@acme/server' })).result as { isError?: boolean };
     expect(scoped.isError).toBe(true); // catalog stub is closed here, but validation passed (not -32602)
+    // An uppercase scheme passes and is normalized, so the console's https:// prefill keeps it.
+    vi.stubGlobal('fetch', vi.fn(async () => json({ available: true })));
+    const upper = (await callTool('draft_audit_request', { product_name: 'X', workflow_objective: 'Y', product_url: 'HTTPS://Acme.Example/MCP' })).result as { content: { text: string }[] };
+    const link = /(https:\/\/app\.basedagents\.ai\/testing\/request\?\S+)/.exec(upper.content[0].text)?.[1];
+    expect(new URL(link!).searchParams.get('product_url')).toBe('https://acme.example/MCP');
   });
 
   it('post_to_board writes an owner root row (author_kind=owner, assertion_id NULL) resolving owner off the token', async () => {
