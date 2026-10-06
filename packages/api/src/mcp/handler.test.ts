@@ -547,7 +547,7 @@ describe('/mcp handler', () => {
   it('scan_mcp_server reuses the stored report: one GET, no trigger, worst findings first', async () => {
     const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
       expect(init?.method ?? 'GET').toBe('GET');
-      expect(String(url)).toBe(`${API_BASE_URL}/v1/scan/${encodeURIComponent('@acme/mcp-server')}`);
+      expect(String(url)).toBe(`${API_BASE_URL}/v1/scan/${encodeURIComponent('npm:@acme/mcp-server')}`);
       return json(REPORT);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -576,6 +576,23 @@ describe('/mcp handler', () => {
     expect(calls.map((c) => c.method)).toEqual(['GET', 'POST', 'GET']);
     expect(calls[0].url).toBe(`${API_BASE_URL}/v1/scan/${encodeURIComponent('github:acme/mcp')}`);
     expect(JSON.parse(calls[1].body!)).toEqual({ source: 'github', target: 'acme/mcp' });
+    expect(out.content[0].text).toContain('(just now)');
+  });
+
+  it('scan_mcp_server never reuses another source\'s report with the same name (pypi:requests ≠ npm requests)', async () => {
+    const calls: string[] = [];
+    let triggered = false;
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL, init?: RequestInit) => {
+      calls.push(`${init?.method ?? 'GET'} ${String(url)}`);
+      if (String(url).endsWith('/v1/scan/trigger')) { triggered = true; return json({ ok: true }); }
+      // The API's backward-compat fallback answers with the PyPI row first.
+      return json({ ...REPORT, source: triggered ? 'npm' : 'pypi', package_name: 'requests' });
+    }));
+    const out = (await callTool('scan_mcp_server', { target: 'requests' })).result as { content: { text: string }[]; isError?: boolean };
+    expect(out.isError).toBeUndefined();
+    expect(calls[0]).toBe(`GET ${API_BASE_URL}/v1/scan/${encodeURIComponent('npm:requests')}`);
+    expect(triggered).toBe(true); // the PyPI report was not accepted
+    expect(out.content[0].text).toContain('(npm)');
     expect(out.content[0].text).toContain('(just now)');
   });
 
@@ -627,7 +644,12 @@ describe('/mcp handler', () => {
     const closed = (await callTool('draft_audit_request', { product_name: 'X', workflow_objective: 'Y' })).result as { content: { text: string }[]; isError?: boolean };
     expect(closed.isError).toBe(true);
     expect(closed.content[0].text).toContain('scan_mcp_server');
-    expect((await callTool('draft_audit_request', { product_name: 'X', workflow_objective: 'Y', product_url: 'http://x.example' })).error?.code).toBe(-32602);
+    for (const bad of ['http://x.example', 'https://?', 'https://user:pw@x.example/', 'not a url']) {
+      expect((await callTool('draft_audit_request', { product_name: 'X', workflow_objective: 'Y', product_url: bad })).error?.code).toBe(-32602);
+    }
+    // Valid https URLs may carry @ in the path (scoped package docs).
+    const scoped = (await callTool('draft_audit_request', { product_name: 'X', workflow_objective: 'Y', documentation_url: 'https://example.com/docs/@acme/server' })).result as { isError?: boolean };
+    expect(scoped.isError).toBe(true); // catalog stub is closed here, but validation passed (not -32602)
   });
 
   it('post_to_board writes an owner root row (author_kind=owner, assertion_id NULL) resolving owner off the token', async () => {

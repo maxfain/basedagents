@@ -214,6 +214,16 @@ async function apiFetch(
 // Same text the stdio server produces, so a model gets identical read output on
 // either transport.
 
+/** The intake's own URL rule (IntakeSchema httpsUrl): parses, https, no embedded credentials. */
+function isIntakeUrl(v: string): boolean {
+  try {
+    const u = new URL(v);
+    return u.protocol === 'https:' && u.username === '' && u.password === '' && u.hostname !== '';
+  } catch {
+    return false;
+  }
+}
+
 /** Text for a stored /v1/scan report (scan_mcp_server). */
 function formatScanReport(r: Record<string, unknown>, source: string, fresh: boolean): string {
   const findings = (Array.isArray(r.findings) ? r.findings : []) as Array<Record<string, unknown>>;
@@ -930,7 +940,11 @@ const TOOLS: ToolDef[] = [
     execute: async (a, ctx) => {
       const source = String(a.source);
       const target = String(a.target);
-      const key = source === 'npm' ? target : `${source}:${target}`;
+      // Always prefixed: an unprefixed GET falls back to ANY source's report
+      // with that name (scan.ts backward compat), e.g. pypi:requests for npm
+      // requests. The source check below backstops the same mix-up.
+      const key = `${source}:${target}`;
+      const sameSource = (r: Record<string, unknown> | null) => !!r && (r.source ?? 'npm') === source;
       /** The API's own public message ({error, message}), else the generic one. */
       const apiMessage = (e: ApiError) => {
         try { const m = (JSON.parse(e.bodyText) as { message?: unknown }).message; if (typeof m === 'string' && m) return m; } catch { /* not JSON */ }
@@ -944,6 +958,7 @@ const TOOLS: ToolDef[] = [
         } catch (e) {
           if (!(e instanceof ApiError) || e.status !== 404) throw e;
         }
+        if (!sameSource(report)) report = null;
       }
       if (!report) {
         try {
@@ -955,6 +970,7 @@ const TOOLS: ToolDef[] = [
           throw e;
         }
         report = (await apiFetch(ctx, `/v1/scan/${encodeURIComponent(key)}`)) as Record<string, unknown>;
+        if (!sameSource(report)) throw new Error(`scan stored no ${source} report for ${target}`);
         fresh = true;
       }
       return text(formatScanReport(report, source, fresh));
@@ -991,7 +1007,7 @@ const TOOLS: ToolDef[] = [
       for (const k of ['product_url', 'documentation_url'] as const) {
         if (a[k] === undefined) continue;
         const v = asString(a[k])?.trim();
-        if (!v || v.length > 2048 || !/^https:\/\/[^\s@]+$/.test(v)) return null;
+        if (!v || v.length > 2048 || !isIntakeUrl(v)) return null;
         out[k] = v;
       }
       const caps = { expected_result: 4000, target_environment: 500, suspected_failure: 2000 } as const;
