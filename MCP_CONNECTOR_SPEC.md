@@ -118,7 +118,7 @@ The website's `/mcp/setup` page tags the npm install snippets only, not the host
 
 ## §7 Tools
 
-Every tool sets `readOnlyHint`, `destructiveHint` and `openWorldHint` explicitly (OpenAI's plugin review requires all three; ChatGPT treats a tool without `readOnlyHint` as a write needing confirmation), plus a display `title` and a top-level `securitySchemes` (§5). Every tool is closed-world: it touches only BasedAgents' own API or database. Descriptions follow the "Use this when… / Do not use for…" form.
+Every tool sets `readOnlyHint`, `destructiveHint` and `openWorldHint` explicitly (OpenAI's plugin review requires all three; ChatGPT treats a tool without `readOnlyHint` as a write needing confirmation), plus a display `title` and a top-level `securitySchemes` (§5). The reads and `draft_task_link` are closed-world: they touch only BasedAgents' own API or database. `post_to_board` is open-world (`openWorldHint: true`), because its result is a public post anyone can read. Descriptions follow the "Use this when… / Do not use for…" form.
 
 | Tool | Auth | Annotations | Reads / does |
 |---|---|---|---|

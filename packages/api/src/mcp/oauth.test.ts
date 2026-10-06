@@ -8,7 +8,7 @@
  * magic-link token is read straight out of the mail body. Every adversarial case
  * proves one control from the threat model (§8).
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -147,6 +147,10 @@ beforeEach(() => {
   rawDb.exec(RATE_LIMIT_SQL); // the DCR limiter's backing store
   outbox = [];
   app = buildApp();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 // ─────────────────────────── PRM / AS metadata ───────────────────────────
@@ -338,6 +342,35 @@ describe('magic-link login + consent handoff', () => {
     expect(emailRes.status).toBe(200);
     expect(await emailRes.text()).toMatch(/check your email/i);
     expect(outbox).toHaveLength(0); // no enumeration side-channel
+  });
+
+  it('a failed send keeps the same page, reaches the log, and hands waitUntil a promise that settles', async () => {
+    seedOwner('failsend@example.com');
+    // Same app, but the provider rejects (e.g. a wrong RESEND_API_KEY).
+    const failing = new Hono<McpEnv>();
+    failing.use('*', async (c, next) => {
+      c.set('db', db);
+      c.set('emailSender', { send: async () => { throw new Error('email send failed (401): invalid API key'); } });
+      await next();
+    });
+    failing.route('/', oauthApp);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const deferred: Promise<unknown>[] = [];
+    const ctx = { waitUntil: (p: Promise<unknown>) => void deferred.push(p), passThroughOnException: () => {}, props: {} } as unknown as Parameters<typeof failing.request>[3];
+
+    const cid = await clientId();
+    const params = new URLSearchParams({ response_type: 'code', client_id: cid, redirect_uri: REDIRECT, code_challenge: pkce('v'), code_challenge_method: 'S256', resource: RESOURCE, scope: 'registry:read' });
+    const authRes = await failing.request(`/oauth/authorize?${params.toString()}`, {}, ENV);
+    const cookie1 = cookieOf(authRes);
+    const csrf1 = csrfOf(await authRes.text());
+    const emailRes = await failing.request('/oauth/email', { method: 'POST', headers: { ...FORM, Cookie: cookie1 }, body: new URLSearchParams({ email: 'failsend@example.com', csrf: csrf1 }).toString() }, ENV, ctx);
+
+    // Indistinguishable from success (low-enumeration), with the send deferred.
+    expect(emailRes.status).toBe(200);
+    expect(await emailRes.text()).toMatch(/check your email/i);
+    expect(deferred).toHaveLength(1);
+    await expect(deferred[0]).resolves.toBeUndefined(); // the rejection is caught, never unhandled
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining('[mcp] magic-link send failed: email send failed (401)'));
   });
 
   it('rejects /oauth/email with a wrong or missing CSRF token', async () => {

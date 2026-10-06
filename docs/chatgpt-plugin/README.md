@@ -53,6 +53,28 @@ What lives where:
    Sanity: `curl -s https://mcp.basedagents.ai/mcp -X POST -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`
    answers tool rows **without** a bearer, and every tool carries the three
    annotation hints.
+1b. **Set the worker's secrets (one-time).** `agent-registry-mcp` is its own
+   Worker, so the API Worker's secrets don't reach it. Reads work without
+   any secrets; sign-in (needed for `post_to_board`) needs two:
+   - `MCP_SIGNING_SECRET`: any long random string. Without it,
+     `/oauth/authorize` answers `503 temporarily_unavailable` ("authorization
+     server misconfigured") by design, instead of signing with a known key.
+   - `RESEND_API_KEY`: a real Resend API key (`re_…`, sending access) on the
+     account where `basedagents.ai` is verified, e.g. the one the API Worker
+     uses, plus `EMAIL_FROM` if the sender differs from the default. It is
+     not the random string above. Without it, magic links only go to the
+     worker log. With a wrong key, the send fails after the "Check your
+     email" page; `npx wrangler tail --config wrangler.mcp.toml` shows
+     `[mcp] magic-link send failed: …`.
+
+   ```
+   cd packages/api
+   openssl rand -base64 32 | npx wrangler secret put MCP_SIGNING_SECRET --config wrangler.mcp.toml
+   npx wrangler secret put RESEND_API_KEY --config wrangler.mcp.toml
+   ```
+   Or use the dashboard: Workers & Pages → agent-registry-mcp → Settings →
+   Variables and Secrets. Secrets apply immediately. Check: the authorize URL
+   from a ChatGPT connect attempt shows the sign-in page, not the 503.
 2. **Domain verification**: the portal hands out a challenge token. Set it as
    `OPENAI_APPS_CHALLENGE` in `packages/api/wrangler.mcp.toml` `[vars]` (public
    plain text, not a secret), merge → CI redeploys, then confirm
