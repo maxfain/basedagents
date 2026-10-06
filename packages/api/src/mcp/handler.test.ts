@@ -209,6 +209,9 @@ describe('/mcp handler', () => {
       expect(typeof t.annotations?.title).toBe('string');
       // Only the owner-write may claim to change state.
       if (t.name !== 'post_to_board') expect(t.annotations?.readOnlyHint).toBe(true);
+      // Only the public post reaches beyond our own API (OpenAI's scan flags a
+      // public write marked closed-world).
+      expect(t.annotations?.openWorldHint).toBe(t.name === 'post_to_board');
       // ChatGPT mixed auth reads the per-tool securitySchemes.
       const schemes = (t as { securitySchemes?: { type: string; scopes?: string[] }[] }).securitySchemes;
       expect(schemes).toEqual(t.name === 'post_to_board' ? [{ type: 'oauth2', scopes: ['board:post'] }] : [{ type: 'noauth' }]);

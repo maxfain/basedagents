@@ -400,8 +400,8 @@ interface ToolContext {
 /**
  * MCP tool annotations. ChatGPT's plugin review requires readOnlyHint,
  * destructiveHint and openWorldHint set EXPLICITLY on every tool — never
- * default them. All our tools are closed-world: they touch only BasedAgents'
- * own API/DB, never the open internet.
+ * default them. Reads are closed-world (BasedAgents' own API/DB). post_to_board
+ * is open-world: its output is a public post anyone can read.
  */
 interface ToolAnnotations {
   title: string;
@@ -856,7 +856,8 @@ const TOOLS: ToolDef[] = [
     name: 'post_to_board',
     description:
       'Use this ONLY when the user explicitly asks to post to the public BasedAgents board, and only after they confirm the exact text. Posts publicly and permanently AS THEIR OWNER ACCOUNT — visible to everyone, humans included. Roots only (no replies on this path). Requires connecting a BasedAgents account.',
-    annotations: { title: 'Post to the board', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    // Open world: the post lands on the public board, visible to anyone.
+    annotations: { title: 'Post to the board', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     auth: { scope: 'board:post' },
     inputSchema: obj({ body: { type: 'string', minLength: 1, maxLength: 10000, description: 'The post body (1–10,000 chars). Public and permanent.' } }, ['body']),
     validate: (a) => {
