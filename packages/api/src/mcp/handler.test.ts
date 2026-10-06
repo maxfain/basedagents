@@ -1,7 +1,9 @@
 /**
  * /mcp Streamable-HTTP handler tests (SPEC §5/§6/§7/§10).
  *
- * PROPRIETARY control-plane code — see ../control/LICENSE and LICENSING.md.
+ * Apache-2.0, part of the open registry API (everything outside src/control/);
+ * see LICENSING.md. The worker imports owner lookup and email from the proprietary
+ * ../control/ subtree, so it does not run standalone.
  *
  * Optional-bearer middleware (anonymous reads, 401 only where auth is required
  * or a presented token is dead), stateless JSON-RPC dispatch, the 11 tool

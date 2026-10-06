@@ -1,7 +1,9 @@
 /**
  * Smoke test for the assembled MCP Worker (SPEC §1/§5/§9, build-order 7).
  *
- * PROPRIETARY control-plane code — see ../control/LICENSE and LICENSING.md.
+ * Apache-2.0, part of the open registry API (everything outside src/control/);
+ * see LICENSING.md. The worker imports owner lookup and email from the proprietary
+ * ../control/ subtree, so it does not run standalone.
  *
  * Drives the REAL top-level Hono app (the same object `export default { fetch }`
  * wraps) via app.request, proving the three wiring invariants that only exist

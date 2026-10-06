@@ -1,7 +1,9 @@
 /**
  * Outbound email for the MCP OAuth AS magic-link login (SPEC §3, step 2).
  *
- * PROPRIETARY control-plane code — see ../control/LICENSE and LICENSING.md.
+ * Apache-2.0, part of the open registry API (everything outside src/control/);
+ * see LICENSING.md. The worker imports owner lookup and email from the proprietary
+ * ../control/ subtree, so it does not run standalone.
  *
  * The AS runs its OWN magic link and MUST NOT reuse the console's
  * `/login/email` (which hard-codes `consoleOrigin()/login#t=` and would land

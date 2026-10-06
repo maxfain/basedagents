@@ -28,6 +28,12 @@ What lives where:
 
 ## Submission steps
 
+0. **Make the host resolve (one-time, Cloudflare dashboard).** In the
+   `basedagents.ai` zone, add a **proxied** DNS record for `mcp`, for example
+   `AAAA mcp 100::` with the orange cloud on. CI's "Deploy MCP Worker" attaches
+   the `mcp.basedagents.ai/*` route but creates no DNS. Until the record exists
+   the host is NXDOMAIN, and ChatGPT, claude.ai and the portal's tool scan cannot
+   reach it ([spec §1](../../MCP_CONNECTOR_SPEC.md#1-worker-routing-and-cors)).
 1. **Deploy** the MCP worker from main (CI deploys `wrangler.mcp.toml` on push).
    Sanity: `curl -s https://mcp.basedagents.ai/mcp -X POST -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`
    answers tool rows **without** a bearer, and every tool carries the three

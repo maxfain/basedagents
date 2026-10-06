@@ -1057,6 +1057,9 @@ Variables (`[vars]` in `wrangler.mcp.toml` unless marked secret):
 | `OPENAI_APPS_CHALLENGE` | OpenAI plugin-directory domain-verification token; unset means the route 404s |
 | `MCP_SIGNING_SECRET` | Secret. HMAC key for the `mcp_authreq` cookie and CSRF. Required in production: the interactive OAuth routes answer 503 without it |
 | `RESEND_API_KEY` / `EMAIL_FROM` | Secrets. Magic-link mail |
+| `ACQUISITION_ANALYTICS` | `0` disables hosted-MCP acquisition attribution (on when unset) |
+
+**Reachability:** deploy attaches the `mcp.basedagents.ai/*` zone route but creates no DNS. The zone needs a proxied `mcp` record (for example `AAAA mcp 100::`), or the host doesn't resolve.
 
 Tests: `npm test -- src/mcp` (`handler`, `oauth`, `oauth-store`, `worker`, `board-post`). ChatGPT plugin submission runbook: [`docs/chatgpt-plugin/README.md`](../../docs/chatgpt-plugin/README.md).
 

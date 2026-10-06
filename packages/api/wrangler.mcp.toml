@@ -23,8 +23,11 @@ binding = "DB"
 database_name = "agent-registry"
 database_id = "e8173f0d-7d4f-44c7-8abb-8871a8b56627"
 
-# The mcp.basedagents.ai route on the existing zone (founder points the DNS
-# `mcp` record once; current CF token scopes already cover the zone).
+# The mcp.basedagents.ai route on the existing zone. A zone route only sees
+# traffic for a hostname that already resolves through Cloudflare; deploy does
+# NOT create DNS. One-time, in the dashboard: a PROXIED record for `mcp` (e.g.
+# AAAA mcp 100::, orange cloud). Without it the host is NXDOMAIN and every
+# deploy "succeeds" with nothing reachable (MCP_CONNECTOR_SPEC.md §1).
 [[routes]]
 pattern = "mcp.basedagents.ai/*"
 zone_name = "basedagents.ai"

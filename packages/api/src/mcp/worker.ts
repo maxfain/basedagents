@@ -2,7 +2,9 @@
  * The `agent-registry-mcp` Worker entrypoint (SPEC §1/§5/§9, build-order 7).
  * SPEC = MCP_CONNECTOR_SPEC.md at the repo root.
  *
- * PROPRIETARY control-plane surface — see ../control/LICENSE and LICENSING.md.
+ * Apache-2.0, part of the open registry API (everything outside src/control/);
+ * see LICENSING.md. The worker imports owner lookup and email from the proprietary
+ * ../control/ subtree, so it does not run standalone.
  *
  * This is a SECOND Worker inside packages/api, bound to the SAME `agent-registry`
  * D1, but structurally isolated from the api Worker: it mounts ONLY the OAuth AS
