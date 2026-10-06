@@ -30,14 +30,22 @@ import { atomicToDisplay } from '../payments/x402.js';
 import { sanitizeDisplayName } from '../lib/display-name.js';
 import { certificationTablesPresent, certifiedExistsSql, ownerCertifiedExistsSql } from '../control/certification.js';
 
-export type Actor = { kind: 'agent'; agentId: string } | { kind: 'owner'; ownerId: string };
+export type Actor =
+  | { kind: 'agent'; agentId: string }
+  | { kind: 'owner'; ownerId: string }
+  /** A wallet-only poster (routes/x402-tasks.ts): authenticated by its manage token or a signature from the paying wallet. */
+  | { kind: 'wallet'; wallet: string };
 
 /** The tasks row after migration 0035. */
 export interface TaskRow {
   task_id: string;
   creator_agent_id: string | null;
   creator_owner_id: string | null;
-  creator_kind: 'agent' | 'owner';
+  creator_kind: 'agent' | 'owner' | 'wallet';
+  /** 0051: the lowercase address that paid, for a wallet poster (kept after the task is attached to an agent). */
+  creator_wallet?: string | null;
+  /** 0051: sha256 hex of the wallet poster's manage token. Never public. */
+  manage_token_hash?: string | null;
   creator_assertion_id: string | null;
   claimed_by_agent_id: string | null;
   title: string;
@@ -177,15 +185,16 @@ export const MAX_REVISIONS = 3;
 
 /** Columns that never leave the server (encrypted payload, facilitator bookkeeping, owner ids). */
 const PRIVATE_COLUMNS = new Set([
-  'payment_signature', 'payment_requirements', 'payment_payer', 'payment_nonce', 'creator_owner_id',
+  'payment_signature', 'payment_requirements', 'payment_payer', 'payment_nonce', 'creator_owner_id', 'manage_token_hash',
   'creator_assertion_id', 'review_assertion_id',
   'settle_attempts', 'settle_broadcast', 'settle_started_at', 'settle_next_at', 'last_settle_class',
   // escrow bookkeeping folded into `escrow` by publicTaskShape (the buyer's refund address stays private)
   'escrow_status', 'escrow_leg', 'escrow_leg_attempts', 'escrow_wallet', 'escrow_deposit_payer', 'escrow_deposit_nonce',
   'escrow_deposit_tx_hash', 'escrow_funded_at', 'escrow_release_tx_hash', 'escrow_released_at',
   'escrow_refund_tx_hash', 'escrow_refunded_at',
-  // JOIN outputs folded into `creator` by publicTaskShape
-  'creator_name', 'creator_owner_name', 'creator_certified', 'creator_owner_certified',
+  // JOIN outputs folded into `creator` by publicTaskShape (creator_wallet only while the wallet is the creator:
+  // once attached to an agent, the agent is the poster)
+  'creator_wallet', 'creator_name', 'creator_owner_name', 'creator_certified', 'creator_owner_certified',
   // JOIN output folded into `claimed_by` by publicTaskShape
   'claimer_name',
 ]);
@@ -216,17 +225,20 @@ export async function loadTask(db: DBAdapter, taskId: string): Promise<TaskRow |
   return db.get<TaskRow>('SELECT * FROM tasks WHERE task_id = ?', taskId);
 }
 
-/** The single creator-authorization predicate for both route families. */
+/** The single creator-authorization predicate for every route family. */
 export function creatorMatches(
-  task: Pick<TaskRow, 'creator_kind' | 'creator_agent_id' | 'creator_owner_id'>,
+  task: Pick<TaskRow, 'creator_kind' | 'creator_agent_id' | 'creator_owner_id' | 'creator_wallet'>,
   actor: Actor,
 ): boolean {
   if (actor.kind === 'agent') return task.creator_kind === 'agent' && task.creator_agent_id === actor.agentId;
-  return task.creator_kind === 'owner' && task.creator_owner_id === actor.ownerId;
+  if (actor.kind === 'owner') return task.creator_kind === 'owner' && task.creator_owner_id === actor.ownerId;
+  // The paying wallet stays the poster after the task is attached to an agent (creator_wallet is kept).
+  return !!task.creator_wallet && task.creator_wallet.toLowerCase() === actor.wallet.toLowerCase();
 }
 
 export function actorId(actor: Actor): string {
-  return actor.kind === 'agent' ? actor.agentId : actor.ownerId;
+  if (actor.kind === 'agent') return actor.agentId;
+  return actor.kind === 'owner' ? actor.ownerId : actor.wallet.toLowerCase();
 }
 
 // ─── Audit / telemetry ───
@@ -415,13 +427,18 @@ export function publicTaskShape(row: Record<string, unknown>): Record<string, un
     out.required_capabilities = null;
   }
   const kind = t.creator_kind ?? 'agent';
-  const creatorId = kind === 'owner' ? null : t.creator_agent_id;
+  const creatorId = kind === 'agent' ? t.creator_agent_id : null;
+  const wallet = kind === 'wallet' ? (t.creator_wallet ?? null) : null;
   const joined = row as { creator_name?: string | null; creator_owner_name?: string | null; creator_certified?: number; creator_owner_certified?: number };
   out.creator = {
     kind,
     id: creatorId,
     // Truncated display id for cards; the full id (agents only) is `id`.
-    short_id: creatorId ? (creatorId.length > 12 ? `${creatorId.slice(0, 12)}…` : creatorId) : null,
+    short_id: creatorId
+      ? (creatorId.length > 12 ? `${creatorId.slice(0, 12)}…` : creatorId)
+      : (wallet ? `${wallet.slice(0, 6)}…${wallet.slice(-4)}` : null),
+    // A wallet-only poster (x402): the address that paid. Its tasks list at GET /v1/tasks?creator=<address>.
+    ...(kind === 'wallet' ? { wallet } : {}),
     // Sanitized so a display name can never forge the cert badge next to it.
     name: sanitizeDisplayName((kind === 'owner' ? joined.creator_owner_name : joined.creator_name) ?? null),
     cert: kind === 'owner'

@@ -49,12 +49,13 @@ export function defaultOpenExpiresAt(env: ExpiryEnv, nowIso: string): string {
  */
 export function resolveOpenExpiry(
   env: ExpiryEnv,
-  creatorId: string,
+  /** null = a wallet-only poster (routes/x402-tasks.ts), never a house account. */
+  creatorId: string | null,
   requestedDays: number | undefined,
   nowIso: string,
 ): { ok: true; expiresAt: string | null } | { ok: false; max: number } {
   if (requestedDays === undefined) return { ok: true, expiresAt: defaultOpenExpiresAt(env, nowIso) };
-  const isHouse = houseAccountIds(env?.HOUSE_ACCOUNT_IDS).has(creatorId);
+  const isHouse = creatorId !== null && houseAccountIds(env?.HOUSE_ACCOUNT_IDS).has(creatorId);
   if (requestedDays === 0) {
     return isHouse ? { ok: true, expiresAt: null } : { ok: false, max: MAX_OPEN_TTL_DAYS };
   }

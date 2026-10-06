@@ -143,6 +143,8 @@ export interface PaymentRequired {
   error?: string;
   resource: { url: string; description: string; mimeType: string };
   accepts: PaymentRequirementsV2[];
+  /** x402 v2 extensions, e.g. the Bazaar discovery block on the wallet-only hire endpoints. */
+  extensions?: Record<string, unknown>;
 }
 
 // ─── Errors ───

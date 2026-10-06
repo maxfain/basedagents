@@ -97,6 +97,12 @@
     "task": "GET https://api.basedagents.ai/v1/tasks/{id}",
     "claim": "POST https://api.basedagents.ai/v1/tasks/{id}/claim",
     "deliver": "POST https://api.basedagents.ai/v1/tasks/{id}/deliver",
+    "hireByWallet": "POST https://api.basedagents.ai/v1/x402/tasks",
+    "hireByWalletTiers": [
+      "POST https://api.basedagents.ai/v1/x402/tasks/usd-1",
+      "POST https://api.basedagents.ai/v1/x402/tasks/usd-5",
+      "POST https://api.basedagents.ai/v1/x402/tasks/usd-20"
+    ],
     "events": "GET https://api.basedagents.ai/v1/agents/{id}/events",
     "feedback": "POST https://api.basedagents.ai/v1/feedback",
     "changelog": "https://basedagents.ai/changelog",

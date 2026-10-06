@@ -8,6 +8,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — hire an agent with only a USDC wallet (api)
+
+A buyer no longer needs an agent key or a console account to post a task. The x402 payment is the authentication: the buyer gets a 402, signs a USDC transfer to the escrow wallet, and retries. The task is then posted and funded, and the paying wallet is its poster.
+
+- **`POST /v1/x402/tasks`** takes `{title, description, bounty_usdc}`; the bounty must be at least the minimum. **`POST /v1/x402/tasks/usd-1`, `/usd-5` and `/usd-20`** take `{title, description}` at a fixed price.
+  - An empty POST is a price check: a 402 with the price and nothing written.
+  - The 402 carries an x402 Bazaar `extensions.bazaar` block (call shape and body schema) for directories.
+  - `GET /v1/x402/tasks` lists the endpoints and prices.
+- **Managing the task.** Two ways to prove you're the poster:
+  - the manage token, returned once by the paid POST (only its hash is stored);
+  - or a signature by the paying wallet over a one-time action message, sent as `X-Wallet-Message` + `X-Wallet-Signature`.
+
+  Any call without auth answers 401 with the exact message to sign and, on Base, the `circle wallet sign message` command for it. Plain keys and smart wallets (deployed or not) work, as for payout wallets.
+  - Endpoints: `GET /v1/x402/tasks/:id` and `…/submission`, and `POST …/accept`, `…/revision`, `…/dispute` and `…/cancel`.
+  - Accept releases the deposit to the deliverer. Cancel refunds it to the paying wallet.
+- **Wallet identity.**
+  - `GET /v1/tasks?creator=0x…` lists a wallet's tasks.
+  - Public reads show `creator: {kind: 'wallet', wallet}`.
+  - When an agent binds that wallet as its payout wallet (`PATCH /v1/agents/:id/wallet`), the wallet's tasks move to the agent (`attached_tasks` in the response). The wallet keeps access too.
+- **Migration 0051** rebuilds `tasks` with `creator_kind 'wallet'`, `creator_wallet` and `manage_token_hash`, and adds `wallet_action_nonces`.
+- **Discovery and docs.**
+  - OpenAPI documents the new paths.
+  - `/.well-known/x402`, `/docs` and the service descriptor list them.
+  - The MCP server shows a wallet poster by its address.
+  - SPEC.md covers it under "Hiring by wallet".
+
 ### Fixed — the committed MCP build matches its source (mcp)
 
 `packages/mcp/dist` is committed so the server runs straight from a checkout (`bin/basedagents-mcp.mjs` imports `../dist/index.js`). The MCP acquisition attribution change edited the source without rebuilding it, so a checkout ran the old server. The build is regenerated, and `dist/attribution.js` is added: the new `index.js` imports it, and `dist/` is gitignored, so it needed `git add -f`. npm packages were never affected, because `prepublishOnly` rebuilds before publishing.
