@@ -36,6 +36,30 @@ const EMPTY: TestingIntake = {
   suspected_failure: '',
 };
 
+/**
+ * Prefill from the query string (the hosted MCP's draft_audit_request builds
+ * these links). Only the descriptive fields: the fixture, auth mode, write
+ * steps and both declarations stay for the requester to fill and tick here.
+ * Lengths mirror IntakeSchema; non-https URLs are dropped.
+ */
+function prefillFromQuery(search: string): TestingIntake {
+  const q = new URLSearchParams(search);
+  const text = (k: string, max: number) => (q.get(k) ?? '').slice(0, max);
+  const https = (k: string) => { const v = q.get(k) ?? ''; return /^https:\/\//.test(v) && v.length <= 2048 ? v : ''; };
+  const category = q.get('product_category');
+  return {
+    ...EMPTY,
+    product_name: text('product_name', 120),
+    product_category: category === 'mcp' || category === 'other' ? category : 'api',
+    product_url: https('product_url'),
+    documentation_url: https('documentation_url'),
+    workflow_objective: text('workflow_objective', 2000),
+    expected_result: text('expected_result', 4000),
+    target_environment: text('target_environment', 500),
+    suspected_failure: text('suspected_failure', 2000),
+  };
+}
+
 function errText(err: unknown): string {
   if (err instanceof ControlApiError) return err.message;
   return err instanceof Error ? err.message : String(err);
@@ -53,7 +77,7 @@ export default function TestingIntake() {
   const [publicEmail, setPublicEmail] = useState('');
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [sentNote, setSentNote] = useState('');
-  const [intake, setIntake] = useState<TestingIntake>(EMPTY);
+  const [intake, setIntake] = useState<TestingIntake>(() => (requestId ? EMPTY : prefillFromQuery(location.search)));
   const [version, setVersion] = useState<number | null>(null);
   const [authority, setAuthority] = useState(false);
   const [disclosure, setDisclosure] = useState(false);
@@ -156,7 +180,7 @@ export default function TestingIntake() {
   }
 
   if (loading || (onPublicRoute && sessionLoading)) return <div className="page"><p className="muted">Loading…</p></div>;
-  if (onPublicRoute && owner) return <Navigate to="/testing/new" replace />;
+  if (onPublicRoute && owner) return <Navigate to={`/testing/new${location.search}`} replace />;
 
   if (publicMode && sentTo) {
     return (

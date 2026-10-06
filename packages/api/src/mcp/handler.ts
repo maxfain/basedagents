@@ -173,15 +173,21 @@ class ApiError extends Error {
   }
 }
 
-// ─── Unsigned public-API fetch (reads only; no credential ever crosses) ──────
+// ─── Unsigned public-API fetch (no credential ever crosses) ─────────────────
 /** The one method of a Workers service binding (Fetcher) this file uses. */
 export interface ApiFetcher {
   fetch(request: Request): Promise<Response>;
 }
 
-async function apiFetch(ctx: { apiBase: string; api?: ApiFetcher; clientIp?: string }, path: string): Promise<unknown> {
+async function apiFetch(
+  ctx: { apiBase: string; api?: ApiFetcher; clientIp?: string },
+  path: string,
+  post?: { json: unknown },
+): Promise<unknown> {
   const url = `${ctx.apiBase}${path}`;
   const headers: Record<string, string> = { 'User-Agent': `basedagents-mcp/${SERVER_VERSION}` };
+  if (post) headers['Content-Type'] = 'application/json';
+  const init: RequestInit = post ? { method: 'POST', headers, body: JSON.stringify(post.json) } : { headers };
   let res: Response;
   if (ctx.api) {
     // A binding request carries no edge-set client IP, and the API keys its
@@ -193,9 +199,9 @@ async function apiFetch(ctx: { apiBase: string; api?: ApiFetcher; clientIp?: str
       headers['CF-Connecting-IP'] = ctx.clientIp;
       headers['X-Forwarded-For'] = ctx.clientIp;
     }
-    res = await ctx.api.fetch(new Request(url, { headers }));
+    res = await ctx.api.fetch(new Request(url, init));
   } else {
-    res = await fetch(url, { headers });
+    res = await fetch(url, init);
   }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -207,6 +213,45 @@ async function apiFetch(ctx: { apiBase: string; api?: ApiFetcher; clientIp?: str
 // ─── Formatters (ported verbatim from packages/mcp/src/index.ts) ─────────────
 // Same text the stdio server produces, so a model gets identical read output on
 // either transport.
+
+/** The intake's own URL rule (IntakeSchema httpsUrl): parses, https, no embedded credentials. Returns the normalized URL, or null. */
+function intakeUrl(v: string): string | null {
+  try {
+    const u = new URL(v);
+    return u.protocol === 'https:' && u.username === '' && u.password === '' && u.hostname !== '' ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Text for a stored /v1/scan report (scan_mcp_server). */
+function formatScanReport(r: Record<string, unknown>, source: string, fresh: boolean): string {
+  const findings = (Array.isArray(r.findings) ? r.findings : []) as Array<Record<string, unknown>>;
+  const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+  const count = (sev: string) => findings.filter((f) => f.severity === sev).length;
+  const meta = (r.metadata ?? {}) as Record<string, unknown>;
+  const name = String(r.package_name ?? '');
+  const id = source === 'npm' ? name : `${source}:${name}`;
+  const top = findings
+    .filter((f) => f.severity === 'critical' || f.severity === 'high' || f.severity === 'medium')
+    .sort((x, y) => (rank[String(x.severity)] ?? 9) - (rank[String(y.severity)] ?? 9))
+    .slice(0, 8);
+  const lines = [
+    `## Security scan: ${name}${r.package_version ? `@${r.package_version}` : ''} (${source})`,
+    `**Grade:** ${r.grade}  |  **Score:** ${Math.round(Number(r.score))}/100  |  **Scanned:** ${r.scanned_at}${fresh ? ' (just now)' : ' (stored report; ask for a rescan to refresh)'}`,
+    `**Findings:** ${count('critical')} critical, ${count('high')} high, ${count('medium')} medium, ${count('low')} low, ${count('info')} info`,
+  ];
+  if (meta.has_install_scripts !== undefined) lines.push(`**Install scripts:** ${meta.has_install_scripts ? 'yes' : 'no'}  |  **Dependencies:** ${meta.dependency_count ?? '?'}  |  **Files scanned:** ${meta.files_scanned ?? '?'}`);
+  if (top.length) {
+    lines.push('', '### Top findings');
+    for (const f of top) lines.push(`- **${f.severity}** ${f.category}: ${f.description} (\`${f.file}${f.line ? `:${f.line}` : ''}\`)`);
+  } else {
+    lines.push('', 'No critical, high or medium findings.');
+  }
+  lines.push('', `**Full report:** https://basedagents.ai/scan/${encodeURIComponent(id)}`);
+  lines.push('', 'Static analysis of the published code: it flags risky patterns, it is not proof of safety, and it does not test whether agents can use the server (draft_audit_request covers that).');
+  return lines.join('\n');
+}
 
 function formatAgent(a: Record<string, unknown>): string {
   const lines: string[] = [
@@ -850,6 +895,177 @@ const TOOLS: ToolDef[] = [
           url,
           '',
           `Nothing is posted until it is submitted there.`,
+        ].join('\n'),
+      );
+    },
+  },
+  // ── scan_mcp_server (public scanner: cached report, else a fresh scan) ──
+  // Fronts /v1/scan: GET the stored report, and only when there is none (or
+  // the user asks for a fresh one) POST /v1/scan/trigger. A trigger downloads
+  // the published code from npm/PyPI/GitHub and stores a public report, so the
+  // tool is not read-only and is open-world; it never runs the code.
+  {
+    name: 'scan_mcp_server',
+    description:
+      'Use this when the user wants to audit an MCP server, agent tool or package for security — "audit my MCP server", "is this MCP server safe to install?", "scan this npm package", "check github.com/owner/repo for risky code". Statically scans the published code (npm package, PyPI package, or GitHub repo) for risky patterns — install scripts, shell execution, network exfiltration, credential access, obfuscation — and returns a 0–100 score, a grade, the top findings and a public report link. Reuses the latest stored report unless rescan is true. It reads code, it does not run it, and it does not test whether agents can use the server: for that, offer draft_audit_request.',
+    annotations: { title: 'Security-scan an MCP server', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    inputSchema: obj({
+      target: { type: 'string', minLength: 1, maxLength: 300, description: 'npm package (e.g. "@modelcontextprotocol/server-filesystem"), PyPI package, or GitHub repo ("owner/repo" or its https://github.com URL)' },
+      source: enm(['npm', 'pypi', 'github'], 'Where the code is published. Default: github for a GitHub URL or owner/repo, otherwise npm'),
+      rescan: { type: 'boolean', description: 'Scan again even if a stored report exists (default false)' },
+    }, ['target']),
+    validate: (a) => {
+      const raw = asString(a.target)?.trim();
+      if (!raw || raw.length > 300 || /\s/.test(raw)) return null;
+      const out: Record<string, unknown> = {};
+      let source: string | undefined;
+      if (a.source !== undefined) { source = inEnum(a.source, ['npm', 'pypi', 'github']) ?? undefined; if (!source) return null; }
+      let target = raw;
+      const gh = /^(?:https:\/\/)?(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i.exec(raw);
+      if (gh) { source = source ?? 'github'; target = `${gh[1]}/${gh[2]}`; }
+      else if (raw.startsWith('github:')) { source = source ?? 'github'; target = raw.slice(7); }
+      else if (raw.startsWith('pypi:')) { source = source ?? 'pypi'; target = raw.slice(5); }
+      else if (raw.startsWith('npm:')) { source = source ?? 'npm'; target = raw.slice(4); }
+      // npm names only contain "/" when scoped (@scope/name), so a bare a/b is a repo.
+      else if (!source && /^[\w.-]+\/[\w.-]+$/.test(raw)) source = 'github';
+      source = source ?? 'npm';
+      if (!target) return null;
+      if (source === 'github' && !/^[\w.-]+\/[\w.-]+$/.test(target)) return null;
+      if (source !== 'github' && !/^(@[\w.-]+\/)?[\w.-]+$/.test(target)) return null;
+      out.source = source;
+      out.target = target;
+      if (a.rescan !== undefined) { if (typeof a.rescan !== 'boolean') return null; out.rescan = a.rescan; }
+      return out;
+    },
+    execute: async (a, ctx) => {
+      const source = String(a.source);
+      const target = String(a.target);
+      // Always prefixed: an unprefixed GET falls back to ANY source's report
+      // with that name (scan.ts backward compat), e.g. pypi:requests for npm
+      // requests. The source check below backstops the same mix-up.
+      const key = `${source}:${target}`;
+      const sameSource = (r: Record<string, unknown> | null) => !!r && (r.source ?? 'npm') === source;
+      /** The API's own public message ({error, message}), else the generic one. */
+      const apiMessage = (e: ApiError) => {
+        try { const m = (JSON.parse(e.bodyText) as { message?: unknown }).message; if (typeof m === 'string' && m) return m; } catch { /* not JSON */ }
+        return e.message;
+      };
+      let report: Record<string, unknown> | null = null;
+      let fresh = false;
+      if (!a.rescan) {
+        try {
+          report = (await apiFetch(ctx, `/v1/scan/${encodeURIComponent(key)}`)) as Record<string, unknown>;
+        } catch (e) {
+          if (!(e instanceof ApiError) || e.status !== 404) throw e;
+        }
+        if (!sameSource(report)) report = null;
+      }
+      if (!report) {
+        try {
+          await apiFetch(ctx, '/v1/scan/trigger', { json: { source, target } });
+        } catch (e) {
+          if (e instanceof ApiError) {
+            return { content: [{ type: 'text', text: `Error: ${apiMessage(e)}` }], isError: true };
+          }
+          throw e;
+        }
+        report = (await apiFetch(ctx, `/v1/scan/${encodeURIComponent(key)}`)) as Record<string, unknown>;
+        if (!sameSource(report)) throw new Error(`scan stored no ${source} report for ${target}`);
+        fresh = true;
+      }
+      return text(formatScanReport(report, source, fresh));
+    },
+  },
+  // ── draft_audit_request (pure link builder + catalog read; no server write) ──
+  // The paid, operator-reviewed Agent Compatibility Audit. Prefills the public
+  // intake (app.basedagents.ai/testing/request), which reads these exact query
+  // keys (packages/console/src/pages/testing/Intake.tsx prefillFromQuery);
+  // limits mirror IntakeSchema. The fixture, auth mode and both declarations
+  // are left for the requester on the form.
+  {
+    name: 'draft_audit_request',
+    description:
+      'Use this when the user wants independent AI agents to test whether their product, API or MCP server actually works for agents — "audit my MCP server with real agents", "can AI agents use my API?", "test my product with agents and give me a report", "agent compatibility audit". Takes the product and the one workflow to test, and returns a prefilled link to the Agent Compatibility Audit request form: independent agents run the workflow in several environments and BasedAgents delivers a reviewed report with evidence. An operator confirms scope and the exact price before any payment. This tool only drafts the link — nothing is submitted or charged from here. For an instant static security scan of the code, use scan_mcp_server.',
+    annotations: { title: 'Draft an agent audit request', ...READ_ONLY },
+    inputSchema: obj({
+      product_name: { type: 'string', minLength: 1, maxLength: 120, description: 'Product, API or MCP server name' },
+      product_category: enm(['mcp', 'api', 'other'], 'What is being tested (default mcp)'),
+      product_url: { type: 'string', maxLength: 2048, description: 'Public https URL of the product or server' },
+      documentation_url: { type: 'string', maxLength: 2048, description: 'Public https URL of the docs an agent would follow' },
+      workflow_objective: { type: 'string', minLength: 1, maxLength: 2000, description: 'The ONE workflow an agent should complete, in plain steps' },
+      expected_result: { type: 'string', maxLength: 4000, description: 'What establishes a correct result' },
+      target_environment: { type: 'string', maxLength: 500, description: 'What to test against and its version, e.g. "production MCP server v1.4, streamable HTTP"' },
+      suspected_failure: { type: 'string', maxLength: 2000, description: 'Where the user suspects agents get stuck, if anywhere' },
+    }, ['product_name', 'workflow_objective']),
+    validate: (a) => {
+      const name = asString(a.product_name)?.trim();
+      const objective = asString(a.workflow_objective)?.trim();
+      if (!name || name.length > 120 || !objective || objective.length > 2000) return null;
+      const out: Record<string, unknown> = { product_name: name, workflow_objective: objective };
+      out.product_category = a.product_category === undefined ? 'mcp' : inEnum(a.product_category, ['mcp', 'api', 'other']);
+      if (!out.product_category) return null;
+      for (const k of ['product_url', 'documentation_url'] as const) {
+        if (a[k] === undefined) continue;
+        // Normalized (lowercase scheme/host), so the console's https:// prefill
+        // check keeps what this check accepted.
+        const v = intakeUrl(asString(a[k])?.trim() ?? '');
+        if (!v || v.length > 2048) return null;
+        out[k] = v;
+      }
+      const caps = { expected_result: 4000, target_environment: 500, suspected_failure: 2000 } as const;
+      for (const [k, max] of Object.entries(caps)) {
+        if (a[k] === undefined) continue;
+        const v = asString(a[k]);
+        if (v === undefined || v.length > max) return null;
+        out[k] = v;
+      }
+      return out;
+    },
+    execute: async (a, ctx) => {
+      // Price and availability come from the live catalog; the link is still
+      // useful if the catalog read fails, so that failure only drops the line.
+      let offer = '';
+      try {
+        const cat = (await apiFetch(ctx, '/v1/testing/catalog')) as {
+          available?: boolean;
+          package?: { price_cents?: number; currency?: string; workflows?: number; external_runs?: number; included_targeted_retests?: number };
+        };
+        if (cat.available === false) {
+          return {
+            content: [{ type: 'text', text: 'The Agent Compatibility Audit is not taking requests right now. Offer scan_mcp_server for an instant security scan, or draft_task_link to hire agents to test it as a task.' }],
+            isError: true,
+          };
+        }
+        const p = cat.package;
+        if (p && typeof p.price_cents === 'number') {
+          const price = `${(p.price_cents / 100).toFixed(0)} ${String(p.currency ?? 'usd').toUpperCase()}`;
+          offer = `**Package:** ${p.workflows ?? 1} workflow, ${p.external_runs ?? 3} independent agent runs, ${p.included_targeted_retests ?? 1} retest, reviewed report — ${price}, confirmed by an operator before any payment.`;
+        }
+      } catch { /* catalog unavailable: keep the link */ }
+      const qs = new URLSearchParams();
+      for (const k of ['product_name', 'product_category', 'product_url', 'documentation_url', 'workflow_objective', 'expected_result', 'target_environment', 'suspected_failure'] as const) {
+        if (a[k] !== undefined && String(a[k]).length > 0) qs.set(k, String(a[k]));
+      }
+      const url = `${ctx.consoleBase}/testing/request?${qs}`;
+      if (url.length > 7500) {
+        return {
+          content: [{ type: 'text', text: `Error: this draft encodes to a ${url.length}-character link, past the 7,500-character limit a prefilled URL can reliably carry. Shorten the workflow and expected result and try again.` }],
+          isError: true,
+        };
+      }
+      return text(
+        [
+          `## Audit request draft ready`,
+          '',
+          `**Product:** ${a.product_name} (${a.product_category})`,
+          `**Workflow:** ${a.workflow_objective}`,
+          ...(offer ? [offer] : []),
+          '',
+          'Open this link to finish the request: add a synthetic test fixture, confirm authority and the disclosure, and enter an email (no account needed):',
+          '',
+          url,
+          '',
+          'Nothing is submitted or charged until it is sent there, and an operator reviews every request first.',
         ].join('\n'),
       );
     },

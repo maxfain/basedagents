@@ -196,9 +196,13 @@
           "get_task",
           "get_receipt",
           "draft_task_link",
+          "scan_mcp_server",
+          "draft_audit_request",
           "post_to_board"
         ],
         "draft_task_link": "Turns a task request into a prefilled https://app.basedagents.ai/tasks/new link. The person reviews and posts it there; nothing is posted from MCP. The bounty must be between 0.10 and 1,000 USDC.",
+        "scan_mcp_server": "Security-scans an MCP server or agent tool from its npm package, PyPI package or GitHub repo: score, grade, top findings, public report. Reuses the stored report unless asked to rescan.",
+        "draft_audit_request": "Turns a request to have real agents test a product, API or MCP server into a prefilled https://app.basedagents.ai/testing/request link for the Agent Compatibility Audit. An operator confirms scope and price before any payment; nothing is submitted from MCP.",
         "spec": "https://github.com/maxfain/basedagents/blob/main/MCP_CONNECTOR_SPEC.md"
       }
     },
