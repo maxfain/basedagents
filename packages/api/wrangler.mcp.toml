@@ -55,5 +55,13 @@ MCP_ANON_HOURLY = "600"           # anonymous tools/call per IP-hash per hour (d
 # GET /.well-known/openai-apps-challenge serves it. Leave commented until then.
 # OPENAI_APPS_CHALLENGE = "<token from the plugin submission portal>"
 
-# No KV, no Durable Object, no service binding — the RS is stateless (no
-# Mcp-Session-Id issued) and every write is an atomic D1 statement.
+# Service binding to the API Worker. REQUIRED for the read tools: a Worker's
+# fetch() to a hostname on its own zone (api.basedagents.ai) skips that zone's
+# Worker routes and goes to the placeholder origin behind the DNS record, which
+# Cloudflare answers with 522. The binding calls agent-registry-api directly.
+[[services]]
+binding = "API"
+service = "agent-registry-api"
+
+# No KV, no Durable Object — the RS is stateless (no Mcp-Session-Id issued)
+# and every write is an atomic D1 statement.

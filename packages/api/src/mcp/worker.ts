@@ -40,6 +40,8 @@ export type WorkerBindings = {
   MCP_RESOURCE_URL?: string;
   MCP_ISSUER?: string;
   API_BASE_URL?: string;
+  /** Service binding to agent-registry-api; reads go through it (see handler.ts). */
+  API?: import('./handler.js').ApiFetcher;
   CONSOLE_BASE_URL?: string;
   MCP_SIGNING_SECRET?: string;
   MCP_DEV?: string;

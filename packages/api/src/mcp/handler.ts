@@ -62,6 +62,13 @@ export type McpEnv = {
     MCP_RESOURCE_URL?: string;
     MCP_ISSUER?: string;
     API_BASE_URL?: string;
+    /**
+     * Service binding to the API Worker (`agent-registry-api`). Reads MUST go
+     * through it in production: a Worker's fetch() to a hostname on its own
+     * zone skips that zone's Worker routes and hits the placeholder origin
+     * (Cloudflare answers 522). Absent in tests and local dev → public fetch.
+     */
+    API?: ApiFetcher;
     /** Console origin for draft_task_link handoffs (default app.basedagents.ai). */
     CONSOLE_BASE_URL?: string;
     /** Per-IP hourly budget for ANONYMOUS tools/call (decimal string; shared egress IPs need headroom). */
@@ -146,10 +153,15 @@ class ApiError extends Error {
 }
 
 // ─── Unsigned public-API fetch (reads only; no credential ever crosses) ──────
-async function apiFetch(apiBase: string, path: string): Promise<unknown> {
-  const res = await fetch(`${apiBase}${path}`, {
-    headers: { 'User-Agent': `basedagents-mcp/${SERVER_VERSION}` },
-  });
+/** The one method of a Workers service binding (Fetcher) this file uses. */
+export interface ApiFetcher {
+  fetch(request: Request): Promise<Response>;
+}
+
+async function apiFetch(ctx: { apiBase: string; api?: ApiFetcher }, path: string): Promise<unknown> {
+  const url = `${ctx.apiBase}${path}`;
+  const init = { headers: { 'User-Agent': `basedagents-mcp/${SERVER_VERSION}` } };
+  const res = ctx.api ? await ctx.api.fetch(new Request(url, init)) : await fetch(url, init);
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new ApiError(`BasedAgents API returned ${res.status} for ${path}`, res.status, text);
@@ -341,6 +353,8 @@ function formatPayment(p: Record<string, unknown>): string {
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 interface ToolContext {
   apiBase: string;
+  /** Service binding to the API Worker; reads use it when present (see McpEnv.API). */
+  api?: ApiFetcher;
   consoleBase: string;
   db: DBAdapter;
   /** null on anonymous calls — only tools with `auth` set may rely on it. */
@@ -440,7 +454,7 @@ const TOOLS: ToolDef[] = [
         if (a[k] !== undefined) qs.set(k, String(a[k]));
       }
       if (a.limit !== undefined) qs.set('limit', String(a.limit));
-      const data = (await apiFetch(ctx.apiBase, `/v1/agents/search?${qs}`)) as {
+      const data = (await apiFetch(ctx, `/v1/agents/search?${qs}`)) as {
         agents: Record<string, unknown>[];
         pagination: { total: number };
       };
@@ -468,7 +482,7 @@ const TOOLS: ToolDef[] = [
     inputSchema: obj({ agent_id: str('The agent ID (e.g. ag_7Xk9mP2qR8nK4vL3) or an exact agent name') }, ['agent_id']),
     validate: (a) => (asString(a.agent_id) ? { agent_id: a.agent_id } : null),
     execute: async (a, ctx) => {
-      const data = (await apiFetch(ctx.apiBase, `/v1/agents/${encodeURIComponent(String(a.agent_id))}`)) as Record<string, unknown>;
+      const data = (await apiFetch(ctx, `/v1/agents/${encodeURIComponent(String(a.agent_id))}`)) as Record<string, unknown>;
       return text(formatAgent(data));
     },
   },
@@ -481,7 +495,7 @@ const TOOLS: ToolDef[] = [
     inputSchema: obj({ agent_id: str('The agent ID to get reputation for') }, ['agent_id']),
     validate: (a) => (asString(a.agent_id) ? { agent_id: a.agent_id } : null),
     execute: async (a, ctx) => {
-      const data = (await apiFetch(ctx.apiBase, `/v1/agents/${encodeURIComponent(String(a.agent_id))}/reputation`)) as Record<string, unknown>;
+      const data = (await apiFetch(ctx, `/v1/agents/${encodeURIComponent(String(a.agent_id))}/reputation`)) as Record<string, unknown>;
       return text(formatReputation(data));
     },
   },
@@ -495,8 +509,8 @@ const TOOLS: ToolDef[] = [
     validate: () => ({}),
     execute: async (_a, ctx) => {
       const [latest, status] = (await Promise.all([
-        apiFetch(ctx.apiBase, '/v1/chain/latest'),
-        apiFetch(ctx.apiBase, '/v1/status'),
+        apiFetch(ctx, '/v1/chain/latest'),
+        apiFetch(ctx, '/v1/status'),
       ])) as [Record<string, unknown>, Record<string, unknown>];
       const agents = (status.agents as Record<string, number>) ?? {};
       const verifs = (status.verifications as Record<string, unknown>) ?? {};
@@ -526,7 +540,7 @@ const TOOLS: ToolDef[] = [
       return { sequence: a.sequence };
     },
     execute: async (a, ctx) => {
-      const e = (await apiFetch(ctx.apiBase, `/v1/chain/${a.sequence}`)) as Record<string, unknown>;
+      const e = (await apiFetch(ctx, `/v1/chain/${a.sequence}`)) as Record<string, unknown>;
       return text(
         [
           `## Chain Entry #${e.sequence}`,
@@ -576,11 +590,11 @@ const TOOLS: ToolDef[] = [
       if (!a.cursor) {
         const probeQs = new URLSearchParams(qs);
         probeQs.set('limit', '1');
-        const probe = (await apiFetch(ctx.apiBase, `/v1/board/posts?${probeQs}`)) as BoardListResponse;
+        const probe = (await apiFetch(ctx, `/v1/board/posts?${probeQs}`)) as BoardListResponse;
         pollCursor = probe.next_cursor ?? 'MA';
       }
 
-      const data = (await apiFetch(ctx.apiBase, `/v1/board/posts?${qs}`)) as BoardListResponse;
+      const data = (await apiFetch(ctx, `/v1/board/posts?${qs}`)) as BoardListResponse;
       if (!data.posts.length) {
         const cursorLine = a.cursor ? `Next cursor: ${a.cursor}` : `Next cursor: ${pollCursor}`;
         return text(`## Board (0 posts)\n\nNothing new.\n\n${cursorLine}`);
@@ -622,7 +636,7 @@ const TOOLS: ToolDef[] = [
       qs.set('status', String(a.status ?? 'open'));
       for (const k of ['category', 'capability'] as const) if (a[k] !== undefined) qs.set(k, String(a[k]));
       if (a.limit !== undefined) qs.set('limit', String(a.limit));
-      const data = (await apiFetch(ctx.apiBase, `/v1/tasks?${qs}`)) as { tasks: Record<string, unknown>[] };
+      const data = (await apiFetch(ctx, `/v1/tasks?${qs}`)) as { tasks: Record<string, unknown>[] };
       if (!data.tasks.length) return text('No tasks found matching your criteria.');
       const lines = [`Found **${data.tasks.length}** task(s):\n`];
       for (const t of data.tasks) {
@@ -651,7 +665,7 @@ const TOOLS: ToolDef[] = [
     inputSchema: obj({ task_id: str('The task ID, e.g. task_abc123') }, ['task_id']),
     validate: (a) => (asString(a.task_id) ? { task_id: a.task_id } : null),
     execute: async (a, ctx) => {
-      const data = (await apiFetch(ctx.apiBase, `/v1/tasks/${encodeURIComponent(String(a.task_id))}`)) as {
+      const data = (await apiFetch(ctx, `/v1/tasks/${encodeURIComponent(String(a.task_id))}`)) as {
         task: Record<string, unknown>;
         submission: Record<string, unknown> | null;
         delivery_receipt?: Record<string, unknown> | null;
@@ -687,7 +701,7 @@ const TOOLS: ToolDef[] = [
     inputSchema: obj({ task_id: str('The task ID to get the delivery receipt for') }, ['task_id']),
     validate: (a) => (asString(a.task_id) ? { task_id: a.task_id } : null),
     execute: async (a, ctx) => {
-      const data = (await apiFetch(ctx.apiBase, `/v1/tasks/${encodeURIComponent(String(a.task_id))}/receipt`)) as {
+      const data = (await apiFetch(ctx, `/v1/tasks/${encodeURIComponent(String(a.task_id))}/receipt`)) as {
         receipt: Record<string, unknown>;
       };
       const r = data.receipt;
@@ -1037,7 +1051,7 @@ app.post('/mcp', bearerMiddleware, async (c) => {
       // everything else is read/discovery traffic for the activity rollup.
       recordHostedAttribution(c, { meaningful: name === 'post_to_board' });
 
-      const ctx: ToolContext = { apiBase, consoleBase, db, token };
+      const ctx: ToolContext = { apiBase, api: c.env.API, consoleBase, db, token };
       try {
         const result = await tool.execute(validated, ctx);
         return rpcResult(c, id, result);

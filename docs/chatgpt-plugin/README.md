@@ -73,9 +73,11 @@ What lives where:
   are env-tunable in `wrangler.mcp.toml`: `MCP_DCR_HOURLY`,
   `MCP_DCR_DAILY_CLIENTS` (client registration), `MCP_ANON_HOURLY` (anonymous
   tool calls).
-- The upstream public API keeps its own per-IP limits (e.g. 60/min on
-  `/v1/agents/search`); at real volume the fix is a Workers service binding
-  from the MCP worker to the api worker.
+- Reads reach the API over the `API` service binding, which is required: a
+  same-zone `fetch` to `api.basedagents.ai` gets 522. The API's per-IP limits
+  (e.g. 60/min on `/v1/agents/search`) see all connector reads as one caller.
+  If ChatGPT traffic trips them, forward the end client's IP over the binding or
+  exempt it.
 - Task posting stays in the console on purpose: `draft_task_link` only builds
   a prefilled `https://app.basedagents.ai/tasks/new?…` URL — the passkey
   ceremony and any escrow deposit happen there.

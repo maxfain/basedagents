@@ -96,7 +96,7 @@ The request is persisted for 10 minutes. A signed, httpOnly, `SameSite=Lax` cook
 2. **A bearer is presented.** It must be live, unrevoked and unexpired, and its stored `resource` must equal `MCP_RESOURCE_URL`. The RFC 8707 audience is re-checked on every request, which closes the confused-deputy hole. Anything else returns HTTP **401** with `WWW-Authenticate: Bearer resource_metadata="<issuer>/.well-known/oauth-protected-resource", error="invalid_token"`. This happens even on a call that would have worked anonymously, so a client holding a dead token refreshes instead of silently downgrading.
 3. **An auth-gated tool is called without a token.** The answer is the same transport-level 401 and `WWW-Authenticate` header. That header is what sends ChatGPT or claude.ai into the OAuth account-link flow. A valid token that lacks the tool's scope gets `-32003` instead, since linking again would not help.
 
-The client's token is never forwarded upstream. Reads call the public API unsigned.
+The client's token is never forwarded upstream. Reads call the public API unsigned, **through the `API` service binding** to the `agent-registry-api` Worker. That binding is required, not an optimisation. A Worker's `fetch()` to a hostname on its own zone (`api.basedagents.ai` on `basedagents.ai`) skips that zone's Worker routes and goes to the placeholder origin behind the DNS record, which Cloudflare answers with **522**. Without the binding (tests, local dev), reads fall back to a public `fetch` of `API_BASE_URL`.
 
 **Acquisition attribution** (#163) is best-effort and request-scoped, and a failure never affects the response.
 
@@ -155,7 +155,7 @@ IPs are keyed as `sha256(ip)`: Cloudflare's `cf-connecting-ip` first, then the l
 
 Other controls: PKCE S256 only; exact byte-match on `redirect_uri`; RFC 8707 resource pinning at authorize, token and every `/mcp` call; atomic single-use consumption of authorization requests, login challenges and codes; refresh-token rotation with chain revocation on reuse; CSRF and the mandatory same-browser binding (§3); hashed secrets at rest; cookieless CORS (§1); and the 503 fail-closed when the signing secret is missing.
 
-The upstream public API keeps its own per-IP limits, for example 60/min on `/v1/agents/search`, and all of the connector's reads reach it from Worker egress. At volume, the fix is a Workers service binding to the API Worker.
+The upstream public API keeps its own per-IP limits, for example 60/min on `/v1/agents/search`. All of the connector's reads reach it over the service binding (§5), as one caller. If heavy connector traffic trips those limits, the next step is to forward the end client's IP over the binding or to exempt the binding.
 
 ## §9 Configuration
 
@@ -165,7 +165,8 @@ The upstream public API keeps its own per-IP limits, for example 60/min on `/v1/
 |---|---|---|---|
 | `MCP_RESOURCE_URL` | var | `https://mcp.basedagents.ai/mcp` | RFC 8707 audience and PRM `resource`, byte-identical everywhere |
 | `MCP_ISSUER` | var | `https://mcp.basedagents.ai` | AS issuer; the endpoints derive from it |
-| `API_BASE_URL` | var | `https://api.basedagents.ai` | Public API the reads proxy to |
+| `API_BASE_URL` | var | `https://api.basedagents.ai` | URL of the reads; the request goes over the `API` binding when present |
+| `API` | service binding | `agent-registry-api` | **Required in production** for the read tools (same-zone `fetch` answers 522, §5) |
 | `CONSOLE_BASE_URL` | var | `https://app.basedagents.ai` | Origin of `draft_task_link` handoffs |
 | `MCP_DCR_HOURLY` | var | 20 (code) / 120 (prod) | DCR registrations per IP-hash per hour |
 | `MCP_DCR_DAILY_CLIENTS` | var | 100 (code) / 1000 (prod) | Standing clients per IP-hash per day |

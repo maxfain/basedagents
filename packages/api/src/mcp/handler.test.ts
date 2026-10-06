@@ -374,6 +374,29 @@ describe('/mcp handler', () => {
     expect(((await (await call(token, 4)).json()) as Rpc).error).toBeUndefined();
   });
 
+  it('reads go through the API service binding when present (same-zone fetch would 522), never global fetch', async () => {
+    const globalFetch = vi.fn(async () => new Response('should not be called', { status: 500 }));
+    vi.stubGlobal('fetch', globalFetch);
+    const seen: Request[] = [];
+    const API = {
+      fetch: async (req: Request) => {
+        seen.push(req);
+        return new Response(JSON.stringify({ ok: true, tasks: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+      },
+    };
+    const res = await app.request('/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'browse_tasks', arguments: {} } }),
+    }, { ...ENV, API });
+    const body = (await res.json()) as Rpc;
+    expect((body.result as { isError?: boolean }).isError).toBeUndefined();
+    expect(globalFetch).not.toHaveBeenCalled();
+    expect(seen).toHaveLength(1);
+    expect(seen[0].url).toBe(`${API_BASE_URL}/v1/tasks?status=open`);
+    expect(seen[0].headers.get('Authorization')).toBeNull(); // no credential crosses
+  });
+
   it('browse_tasks asks the API for open tasks unless the caller picks a status', async () => {
     const urls: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => {
