@@ -33,6 +33,9 @@ put() {
 
 put RESEND_API_KEY
 put STRIPE_SECRET_KEY
+# AgentID confidential-client secret (src/agentid/). Only needed when AgentID
+# linking is enabled in wrangler.toml; set AGENTID_CLIENT_SECRET=... before running.
+[ -n "${AGENTID_CLIENT_SECRET:-}" ] && put AGENTID_CLIENT_SECRET
 put STRIPE_WEBHOOK_SECRET
 # Agent Testing worker-payment treasury (64-hex secp256k1; NOT the escrow
 # custody key). Without it, testing task publication fails closed.

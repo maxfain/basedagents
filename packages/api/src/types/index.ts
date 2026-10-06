@@ -579,6 +579,17 @@ export type Bindings = {
   // production and a silent no-op in production.
   POSTHOG_PROJECT_TOKEN?: string;  // project API token (phc_…)
   POSTHOG_HOST?: string;           // optional; defaults to https://us.i.posthog.com
+  // AgentID verified-identity linking (OIDC, docs: packages/api/src/agentid/).
+  // ALL of AGENTID_ENABLED='1' + CLIENT_ID + CLIENT_SECRET + REDIRECT_URI must be
+  // present (and ISSUER/REDIRECT_URI valid URLs) or agentIdConfigFor(env) is null
+  // and the link routes fail closed with 503 (GET /v1/status -> agentid). This is
+  // an OPTIONAL attestation layered on top of AgentSig, never a replacement for it.
+  AGENTID_ENABLED?: string;        // '1' turns AgentID linking on; absent by default (VAR)
+  AGENTID_CLIENT_ID?: string;      // registered AgentID client id (VAR)
+  AGENTID_CLIENT_SECRET?: string;  // confidential-client secret — SECRET, never in wrangler.toml
+  AGENTID_ISSUER?: string;         // OIDC issuer; defaults to https://auth.agentid.com (VAR)
+  AGENTID_REDIRECT_URI?: string;   // our callback, registered in the AgentID console (VAR)
+  AGENTID_SCOPES?: string;         // space-separated; defaults to 'openid email profile' (VAR)
 };
 
 /** Hono env type combining Bindings and Variables */

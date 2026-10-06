@@ -971,6 +971,38 @@ export class RegistryClient {
     return this.fetchAuth<WalletInfo>(keypair, 'PATCH', `/v1/agents/${agentId}/wallet`, { wallet_address: null });
   }
 
+  // ── AgentID verified identity ──
+  //
+  // An OPTIONAL attestation on top of AgentSig. The agent proves control of its
+  // ag_… key to START a link; the owner proves control of the AgentID in a
+  // browser to FINISH it. Never a replacement for request signing.
+
+  /**
+   * Start linking an AgentID (https://agentid.com) to your agent. Returns a
+   * sign-in URL to open in a browser and a link_id to poll. Fails with a 503
+   * `agentid_unavailable` when the registry has not enabled AgentID.
+   */
+  async startAgentIdLink(keypair: AgentKeypair): Promise<AgentIdLinkStart> {
+    const agentId = publicKeyToAgentId(keypair.publicKey);
+    return this.fetchAuth<AgentIdLinkStart>(keypair, 'POST', `/v1/agents/${agentId}/agentid/link`);
+  }
+
+  /** Poll a pending link started with `startAgentIdLink`. */
+  async getAgentIdLinkStatus(linkId: string): Promise<AgentIdLinkStatus> {
+    return this.fetchJson<AgentIdLinkStatus>(`/v1/agentid/links/${encodeURIComponent(linkId)}`);
+  }
+
+  /** The public verified-identity status for any agent (by id or name). */
+  async getAgentIdStatus(agentIdOrName: string): Promise<AgentIdStatusResponse> {
+    return this.fetchJson<AgentIdStatusResponse>(`/v1/agents/${encodeURIComponent(agentIdOrName)}/agentid`);
+  }
+
+  /** Remove your agent's AgentID link. */
+  async unlinkAgentId(keypair: AgentKeypair): Promise<{ ok: boolean; unlinked: boolean }> {
+    const agentId = publicKeyToAgentId(keypair.publicKey);
+    return this.fetchAuth<{ ok: boolean; unlinked: boolean }>(keypair, 'DELETE', `/v1/agents/${agentId}/agentid`);
+  }
+
   /**
    * Low-level PATCH of your wallet. Setting or changing it needs
    * `wallet_proof` (see `setWallet`); a request without one fails with 400
@@ -1667,6 +1699,42 @@ export interface WalletInfo {
   wallet_proof?: { message: string; signature: string; signer_kind: 'eoa' | 'erc1271'; bound_at: string } | null;
   /** How the proof was checked, on a successful bind. */
   signer_kind?: 'eoa' | 'erc1271';
+}
+
+/** Response from starting an AgentID link (`startAgentIdLink`). */
+export interface AgentIdLinkStart {
+  ok: boolean;
+  /** Pollable id for `getAgentIdLinkStatus`. */
+  link_id: string;
+  /** The AgentID sign-in URL to open in a browser. */
+  link_url: string;
+  issuer: string;
+  expires_at: string;
+  instructions?: string;
+}
+
+/** Status of a pending AgentID link (`getAgentIdLinkStatus`). */
+export interface AgentIdLinkStatus {
+  status: 'pending' | 'linked' | 'failed' | 'expired' | 'not_found';
+  agent_id?: string;
+  error?: string | null;
+}
+
+/** The public, owner_sub-free view of an agent's verified AgentID. */
+export interface AgentIdVerified {
+  verified: true;
+  issuer: string;
+  /** Masked verified inbox address, or null. */
+  email: string | null;
+  email_verified: boolean;
+  display_name: string | null;
+  linked_at: string;
+}
+
+/** Response from `getAgentIdStatus`. */
+export interface AgentIdStatusResponse {
+  agent_id: string;
+  agentid: AgentIdVerified | null;
 }
 
 export interface TaskCreateOptions {

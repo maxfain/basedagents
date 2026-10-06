@@ -20,6 +20,7 @@ import {
 import registerRoutes from './routes/register.js';
 import agentRoutes from './routes/agents.js';
 import verifyRoutes from './routes/verify.js';
+import { agentScopedAgentIdRoutes, publicAgentIdRoutes } from './routes/agentid.js';
 import messageRoutes, { messageActions } from './routes/messages.js';
 import eventRoutes from './routes/events.js';
 import boardRoutes from './routes/board.js';
@@ -155,6 +156,11 @@ CREATE INDEX IF NOT EXISTS idx_acq_ids_expires ON acquisition_ids(expires_at);
 CREATE TABLE IF NOT EXISTS mcp_tool_outcomes (tool_call_id TEXT PRIMARY KEY, installation_id TEXT NOT NULL DEFAULT '', agent_id TEXT NOT NULL DEFAULT '', tool_name TEXT NOT NULL, outcome TEXT NOT NULL CHECK (outcome IN ('ok', 'tool_error', 'api_error', 'auth_required', 'payment_required', 'network_error')), error_code TEXT NOT NULL DEFAULT '', client_time TEXT NOT NULL DEFAULT '', received_at TEXT NOT NULL, interface TEXT NOT NULL DEFAULT '');
 CREATE INDEX IF NOT EXISTS idx_outcomes_received ON mcp_tool_outcomes(received_at);
 CREATE TABLE IF NOT EXISTS installation_usage_daily (day TEXT NOT NULL, installation_id TEXT NOT NULL DEFAULT '', agent_id TEXT NOT NULL DEFAULT '', interface TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL CHECK (kind IN ('discovery', 'meaningful')), count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, installation_id, agent_id, interface, kind));
+CREATE TABLE IF NOT EXISTS agentid_links (agent_id TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE, issuer TEXT NOT NULL, sub TEXT NOT NULL, owner_sub TEXT, email TEXT, email_verified INTEGER NOT NULL DEFAULT 0, display_name TEXT, linked_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agentid_links_issuer_sub ON agentid_links(issuer, sub);
+CREATE INDEX IF NOT EXISTS idx_agentid_links_owner_sub ON agentid_links(owner_sub);
+CREATE TABLE IF NOT EXISTS agentid_link_challenges (state_hash TEXT PRIMARY KEY, link_id TEXT NOT NULL UNIQUE, agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, code_verifier TEXT NOT NULL, nonce TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'linked', 'failed')), error TEXT, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, consumed_at TEXT);
+CREATE INDEX IF NOT EXISTS idx_agentid_challenges_expires ON agentid_link_challenges(expires_at);
 `.trim();
 
 /**
@@ -355,6 +361,8 @@ export function createTestApp(db: SQLiteAdapter, extraEnv: Partial<AppEnv['Bindi
   app.route('/v1/register', registerRoutes);
   app.route('/v1/agents', claimBondRoutes);
   app.route('/v1/agents', agentRoutes);
+  app.route('/v1/agents', agentScopedAgentIdRoutes);
+  app.route('/v1/agentid', publicAgentIdRoutes);
   app.route('/v1/verify', verifyRoutes);
   app.route('/v1/agents', messageRoutes);
   app.route('/v1/agents', eventRoutes);
