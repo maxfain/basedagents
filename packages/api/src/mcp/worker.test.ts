@@ -11,8 +11,8 @@
  *   1. PRM is served (oauth sub-app is mounted) and its `resource` is the exact
  *      MCP_RESOURCE_URL binding.
  *   2. An unauthenticated POST /mcp ANSWERS (anonymous reads are the ChatGPT-
- *      plugin shape), while an auth-marked tool still 401s with the exact
- *      WWW-Authenticate the handler emits (handler sub-app is mounted).
+ *      plugin shape), while an auth-marked tool answers the account-link tool
+ *      result with _meta mcp/www_authenticate (handler sub-app is mounted).
  *   3. The CORS preflight is COOKIELESS — it must NOT carry Access-Control-Allow-
  *      Credentials (the api Worker's credentialed allow-list is a different app).
  *   4. /.well-known/openai-apps-challenge serves the env token as plain text,
@@ -67,7 +67,7 @@ describe('MCP Worker (assembled app)', () => {
     for (const t of body.result.tools) expect(typeof t.annotations?.readOnlyHint).toBe('boolean');
   });
 
-  it('still 401s an unauthenticated call to the auth-marked tool, with exact WWW-Authenticate', async () => {
+  it('answers an unauthenticated call to the auth-marked tool with the ChatGPT account-link result', async () => {
     const res = await app.request(
       '/mcp',
       {
@@ -77,10 +77,11 @@ describe('MCP Worker (assembled app)', () => {
       },
       ENV,
     );
-    expect(res.status).toBe(401);
-    const www = res.headers.get('WWW-Authenticate') ?? res.headers.get('www-authenticate');
-    expect(www).toBe(
-      `Bearer resource_metadata="${ISSUER}/.well-known/oauth-protected-resource", error="invalid_token"`,
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { result: { isError?: boolean; _meta?: Record<string, string[]> } };
+    expect(body.result.isError).toBe(true);
+    expect(body.result._meta?.['mcp/www_authenticate']?.[0]).toContain(
+      `Bearer resource_metadata="${ISSUER}/.well-known/oauth-protected-resource"`,
     );
   });
 

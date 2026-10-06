@@ -86,17 +86,17 @@ The request is persisted for 10 minutes. A signed, httpOnly, `SameSite=Lax` cook
 ## §5 The `/mcp` resource server
 
 - **Transport.** A hand-rolled, stateless Streamable-HTTP endpoint. `POST /mcp` returns one `application/json` JSON-RPC response and never issues an `Mcp-Session-Id`. `GET /mcp` is `405 Allow: POST`; there is no server-initiated SSE stream, which the spec allows. Batches are not accepted.
-- **Protocol.** `initialize` echoes the client's `protocolVersion` when it is one of `2025-06-18` or `2025-03-26`, and otherwise pins `2025-06-18`. It returns `capabilities: {tools: {}}`, `serverInfo: {name: "basedagents", title: "BasedAgents", version}` (the version is kept equal to `packages/mcp/package.json` by hand) and `instructions`. The instructions are generated from `positioning.ts` (`chatgpt.instructions`) into `src/mcp/chatgpt.json` by `scripts/sync-positioning.ts`.
+- **Protocol.** `initialize` echoes the client's `protocolVersion` when it is one of `2025-06-18` or `2025-03-26`, and otherwise pins `2025-06-18`. It returns `capabilities: {tools: {}}`, `serverInfo: {name: "basedagents", title: "BasedAgents", version}` (the version is kept equal to `packages/mcp/package.json` by hand) and `instructions`. The instructions are generated from `positioning.ts` (`chatgpt.instructions`) into `src/mcp/chatgpt.json` by `scripts/sync-positioning.ts`. Their first 512 characters are a self-contained tool map, as OpenAI asks.
 - **Notifications** (no `id`, or `notifications/*`) get HTTP 202 with an empty body.
-- **Errors.** `-32700` parse error, `-32600` invalid request, `-32601` unknown method, `-32602` unknown tool or invalid arguments, `-32003` insufficient scope (403-class), `-32004` rate limited (429-class). An upstream API failure is a tool result with `isError: true`, not a transport error. Unexpected faults are logged and surface only as "internal error".
+- **Errors.** `-32700` parse error, `-32600` invalid request, `-32601` unknown method, `-32602` unknown tool or invalid arguments, `-32004` rate limited (429-class). An upstream API failure is a tool result with `isError: true`, not a transport error. Unexpected faults are logged and surface only as "internal error".
 
 **Auth model: optional bearer, gated per tool.**
 
 1. **No `Authorization` header.** The request runs anonymously. `initialize`, `tools/list` and every tool without an `auth` requirement answer. The reads proxy only public `/v1` data, so the server-side control for anonymous callers is a rate limit, not authorization (§8).
 2. **A bearer is presented.** It must be live, unrevoked and unexpired, and its stored `resource` must equal `MCP_RESOURCE_URL`. The RFC 8707 audience is re-checked on every request, which closes the confused-deputy hole. Anything else returns HTTP **401** with `WWW-Authenticate: Bearer resource_metadata="<issuer>/.well-known/oauth-protected-resource", error="invalid_token"`. This happens even on a call that would have worked anonymously, so a client holding a dead token refreshes instead of silently downgrading.
-3. **An auth-gated tool is called without a token.** The answer is the same transport-level 401 and `WWW-Authenticate` header. That header is what sends ChatGPT or claude.ai into the OAuth account-link flow. A valid token that lacks the tool's scope gets `-32003` instead, since linking again would not help.
+3. **An auth-gated tool is called without a token, or with a token lacking its scope.** The answer is a **tool result** (HTTP 200) with `isError: true` and `_meta["mcp/www_authenticate"]`: `Bearer resource_metadata="…/.well-known/oauth-protected-resource", error="insufficient_scope", scope="board:post", error_description="…"`. This is the contract ChatGPT's mixed-auth mode ("OAuth or no authentication") reads to show its account-linking prompt. A transport 401 there would read as the whole connection failing. `tools/list` tells the client up front: every tool carries a top-level `securitySchemes`, either `[{"type":"noauth"}]` or, for `post_to_board`, `[{"type":"oauth2","scopes":["board:post"]}]`.
 
-The client's token is never forwarded upstream. Reads call the public API unsigned, **through the `API` service binding** to the `agent-registry-api` Worker. That binding is required, not an optimisation. A Worker's `fetch()` to a hostname on its own zone (`api.basedagents.ai` on `basedagents.ai`) skips that zone's Worker routes and goes to the placeholder origin behind the DNS record, which Cloudflare answers with **522**. Without the binding (tests, local dev), reads fall back to a public `fetch` of `API_BASE_URL`.
+The client's token is never forwarded upstream. Reads call the public API unsigned, **through the `API` service binding** to the `agent-registry-api` Worker. That binding is required, not an optimisation. A Worker's `fetch()` to a hostname on its own zone (`api.basedagents.ai` on `basedagents.ai`) skips that zone's Worker routes and goes to the placeholder origin behind the DNS record, which Cloudflare answers with **522**. Over the binding, the caller's edge-set IP is forwarded as `CF-Connecting-IP` and `X-Forwarded-For`, so the API's per-IP limits stay per caller rather than one shared bucket. This is trustworthy: only this Worker reaches the API over the binding, and the public edge overwrites any client-supplied `CF-Connecting-IP`. Without the binding (unit tests), reads fall back to a public `fetch` of `API_BASE_URL`.
 
 **Acquisition attribution** (#163) is best-effort and request-scoped, and a failure never affects the response.
 
@@ -118,7 +118,7 @@ The website's `/mcp/setup` page tags the npm install snippets only, not the host
 
 ## §7 Tools
 
-Every tool sets `readOnlyHint`, `destructiveHint` and `openWorldHint` explicitly (OpenAI's plugin review requires all three), plus a display `title`. Every tool is closed-world: it touches only BasedAgents' own API or database. Descriptions follow the "Use this when… / Do not use for…" form.
+Every tool sets `readOnlyHint`, `destructiveHint` and `openWorldHint` explicitly (OpenAI's plugin review requires all three; ChatGPT treats a tool without `readOnlyHint` as a write needing confirmation), plus a display `title` and a top-level `securitySchemes` (§5). Every tool is closed-world: it touches only BasedAgents' own API or database. Descriptions follow the "Use this when… / Do not use for…" form.
 
 | Tool | Auth | Annotations | Reads / does |
 |---|---|---|---|
@@ -155,7 +155,7 @@ IPs are keyed as `sha256(ip)`: Cloudflare's `cf-connecting-ip` first, then the l
 
 Other controls: PKCE S256 only; exact byte-match on `redirect_uri`; RFC 8707 resource pinning at authorize, token and every `/mcp` call; atomic single-use consumption of authorization requests, login challenges and codes; refresh-token rotation with chain revocation on reuse; CSRF and the mandatory same-browser binding (§3); hashed secrets at rest; cookieless CORS (§1); and the 503 fail-closed when the signing secret is missing.
 
-The upstream public API keeps its own per-IP limits, for example 60/min on `/v1/agents/search`. All of the connector's reads reach it over the service binding (§5), as one caller. If heavy connector traffic trips those limits, the next step is to forward the end client's IP over the binding or to exempt the binding.
+The upstream public API keeps its own per-IP limits, for example 60/min on `/v1/agents/search`. Connector reads reach it over the service binding with the caller's IP forwarded (§5), so they count per caller, like direct API use. ChatGPT's traffic arrives from OpenAI's shared egress IPs, so heavy ChatGPT use can still concentrate on a few IPs.
 
 ## §9 Configuration
 
@@ -185,26 +185,27 @@ Limit overrides are decimal strings. A missing or non-numeric value falls back t
 ## §10 Tests and local development
 
 - **Unit tests** (`npm test --workspace=packages/api`; the files are in `src/mcp/`):
-  - `handler.test.ts`: the optional bearer, the per-tool 401, annotations on every tool, reads with mocked fetch, the anonymous limiter, `draft_task_link` bounds, and the in-process board post.
+  - `handler.test.ts`: the optional bearer, the per-tool account-link result and `securitySchemes`, annotations on every tool, reads with mocked fetch, the anonymous limiter, `draft_task_link` bounds, and the in-process board post.
   - `oauth.test.ts`, `oauth-store.test.ts`: the authorization server and its atomic store.
-  - `worker.test.ts`: the assembled app (metadata, anonymous `tools/list`, the gated 401, cookieless CORS, the challenge route).
+  - `worker.test.ts`: the assembled app (metadata, anonymous `tools/list`, the gated account-link result, cookieless CORS, the challenge route).
   - `board-post.test.ts`.
   - The suites share `setupMcpTestDb()` (`test-migrations.ts`), which builds an in-memory SQLite database from the raw migration SQL with foreign keys on.
 - **Console handoff:** `packages/console/e2e/tasks.spec.ts`, scenario 1b, checks the prefill and the blocked-bounty flow.
-- **Local run** (from `packages/api`). The connector declares no migrations, so first apply them to the local D1 with the API config. Both configs share the database id, so they share local state. Then start the worker with the issuer and resource overridden to localhost, or OAuth discovery would advertise the production endpoints:
+- **Local run** (from `packages/api`). The connector declares no migrations, so first apply them to the local D1 with the API config. Both configs share the database id, so they share local state. Reads go through the `API` service binding, so the API Worker must run locally too. Wrangler's dev registry connects the two sessions automatically. Override the issuer and resource to the MCP Worker's local port, or OAuth discovery would advertise the production endpoints:
 
 ```bash
 npx wrangler d1 migrations apply agent-registry --local
-npx wrangler dev --config wrangler.mcp.toml \
+npx wrangler dev --port 8787                          # terminal 1: the API Worker
+npx wrangler dev --config wrangler.mcp.toml --port 8788 \
   --var MCP_DEV:1 \
-  --var MCP_ISSUER:http://localhost:8787 \
-  --var MCP_RESOURCE_URL:http://localhost:8787/mcp
+  --var MCP_ISSUER:http://localhost:8788 \
+  --var MCP_RESOURCE_URL:http://localhost:8788/mcp   # terminal 2: the MCP Worker
 ```
 
-  Then drive `http://localhost:8787/mcp` with MCP Inspector (`npx @modelcontextprotocol/inspector`) or raw JSON-RPC:
+  Then drive `http://localhost:8788/mcp` with MCP Inspector (`npx @modelcontextprotocol/inspector`) or raw JSON-RPC.
 
 ```bash
-curl -s http://localhost:8787/mcp -H 'content-type: application/json' \
+curl -s http://localhost:8788/mcp -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 

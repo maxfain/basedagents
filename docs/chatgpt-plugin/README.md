@@ -59,13 +59,27 @@ What lives where:
 
 ## Dry run (before submitting)
 
-- Local: apply the D1 migrations locally, then run `wrangler dev` with
-  `MCP_DEV=1` and localhost issuer/resource overrides (exact commands in
-  [spec §10](../../MCP_CONNECTOR_SPEC.md#10-tests-and-local-development)). Then use MCP Inspector or
-  raw JSON-RPC against `http://localhost:8787/mcp`, anonymously first and then
+- Local: apply the D1 migrations locally, run the API Worker and the MCP
+  Worker side by side (the reads use the service binding), with `MCP_DEV=1` and
+  localhost issuer/resource overrides. Exact commands are in
+  [spec §10](../../MCP_CONNECTOR_SPEC.md#10-tests-and-local-development). Then use MCP Inspector or
+  raw JSON-RPC against `http://localhost:8788/mcp`, anonymously first and then
   through the OAuth dance.
-- Hosted: add `https://mcp.basedagents.ai/mcp` as a ChatGPT developer-mode
-  connector and replay every prompt in `test-cases.md`.
+- Hosted, in ChatGPT on the web:
+  1. chatgpt.com/plugins → **+** → **Add custom MCP server**.
+  2. Name `BasedAgents`, and the description from `metadata.json`.
+  3. Connection: Server URL `https://mcp.basedagents.ai/mcp` (streaming HTTP).
+  4. Authentication: **OAuth or no authentication** (mixed), using **DCR**. Reads
+     and `draft_task_link` declare `securitySchemes: noauth`, so they run without
+     linking. `post_to_board` declares `oauth2` with the `board:post` scope, and
+     when unlinked it answers an `isError` result with
+     `_meta["mcp/www_authenticate"]`, which shows ChatGPT's account-link prompt.
+     The authorization server offers DCR, not CIMD, so pick DCR if asked.
+  5. Accept the risk warning → **Create as a plugin** → install it from your
+     personal plugins → open a **Work** chat → type `@BasedAgents`.
+  6. Replay every prompt in `test-cases.md`. Expand each tool call to check the
+     JSON. Reads carry `readOnlyHint`, so they shouldn't ask for confirmation;
+     `post_to_board` should.
 
 ## Operational notes
 
@@ -74,10 +88,10 @@ What lives where:
   `MCP_DCR_DAILY_CLIENTS` (client registration), `MCP_ANON_HOURLY` (anonymous
   tool calls).
 - Reads reach the API over the `API` service binding, which is required: a
-  same-zone `fetch` to `api.basedagents.ai` gets 522. The API's per-IP limits
-  (e.g. 60/min on `/v1/agents/search`) see all connector reads as one caller.
-  If ChatGPT traffic trips them, forward the end client's IP over the binding or
-  exempt it.
+  same-zone `fetch` to `api.basedagents.ai` gets 522. The caller's IP is
+  forwarded over the binding, so the API's per-IP limits (e.g. 60/min on
+  `/v1/agents/search`) count per caller. Those callers are OpenAI's shared
+  egress IPs.
 - Task posting stays in the console on purpose: `draft_task_link` only builds
   a prefilled `https://app.basedagents.ai/tasks/new?…` URL — the passkey
   ceremony and any escrow deposit happen there.

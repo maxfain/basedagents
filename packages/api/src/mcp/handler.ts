@@ -30,9 +30,10 @@
  *  2. NO bearer → the request proceeds ANONYMOUSLY: initialize, tools/list and
  *     the read tools all answer (they proxy only public /v1 data; the
  *     server-side control for anonymous calls is a per-IP rate limit, not
- *     authz). A tool marked `auth` (post_to_board) answers the same 401 +
- *     WWW-Authenticate instead — that header is what sends a discovering
- *     client (claude.ai, ChatGPT) into the OAuth link flow.
+ *     authz). A tool marked `auth` (post_to_board) answers an isError tool
+ *     result carrying `_meta["mcp/www_authenticate"]`, ChatGPT's mixed-auth
+ *     account-link trigger; tools/list advertises each tool's
+ *     `securitySchemes` (noauth / oauth2 + scope).
  *
  * Reads (`registry:read`) fan out via an UNSIGNED server-side `fetch` to the
  * PUBLIC `API_BASE_URL` `/v1/...` endpoints — the client's MCP-audience token is
@@ -117,7 +118,27 @@ function cfg(c: Context<McpEnv>): { resourceUrl: string; issuer: string; apiBase
   };
 }
 
-/** The exact RFC 9728 discovery header both 401 paths (middleware + tool gate) emit. */
+/**
+ * The tool result an auth-gated tool answers when the caller isn't linked (or
+ * the token lacks the scope): ChatGPT's account-linking trigger.
+ */
+function linkRequired(issuer: string, scope: string, noToken: boolean): ToolResult {
+  const prm = `${issuer.replace(/\/+$/, '')}/.well-known/oauth-protected-resource`;
+  const why = noToken
+    ? 'Connect your BasedAgents account to use this tool.'
+    : `Your BasedAgents connection lacks the ${scope} permission; reconnect to grant it.`;
+  return {
+    content: [{ type: 'text', text: `Authentication required: ${why}` }],
+    isError: true,
+    _meta: {
+      'mcp/www_authenticate': [
+        `Bearer resource_metadata="${prm}", error="insufficient_scope", scope="${scope}", error_description="${why}"`,
+      ],
+    },
+  };
+}
+
+/** The exact RFC 9728 discovery header the middleware's dead-token 401 emits. */
 function wwwAuthenticate(issuer: string): string {
   const prm = `${issuer.replace(/\/+$/, '')}/.well-known/oauth-protected-resource`;
   return `Bearer resource_metadata="${prm}", error="invalid_token"`;
@@ -158,10 +179,24 @@ export interface ApiFetcher {
   fetch(request: Request): Promise<Response>;
 }
 
-async function apiFetch(ctx: { apiBase: string; api?: ApiFetcher }, path: string): Promise<unknown> {
+async function apiFetch(ctx: { apiBase: string; api?: ApiFetcher; clientIp?: string }, path: string): Promise<unknown> {
   const url = `${ctx.apiBase}${path}`;
-  const init = { headers: { 'User-Agent': `basedagents-mcp/${SERVER_VERSION}` } };
-  const res = ctx.api ? await ctx.api.fetch(new Request(url, init)) : await fetch(url, init);
+  const headers: Record<string, string> = { 'User-Agent': `basedagents-mcp/${SERVER_VERSION}` };
+  let res: Response;
+  if (ctx.api) {
+    // A binding request carries no edge-set client IP, and the API keys its
+    // per-IP limits on CF-Connecting-IP / X-Forwarded-For (else one shared
+    // 'unknown' bucket for every connector user). Forward the caller's IP as the
+    // edge saw it: only this Worker can reach the API over the binding, and the
+    // public edge overwrites any client-supplied CF-Connecting-IP.
+    if (ctx.clientIp && ctx.clientIp !== 'unknown') {
+      headers['CF-Connecting-IP'] = ctx.clientIp;
+      headers['X-Forwarded-For'] = ctx.clientIp;
+    }
+    res = await ctx.api.fetch(new Request(url, { headers }));
+  } else {
+    res = await fetch(url, { headers });
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new ApiError(`BasedAgents API returned ${res.status} for ${path}`, res.status, text);
@@ -350,11 +385,13 @@ function formatPayment(p: Record<string, unknown>): string {
 
 // ─── Tool registry (SPEC §7 reads + draft_task_link + post_to_board) ─────────
 
-type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
+type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean; _meta?: Record<string, unknown> };
 interface ToolContext {
   apiBase: string;
   /** Service binding to the API Worker; reads use it when present (see McpEnv.API). */
   api?: ApiFetcher;
+  /** The MCP caller's IP as the edge saw it, forwarded over the binding for the API's per-IP limits. */
+  clientIp?: string;
   consoleBase: string;
   db: DBAdapter;
   /** null on anonymous calls — only tools with `auth` set may rely on it. */
@@ -1001,7 +1038,15 @@ app.post('/mcp', bearerMiddleware, async (c) => {
     }
     case 'tools/list':
       return rpcResult(c, id, {
-        tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: t.annotations })),
+        tools: TOOLS.map((t) => ({
+          name: t.name,
+          description: t.description,
+          inputSchema: t.inputSchema,
+          annotations: t.annotations,
+          // ChatGPT's mixed-auth mode ("OAuth or no authentication") decides per
+          // tool from this top-level field whether a call needs the linked account.
+          securitySchemes: t.auth ? [{ type: 'oauth2', scopes: [t.auth.scope] }] : [{ type: 'noauth' }],
+        })),
       });
     case 'tools/call': {
       const params = (rec.params as Record<string, unknown> | undefined) ?? {};
@@ -1016,19 +1061,14 @@ app.post('/mcp', bearerMiddleware, async (c) => {
 
       const token = c.get('mcpToken') ?? null;
 
-      // Per-tool auth gate: an auth-marked tool called with NO token answers the
-      // TRANSPORT-level 401 + WWW-Authenticate — that exact header is what sends
-      // a connector client (ChatGPT, claude.ai) into the OAuth link flow. A
-      // token that is present but under-scoped is a JSON-RPC -32003 instead
-      // (the connection is linked; linking again would not help).
-      if (tool.auth && !token) {
-        return c.json({ error: 'invalid_token' }, 401, { 'WWW-Authenticate': wwwAuthenticate(issuer) });
-      }
-      if (tool.auth && token && !token.scope.split(/\s+/).includes(tool.auth.scope)) {
-        return rpcError(c, id, RPC.FORBIDDEN, `insufficient_scope: ${tool.auth.scope} required`, {
-          http_status: 403,
-          required_scope: tool.auth.scope,
-        });
+      // Per-tool auth gate. Missing token, or a token without the tool's scope:
+      // answer a TOOL RESULT (isError) carrying _meta["mcp/www_authenticate"],
+      // not a transport 401. That is the contract ChatGPT's mixed-auth mode
+      // reads to show its account-linking prompt; a transport 401 there reads as
+      // the whole connection failing. (A presented-but-dead token is still a
+      // transport 401 in bearerMiddleware: that is a refresh, not a link.)
+      if (tool.auth && (!token || !token.scope.split(/\s+/).includes(tool.auth.scope))) {
+        return rpcResult(c, id, linkRequired(issuer, tool.auth.scope, !token));
       }
 
       // Anonymous abuse guard: the reads are public data, so the server-side
@@ -1051,7 +1091,7 @@ app.post('/mcp', bearerMiddleware, async (c) => {
       // everything else is read/discovery traffic for the activity rollup.
       recordHostedAttribution(c, { meaningful: name === 'post_to_board' });
 
-      const ctx: ToolContext = { apiBase, api: c.env.API, consoleBase, db, token };
+      const ctx: ToolContext = { apiBase, api: c.env.API, clientIp: clientIpFrom((n) => c.req.header(n)), consoleBase, db, token };
       try {
         const result = await tool.execute(validated, ctx);
         return rpcResult(c, id, result);
