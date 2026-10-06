@@ -69,6 +69,31 @@ export const X402_TASKS_BASE = 'https://api.basedagents.ai/v1/x402/tasks';
 /** Fixed-price hire endpoints: path segment → bounty in atomic USDC. */
 export const X402_TIERS: Readonly<Record<string, string>> = { 'usd-1': '1000000', 'usd-5': '5000000', 'usd-20': '20000000' };
 
+/** Atomic USDC → the 6-decimal string OpenAPI `x-payment-info` prices use ("2000000" → "2.000000"). */
+function sixDecimals(atomic: string): string {
+  const n = BigInt(atomic);
+  return `${n / 1_000_000n}.${(n % 1_000_000n).toString().padStart(6, '0')}`;
+}
+
+/**
+ * openapi.json as served (GET /openapi.json): its `x-payment-info` follows the live
+ * minimum bounty. The custom endpoint's `min` is the deployment's minimum, and a tier
+ * priced under it is left out, as the routes refuse it. With the default minimum the
+ * file is served as is.
+ */
+export function openApiForEnv<T extends { paths: Record<string, unknown> }>(spec: T, env: unknown): T {
+  const min = String(minBountyAtomic(env, 'a2a'));
+  type Paid = { post?: { 'x-payment-info'?: { price: Record<string, string> } } };
+  const custom = (spec.paths['/v1/x402/tasks'] as Paid | undefined)?.post?.['x-payment-info'];
+  const unavailable = Object.entries(X402_TIERS).filter(([, amount]) => bountyMinimumRefusal(env, 'a2a', amount)).map(([tier]) => `/v1/x402/tasks/${tier}`);
+  if ((!custom || custom.price.min === sixDecimals(min)) && unavailable.length === 0) return spec;
+  const out = structuredClone(spec);
+  const outCustom = (out.paths['/v1/x402/tasks'] as Paid | undefined)?.post?.['x-payment-info'];
+  if (outCustom) outCustom.price.min = sixDecimals(min);
+  for (const path of unavailable) delete out.paths[path];
+  return out;
+}
+
 const MANAGE_TOKEN_PREFIX = 'bat_';
 const WALLET_MESSAGE_HEADER = 'X-Wallet-Message';
 const WALLET_SIGNATURE_HEADER = 'X-Wallet-Signature';

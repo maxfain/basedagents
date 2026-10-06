@@ -28,7 +28,7 @@ import eventRoutes from './routes/events.js';
 import boardRoutes from './routes/board.js';
 import feedRoutes from './routes/feed.js';
 import taskRoutes from './routes/tasks.js';
-import x402TaskRoutes, { X402_TIERS } from './routes/x402-tasks.js';
+import x402TaskRoutes, { X402_TIERS, openApiForEnv } from './routes/x402-tasks.js';
 import scanRoutes from './routes/scan.js';
 import probeRoutes from './routes/probe.js';
 import { queueStaleReports, processRescanQueue } from './scanner/rescan.js';
@@ -342,8 +342,9 @@ app.get('/.well-known/basedagents.json', (c) =>
 
 // ─── OpenAPI Spec ───
 import openApiSpec from './openapi.json';
-app.get('/openapi.json', (c) => c.json(openApiSpec));
-app.get('/v1/openapi.json', (c) => c.json(openApiSpec));
+// Served with the live minimum bounty in the x402 hire prices (routes/x402-tasks.ts).
+app.get('/openapi.json', (c) => c.json(openApiForEnv(openApiSpec, c.env)));
+app.get('/v1/openapi.json', (c) => c.json(openApiForEnv(openApiSpec, c.env)));
 
 // ─── x402 Payment Method Discovery ───
 // https://docs.cdp.coinbase.com/x402/welcome — x402 v2 (CAIP-2 networks).

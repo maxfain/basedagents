@@ -12,7 +12,7 @@ import { Hono } from 'hono';
 // Import via JSON (vitest handles JSON imports natively)
 import openApiSpec from '../openapi.json';
 import taskRoutes from './tasks.js';
-import x402TaskRoutes, { X402_TIERS } from './x402-tasks.js';
+import x402TaskRoutes, { X402_TIERS, openApiForEnv } from './x402-tasks.js';
 
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'];
 const TASKS_MOUNT = '/v1/tasks'; // app.route('/v1/tasks', taskRoutes) in index.ts
@@ -112,6 +112,18 @@ describe('OpenAPI Spec — agent discovery (x-guidance, x-payment-info)', () => 
       expect(specPaths[`${X402_MOUNT}/${tier}`].post['x-payment-info']!.price).toEqual({ mode: 'fixed', currency: 'USDC', amount: (Number(atomic) / 1e6).toFixed(6) });
     }
     expect(specPaths[X402_MOUNT].post['x-payment-info']!.price).toEqual({ mode: 'dynamic', currency: 'USDC', min: '0.100000', max: '1000.000000' });
+  });
+
+  it('is served with the live minimum: a raised minimum moves the custom min and drops the tiers under it', () => {
+    const spec = openApiSpec as unknown as { paths: Record<string, Record<string, Operation>> };
+    expect(openApiForEnv(spec, {})).toBe(spec);
+    const raised = openApiForEnv(spec, { MIN_BOUNTY_ATOMIC_A2A: '2000000' });
+    expect(raised.paths[X402_MOUNT].post['x-payment-info']!.price).toMatchObject({ mode: 'dynamic', min: '2.000000', max: '1000.000000' });
+    expect(raised.paths[`${X402_MOUNT}/usd-1`]).toBeUndefined();
+    expect(raised.paths[`${X402_MOUNT}/usd-5`].post['x-payment-info']!.price.amount).toBe('5.000000');
+    // The file itself is untouched.
+    expect(specPaths[`${X402_MOUNT}/usd-1`]).toBeDefined();
+    expect(specPaths[X402_MOUNT].post['x-payment-info']!.price.min).toBe('0.100000');
   });
 
   it('every route on x402TaskRoutes is documented, and vice versa', () => {
