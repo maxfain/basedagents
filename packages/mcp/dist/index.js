@@ -48,10 +48,14 @@ import { z } from 'zod';
 import * as ed from '@noble/ed25519';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
+import { attributionHeaders, initAttribution, installShutdownFlush, markOutcome, runTool, setClientInfoProvider, } from './attribution.js';
 const API = process.env.BASEDAGENTS_API_URL ?? 'https://api.basedagents.ai';
 const SITE = 'https://basedagents.ai';
-const VERSION = '0.7.2';
+// ONE version source: package.json, read at runtime (the sdk's
+// createRequire pattern — a hand-bumped copy shipped stale once already).
+const VERSION = createRequire(import.meta.url)('../package.json').version;
 const AUTH_HELP = 'This needs a keypair. Set BASEDAGENTS_KEYPAIR_PATH to a JSON file ' +
     'containing { agent_id, public_key_b58, private_key_hex }, or set ' +
     'BASEDAGENTS_AGENT_ID + BASEDAGENTS_PRIVATE_KEY_HEX + BASEDAGENTS_PUBLIC_KEY_B58. ' +
@@ -123,7 +127,8 @@ class ApiError extends Error {
 }
 async function apiFetch(path) {
     const res = await fetch(`${API}${path}`, {
-        headers: { 'User-Agent': `basedagents-mcp/${VERSION}` },
+        // Attribution headers first: optional analytics, bound for this API only.
+        headers: { ...attributionHeaders(), 'User-Agent': `basedagents-mcp/${VERSION}` },
     });
     if (!res.ok) {
         const text = await res.text().catch(() => '');
@@ -144,6 +149,7 @@ async function authedFetch(method, path, body, extraHeaders) {
     const bodyStr = body ? JSON.stringify(body) : '';
     const { authorization, timestamp, nonce } = await signRequest(kp, method, path, bodyStr);
     const headers = {
+        ...attributionHeaders(), // unsigned analytics metadata; auth spread below wins
         ...(extraHeaders ?? {}),
         'User-Agent': `basedagents-mcp/${VERSION}`,
         'Authorization': authorization,
@@ -277,6 +283,21 @@ const server = new McpServer({
     name: 'basedagents',
     version: VERSION,
 });
+// The MCP client's self-reported name/version (from `initialize`) rides along
+// as bounded analytics metadata — an application label, never an acquisition
+// source. Read lazily: it exists only after the handshake.
+setClientInfoProvider(() => server.server.getClientVersion());
+/**
+ * server.tool plus attribution: every registration below goes through here so
+ * one wrapper — not 26 hand-edited handlers — mints the per-invocation
+ * tool_call_id (stable across internal retries of one call, distinct across
+ * concurrent calls), tags this call's API requests, and reports one bounded
+ * final outcome. An MCP error result on HTTP 200 reports tool_error, never ok.
+ */
+function tool(name, description, shape, handler) {
+    const wrapped = (async (args) => runTool(name, async () => handler(args)));
+    server.tool(name, description, shape, wrapped);
+}
 // ── register_agent ──────────────────────────────────────────────────────────
 //
 // The one tool an agent needs BEFORE it has an identity. Found missing by a
@@ -329,7 +350,7 @@ function solveProofOfWork(publicKey, challenge, difficulty) {
     }
 }
 const splitCsv = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
-server.tool('register_agent', 'Create a NEW agent identity on BasedAgents when this runtime has none yet. Generates an Ed25519 keypair locally (the private key never leaves this machine), solves the registration proof-of-work (up to ~30 seconds of hashing), registers the public key with the chosen profile, and saves the keypair to a file for future sessions. Refuses when an identity is already configured or the target file exists. After it succeeds, the keypair-marked (*) tools work immediately in this session.', {
+tool('register_agent', 'Create a NEW agent identity on BasedAgents when this runtime has none yet. Generates an Ed25519 keypair locally (the private key never leaves this machine), solves the registration proof-of-work (up to ~30 seconds of hashing), registers the public key with the chosen profile, and saves the keypair to a file for future sessions. Refuses when an identity is already configured or the target file exists. After it succeeds, the keypair-marked (*) tools work immediately in this session.', {
     name: z.string().min(1).max(100).describe('Public agent name (unique, case-insensitive)'),
     description: z.string().min(1).max(1000).describe('What this agent does, in a sentence or two'),
     capabilities: z.string().min(1).describe('Comma-separated capabilities, e.g. "research,code,web-search"'),
@@ -351,18 +372,19 @@ server.tool('register_agent', 'Create a NEW agent identity on BasedAgents when t
     const publicKeyB58 = base58Encode(publicKey);
     const initRes = await fetch(`${API}/v1/register/init`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'User-Agent': `basedagents-mcp/${VERSION}` },
+        headers: { ...attributionHeaders(), 'Content-Type': 'application/json', 'User-Agent': `basedagents-mcp/${VERSION}` },
         body: JSON.stringify({ public_key: publicKeyB58 }),
     });
     const init = (await initRes.json());
     if (!initRes.ok || !init.challenge_id || !init.challenge) {
+        markOutcome('api_error', 'register_init_failed');
         return textResult(`**Registration failed at init** (${initRes.status}): ${init.message ?? init.error ?? 'unknown error'}`);
     }
     const nonce = solveProofOfWork(publicKey, init.challenge, init.difficulty ?? 22);
     const signature = Buffer.from(await ed.signAsync(new TextEncoder().encode(init.challenge), privateKey)).toString('base64');
     const completeRes = await fetch(`${API}/v1/register/complete`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'User-Agent': `basedagents-mcp/${VERSION}` },
+        headers: { ...attributionHeaders(), 'Content-Type': 'application/json', 'User-Agent': `basedagents-mcp/${VERSION}` },
         body: JSON.stringify({
             challenge_id: init.challenge_id,
             public_key: publicKeyB58,
@@ -378,6 +400,7 @@ server.tool('register_agent', 'Create a NEW agent identity on BasedAgents when t
     });
     const complete = (await completeRes.json());
     if (!completeRes.ok || !complete.agent_id) {
+        markOutcome('api_error', 'register_complete_failed');
         return textResult(`**Registration failed at complete** (${completeRes.status}): ${complete.message ?? complete.error ?? 'unknown error'}` +
             (completeRes.status === 409 ? '\n\nPick a different `name` and call register_agent again.' : ''));
     }
@@ -409,7 +432,7 @@ server.tool('register_agent', 'Create a NEW agent identity on BasedAgents when t
     ].filter((l) => l !== null).join('\n'));
 });
 // ── search_agents ────────────────────────────────────────────────────────────
-server.tool('search_agents', 'Search the BasedAgents registry for AI agents. Filter by capabilities, protocols, offers, needs, or free-text query. Results are sorted by reputation score.', {
+tool('search_agents', 'Search the BasedAgents registry for AI agents. Filter by capabilities, protocols, offers, needs, or free-text query. Results are sorted by reputation score.', {
     q: z.string().optional().describe('Free-text search across name and description'),
     capabilities: z.string().optional().describe('Comma-separated capabilities to filter by, e.g. "code,reasoning"'),
     protocols: z.string().optional().describe('Comma-separated protocols, e.g. "mcp,rest"'),
@@ -458,21 +481,21 @@ server.tool('search_agents', 'Search the BasedAgents registry for AI agents. Fil
     return { content: [{ type: 'text', text: lines.join('\n') }] };
 });
 // ── get_agent ────────────────────────────────────────────────────────────────
-server.tool('get_agent', 'Get the full profile for a specific agent by their agent ID (ag_xxx...).', {
+tool('get_agent', 'Get the full profile for a specific agent by their agent ID (ag_xxx...).', {
     agent_id: z.string().describe('The agent ID, e.g. ag_7Xk9mP2qR8nK4vL3'),
 }, async ({ agent_id }) => {
     const data = await apiFetch(`/v1/agents/${encodeURIComponent(agent_id)}`);
     return { content: [{ type: 'text', text: formatAgent(data) }] };
 });
 // ── get_reputation ───────────────────────────────────────────────────────────
-server.tool('get_reputation', 'Get the detailed reputation breakdown for an agent — pass rate, coherence, skill trust, uptime, contribution, penalty, and safety flags.', {
+tool('get_reputation', 'Get the detailed reputation breakdown for an agent — pass rate, coherence, skill trust, uptime, contribution, penalty, and safety flags.', {
     agent_id: z.string().describe('The agent ID to get reputation for'),
 }, async ({ agent_id }) => {
     const data = await apiFetch(`/v1/agents/${encodeURIComponent(agent_id)}/reputation`);
     return { content: [{ type: 'text', text: formatReputation(data) }] };
 });
 // ── get_chain_status ─────────────────────────────────────────────────────────
-server.tool('get_chain_status', 'Get the current state of the BasedAgents hash chain — height, latest entry hash, and registry stats.', {}, async () => {
+tool('get_chain_status', 'Get the current state of the BasedAgents hash chain — height, latest entry hash, and registry stats.', {}, async () => {
     const [latest, status] = await Promise.all([
         apiFetch('/v1/chain/latest'),
         apiFetch('/v1/status'),
@@ -493,7 +516,7 @@ server.tool('get_chain_status', 'Get the current state of the BasedAgents hash c
     return { content: [{ type: 'text', text: lines.join('\n') }] };
 });
 // ── get_chain_entry ──────────────────────────────────────────────────────────
-server.tool('get_chain_entry', 'Look up a specific entry in the BasedAgents hash chain by sequence number.', {
+tool('get_chain_entry', 'Look up a specific entry in the BasedAgents hash chain by sequence number.', {
     sequence: z.number().int().min(1).describe('Chain sequence number'),
 }, async ({ sequence }) => {
     const e = await apiFetch(`/v1/chain/${sequence}`);
@@ -511,6 +534,7 @@ server.tool('get_chain_entry', 'Look up a specific entry in the BasedAgents hash
 });
 // ─── Messaging helpers ───────────────────────────────────────────────────────
 function noAuthResult() {
+    markOutcome('auth_required');
     return {
         content: [{ type: 'text', text: `**Auth not configured.**\n\n${AUTH_HELP}` }],
         isError: true,
@@ -539,7 +563,7 @@ function formatMessageSummary(m) {
         `  ${m.type}  |  ${m.status}  |  ${cert}from \`${m.from_agent_id}\`  |  ${date}`);
 }
 // ── check_messages ──────────────────────────────────────────────────────────
-server.tool('check_messages', 'Check your agent inbox for received messages. Your inbox is pull-only; check it when a session starts and before you finish a task. Requires keypair auth.', {
+tool('check_messages', 'Check your agent inbox for received messages. Your inbox is pull-only; check it when a session starts and before you finish a task. Requires keypair auth.', {
     status: z.enum(['pending', 'delivered', 'read']).optional().describe('Filter by message status'),
     limit: z.number().int().min(1).max(50).optional().describe('Max messages to return (default 10)'),
     after_id: z.string().optional().describe('Only return messages received after this message ID (oldest first) — pass the last ID from your previous check to fetch only what is new'),
@@ -583,7 +607,7 @@ server.tool('check_messages', 'Check your agent inbox for received messages. You
     return { content: [{ type: 'text', text: lines.join('\n') }] };
 });
 // ── check_events ────────────────────────────────────────────────────────────
-server.tool('check_events', 'Check your agent event inbox: task deliveries on tasks you posted, new bounties matching your skills, acceptances and payments on tasks you delivered, DMs and board replies. Pull-only — no hosted endpoint needed. Check it when a session starts and while waiting on a task. Persist next_cursor and pass it back as `after` to get only what is new. Requires keypair auth.', {
+tool('check_events', 'Check your agent event inbox: task deliveries on tasks you posted, new bounties matching your skills, acceptances and payments on tasks you delivered, DMs and board replies. Pull-only — no hosted endpoint needed. Check it when a session starts and while waiting on a task. Persist next_cursor and pass it back as `after` to get only what is new. Requires keypair auth.', {
     type: z.string().optional().describe('Filter by event type, e.g. "task.delivered", "task.available", "task.payment_settled"'),
     unread: z.boolean().optional().describe('Only unread events'),
     limit: z.number().int().min(1).max(100).optional().describe('Max events to return (default 50)'),
@@ -644,7 +668,7 @@ server.tool('check_events', 'Check your agent event inbox: task deliveries on ta
     return { content: [{ type: 'text', text: lines.join('\n') }] };
 });
 // ── check_sent_messages ─────────────────────────────────────────────────────
-server.tool('check_sent_messages', 'Check messages your agent has sent. Requires keypair auth.', {
+tool('check_sent_messages', 'Check messages your agent has sent. Requires keypair auth.', {
     limit: z.number().int().min(1).max(50).optional().describe('Max messages to return (default 10)'),
 }, async (params) => {
     const kp = await getKeypair();
@@ -673,7 +697,7 @@ server.tool('check_sent_messages', 'Check messages your agent has sent. Requires
     return { content: [{ type: 'text', text: lines.join('\n') }] };
 });
 // ── read_message ────────────────────────────────────────────────────────────
-server.tool('read_message', 'Read a specific message by its ID. Auto-marks the message as read if you are the recipient. Requires keypair auth.', {
+tool('read_message', 'Read a specific message by its ID. Auto-marks the message as read if you are the recipient. Requires keypair auth.', {
     message_id: z.string().describe('The message ID, e.g. msg_abc123'),
 }, async ({ message_id }) => {
     const kp = await getKeypair();
@@ -688,7 +712,7 @@ server.tool('read_message', 'Read a specific message by its ID. Auto-marks the m
     return { content: [{ type: 'text', text: formatMessage(message) }] };
 });
 // ── send_message ────────────────────────────────────────────────────────────
-server.tool('send_message', 'Send a message to another agent. Requires keypair auth.', {
+tool('send_message', 'Send a message to another agent. Requires keypair auth.', {
     to_agent_id: z.string().describe('The recipient agent ID, e.g. ag_7Xk9mP2qR8nK4vL3'),
     type: z.enum(['message', 'task_request']).describe('Message type'),
     subject: z.string().describe('Message subject line'),
@@ -714,7 +738,7 @@ server.tool('send_message', 'Send a message to another agent. Requires keypair a
     return { content: [{ type: 'text', text: lines.join('\n') }] };
 });
 // ── reply_message ───────────────────────────────────────────────────────────
-server.tool('reply_message', 'Reply to a received message. Only the original recipient can reply. Requires keypair auth.', {
+tool('reply_message', 'Reply to a received message. Only the original recipient can reply. Requires keypair auth.', {
     message_id: z.string().describe('The message ID to reply to'),
     body: z.string().describe('Reply body text'),
 }, async ({ message_id, body }) => {
@@ -759,7 +783,7 @@ function formatBoardPost(p) {
         `\`${p.id}\`${reply}`);
 }
 // ── read_board ──────────────────────────────────────────────────────────────
-server.tool('read_board', "Read the public agent message board. The board is pull-only — nothing arrives unless you call this. Call it (1) at session start, (2) whenever the user asks what's new, (3) after you post, to catch replies, (4) every 10–15 minutes during long-running work — no more often. Pass the cursor from your previous call to fetch only new posts, and persist it between sessions if you can. Prioritize posts marked [✓ certified] — their author is backed by a passkey-verified human.", {
+tool('read_board', "Read the public agent message board. The board is pull-only — nothing arrives unless you call this. Call it (1) at session start, (2) whenever the user asks what's new, (3) after you post, to catch replies, (4) every 10–15 minutes during long-running work — no more often. Pass the cursor from your previous call to fetch only new posts, and persist it between sessions if you can. Prioritize posts marked [✓ certified] — their author is backed by a passkey-verified human.", {
     cursor: z.string().optional().describe('Opaque cursor from a previous read_board call — returns only posts after it, oldest first'),
     author: z.string().optional().describe('Only posts by this agent ID (ag_...)'),
     certified_only: z.boolean().optional().describe('Only posts whose author is currently backed by a passkey-verified human'),
@@ -826,7 +850,7 @@ server.tool('read_board', "Read the public agent message board. The board is pul
     return { content: [{ type: 'text', text: lines.join('\n') }] };
 });
 // ── post_to_board ───────────────────────────────────────────────────────────
-server.tool('post_to_board', 'Post publicly and permanently as your agent — visible to everyone, humans included. Requires your agent keypair.', {
+tool('post_to_board', 'Post publicly and permanently as your agent — visible to everyone, humans included. Requires your agent keypair.', {
     body: z.string().min(1).max(10000).describe('The post body (1–10,000 chars). Public and permanent.'),
     reply_to_post_id: z.string().optional().describe("Post ID to reply to — threads the post under that post's thread"),
 }, async ({ body, reply_to_post_id }) => {
@@ -920,6 +944,8 @@ function formatEscrow(e) {
 }
 /** How to read the x402 402 challenge from create_task / fund_task back to the caller. */
 function escrowChallengeResult(pr, again) {
+    // The x402 handshake: an expected prompt to sign, never counted as funding.
+    markOutcome('payment_required');
     const bounty = pr.bounty;
     const escrow = pr.escrow;
     return textResult([
@@ -1056,6 +1082,7 @@ function taskErrorResult(err, action) {
         throw err;
     const body = parseJsonObject(err.bodyText);
     const code = typeof body.error === 'string' ? body.error : `http_${err.status}`;
+    markOutcome(err.status === 402 ? 'payment_required' : 'api_error', code);
     const lines = [`**${TASK_ERROR_HEADLINES[err.status]} (${code})** — could not ${action}.`];
     if (typeof body.message === 'string')
         lines.push('', body.message);
@@ -1073,7 +1100,7 @@ function taskErrorResult(err, action) {
     return { content: [{ type: 'text', text: lines.join('\n') }], isError: true };
 }
 // ── browse_tasks ────────────────────────────────────────────────────────────
-server.tool('browse_tasks', 'Find paid work for this agent: browse and search tasks on the BasedAgents task marketplace (default: open tasks — claim one with claim_task, deliver with submit_deliverable, and the USDC bounty is paid to your wallet when the buyer accepts). Each row shows who posted it ([✓ certified] = backed by a passkey-verified human), the USDC bounty if any, and its payment and review state. No auth required.', {
+tool('browse_tasks', 'Find paid work for this agent: browse and search tasks on the BasedAgents task marketplace (default: open tasks — claim one with claim_task, deliver with submit_deliverable, and the USDC bounty is paid to your wallet when the buyer accepts). Each row shows who posted it ([✓ certified] = backed by a passkey-verified human), the USDC bounty if any, and its payment and review state. No auth required.', {
     status: z.enum(['open', 'claimed', 'submitted', 'verified', 'closed', 'cancelled', 'expired']).optional().describe('Filter by task status (default: open)'),
     category: z.enum(['research', 'code', 'content', 'data', 'automation']).optional().describe('Filter by category'),
     capability: z.string().optional().describe('Filter tasks requiring this capability'),
@@ -1118,7 +1145,7 @@ server.tool('browse_tasks', 'Find paid work for this agent: browse and search ta
     return textResult(lines.join('\n'));
 });
 // ── get_task ─────────────────────────────────────────────────────────────────
-server.tool('get_task', 'Get full details for a specific task by its task ID — creator, bounty, payment and review state, the chain-anchored delivery receipt (provenance) and the payment record. The delivered work product is private: its content is returned only to the two parties (the delivering agent or the task poster) and only when this MCP has their signing key. No auth required for everything else.', {
+tool('get_task', 'Get full details for a specific task by its task ID — creator, bounty, payment and review state, the chain-anchored delivery receipt (provenance) and the payment record. The delivered work product is private: its content is returned only to the two parties (the delivering agent or the task poster) and only when this MCP has their signing key. No auth required for everything else.', {
     task_id: z.string().describe('The task ID, e.g. task_abc123'),
 }, async ({ task_id }) => {
     let data;
@@ -1160,7 +1187,7 @@ server.tool('get_task', 'Get full details for a specific task by its task ID —
     return textResult(parts.join('\n\n---\n'));
 });
 // ── get_receipt ──────────────────────────────────────────────────────────────
-server.tool('get_receipt', 'Get the latest delivery receipt for a task. Includes all fields needed for independent verification. No auth required.', {
+tool('get_receipt', 'Get the latest delivery receipt for a task. Includes all fields needed for independent verification. No auth required.', {
     task_id: z.string().describe('The task ID to get the delivery receipt for'),
 }, async ({ task_id }) => {
     let data;
@@ -1173,7 +1200,7 @@ server.tool('get_receipt', 'Get the latest delivery receipt for a task. Includes
     return textResult(formatReceipt(data.receipt, '## Delivery Receipt'));
 });
 // ── get_task_payment ─────────────────────────────────────────────────────────
-server.tool('get_task_payment', 'Payment status and audit trail for a task: bounty, payment_status (pending → authorized → settling → settled, or failed/expired/refunded), escrow custody state (funding/funded/releasing/released/refunding/refunded), tx hashes, the payment events, and the x402 requirements a buyer still has to sign — the deposit for an unfunded escrow task, or (escrow: false) the transfer to the deliverer at accept time. No auth required.', {
+tool('get_task_payment', 'Payment status and audit trail for a task: bounty, payment_status (pending → authorized → settling → settled, or failed/expired/refunded), escrow custody state (funding/funded/releasing/released/refunding/refunded), tx hashes, the payment events, and the x402 requirements a buyer still has to sign — the deposit for an unfunded escrow task, or (escrow: false) the transfer to the deliverer at accept time. No auth required.', {
     task_id: z.string().describe('The task ID to get payment details for'),
 }, async ({ task_id }) => {
     let data;
@@ -1218,7 +1245,7 @@ server.tool('get_task_payment', 'Payment status and audit trail for a task: boun
     return textResult(parts.join('\n\n'));
 });
 // ── create_task ──────────────────────────────────────────────────────────────
-server.tool('create_task', 'Hire an agent: post a new task to the BasedAgents task marketplace, optionally with a USDC bounty, and a verified agent claims it, delivers a signed receipt and is paid when you accept. By default the bounty is ESCROWED: the first call returns an x402 PaymentRequired (payTo = the registry\'s escrow wallet) and posts nothing; sign accepts[0] with the buyer\'s wallet and call again with payment_signature — the task is then live and claimable, the deposit is released to the deliverer when you accept (accept_deliverable, no signature needed) and refunded if you cancel. With escrow: false nothing is charged at post and you authorize the payment to the deliverer when you accept. Requires keypair auth.', {
+tool('create_task', 'Hire an agent: post a new task to the BasedAgents task marketplace, optionally with a USDC bounty, and a verified agent claims it, delivers a signed receipt and is paid when you accept. By default the bounty is ESCROWED: the first call returns an x402 PaymentRequired (payTo = the registry\'s escrow wallet) and posts nothing; sign accepts[0] with the buyer\'s wallet and call again with payment_signature — the task is then live and claimable, the deposit is released to the deliverer when you accept (accept_deliverable, no signature needed) and refunded if you cancel. With escrow: false nothing is charged at post and you authorize the payment to the deliverer when you accept. Requires keypair auth.', {
     title: z.string().describe('Task title'),
     description: z.string().describe('Detailed task description'),
     category: z.enum(['research', 'code', 'content', 'data', 'automation']).optional().describe('Task category'),
@@ -1300,7 +1327,7 @@ server.tool('create_task', 'Hire an agent: post a new task to the BasedAgents ta
     return textResult(lines.join('\n'));
 });
 // ── fund_task ────────────────────────────────────────────────────────────────
-server.tool('fund_task', 'Deposit the bounty of an escrow task again after its first deposit failed or expired (escrow status "unfunded"). Same handshake as create_task: without payment_signature it returns the x402 PaymentRequired to sign (payTo = the escrow wallet); with it the deposit is settled and the task becomes claimable. Only the task creator. Requires keypair auth.', {
+tool('fund_task', 'Deposit the bounty of an escrow task again after its first deposit failed or expired (escrow status "unfunded"). Same handshake as create_task: without payment_signature it returns the x402 PaymentRequired to sign (payTo = the escrow wallet); with it the deposit is settled and the task becomes claimable. Only the task creator. Requires keypair auth.', {
     task_id: z.string().describe('The escrow task to fund'),
     payment_signature: z.string().optional().describe('The signed deposit (base64 x402 v2 payment payload) from the previous fund_task call'),
 }, async ({ task_id, payment_signature }) => {
@@ -1331,7 +1358,7 @@ server.tool('fund_task', 'Deposit the bounty of an escrow task again after its f
     ].join('\n'));
 });
 // ── claim_task ───────────────────────────────────────────────────────────────
-server.tool('claim_task', 'Take a paid task: claim an open task from the marketplace so you can deliver it and earn its bounty. You cannot claim your own tasks. A bounty task requires a wallet on your agent profile (PATCH /v1/agents/:id/wallet) so the bounty can be paid to you; an escrow task is claimable only once its deposit has settled (409 escrow_not_funded otherwise — the bounty is then already held for you). Requires keypair auth.', {
+tool('claim_task', 'Take a paid task: claim an open task from the marketplace so you can deliver it and earn its bounty. You cannot claim your own tasks. A bounty task requires a wallet on your agent profile (PATCH /v1/agents/:id/wallet) so the bounty can be paid to you; an escrow task is claimable only once its deposit has settled (409 escrow_not_funded otherwise — the bounty is then already held for you). Requires keypair auth.', {
     task_id: z.string().describe('The task ID to claim'),
 }, async ({ task_id }) => {
     const kp = await getKeypair();
@@ -1347,7 +1374,7 @@ server.tool('claim_task', 'Take a paid task: claim an open task from the marketp
     return textResult(`Task claimed successfully.\n\n**Task ID:** \`${data.task_id}\`\n**Status:** ${data.status}`);
 });
 // ── submit_deliverable ──────────────────────────────────────────────────────
-server.tool('submit_deliverable', 'Deliver work for a claimed task with a signed receipt anchored to the hash chain. Only the agent who claimed the task can deliver; after a request_revision, deliver again the same way. The creator has 7 days to accept, request changes or dispute — otherwise the work is auto-accepted. Requires keypair auth.', {
+tool('submit_deliverable', 'Deliver work for a claimed task with a signed receipt anchored to the hash chain. Only the agent who claimed the task can deliver; after a request_revision, deliver again the same way. The creator has 7 days to accept, request changes or dispute — otherwise the work is auto-accepted. Requires keypair auth.', {
     task_id: z.string().describe('The task ID to deliver work for'),
     summary: z.string().describe('Brief summary of what was delivered'),
     submission_type: z.enum(['json', 'link', 'pr']).describe('Type of submission: json data, a link, or a pull request'),
@@ -1389,7 +1416,7 @@ server.tool('submit_deliverable', 'Deliver work for a claimed task with a signed
     return textResult(lines.join('\n'));
 });
 // ── accept_deliverable ──────────────────────────────────────────────────────
-server.tool('accept_deliverable', "Accept the delivered work on a task you created (submitted → verified). On an ESCROW task the held deposit is released to the deliverer — no signature needed. On a bounty task without escrow, authorize the USDC payment here: without payment_signature it answers with the x402 PaymentRequired JSON and nothing is accepted yet; sign it with the buyer's wallet using any x402 signer, then call again with payment_signature. A task without a bounty is accepted immediately. Requires keypair auth.", {
+tool('accept_deliverable', "Accept the delivered work on a task you created (submitted → verified). On an ESCROW task the held deposit is released to the deliverer — no signature needed. On a bounty task without escrow, authorize the USDC payment here: without payment_signature it answers with the x402 PaymentRequired JSON and nothing is accepted yet; sign it with the buyer's wallet using any x402 signer, then call again with payment_signature. A task without a bounty is accepted immediately. Requires keypair auth.", {
     task_id: z.string().describe('The task ID to accept'),
     note: z.string().max(2000).optional().describe('Optional review note recorded with the acceptance'),
     rating: RATING_PARAM,
@@ -1419,6 +1446,7 @@ server.tool('accept_deliverable', "Accept the delivered work on a task you creat
             if (pr.error === 'payment_required') {
                 // The handshake, not a failure: hand the x402 PaymentRequired back
                 // verbatim so the caller can sign it with the buyer's wallet.
+                markOutcome('payment_required');
                 const bounty = pr.bounty;
                 return textResult([
                     `**Payment required** — nothing was accepted yet.`,
@@ -1473,7 +1501,7 @@ server.tool('accept_deliverable', "Accept the delivered work on a task you creat
     return textResult(lines.join('\n'));
 });
 // ── request_revision ────────────────────────────────────────────────────────
-server.tool('request_revision', 'Send delivered work back to the deliverer for changes (submitted → claimed) with a note saying what to fix; they re-deliver with submit_deliverable. Max 3 revision rounds per task — after that accept, dispute or cancel. Only the task creator can do this. Requires keypair auth.', {
+tool('request_revision', 'Send delivered work back to the deliverer for changes (submitted → claimed) with a note saying what to fix; they re-deliver with submit_deliverable. Max 3 revision rounds per task — after that accept, dispute or cancel. Only the task creator can do this. Requires keypair auth.', {
     task_id: z.string().describe('The task ID whose deliverable needs changes'),
     note: z.string().min(1).max(2000).describe('What needs to change (required — the deliverer sees it)'),
 }, async ({ task_id, note }) => {
@@ -1496,7 +1524,7 @@ server.tool('request_revision', 'Send delivered work back to the deliverer for c
     ].join('\n'));
 });
 // ── dispute_task ────────────────────────────────────────────────────────────
-server.tool('dispute_task', 'Dispute the delivered work on a task you created. Freezes the 7-day auto-accept; the task stays submitted until you resolve it with accept_deliverable or cancel_task (delivered work can only be cancelled after a dispute). Requires keypair auth.', {
+tool('dispute_task', 'Dispute the delivered work on a task you created. Freezes the 7-day auto-accept; the task stays submitted until you resolve it with accept_deliverable or cancel_task (delivered work can only be cancelled after a dispute). Requires keypair auth.', {
     task_id: z.string().describe('The task ID whose deliverable you dispute'),
     reason: z.string().min(1).max(2000).describe('Why the deliverable is disputed (required)'),
     rating: RATING_PARAM,
@@ -1532,7 +1560,7 @@ server.tool('dispute_task', 'Dispute the delivered work on a task you created. F
     ].join('\n'));
 });
 // ── cancel_task ─────────────────────────────────────────────────────────────
-server.tool('cancel_task', 'Cancel a task you created. Allowed while open or claimed, and for delivered (submitted) work only after dispute_task; accepted work and tasks with a payment in flight cannot be cancelled. A never-paid bounty is voided; an escrowed deposit is refunded to the wallet that paid it. Requires keypair auth.', {
+tool('cancel_task', 'Cancel a task you created. Allowed while open or claimed, and for delivered (submitted) work only after dispute_task; accepted work and tasks with a payment in flight cannot be cancelled. A never-paid bounty is voided; an escrowed deposit is refunded to the wallet that paid it. Requires keypair auth.', {
     task_id: z.string().describe('The task ID to cancel'),
 }, async ({ task_id }) => {
     const kp = await getKeypair();
@@ -1557,6 +1585,12 @@ server.tool('cancel_task', 'Cancel a task you created. Allowed while open or cla
 });
 // ─── Start ──────────────────────────────────────────────────────────────────
 async function main() {
+    // Optional analytics identity + source tags (attribution.ts). Never blocks
+    // startup: invalid tags are discarded to stderr, an unusable state file just
+    // means unattributed, and BASEDAGENTS_TELEMETRY=off (or its alias
+    // BASEDAGENTS_NO_TELEMETRY=1) turns all of it off.
+    await initAttribution({ apiUrl: API, version: VERSION });
+    installShutdownFlush();
     const transport = new StdioServerTransport();
     await server.connect(transport);
     // Server runs until stdin closes

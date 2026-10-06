@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the committed MCP build matches its source (mcp)
+
+`packages/mcp/dist` is committed so the server runs straight from a checkout (`bin/basedagents-mcp.mjs` imports `../dist/index.js`). The MCP acquisition attribution change edited the source without rebuilding it, so a checkout ran the old server. The build is regenerated, and `dist/attribution.js` is added: the new `index.js` imports it, and `dist/` is gitignored, so it needed `git add -f`. npm packages were never affected, because `prepublishOnly` rebuilds before publishing.
+
 ### Docs — the hosted MCP connector is documented (repo, web)
 
 The hosted MCP server at `https://mcp.basedagents.ai/mcp` had no documentation outside the ChatGPT submission folder. The worker code cited a "SPEC §N" that didn't exist.
