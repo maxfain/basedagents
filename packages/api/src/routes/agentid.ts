@@ -147,8 +147,14 @@ publicRoutes.get('/links/:link_id', async (c) => {
 
 /**
  * GET /v1/agentid/callback
- * AgentID's OIDC redirect target. Exchanges the code, verifies the id_token,
- * records the link, and renders a plain HTML result page for the browser.
+ * AgentID's OIDC redirect target. This leg is an ANONYMOUS browser request and
+ * only the AgentSig-authenticated START leg knows which agent the link is for,
+ * so the two legs cannot be assumed to be the same principal (account-linking
+ * CSRF). We therefore do NOT commit here: we peek the challenge (no consume) and
+ * render a consent page that names the EXACT target agent, so whoever signed in
+ * can see — and must explicitly approve — which agent will carry their verified
+ * identity. Commit happens only on the POST below, which carries the one-time
+ * `code` delivered solely to this browser.
  */
 publicRoutes.get('/callback', async (c) => {
   const db = c.get('db');
@@ -157,20 +163,47 @@ publicRoutes.get('/callback', async (c) => {
   const errParam = c.req.query('error');
   const state = c.req.query('state');
   const code = c.req.query('code');
+  const nowIso = new Date().toISOString();
 
-  // Consume the challenge first (single-use) so a replayed callback can't reuse it.
-  let challenge = null as Awaited<ReturnType<AgentIdStore['consumeChallengeByState']>>;
-  if (state) {
-    challenge = await store.consumeChallengeByState(sha256hex(state), new Date().toISOString()).catch(() => null);
-  }
+  const challenge = state ? await store.getChallengeByState(sha256hex(state), nowIso).catch(() => null) : null;
 
   if (errParam) {
     if (challenge) await store.markChallengeFailed(challenge.link_id, `authorize error: ${errParam}`).catch(() => {});
     return resultPage(c, false, 'Sign-in was cancelled or failed', `AgentID returned: ${errParam}`);
   }
-  if (!state || !code) {
-    return resultPage(c, false, 'Invalid callback', 'Missing code or state.');
+  if (!state || !challenge) {
+    return resultPage(c, false, 'Link request not found', 'This link request has expired or was already used. Start a new one.');
   }
+  if (!code) {
+    await store.markChallengeFailed(challenge.link_id, 'callback missing code').catch(() => {});
+    return resultPage(c, false, 'Invalid callback', 'AgentID did not return an authorization code. Start a new link.');
+  }
+
+  const agent = await db.get<{ name: string }>('SELECT name FROM agents WHERE id = ?', challenge.agent_id).catch(() => null);
+  return consentPage(c, { agentId: challenge.agent_id, agentName: agent?.name ?? null, state, code });
+});
+
+/**
+ * POST /v1/agentid/callback/confirm
+ * The owner has seen the target agent on the consent page and approved. Only now
+ * do we consume the challenge (single-use), exchange the code, verify the
+ * id_token, and commit the link. The `code` is a one-time value delivered only
+ * to the browser that completed sign-in, so an attacker cannot forge this POST.
+ */
+publicRoutes.post('/callback/confirm', async (c) => {
+  const db = c.get('db');
+  const store = new AgentIdStore(db);
+
+  const form = await c.req.parseBody().catch(() => ({}) as Record<string, unknown>);
+  const state = typeof form.state === 'string' ? form.state : undefined;
+  const code = typeof form.code === 'string' ? form.code : undefined;
+
+  if (!state || !code) {
+    return resultPage(c, false, 'Invalid confirmation', 'Missing code or state. Start a new link.');
+  }
+
+  // Consume now (atomic, single-use) — commitment point.
+  const challenge = await store.consumeChallengeByState(sha256hex(state), new Date().toISOString()).catch(() => null);
   if (!challenge) {
     return resultPage(c, false, 'Link request not found', 'This link request has expired or was already used. Start a new one.');
   }
@@ -237,6 +270,48 @@ function escapeHtml(s: string): string {
       default: return '&#39;';
     }
   });
+}
+
+/**
+ * The consent interstitial: names the exact target agent so whoever completed
+ * the AgentID sign-in can see which agent will carry their verified identity and
+ * must click Confirm (defends against account-linking CSRF — a phished owner
+ * sees an agent they do not recognise and cancels).
+ */
+function consentPage(
+  c: Context<AppEnv>,
+  p: { agentId: string; agentName: string | null; state: string; code: string },
+) {
+  const who = p.agentName ? `${escapeHtml(p.agentName)} (${escapeHtml(p.agentId)})` : escapeHtml(p.agentId);
+  const body = `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Confirm AgentID link — BasedAgents</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; min-height: 100vh;
+    display: grid; place-items: center; background: #fafafa; color: #111; }
+  @media (prefers-color-scheme: dark) { body { background: #0b0b0c; color: #e8e8e8; } }
+  .card { max-width: 32rem; padding: 2rem; text-align: center; }
+  h1 { font-size: 1.3rem; margin: 0 0 0.5rem; }
+  .agent { font-weight: 600; }
+  code { font-family: ui-monospace, monospace; word-break: break-all; }
+  .warn { opacity: 0.8; font-size: 0.9rem; margin: 0.75rem 0 1.25rem; }
+  button { font: inherit; padding: 0.6rem 1.4rem; border-radius: 8px; border: 0;
+    background: #16a34a; color: white; cursor: pointer; }
+</style></head>
+<body><div class="card">
+<h1>Link your AgentID?</h1>
+<p>You are about to attach your verified AgentID to the BasedAgents agent:</p>
+<p class="agent"><code>${who}</code></p>
+<p class="warn">Only continue if this is <strong>your</strong> agent. If you do not recognise it, close this window — someone may be trying to attach your identity to their agent.</p>
+<form method="post" action="/v1/agentid/callback/confirm">
+  <input type="hidden" name="state" value="${escapeHtml(p.state)}">
+  <input type="hidden" name="code" value="${escapeHtml(p.code)}">
+  <button type="submit">Confirm &amp; link</button>
+</form>
+<p style="margin-top:1rem;opacity:0.6"><a href="https://basedagents.ai" style="color:inherit">BasedAgents</a></p>
+</div></body></html>`;
+  return c.html(body, 200);
 }
 
 function resultPage(c: Context<AppEnv>, ok: boolean, title: string, detail: string) {

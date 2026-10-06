@@ -110,6 +110,18 @@ async function startLink(app: Hono<AppEnv>, agent: TestKeypair) {
   return { res, body };
 }
 
+/** Drive the two-step browser leg: GET /callback (consent) then POST /callback/confirm. */
+async function completeCallback(app: Hono<AppEnv>, state: string, code = 'abc') {
+  const consent = await app.request(`/v1/agentid/callback?code=${code}&state=${encodeURIComponent(state)}`);
+  const form = new URLSearchParams({ state, code });
+  const confirm = await app.request('/v1/agentid/callback/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: form.toString(),
+  });
+  return { consent, confirm };
+}
+
 describe('AgentID link routes', () => {
   let db: SQLiteAdapter;
 
@@ -172,6 +184,28 @@ describe('AgentID link routes', () => {
     expect(res.status).toBe(403);
   });
 
+  it('callback consent page names the target agent and does NOT auto-commit', async () => {
+    const app = createTestApp(db, AGENTID_ENV);
+    const agent = await createTestAgent(db, { status: 'active' });
+    const key = await makeIssuerKey();
+    const oidc = installOidcFetch(key.jwk, (nonce) => mintIdToken(key.privateKey, { nonce, sub: 'sub-consent' }));
+    const { body } = await startLink(app, agent);
+    const url = new URL(body.link_url);
+    const state = url.searchParams.get('state')!;
+    oidc.setNonce(url.searchParams.get('nonce')!);
+
+    const consent = await app.request(`/v1/agentid/callback?code=abc&state=${encodeURIComponent(state)}`);
+    expect(consent.status).toBe(200);
+    const html = await consent.text();
+    expect(html).toContain('Confirm &amp; link');
+    expect(html).toContain(agent.agentId); // the target agent is shown
+    // The GET consent must NOT commit the link.
+    const poll = (await (await app.request(`/v1/agentid/links/${body.link_id}`)).json()) as PollBody;
+    expect(poll.status).toBe('pending');
+    const profile = (await (await app.request(`/v1/agents/${agent.agentId}`)).json()) as ProfileBody;
+    expect(profile.agentid).toBeNull();
+  });
+
   it('completes the full link → poll linked → profile shows verified', async () => {
     const app = createTestApp(db, AGENTID_ENV);
     const agent = await createTestAgent(db, { status: 'active' });
@@ -184,9 +218,9 @@ describe('AgentID link routes', () => {
     const state = url.searchParams.get('state')!;
     oidc.setNonce(url.searchParams.get('nonce')!);
 
-    const cb = await app.request(`/v1/agentid/callback?code=abc&state=${encodeURIComponent(state)}`);
-    expect(cb.status).toBe(200);
-    expect((await cb.text())).toContain('AgentID linked');
+    const { confirm } = await completeCallback(app, state);
+    expect(confirm.status).toBe(200);
+    expect((await confirm.text())).toContain('AgentID linked');
 
     const poll = (await (await app.request(`/v1/agentid/links/${body.link_id}`)).json()) as PollBody;
     expect(poll.status).toBe('linked');
@@ -201,21 +235,28 @@ describe('AgentID link routes', () => {
     expect(status.agentid!.verified).toBe(true);
   });
 
-  it('a used/expired state cannot be replayed', async () => {
+  it('a used/expired state cannot be replayed (confirm is single-use)', async () => {
     const app = createTestApp(db, AGENTID_ENV);
     const agent = await createTestAgent(db, { status: 'active' });
     const key = await makeIssuerKey();
     const oidc = installOidcFetch(key.jwk, (nonce) => mintIdToken(key.privateKey, { nonce, sub: 'sub-replay' }));
     const { body } = await startLink(app, agent);
     const url = new URL(body.link_url);
-    const state = encodeURIComponent(url.searchParams.get('state')!);
+    const state = url.searchParams.get('state')!;
     oidc.setNonce(url.searchParams.get('nonce')!);
 
-    const first = await app.request(`/v1/agentid/callback?code=abc&state=${state}`);
-    expect(first.status).toBe(200);
-    const second = await app.request(`/v1/agentid/callback?code=abc&state=${state}`);
+    const { confirm } = await completeCallback(app, state);
+    expect(confirm.status).toBe(200);
+    // A second confirm with the same state is rejected (challenge already consumed).
+    const form = new URLSearchParams({ state, code: 'abc' });
+    const second = await app.request('/v1/agentid/callback/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form.toString(),
+    });
     expect(second.status).toBe(400);
     expect(await second.text()).toContain('Link request not found');
+    void body;
   });
 
   it('refuses an AgentID already linked to a different agent', async () => {
@@ -230,20 +271,21 @@ describe('AgentID link routes', () => {
     let { body } = await startLink(app, a);
     let url = new URL(body.link_url);
     oidc.setNonce(url.searchParams.get('nonce')!);
-    await app.request(`/v1/agentid/callback?code=abc&state=${encodeURIComponent(url.searchParams.get('state')!)}`);
+    await completeCallback(app, url.searchParams.get('state')!);
 
     // b tries the same AgentID sub
     ({ body } = await startLink(app, b));
     url = new URL(body.link_url);
     oidc.setNonce(url.searchParams.get('nonce')!);
-    const cb = await app.request(`/v1/agentid/callback?code=abc&state=${encodeURIComponent(url.searchParams.get('state')!)}`);
-    expect(cb.status).toBe(400);
-    expect(await cb.text()).toContain('Already linked');
+    const { confirm } = await completeCallback(app, url.searchParams.get('state')!);
+    expect(confirm.status).toBe(400);
+    expect(await confirm.text()).toContain('Already linked');
     const bProfile = (await (await app.request(`/v1/agents/${b.agentId}`)).json()) as ProfileBody;
     expect(bProfile.agentid).toBeNull();
+    void body;
   });
 
-  it('rejects a callback whose id_token nonce does not match (poll → failed)', async () => {
+  it('rejects a confirm whose id_token nonce does not match (poll → failed)', async () => {
     const app = createTestApp(db, AGENTID_ENV);
     const agent = await createTestAgent(db, { status: 'active' });
     const key = await makeIssuerKey();
@@ -252,7 +294,20 @@ describe('AgentID link routes', () => {
     const { body } = await startLink(app, agent);
     const url = new URL(body.link_url);
     oidc.setNonce('WRONG');
-    const cb = await app.request(`/v1/agentid/callback?code=abc&state=${encodeURIComponent(url.searchParams.get('state')!)}`);
+    const { confirm } = await completeCallback(app, url.searchParams.get('state')!);
+    expect(confirm.status).toBe(400);
+    const poll = (await (await app.request(`/v1/agentid/links/${body.link_id}`)).json()) as PollBody;
+    expect(poll.status).toBe('failed');
+  });
+
+  it('a callback missing the code marks the challenge failed (no stuck pending)', async () => {
+    const app = createTestApp(db, AGENTID_ENV);
+    const agent = await createTestAgent(db, { status: 'active' });
+    const key = await makeIssuerKey();
+    installOidcFetch(key.jwk, (nonce) => mintIdToken(key.privateKey, { nonce, sub: 'sub-nocode' }));
+    const { body } = await startLink(app, agent);
+    const url = new URL(body.link_url);
+    const cb = await app.request(`/v1/agentid/callback?state=${encodeURIComponent(url.searchParams.get('state')!)}`);
     expect(cb.status).toBe(400);
     const poll = (await (await app.request(`/v1/agentid/links/${body.link_id}`)).json()) as PollBody;
     expect(poll.status).toBe('failed');
@@ -266,7 +321,8 @@ describe('AgentID link routes', () => {
     const { body } = await startLink(app, agent);
     const url = new URL(body.link_url);
     oidc.setNonce(url.searchParams.get('nonce')!);
-    await app.request(`/v1/agentid/callback?code=abc&state=${encodeURIComponent(url.searchParams.get('state')!)}`);
+    await completeCallback(app, url.searchParams.get('state')!);
+    void body;
 
     const path = `/v1/agents/${agent.agentId}/agentid`;
     const headers = await signRequest(agent, 'DELETE', path, '');

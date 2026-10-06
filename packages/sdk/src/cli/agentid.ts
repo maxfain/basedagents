@@ -31,6 +31,17 @@ const EXIT_TIMEOUT = 3;
 
 const sleepMs = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Strip C0/C1 control + ESC bytes from server-sourced strings before printing.
+ * display_name / email come from an AgentID profile the account holder controls,
+ * so they must never carry raw terminal escape sequences into another user's
+ * terminal (`agentid status <someone-else>`).
+ */
+const CONTROL_CHARS = /[\x00-\x1f\x7f-\x9f]/g;
+function sanitize(s: string): string {
+  return s.replace(CONTROL_CHARS, '');
+}
+
 const HELP = `
 ${bold('basedagents agentid')} ${dim('<link | status | unlink>')}
 
@@ -126,7 +137,8 @@ export async function agentid(args: string[]): Promise<void> {
   const kp = keypairOrExit(keypairFile);
   const agentId = publicKeyToAgentId(kp.publicKey);
   const noWait = args.includes('--no-wait');
-  const timeoutMin = Number(getFlag(args, '--timeout') ?? '10');
+  const rawTimeout = Number(getFlag(args, '--timeout') ?? '10');
+  const timeoutMin = Number.isFinite(rawTimeout) && rawTimeout > 0 ? rawTimeout : 10;
 
   let start;
   try {
@@ -169,7 +181,11 @@ export async function agentid(args: string[]): Promise<void> {
     let status;
     try {
       status = await client.getAgentIdLinkStatus(start.link_id);
-    } catch {
+    } catch (err) {
+      if (err instanceof ApiError && (err.status === 404 || err.code === 'not_found')) {
+        console.error(red(`\n  ✗ Link not found — it may have expired. Start a new one.\n`));
+        process.exit(1);
+      }
       continue; // transient; keep polling until the deadline
     }
     if (status.status === 'pending') continue;
@@ -182,8 +198,8 @@ export async function agentid(args: string[]): Promise<void> {
       process.exit(0);
     }
     // failed | expired | not_found
-    const why = status.error ? `: ${status.error}` : '';
-    console.error(red(`\n  ✗ Link ${status.status}${why}\n`));
+    const why = status.error ? `: ${sanitize(status.error)}` : '';
+    console.error(red(`\n  ✗ Link ${sanitize(status.status)}${why}\n`));
     process.exit(1);
   }
 }
@@ -215,11 +231,11 @@ async function runStatus(
     return;
   }
   const a = res.agentid;
-  console.error(`\n  ${green('✓ AgentID verified')}  ${dim(`(${res.agent_id})`)}`);
-  if (a.display_name) console.error(`  ${dim('name')}      ${a.display_name}`);
-  if (a.email) console.error(`  ${dim('email')}     ${a.email}${a.email_verified ? green(' ✓') : ''}`);
-  console.error(`  ${dim('issuer')}    ${a.issuer}`);
-  console.error(`  ${dim('linked')}    ${a.linked_at}\n`);
+  console.error(`\n  ${green('✓ AgentID verified')}  ${dim(`(${sanitize(res.agent_id)})`)}`);
+  if (a.display_name) console.error(`  ${dim('name')}      ${sanitize(a.display_name)}`);
+  if (a.email) console.error(`  ${dim('email')}     ${sanitize(a.email)}${a.email_verified ? green(' ✓') : ''}`);
+  console.error(`  ${dim('issuer')}    ${sanitize(a.issuer)}`);
+  console.error(`  ${dim('linked')}    ${sanitize(a.linked_at)}\n`);
 }
 
 async function runUnlink(

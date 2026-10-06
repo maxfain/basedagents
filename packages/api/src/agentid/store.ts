@@ -72,6 +72,20 @@ export class AgentIdStore {
   }
 
   /**
+   * Peek an unconsumed, unexpired challenge by state hash WITHOUT consuming it —
+   * used to render the consent page. Commitment happens only after the owner
+   * confirms, via consumeChallengeByState.
+   */
+  async getChallengeByState(stateHash: string, nowIso: string): Promise<AgentIdChallengeRow | null> {
+    return this.db.get<AgentIdChallengeRow>(
+      `SELECT * FROM agentid_link_challenges
+        WHERE state_hash = ? AND consumed_at IS NULL AND expires_at > ?`,
+      stateHash,
+      nowIso,
+    );
+  }
+
+  /**
    * Atomically consume an unconsumed, unexpired challenge by its state hash.
    * Returns the row on success (single-use won), null otherwise. The UPDATE is
    * the gate; the SELECT only fetches the row data to return.
