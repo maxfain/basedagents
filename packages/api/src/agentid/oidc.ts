@@ -123,8 +123,21 @@ export function buildAuthorizeUrl(
 
 /** Module-level fetch override for tests (scripts the token + JWKS endpoints). */
 let testFetch: typeof fetch | undefined;
+
+/** JWKS cache shared across requests, keyed by JWKS URL — a per-request client
+ *  instance would otherwise refetch the keys on every link completion. */
+interface JwksEntry {
+  fetchedAt: number;
+  keys: Map<string, JwkEc>;
+  anon: JwkEc[];
+}
+const jwksCacheByUrl = new Map<string, JwksEntry>();
+
 export function setAgentIdFetchForTests(f: typeof fetch | undefined): void {
   testFetch = f;
+  // Keep tests hermetic: a scripted (or cleared) fetch must not see another
+  // test's cached keys. Production never calls this, so the cache persists there.
+  jwksCacheByUrl.clear();
 }
 
 /**
@@ -134,7 +147,6 @@ export function setAgentIdFetchForTests(f: typeof fetch | undefined): void {
 export class AgentIdOidcClient {
   private readonly cfg: AgentIdConfig;
   private readonly fetchImpl: typeof fetch;
-  private jwksCache: { fetchedAt: number; keys: Map<string, JwkEc>; anon: JwkEc[] } | null = null;
 
   constructor(cfg: AgentIdConfig, fetchImpl?: typeof fetch) {
     this.cfg = cfg;
@@ -182,9 +194,11 @@ export class AgentIdOidcClient {
     return json;
   }
 
-  /** Fetch + cache the issuer JWKS; refetch once on a cold cache or stale TTL. */
-  private async loadJwks(force: boolean): Promise<void> {
-    if (!force && this.jwksCache && Date.now() - this.jwksCache.fetchedAt < JWKS_TTL_MS) return;
+  /** Fetch + cache the issuer JWKS (module-level, keyed by URL); refetch on a cold
+   *  cache, stale TTL, or when forced (kid rotation). */
+  private async loadJwks(force: boolean): Promise<JwksEntry> {
+    const cached = jwksCacheByUrl.get(this.cfg.jwksUrl);
+    if (!force && cached && Date.now() - cached.fetchedAt < JWKS_TTL_MS) return cached;
     let res: Response;
     try {
       res = await this.fetchImpl(this.cfg.jwksUrl, { headers: { accept: 'application/json' } });
@@ -209,21 +223,23 @@ export class AgentIdOidcClient {
       if (k.kid) keys.set(k.kid, k);
       else anon.push(k);
     }
-    this.jwksCache = { fetchedAt: Date.now(), keys, anon };
+    const entry: JwksEntry = { fetchedAt: Date.now(), keys, anon };
+    jwksCacheByUrl.set(this.cfg.jwksUrl, entry);
+    return entry;
   }
 
   private async resolveKey(kid: string | undefined): Promise<JwkEc> {
-    await this.loadJwks(false);
+    let jwks = await this.loadJwks(false);
     const pick = (): JwkEc | undefined => {
-      if (kid) return this.jwksCache!.keys.get(kid);
+      if (kid) return jwks.keys.get(kid);
       // No kid: only safe when the issuer publishes exactly one usable key.
-      const all = [...this.jwksCache!.keys.values(), ...this.jwksCache!.anon];
+      const all = [...jwks.keys.values(), ...jwks.anon];
       return all.length === 1 ? all[0] : undefined;
     };
     let jwk = pick();
     if (!jwk) {
       // Key rotation: refetch once before giving up.
-      await this.loadJwks(true);
+      jwks = await this.loadJwks(true);
       jwk = pick();
     }
     if (!jwk) {

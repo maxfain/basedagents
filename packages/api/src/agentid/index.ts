@@ -132,19 +132,20 @@ export interface AgentIdLinkPublic {
 }
 
 /**
- * Mask an email for public responses — byte-for-byte the same scheme as
- * routes/agents.ts obfuscateEmail (hansl@agentmail.com → h***l@a******l.com),
- * kept parallel so the AgentID email masks exactly like contact_email. (Not
- * imported from agents.ts: that module imports this one, which would be a cycle.)
+ * Mask an email for public responses (hansl@agentmail.com → h***l@a******l.com).
+ * Same scheme as routes/agents.ts obfuscateEmail, but it NEVER returns an address
+ * unmasked: a domain with no dot (e.g. research@inbox) is still masked rather than
+ * exposed in full. (Not imported from agents.ts: that module imports this one,
+ * which would be a cycle.)
  */
 export function maskEmail(email: string): string {
   const at = email.lastIndexOf('@');
-  if (at < 1) return email;
+  if (at < 1) return email; // no local part to mask
   const local = email.slice(0, at);
   const domain = email.slice(at + 1);
-  const dotIdx = domain.lastIndexOf('.');
-  if (dotIdx < 1) return email;
   const mask = (s: string) => (s.length <= 2 ? s : `${s[0]}${'*'.repeat(s.length - 2)}${s[s.length - 1]}`);
+  const dotIdx = domain.lastIndexOf('.');
+  if (dotIdx < 1) return `${mask(local)}@${mask(domain)}`; // dotless domain: still mask, never expose
   return `${mask(local)}@${mask(domain.slice(0, dotIdx))}${domain.slice(dotIdx)}`;
 }
 

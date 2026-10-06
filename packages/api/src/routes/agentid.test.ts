@@ -201,6 +201,9 @@ describe('AgentID link routes', () => {
 
     const consent = await app.request(`/v1/agentid/callback?code=abc&state=${encodeURIComponent(state)}`);
     expect(consent.status).toBe(200);
+    // Clickjacking protection on the consent page (owner's only chance to notice a wrong agent).
+    expect(consent.headers.get('x-frame-options')).toBe('DENY');
+    expect(consent.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
     const html = await consent.text();
     expect(html).toContain('Confirm &amp; link');
     expect(html).toContain(agent.agentId); // the target agent is shown
@@ -343,6 +346,69 @@ describe('AgentID link routes', () => {
     expect(cb.status).toBe(400);
     const poll = (await (await app.request(`/v1/agentid/links/${body.link_id}`)).json()) as PollBody;
     expect(poll.status).toBe('failed');
+  });
+
+  it('two consent tabs in the same browser do not clobber each other (per-link cookie)', async () => {
+    const app = createTestApp(db, AGENTID_ENV);
+    const agent = await createTestAgent(db, { status: 'active' });
+    const key = await makeIssuerKey();
+    const oidc = installOidcFetch(key.jwk, (nonce) => mintIdToken(key.privateKey, { nonce, sub: 'sub-tabs' }));
+
+    const a = await startLink(app, agent);
+    const b = await startLink(app, agent);
+    const urlA = new URL(a.body.link_url);
+    const urlB = new URL(b.body.link_url);
+    const stateA = urlA.searchParams.get('state')!;
+
+    // Load both consent pages — each sets its own per-link cookie.
+    const consentA = await app.request(`/v1/agentid/callback?code=abc&state=${encodeURIComponent(stateA)}`);
+    const cookieA = consentA.headers.get('set-cookie')!.split(';')[0];
+    await app.request(`/v1/agentid/callback?code=abc&state=${encodeURIComponent(urlB.searchParams.get('state')!)}`);
+
+    // Confirming tab A with tab A's cookie still works despite tab B having loaded.
+    oidc.setNonce(urlA.searchParams.get('nonce')!);
+    const confirm = await app.request('/v1/agentid/callback/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: cookieA },
+      body: new URLSearchParams({ state: stateA, code: 'abc' }).toString(),
+    });
+    expect(confirm.status).toBe(200);
+    expect(await confirm.text()).toContain('AgentID linked');
+  });
+
+  it('unlinking cancels an in-flight consent so it cannot restore the link', async () => {
+    const app = createTestApp(db, AGENTID_ENV);
+    const agent = await createTestAgent(db, { status: 'active' });
+    const key = await makeIssuerKey();
+    const oidc = installOidcFetch(key.jwk, (nonce) => mintIdToken(key.privateKey, { nonce, sub: 'sub-unlink-race' }));
+
+    // Link once.
+    const first = await startLink(app, agent);
+    let url = new URL(first.body.link_url);
+    oidc.setNonce(url.searchParams.get('nonce')!);
+    await completeCallback(app, url.searchParams.get('state')!);
+
+    // Owner opens a NEW consent (in-flight)...
+    const second = await startLink(app, agent);
+    url = new URL(second.body.link_url);
+    const state2 = url.searchParams.get('state')!;
+    oidc.setNonce(url.searchParams.get('nonce')!);
+    const consent = await app.request(`/v1/agentid/callback?code=abc&state=${encodeURIComponent(state2)}`);
+    const cookie = consent.headers.get('set-cookie')?.split(';')[0] ?? '';
+
+    // ...the agent unlinks...
+    const dpath = `/v1/agents/${agent.agentId}/agentid`;
+    await app.request(dpath, { method: 'DELETE', headers: await signRequest(agent, 'DELETE', dpath, '') });
+
+    // ...and the stale consent can no longer restore the link.
+    const confirm = await app.request('/v1/agentid/callback/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...(cookie ? { Cookie: cookie } : {}) },
+      body: new URLSearchParams({ state: state2, code: 'abc' }).toString(),
+    });
+    expect(confirm.status).toBe(400);
+    const profile = (await (await app.request(`/v1/agents/${agent.agentId}`)).json()) as ProfileBody;
+    expect(profile.agentid).toBeNull();
   });
 
   it('unlinks on DELETE (own agent only)', async () => {

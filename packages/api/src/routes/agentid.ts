@@ -43,12 +43,15 @@ import { AgentIdStore } from '../agentid/store.js';
 const STATUS_HINT = 'AgentID linking is not enabled on this registry. See GET /v1/status -> agentid.';
 
 /**
- * Name + path of the consent-browser binding cookie. Scoped to the confirm path
- * so it is only sent on the one request that needs it. HttpOnly so page script
- * can't read it; SameSite=Lax so the top-level consent-form POST still carries it.
+ * Consent-browser binding cookie. One cookie PER link attempt (name suffixed with
+ * the link_id) so two consent pages open in the same browser don't clobber each
+ * other's binding. Scoped to the confirm path so it's only sent on the one request
+ * that needs it; HttpOnly so page script can't read it; SameSite=Lax so the
+ * top-level consent-form POST still carries it.
  */
-const CONFIRM_COOKIE = 'ba_agentid_confirm';
+const CONFIRM_COOKIE_PREFIX = 'ba_agentid_confirm_';
 const CONFIRM_COOKIE_PATH = '/v1/agentid/callback/confirm';
+const confirmCookieName = (linkId: string) => `${CONFIRM_COOKIE_PREFIX}${linkId}`;
 
 // ─────────────────────────── agent-scoped ───────────────────────────
 
@@ -138,6 +141,9 @@ agentScoped.delete('/:id/agentid', agentAuth, async (c) => {
   }
   const store = new AgentIdStore(c.get('db'));
   const res = await store.deleteLinkByAgentId(authedId);
+  // Also cancel any in-flight consent so it can't be confirmed to restore the
+  // link without a fresh signed request.
+  await store.cancelPendingChallengesByAgent(authedId).catch(() => {});
   return c.json({ ok: true, unlinked: res.changes > 0 });
 });
 
@@ -209,7 +215,7 @@ publicRoutes.get('/callback', async (c) => {
   const bindingSecret = randomToken();
   const bound = await store.bindConfirmOnce(sha256hex(state), sha256hex(bindingSecret), nowIso).catch(() => false);
   if (bound) {
-    setCookie(c, CONFIRM_COOKIE, bindingSecret, {
+    setCookie(c, confirmCookieName(challenge.link_id), bindingSecret, {
       httpOnly: true,
       secure: new URL(c.req.url).protocol === 'https:',
       sameSite: 'Lax',
@@ -249,7 +255,7 @@ publicRoutes.post('/callback/confirm', async (c) => {
   if (!peek) {
     return resultPage(c, false, 'Link request not found', 'This link request has expired or was already used. Start a new one.');
   }
-  const cookie = getCookie(c, CONFIRM_COOKIE);
+  const cookie = getCookie(c, confirmCookieName(peek.link_id));
   if (!peek.confirm_binding || !cookie || !timingSafeEqual(sha256hex(cookie), peek.confirm_binding)) {
     return resultPage(
       c,
@@ -264,7 +270,7 @@ publicRoutes.post('/callback/confirm', async (c) => {
   if (!challenge) {
     return resultPage(c, false, 'Link request not found', 'This link request has expired or was already used. Start a new one.');
   }
-  deleteCookie(c, CONFIRM_COOKIE, { path: CONFIRM_COOKIE_PATH });
+  deleteCookie(c, confirmCookieName(challenge.link_id), { path: CONFIRM_COOKIE_PATH });
 
   const cfg = agentIdConfigFor(c.env);
   if (!cfg) {
@@ -321,6 +327,12 @@ publicRoutes.post('/callback/confirm', async (c) => {
 
 // ─────────────────────────── helpers ───────────────────────────
 
+/** Forbid framing so the consent/result pages can't be clickjacked behind an overlay. */
+function setAntiFrame(c: Context<AppEnv>): void {
+  c.header('Content-Security-Policy', "frame-ancestors 'none'");
+  c.header('X-Frame-Options', 'DENY');
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (ch) => {
     switch (ch) {
@@ -373,6 +385,7 @@ function consentPage(
 </form>
 <p style="margin-top:1rem;opacity:0.6"><a href="https://basedagents.ai" style="color:inherit">BasedAgents</a></p>
 </div></body></html>`;
+  setAntiFrame(c);
   return c.html(body, 200);
 }
 
@@ -398,6 +411,7 @@ function resultPage(c: Context<AppEnv>, ok: boolean, title: string, detail: stri
 <h1>${escapeHtml(title)}</h1><p>${escapeHtml(detail)}</p>
 <p style="margin-top:1rem;opacity:0.6"><a href="https://basedagents.ai" style="color:inherit">BasedAgents</a></p>
 </div></body></html>`;
+  setAntiFrame(c);
   return c.html(body, ok ? 200 : 400);
 }
 

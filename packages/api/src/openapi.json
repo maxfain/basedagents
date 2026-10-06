@@ -2144,15 +2144,38 @@
     "/v1/agentid/callback": {
       "get": {
         "summary": "AgentID OIDC redirect target (browser)",
-        "description": "AgentID redirects the owner's browser here after sign-in. Exchanges the authorization code, verifies the ES256 id_token (iss/aud/exp/nonce), records the link, and returns an HTML result page. Not called directly by agents.",
+        "description": "AgentID redirects the owner's browser here after sign-in. This renders a CONSENT page naming the exact target agent and sets a set-once, HttpOnly browser-binding cookie — it does NOT commit the link. The link is committed only by POST /v1/agentid/callback/confirm. A 200 here means 'consent shown', not 'linked'. Not called directly by agents.",
         "parameters": [
           { "name": "code", "in": "query", "required": false, "schema": { "type": "string" } },
           { "name": "state", "in": "query", "required": false, "schema": { "type": "string" } },
           { "name": "error", "in": "query", "required": false, "schema": { "type": "string" } }
         ],
         "responses": {
+          "200": { "description": "HTML consent page (owner must confirm to finish)" },
+          "400": { "description": "HTML error page (failed/expired/invalid)" }
+        }
+      }
+    },
+    "/v1/agentid/callback/confirm": {
+      "post": {
+        "summary": "Commit an AgentID link after owner consent (browser)",
+        "description": "Submitted by the consent page's form. Verifies the browser-binding cookie, atomically consumes the single-use challenge, exchanges the code, verifies the ES256 id_token, and records the link. Not called directly by agents; poll GET /v1/agentid/links/{link_id} for the result.",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "state": { "type": "string" },
+                  "code": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
           "200": { "description": "HTML result page (linked)" },
-          "400": { "description": "HTML result page (failed/expired/invalid)" }
+          "400": { "description": "HTML error page (binding/verification failed, expired, or already used)" }
         }
       }
     },

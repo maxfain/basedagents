@@ -194,4 +194,16 @@ export class AgentIdStore {
   async deleteLinkByAgentId(agentId: string): Promise<{ changes: number }> {
     return this.db.run(`DELETE FROM agentid_links WHERE agent_id = ?`, agentId);
   }
+
+  /**
+   * Cancel an agent's not-yet-consumed challenges. Called on unlink so a consent
+   * page still open can't be confirmed afterwards to silently restore the link
+   * without a fresh signed link request.
+   */
+  async cancelPendingChallengesByAgent(agentId: string): Promise<void> {
+    await this.db.run(
+      `DELETE FROM agentid_link_challenges WHERE agent_id = ? AND consumed_at IS NULL`,
+      agentId,
+    );
+  }
 }

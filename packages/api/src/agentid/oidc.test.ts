@@ -9,7 +9,7 @@ import {
   setAgentIdFetchForTests,
 } from './oidc.js';
 import { base64urlEncode } from '../mcp/websec.js';
-import type { AgentIdConfig } from './index.js';
+import { maskEmail, type AgentIdConfig } from './index.js';
 
 const CFG: AgentIdConfig = {
   clientId: 'ba-client-123',
@@ -219,5 +219,34 @@ describe('agentid/oidc verifyIdToken', () => {
   it('exchangeCode throws on a non-2xx token response', async () => {
     const fetchImpl = (async () => new Response('bad', { status: 400 })) as unknown as typeof fetch;
     await expect(new AgentIdOidcClient(CFG, fetchImpl).exchangeCode('c', 'v')).rejects.toThrow(/token endpoint returned 400/);
+  });
+
+  it('shares the JWKS cache across client instances (one fetch per URL)', async () => {
+    setAgentIdFetchForTests(undefined); // clears the module-level JWKS cache
+    const { kp, jwk } = await makeIssuerKey();
+    let jwksCalls = 0;
+    const fetchImpl = (async (input: string | URL) => {
+      if (String(input) === CFG.jwksUrl) {
+        jwksCalls += 1;
+        return new Response(JSON.stringify({ keys: [jwk] }), { status: 200 });
+      }
+      throw new Error('unexpected');
+    }) as unknown as typeof fetch;
+    const t1 = await mintJwt(kp.privateKey, { alg: 'ES256', kid: 'kid-1', typ: 'JWT' }, goodClaims('n1'));
+    const t2 = await mintJwt(kp.privateKey, { alg: 'ES256', kid: 'kid-1', typ: 'JWT' }, goodClaims('n2'));
+    // Two separate client instances (as the per-request route creates) → still one fetch.
+    await new AgentIdOidcClient(CFG, fetchImpl).verifyIdToken(t1, { nonce: 'n1' });
+    await new AgentIdOidcClient(CFG, fetchImpl).verifyIdToken(t2, { nonce: 'n2' });
+    expect(jwksCalls).toBe(1);
+  });
+});
+
+describe('agentid maskEmail', () => {
+  it('never exposes a dotless-domain address', () => {
+    expect(maskEmail('research@inbox')).not.toBe('research@inbox');
+    expect(maskEmail('research@inbox')).toContain('*');
+  });
+  it('masks a normal address like obfuscateEmail', () => {
+    expect(maskEmail('hansl@agentmail.com')).toMatch(/^h\*+l@a\*+l\.com$/);
   });
 });
