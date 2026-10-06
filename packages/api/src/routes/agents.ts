@@ -565,10 +565,14 @@ agents.patch('/:id/wallet', agentAuth, async (c) => {
   }
 
   // One atomic write: record the bind, retire the older ones, point the agent
-  // at the wallet. The UNIQUE (agent_id, nonce) constraint makes a reused
-  // message fail the whole batch, so a signed message binds at most once.
+  // at the wallet, and attach the tasks this wallet posted on its own through
+  // /v1/x402/tasks on the same network (the signature proves the agent's
+  // owner controls the wallet that paid for them). The UNIQUE (agent_id, nonce)
+  // constraint makes a reused message fail the whole batch, so a signed message
+  // binds at most once.
+  let attached = 0;
   try {
-    await db.batch([
+    const results = await db.batch([
       {
         sql: `INSERT INTO agent_wallet_bindings (id, agent_id, wallet_address, wallet_network, signer_kind, message, signature, nonce, bound_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -583,14 +587,20 @@ agents.patch('/:id/wallet', agentAuth, async (c) => {
         sql: 'UPDATE agents SET wallet_address = ?, wallet_network = ?, wallet_verified_at = ? WHERE id = ?',
         params: [toChecksumAddress(address), network, nowIso, id],
       },
+      {
+        // creator_wallet stays: the wallet keeps managing these tasks at /v1/x402/tasks.
+        sql: "UPDATE tasks SET creator_kind = 'agent', creator_agent_id = ? WHERE creator_kind = 'wallet' AND creator_wallet = ? AND bounty_network = ?",
+        params: [id, address.toLowerCase(), network],
+      },
     ]);
+    attached = results[3]?.changes ?? 0;
   } catch (err) {
     if (/UNIQUE/i.test(err instanceof Error ? err.message : String(err))) {
       return c.json({ error: 'wallet_proof_reused', message: 'This signed message was already used. Sign a fresh one.' }, 409);
     }
     throw err;
   }
-  return c.json({ ...(await walletView(db, id)), signer_kind: proof.signerKind });
+  return c.json({ ...(await walletView(db, id)), signer_kind: proof.signerKind, ...(attached > 0 ? { attached_tasks: attached } : {}) });
 });
 
 export default agents;

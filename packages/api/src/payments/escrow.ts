@@ -49,8 +49,14 @@ export interface NewEscrowTask {
   task_id: string;
   creator_agent_id: string | null;
   creator_owner_id: string | null;
-  creator_kind: 'agent' | 'owner';
+  /**
+   * 'wallet': a wallet-only poster (routes/x402-tasks.ts). The creator is the wallet the
+   * facilitator verified as the payer, written as creator_wallet by the INSERT below.
+   */
+  creator_kind: 'agent' | 'owner' | 'wallet';
   creator_assertion_id: string | null;
+  /** sha256 hex of a wallet poster's manage token (0051); null for agents and owners. */
+  manage_token_hash?: string | null;
   proposer_signature: string | null;
   title: string;
   description: string;
@@ -66,7 +72,11 @@ export interface NewEscrowTask {
 }
 
 export type FundTarget =
-  | { kind: 'new'; task: NewEscrowTask; funnel: 'agent' | 'human' }
+  | {
+      kind: 'new'; task: NewEscrowTask; funnel: 'agent' | 'human' | 'wallet';
+      /** The paid resource named in the 402 (default POST /v1/tasks), e.g. a POST /v1/x402/tasks endpoint. */
+      resource?: { url: string; description: string; endpoint: string; extensions?: Record<string, unknown> };
+    }
   /** Re-fund an existing task whose deposit definitively failed (`escrow_status = unfunded`). */
   | { kind: 'existing'; task: TaskRow };
 
@@ -74,10 +84,12 @@ export interface FundOpts {
   /** The raw PAYMENT-SIGNATURE header, or null to get the 402 challenge. */
   rawHeader: string | null;
   nowIso: string;
-  actor: Actor;
+  /** Unused by the deposit itself; a wallet-only poster has no identity until its payment is verified. */
+  actor?: Actor;
 }
 
 function fundResource(target: FundTarget): { url: string; description: string } {
+  if (target.kind === 'new' && target.resource) return { url: target.resource.url, description: target.resource.description };
   return target.kind === 'new'
     ? { url: TASK_RESOURCE_BASE, description: 'BasedAgents escrow deposit for a new task' }
     : { url: `${TASK_RESOURCE_BASE}/${target.task.task_id}/fund`, description: `BasedAgents escrow deposit for task ${target.task.task_id}` };
@@ -132,6 +144,7 @@ export async function fundEscrowTask(db: DBAdapter, env: Bindings, target: FundT
 
   if (!rawHeader) {
     const paymentRequired = buildPaymentRequired({ task_id: taskId }, requirements, undefined, resource);
+    if (target.kind === 'new' && target.resource?.extensions) paymentRequired.extensions = target.resource.extensions;
     return {
       status: 402,
       headers: { 'PAYMENT-REQUIRED': encodeB64Json(paymentRequired) },
@@ -142,7 +155,7 @@ export async function fundEscrowTask(db: DBAdapter, env: Bindings, target: FundT
         ...(target.kind === 'existing' ? { task_id: taskId } : {}),
         bounty: bountyOut,
         escrow: { wallet: house.address },
-        fund_endpoint: target.kind === 'new' ? 'POST /v1/tasks' : `POST /v1/tasks/${taskId}/fund`,
+        fund_endpoint: target.kind === 'new' ? (target.resource?.endpoint ?? 'POST /v1/tasks') : `POST /v1/tasks/${taskId}/fund`,
         payment_header: PAYMENT_HEADER,
       },
     };
@@ -196,13 +209,17 @@ export async function fundEscrowTask(db: DBAdapter, env: Bindings, target: FundT
            bounty_amount, bounty_token, bounty_network,
            escrow, escrow_status, escrow_leg, escrow_leg_attempts, escrow_wallet,
            payment_status, payment_signature, payment_requirements, payment_payer, payment_nonce, payment_expires_at, payment_verified,
-           settle_attempts, settle_broadcast, settle_next_at, max_active_claims_per_agent, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, 1, 'funding', 'deposit', 0, ?, 'authorized', ?, ?, ?, ?, ?, 1, 0, 0, ?, ?, ?)`,
+           settle_attempts, settle_broadcast, settle_next_at, max_active_claims_per_agent, expires_at,
+           creator_wallet, manage_token_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, 1, 'funding', 'deposit', 0, ?, 'authorized', ?, ?, ?, ?, ?, 1, 0, 0, ?, ?, ?, ?, ?)`,
         n.task_id, n.creator_agent_id, n.creator_owner_id, n.creator_kind, n.creator_assertion_id, n.proposer_signature,
         n.title, n.description, n.category, n.required_capabilities ? JSON.stringify(n.required_capabilities) : null,
         n.expected_output, n.output_format, now, bounty.amount, bounty.token, bounty.network, house.address,
         encrypted, JSON.stringify(requirements), payer, nonce, expiresAt, now,
         n.max_active_claims_per_agent ?? null, n.expires_at,
+        // A wallet poster IS the wallet that paid: taken from the verified payment, never from the request.
+        n.creator_kind === 'wallet' ? payer.toLowerCase() : null,
+        n.manage_token_hash ?? null,
       );
     } catch (err) {
       if (/UNIQUE/i.test(String(err))) {

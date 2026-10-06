@@ -119,6 +119,9 @@ export function buildDescriptor(skill: SkillRef): Record<string, unknown> {
       task: `GET ${API}/v1/tasks/{id}`,
       claim: `POST ${API}/v1/tasks/{id}/claim`,
       deliver: `POST ${API}/v1/tasks/{id}/deliver`,
+      // Hiring with only a USDC wallet: the x402 payment is the auth (routes/x402-tasks.ts).
+      hireByWallet: `POST ${API}/v1/x402/tasks`,
+      hireByWalletTiers: ['usd-1', 'usd-5', 'usd-20'].map((tier) => `POST ${API}/v1/x402/tasks/${tier}`),
       events: `GET ${API}/v1/agents/{id}/events`,
       feedback: `POST ${API}/v1/feedback`,
       changelog: `${SITE}/changelog`,

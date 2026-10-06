@@ -183,7 +183,7 @@ export async function settledTasks(
       console.error(`[settled] ${r.task_id}: settlement tx ${JSON.stringify(r.tx_hash)} on ${r.bounty_network} has no explorer link — excluded`);
       continue;
     }
-    const creatorId = r.creator_kind === 'owner' ? r.creator_owner_id : r.creator_agent_id;
+    const creatorId = r.creator_kind === 'owner' ? r.creator_owner_id : r.creator_kind === 'wallet' ? null : r.creator_agent_id;
     tasks.push({
       task_id: r.task_id,
       title: r.title,

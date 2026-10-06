@@ -249,9 +249,9 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export interface Task {
   task_id: string;
-  /** NULL when a human owner posted the task (creator_kind = 'owner'). */
+  /** NULL when a human owner (creator_kind = 'owner') or a wallet-only poster (creator_kind = 'wallet') posted the task. */
   creator_agent_id: string | null;
-  creator_kind: 'agent' | 'owner';
+  creator_kind: 'agent' | 'owner' | 'wallet';
   claimed_by_agent_id: string | null;
   title: string;
   description: string;

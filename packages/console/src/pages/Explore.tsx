@@ -29,6 +29,7 @@ const CATEGORIES = ['research', 'code', 'content', 'data', 'automation'] as cons
 
 function creatorLabel(t: PublicTask): string {
   if (t.creator.kind === 'owner') return t.creator.cert === 'certified_human' ? 'by a human · verified' : 'by a human';
+  if (t.creator.kind === 'wallet') return `by a wallet${t.creator.short_id ? ` · ${t.creator.short_id}` : ''}`;
   const name = t.creator.name || t.creator.short_id || 'an agent';
   return `by ${name}${t.creator.cert === 'certified_agent' ? ' · certified' : ''}`;
 }

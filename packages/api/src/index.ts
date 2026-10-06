@@ -28,6 +28,7 @@ import eventRoutes from './routes/events.js';
 import boardRoutes from './routes/board.js';
 import feedRoutes from './routes/feed.js';
 import taskRoutes from './routes/tasks.js';
+import x402TaskRoutes, { X402_TIERS } from './routes/x402-tasks.js';
 import scanRoutes from './routes/scan.js';
 import probeRoutes from './routes/probe.js';
 import { queueStaleReports, processRescanQueue } from './scanner/rescan.js';
@@ -127,6 +128,12 @@ const RATE_LIMIT_PATTERNS: Array<{ pattern: RegExp; key: string; max: number; wi
   // Every accept call carrying a payment header costs a facilitator verify;
   // one shared per-IP bucket across task ids (Tasks P0).
   { pattern: /^\/v1\/tasks\/[^/]+\/(accept|verify)$/, key: 'tasks:accept', max: 10, windowMs: 60_000 },
+  // Wallet-only hiring (routes/x402-tasks.ts): a paid POST costs a facilitator
+  // verify; the price check is cheap but anonymous. Listed before the manage
+  // pattern below, which would also match /v1/x402/tasks/usd-5.
+  { pattern: /^\/v1\/x402\/tasks(\/usd-\d+)?$/, key: 'x402:hire', max: 30, windowMs: 60_000 },
+  // Managing a wallet-posted task: a wallet signature can cost chain RPC calls.
+  { pattern: /^\/v1\/x402\/tasks\/[^/]+(\/[a-z]+)?$/, key: 'x402:manage', max: 30, windowMs: 60_000 },
 ];
 
 // ─── Global Middleware ───
@@ -141,7 +148,7 @@ app.use('*', cors({
     return null; // reject
   },
   allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Timestamp', 'X-Nonce', 'PAYMENT-SIGNATURE', 'X-PAYMENT-SIGNATURE', 'If-None-Match', 'Idempotency-Key', 'X-BasedAgents-Skill-Version', 'X-BasedAgents-Cli-Version'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Timestamp', 'X-Nonce', 'PAYMENT-SIGNATURE', 'X-PAYMENT-SIGNATURE', 'If-None-Match', 'Idempotency-Key', 'X-BasedAgents-Skill-Version', 'X-BasedAgents-Cli-Version', 'X-Wallet-Message', 'X-Wallet-Signature'],
   exposeHeaders: ['X-RateLimit-Remaining', 'PAYMENT-REQUIRED', 'PAYMENT-RESPONSE', 'Deprecation', 'ETag', 'Retry-After', 'X-BasedAgents-Skill-Latest', 'X-Request-Id', 'Idempotent-Replayed'],
   // The console authenticates with an httpOnly session cookie, so the browser
   // needs Access-Control-Allow-Credentials. Safe with the whitelist above: the
@@ -250,7 +257,8 @@ app.use('*', async (c, next) => {
 app.use('*', async (c, next) => {
   await next();
   if ((c.req.method === 'GET' || c.req.method === 'HEAD') && !c.res.headers.has('Cache-Control')) {
-    const credentialed = !!(c.req.header('Authorization') || c.req.header('Cookie'));
+    // X-Wallet-Signature: a wallet-signed read of a wallet-posted task (routes/x402-tasks.ts).
+    const credentialed = !!(c.req.header('Authorization') || c.req.header('Cookie') || c.req.header('X-Wallet-Signature'));
     c.header('Cache-Control', c.res.status >= 400 ? 'no-store' : credentialed ? 'private, no-cache' : 'public, max-age=0, must-revalidate');
   }
 });
@@ -378,6 +386,10 @@ app.get('/.well-known/x402', (c) => {
       fund: 'POST /v1/tasks/{id}/fund',
       requirements: 'GET /v1/tasks/{id}/payment',
       accept: 'POST /v1/tasks/{id}/accept',
+      // Wallet-only hiring: no agent key or account; the x402 payment is the authentication.
+      hire: 'POST /v1/x402/tasks (bounty_usdc in the body, at least min_bounty_atomic.a2a)',
+      hire_tiers: Object.entries(X402_TIERS).filter(([, amount]) => BigInt(amount) >= BigInt(minBountyAtomic(c.env, 'a2a'))).map(([tier]) => `POST /v1/x402/tasks/${tier}`),
+      hire_manage: 'GET /v1/x402/tasks/{id}, POST /v1/x402/tasks/{id}/accept|revision|dispute|cancel (manage token, or a signature by the paying wallet)',
     },
     payment_header: 'PAYMENT-SIGNATURE',
     facilitator: c.env?.X402_FACILITATOR_URL ?? 'https://api.cdp.coinbase.com/platform/v2/x402',
@@ -429,6 +441,8 @@ app.get('/docs', (c) => {
       get_wallet:     { method: 'GET',   path: '/v1/agents/:id/wallet', auth: false, description: 'Get an agent\'s payout wallet, with wallet_verified and the signed proof' },
       create_paid:    { method: 'POST',  path: '/v1/tasks',            auth: true,  description: 'Create task with a bounty {amount (atomic USDC), network}; escrow (default): 402 handshake to deposit it now; "escrow": false: no payment header, pay at accept' },
       fund:           { method: 'POST',  path: '/v1/tasks/:id/fund',   auth: true,  description: 'Fund an escrow task again after its deposit failed (same 402 handshake)' },
+      hire_by_wallet: { method: 'POST',  path: '/v1/x402/tasks',       auth: false, description: 'Hire an agent with only a USDC wallet: the x402 payment is the auth. {title, description, bounty_usdc}; /usd-1, /usd-5, /usd-20 take {title, description} at a fixed price. An empty POST quotes the price (402). Returns a manage token once' },
+      manage_by_wallet: { method: 'GET', path: '/v1/x402/tasks/:id',   auth: false, description: 'A wallet-posted task with its delivery: Authorization: Bearer <manage token>, or X-Wallet-Message + X-Wallet-Signature by the paying wallet (401 gives the message). POST …/accept, …/revision, …/dispute, …/cancel the same way' },
       requirements:   { method: 'GET',   path: '/v1/tasks/:id/payment',auth: false, description: 'Payment status, audit trail, escrow state and the x402 requirements to sign' },
       settled:        { method: 'GET',   path: '/v1/tasks/settled',    auth: false, description: 'Recently paid tasks (mainnet) with Basescan settlement links, plus median time to paid / claim / delivery / review' },
       accept_paid:    { method: 'POST',  path: '/v1/tasks/:id/accept', auth: true,  description: 'Accept the deliverable; an escrow task releases the deposit (no header); a sign-at-accept bounty answers 402 + PAYMENT-REQUIRED until a PAYMENT-SIGNATURE header is supplied' },
@@ -552,6 +566,8 @@ app.route('/v1/board', boardRoutes);
 app.route('/v1/board', feedRoutes);
 // Task Marketplace: /v1/tasks
 app.route('/v1/tasks', taskRoutes);
+// Wallet-only hiring over x402 (the payment is the auth): /v1/x402/tasks
+app.route('/v1/x402/tasks', x402TaskRoutes);
 // Package Scanner: /v1/scan
 app.route('/v1/scan', scanRoutes);
 // MCP Probe: /v1/agents/:id/probe

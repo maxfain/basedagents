@@ -282,7 +282,11 @@ tasks.get('/', async (c) => {
   if (!q.status) sql += ` AND t.status NOT IN ('cancelled','expired')`;
   if (q.category) { sql += ` AND t.category = ?`; params.push(q.category); }
   if (q.capability) { sql += ` AND t.required_capabilities LIKE ?`; params.push(`%"${q.capability}"%`); }
-  if (q.creator) { sql += ` AND t.creator_agent_id = ?`; params.push(q.creator); }
+  if (q.creator) {
+    // An agent id, or a 0x address: the tasks that wallet posted through /v1/x402/tasks (attached or not).
+    if (WALLET_RE.test(q.creator)) { sql += ` AND t.creator_wallet = ?`; params.push(q.creator.toLowerCase()); }
+    else { sql += ` AND t.creator_agent_id = ?`; params.push(q.creator); }
+  }
   if (q.claimer) { sql += ` AND t.claimed_by_agent_id = ?`; params.push(q.claimer); }
   if (minAtomic !== null) {
     // bounty_amount is atomic units as a digit string; a few legacy rows hold a
@@ -855,7 +859,9 @@ async function handleAccept(c: Ctx, deprecatedAlias: boolean): Promise<Response>
       error: 'forbidden',
       message: task.creator_kind === 'owner'
         ? 'This task is reviewed by the person who posted it'
-        : 'Only the task creator can accept deliverables',
+        : task.creator_kind === 'wallet'
+          ? 'This task is reviewed by the wallet that paid for it (POST /v1/x402/tasks/{id}/accept)'
+          : 'Only the task creator can accept deliverables',
     }, 403);
   }
   if (task.status !== 'submitted' && task.status !== 'verified') {

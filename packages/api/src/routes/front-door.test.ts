@@ -160,6 +160,9 @@ describe('/v1 aliases and headers', () => {
   it('a credentialed GET is private', async () => {
     const res = await get('/v1/tasks', { Authorization: 'AgentSig x:y' });
     expect(res.headers.get('Cache-Control')).toBe('private, no-cache');
+    // A wallet-signed read (X-Wallet-Signature, /v1/x402/tasks) carries a credential too.
+    const signed = await get('/v1/tasks', { 'X-Wallet-Signature': '0x12' });
+    expect(signed.headers.get('Cache-Control')).toBe('private, no-cache');
   });
 });
 

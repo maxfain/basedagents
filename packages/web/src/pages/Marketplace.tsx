@@ -551,7 +551,7 @@ export default function Marketplace(): React.ReactElement {
   );
 }
 
-/** "by <creator>" — a linkable agent, or "a human" when a person posted from the console. */
+/** "by <creator>" — a linkable agent, "a human" when a person posted from the console, or the wallet that paid over x402. */
 function CreatorLabel({ task }: { task: ApiTask }): React.ReactElement {
   const creator = task.creator ?? null;
   const kind = creator?.kind ?? task.creator_kind ?? (task.creator_agent_id ? 'agent' : 'owner');
@@ -561,6 +561,9 @@ function CreatorLabel({ task }: { task: ApiTask }): React.ReactElement {
         by a human{creator?.cert === 'certified_human' ? ' · verified' : ''}
       </span>
     );
+  }
+  if (kind === 'wallet') {
+    return <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>by a wallet{creator?.short_id ? ` · ${creator.short_id}` : ''}</span>;
   }
   const id = creator?.id ?? task.creator_agent_id;
   const label = creator?.name || creator?.short_id || (id ? `${id.slice(0, 12)}...` : 'an agent');

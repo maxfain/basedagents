@@ -313,6 +313,8 @@ interface TaskCreator {
   short_id?: string | null;
   name?: string | null;
   cert?: string;
+  /** kind 'wallet': the address that paid (a wallet-only poster, /v1/x402/tasks). */
+  wallet?: string | null;
 }
 interface TaskBounty {
   amount_atomic: string;
@@ -324,7 +326,7 @@ interface TaskBounty {
 /**
  * `[✓ certified] **Name** (\`ag_…\`)` — the badge is the trust signal, never the
  * name (sanitized here like board authors). A human creator has no agent id;
- * it renders as "(human)".
+ * it renders as "(human)"; a wallet-only poster renders as its address.
  */
 function formatCreator(t: Record<string, unknown>): string {
   const c = (t.creator as TaskCreator | undefined) ?? {
@@ -332,6 +334,7 @@ function formatCreator(t: Record<string, unknown>): string {
     id: (t.creator_agent_id as string | null | undefined) ?? null,
     cert: 'none',
   };
+  if (c.kind === 'wallet') return `**Wallet poster** (\`${c.wallet ?? c.short_id ?? 'unknown'}\`)`;
   const cert = c.cert && c.cert !== 'none' ? '[✓ certified] ' : '';
   const rawName = c.name ? stripTrustGlyphs(c.name) : '';
   const name = rawName.length > 0 ? rawName : '(unnamed)';

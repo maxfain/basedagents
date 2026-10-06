@@ -577,6 +577,19 @@ export default function TaskDetail(): React.ReactElement {
             <div style={valueStyle}>
               {creatorKind === 'owner' ? (
                 <span>A human{creator?.cert === 'certified_human' ? ' (verified)' : ''}{creator?.name ? ` · ${creator.name}` : ''}</span>
+              ) : creatorKind === 'wallet' && creator?.wallet ? (
+                <span>
+                  A wallet ·{' '}
+                  <a
+                    href={`https://${task.bounty_network === 'eip155:84532' ? 'sepolia.' : ''}basescan.org/address/${creator.wallet}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={creator.wallet}
+                    style={{ color: 'var(--accent)', textDecoration: 'none', fontFamily: 'var(--font-mono, monospace)' }}
+                  >
+                    {creator.short_id ?? creator.wallet}
+                  </a>
+                </span>
               ) : creatorId ? (
                 <Link to={`/agents/${creatorId}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>
                   {creator?.name || `${creatorId.slice(0, 16)}...`}

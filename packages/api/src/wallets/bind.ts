@@ -321,15 +321,34 @@ export async function verifyBindProof(
   if (issued > now + BIND_MAX_SKEW_MS) return { ok: false, reason: 'issued_in_future', detail: 'The message is dated in the future; check your clock.' };
   if (now - issued > BIND_MAX_AGE_MS) return { ok: false, reason: 'expired', detail: `The message was issued more than ${BIND_MAX_AGE_MS / 60000} minutes ago; sign a fresh one.` };
 
+  const sig = await verifyWalletSignature(env, args);
+  return sig.ok ? { ok: true, signerKind: sig.signerKind, fields } : sig;
+}
+
+
+export type WalletSignatureResult =
+  | { ok: true; signerKind: 'eoa' | 'erc1271' }
+  | { ok: false; reason: 'bad_signature' | 'rpc_unavailable'; detail: string };
+
+/**
+ * Was `message` signed (EIP-191 personal_sign) by `address`? A plain key is recovered
+ * locally; a smart wallet on Base, deployed or not, is asked through the ERC-6492 reference
+ * validator (see below). Shared by the payout-wallet bind (D8) and wallet-signed task
+ * actions (wallets/action.ts); each checks its own message format first.
+ */
+export async function verifyWalletSignature(
+  env: unknown,
+  args: { address: string; network: string; message: string; signature: string },
+): Promise<WalletSignatureResult> {
   const digest = personalMessageDigest(args.message);
   const signer = recoverSigner(digest, args.signature);
-  if (signer && sameAddress(signer, args.address)) return { ok: true, signerKind: 'eoa', fields };
+  if (signer && sameAddress(signer, args.address)) return { ok: true, signerKind: 'eoa' };
 
   const sig = args.signature.replace(/^0x/, '').toLowerCase();
   if (sig.length % 2 !== 0 || !/^[0-9a-f]+$/.test(sig)) return { ok: false, reason: 'bad_signature', detail: 'The signature is not whole bytes of hex.' };
   const urls = rpcEndpoints(env, args.network);
   if (urls.length === 0) return { ok: false, reason: 'bad_signature', detail: 'The signature was not made by this wallet.' };
-  const unavailable = (err: unknown): ProofResult => ({ ok: false, reason: 'rpc_unavailable', detail: `Could not reach ${args.network} to check the smart-wallet signature: ${err instanceof Error ? err.message : String(err)}` });
+  const unavailable = (err: unknown): WalletSignatureResult => ({ ok: false, reason: 'rpc_unavailable', detail: `Could not reach ${args.network} to check the smart-wallet signature: ${err instanceof Error ? err.message : String(err)}` });
   // Any smart wallet, deployed or not, is checked by the ERC-6492 reference validator in one
   // deployless eth_call. It answers 0x01 only for a valid signature: wrapped per ERC-6492, it
   // deploys the wallet inside the call; with code at the address, it asks isValidSignature
@@ -340,7 +359,7 @@ export async function verifyBindProof(
   try {
     const block = await freshestBlock(urls);
     const verdict = await askEndpoints(urls, 'eth_call', [{ data: erc6492ValidatorCall(args.address, digest, args.signature) }, block], (r) => /^0x0*1$/i.test(r));
-    if (verdict === 'yes') return { ok: true, signerKind: 'erc1271', fields };
+    if (verdict === 'yes') return { ok: true, signerKind: 'erc1271' };
     return {
       ok: false, reason: 'bad_signature',
       detail: sig.endsWith(ERC6492_SUFFIX)
