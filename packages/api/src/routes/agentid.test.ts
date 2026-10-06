@@ -298,6 +298,8 @@ describe('AgentID link routes', () => {
     expect(confirm.status).toBe(400);
     const poll = (await (await app.request(`/v1/agentid/links/${body.link_id}`)).json()) as PollBody;
     expect(poll.status).toBe('failed');
+    // The public poll must surface a coarse code, never the raw upstream/DB error.
+    expect(poll.error).toBe('verification_failed');
   });
 
   it('a callback missing the code marks the challenge failed (no stuck pending)', async () => {

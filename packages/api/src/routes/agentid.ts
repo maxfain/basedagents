@@ -168,8 +168,12 @@ publicRoutes.get('/callback', async (c) => {
   const challenge = state ? await store.getChallengeByState(sha256hex(state), nowIso).catch(() => null) : null;
 
   if (errParam) {
-    if (challenge) await store.markChallengeFailed(challenge.link_id, `authorize error: ${errParam}`).catch(() => {});
-    return resultPage(c, false, 'Sign-in was cancelled or failed', `AgentID returned: ${errParam}`);
+    // Don't persist the raw query param to the public poll; log it instead.
+    if (challenge) {
+      console.error(`[agentid] authorize error for ${challenge.link_id}: ${errParam}`);
+      await store.markChallengeFailed(challenge.link_id, 'authorize_error').catch(() => {});
+    }
+    return resultPage(c, false, 'Sign-in was cancelled or failed', 'AgentID reported a sign-in error. Start a new link.');
   }
   if (!state || !challenge) {
     return resultPage(c, false, 'Link request not found', 'This link request has expired or was already used. Start a new one.');
@@ -252,8 +256,11 @@ publicRoutes.post('/callback/confirm', async (c) => {
       `${challenge.agent_id} is now verified. You can close this window and return to your terminal.`,
     );
   } catch (err) {
+    // Log the detailed reason server-side, but persist only a coarse code: the
+    // link-status poll is public, so raw upstream/DB error text must not leak.
     const message = err instanceof Error ? err.message : String(err);
-    await store.markChallengeFailed(challenge.link_id, message).catch(() => {});
+    console.error(`[agentid] link verification failed for ${challenge.link_id}: ${message}`);
+    await store.markChallengeFailed(challenge.link_id, 'verification_failed').catch(() => {});
     return resultPage(c, false, 'Verification failed', 'Could not verify the AgentID sign-in. Start a new link.');
   }
 });
@@ -285,6 +292,7 @@ function consentPage(
   const who = p.agentName ? `${escapeHtml(p.agentName)} (${escapeHtml(p.agentId)})` : escapeHtml(p.agentId);
   const body = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>Confirm AgentID link — BasedAgents</title>
 <style>
   :root { color-scheme: light dark; }
@@ -319,6 +327,7 @@ function resultPage(c: Context<AppEnv>, ok: boolean, title: string, detail: stri
   const mark = ok ? '✓' : '✕';
   const body = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>${escapeHtml(title)} — BasedAgents</title>
 <style>
   :root { color-scheme: light dark; }

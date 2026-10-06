@@ -132,20 +132,20 @@ export interface AgentIdLinkPublic {
 }
 
 /**
- * Mask an email for public responses — same scheme as routes/agents.ts
- * obfuscateEmail (hansl@agentmail.com → h***l@a******l.com). Confirms an inbox
- * exists without handing scrapers the full address.
+ * Mask an email for public responses — byte-for-byte the same scheme as
+ * routes/agents.ts obfuscateEmail (hansl@agentmail.com → h***l@a******l.com),
+ * kept parallel so the AgentID email masks exactly like contact_email. (Not
+ * imported from agents.ts: that module imports this one, which would be a cycle.)
  */
 export function maskEmail(email: string): string {
   const at = email.lastIndexOf('@');
   if (at < 1) return email;
   const local = email.slice(0, at);
   const domain = email.slice(at + 1);
-  const dot = domain.lastIndexOf('.');
+  const dotIdx = domain.lastIndexOf('.');
+  if (dotIdx < 1) return email;
   const mask = (s: string) => (s.length <= 2 ? s : `${s[0]}${'*'.repeat(s.length - 2)}${s[s.length - 1]}`);
-  const maskedLocal = mask(local);
-  const maskedDomain = dot > 0 ? `${mask(domain.slice(0, dot))}${domain.slice(dot)}` : mask(domain);
-  return `${maskedLocal}@${maskedDomain}`;
+  return `${mask(local)}@${mask(domain.slice(0, dotIdx))}${domain.slice(dotIdx)}`;
 }
 
 /** Row shape (subset) needed to build the public view. */

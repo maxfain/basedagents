@@ -162,8 +162,8 @@ export async function agentid(args: string[]): Promise<void> {
   console.error(dim(`  link id: ${start.link_id}  ·  expires ${start.expires_at}`));
 
   if (noWait) {
+    // jsonMode+noWait already returned above, so stdout stays clean here.
     console.error(dim(`\n  Re-run later: basedagents agentid status  (or poll link id ${start.link_id})\n`));
-    if (jsonMode) console.log(JSON.stringify(start, null, 2));
     process.exit(EXIT_LINK_PENDING);
   }
 

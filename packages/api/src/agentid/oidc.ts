@@ -47,6 +47,7 @@ export interface AgentIdClaims {
   exp: number;
   iat?: number;
   nonce?: string;
+  azp?: string;
   email?: string;
   email_verified?: boolean;
   name?: string;
@@ -200,8 +201,11 @@ export class AgentIdOidcClient {
     const keys = new Map<string, JwkEc>();
     const anon: JwkEc[] = [];
     for (const k of doc.keys ?? []) {
-      // Only EC P-256 verification keys are usable for ES256.
+      // Only EC P-256 SIGNING keys are usable for ES256: exclude encryption keys
+      // (use:'enc') and any key advertising a non-ES256 alg (key-misuse guard).
       if (k.kty !== 'EC' || (k.crv && k.crv !== 'P-256') || !k.x || !k.y) continue;
+      if (k.use && k.use !== 'sig') continue;
+      if (k.alg && k.alg !== 'ES256') continue;
       if (k.kid) keys.set(k.kid, k);
       else anon.push(k);
     }
@@ -269,7 +273,12 @@ export class AgentIdOidcClient {
     }
     // raw r‖s (64 bytes) — pass directly, no DER. Copy into a fresh
     // ArrayBuffer-backed view so the type is BufferSource (not ArrayBufferLike).
-    const sig = new Uint8Array(base64urlDecode(s));
+    let sig: Uint8Array<ArrayBuffer>;
+    try {
+      sig = new Uint8Array(base64urlDecode(s));
+    } catch {
+      throw new AgentIdOidcError('id_token signature is not valid base64url');
+    }
     const data = new Uint8Array(enc.encode(`${h}.${p}`));
     const ok = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, sig, data);
     if (!ok) throw new AgentIdOidcError('id_token signature is invalid');
@@ -282,6 +291,16 @@ export class AgentIdOidcClient {
       ? claims.aud.includes(this.cfg.clientId)
       : claims.aud === this.cfg.clientId;
     if (!audOk) throw new AgentIdOidcError('id_token aud does not include our client_id');
+    // OIDC Core 3.1.3.7: if azp is present it MUST be our client_id, and when aud
+    // carries multiple values azp is required — otherwise a token authorized for a
+    // different party that merely co-lists our client_id would be accepted.
+    const azp = typeof claims.azp === 'string' ? claims.azp : undefined;
+    if (azp !== undefined && azp !== this.cfg.clientId) {
+      throw new AgentIdOidcError('id_token azp is not our client_id');
+    }
+    if (Array.isArray(claims.aud) && claims.aud.length > 1 && azp === undefined) {
+      throw new AgentIdOidcError('id_token has multiple aud values without azp');
+    }
 
     const now = Math.floor(Date.now() / 1000);
     if (typeof claims.exp !== 'number' || now > claims.exp + CLOCK_SKEW_S) {

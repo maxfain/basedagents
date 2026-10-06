@@ -144,11 +144,37 @@ describe('agentid/oidc verifyIdToken', () => {
     await expect(clientWithJwks(jwk).verifyIdToken(await mk({}), { nonce: 'WRONG' })).rejects.toThrow(/nonce/);
   });
 
-  it('accepts aud as an array containing our client_id', async () => {
+  it('accepts aud as an array containing our client_id when azp names us', async () => {
     const { kp, jwk } = await makeIssuerKey();
-    const token = await mintJwt(kp.privateKey, { alg: 'ES256', kid: 'kid-1', typ: 'JWT' }, goodClaims('n', { aud: ['x', CFG.clientId] }));
+    const token = await mintJwt(kp.privateKey, { alg: 'ES256', kid: 'kid-1', typ: 'JWT' }, goodClaims('n', { aud: ['x', CFG.clientId], azp: CFG.clientId }));
     const claims = await clientWithJwks(jwk).verifyIdToken(token, { nonce: 'n' });
     expect(claims.sub).toBeTruthy();
+  });
+
+  it('rejects a multi-aud token without azp (OIDC 3.1.3.7)', async () => {
+    const { kp, jwk } = await makeIssuerKey();
+    const token = await mintJwt(kp.privateKey, { alg: 'ES256', kid: 'kid-1', typ: 'JWT' }, goodClaims('n', { aud: ['x', CFG.clientId] }));
+    await expect(clientWithJwks(jwk).verifyIdToken(token, { nonce: 'n' })).rejects.toThrow(/multiple aud/);
+  });
+
+  it('rejects a token whose azp is a different party', async () => {
+    const { kp, jwk } = await makeIssuerKey();
+    const token = await mintJwt(kp.privateKey, { alg: 'ES256', kid: 'kid-1', typ: 'JWT' }, goodClaims('n', { aud: CFG.clientId, azp: 'other-client' }));
+    await expect(clientWithJwks(jwk).verifyIdToken(token, { nonce: 'n' })).rejects.toThrow(/azp/);
+  });
+
+  it('throws AgentIdOidcError (not a raw DOMException) on a non-base64url signature', async () => {
+    const { kp, jwk } = await makeIssuerKey();
+    const token = await mintJwt(kp.privateKey, { alg: 'ES256', kid: 'kid-1', typ: 'JWT' }, goodClaims('n'));
+    const [h, p] = token.split('.');
+    await expect(clientWithJwks(jwk).verifyIdToken(`${h}.${p}.@@@not-base64@@@`, { nonce: 'n' })).rejects.toThrow(AgentIdOidcError);
+  });
+
+  it('ignores a JWKS encryption key (use:enc) so it is never used to verify', async () => {
+    const { kp, jwk } = await makeIssuerKey('kid-1');
+    const encJwk = { ...jwk, use: 'enc' }; // same kid, marked for encryption
+    const token = await mintJwt(kp.privateKey, { alg: 'ES256', kid: 'kid-1', typ: 'JWT' }, goodClaims('n'));
+    await expect(clientWithJwks(encJwk).verifyIdToken(token, { nonce: 'n' })).rejects.toThrow(/no JWKS key matches/);
   });
 
   it('refetches the JWKS once when the kid is unknown (key rotation)', async () => {
