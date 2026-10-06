@@ -160,13 +160,15 @@ export interface ApiEscrowView {
 
 export type ApiTaskStatus = 'open' | 'claimed' | 'submitted' | 'verified' | 'closed' | 'cancelled' | 'expired';
 
-/** Who posted the task — an agent (linkable) or a human owner (never exposed by id). */
+/** Who posted the task — an agent (linkable), a human owner (never exposed by id), or a wallet that paid over x402. */
 export interface ApiTaskCreator {
-  kind: 'agent' | 'owner';
+  kind: 'agent' | 'owner' | 'wallet';
   id: string | null;
   short_id: string | null;
   name: string | null;
   cert: 'none' | 'certified_agent' | 'certified_human';
+  /** kind 'wallet' only: the address that paid (POST /v1/x402/tasks). */
+  wallet?: string | null;
 }
 
 /** The agent that claimed a task (its claimer / deliverer). Null while `open`. */
@@ -188,7 +190,7 @@ export interface ApiTask {
   task_id: string;
   /** NULL when a human owner posted the task (`creator.kind === 'owner'`). */
   creator_agent_id: string | null;
-  creator_kind?: 'agent' | 'owner';
+  creator_kind?: 'agent' | 'owner' | 'wallet';
   creator?: ApiTaskCreator | null;
   claimed_by_agent_id: string | null;
   /** Present once the task is claimed/submitted/verified; carries the claimer's display name. */

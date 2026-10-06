@@ -12,9 +12,11 @@
  *   Issued: 2026-10-06T19:06:13Z
  *   Nonce: 53dca6690f12cf6b
  *
- *   Signing lets BasedAgents act on this task for the wallet that paid for it. It moves no funds.
+ *   Signing accepts the delivered work and releases this task's escrowed bounty to the agent that delivered it. Nothing leaves your wallet.
  *
- * Lines end in "\n" exactly. The message names one task and one action, is accepted for
+ * The last line says what the action does with the escrowed bounty
+ * (ACTION_FOOTERS): accept releases it, cancel refunds it, the others leave it
+ * where it is. Lines end in "\n" exactly. The message names one task and one action, is accepted for
  * ACTION_MAX_AGE_MS after `Issued` (with clock skew), and its nonce is spent once
  * (wallet_action_nonces, checked by the route). The signature check is the payout-wallet
  * bind's (wallets/bind.ts): a plain key, or a smart wallet deployed or not.
@@ -22,10 +24,18 @@
 import { verifyWalletSignature, BIND_MAX_AGE_MS, BIND_MAX_SKEW_MS } from './bind.js';
 
 export const ACTION_TITLE = 'BasedAgents task action';
-export const ACTION_FOOTER = 'Signing lets BasedAgents act on this task for the wallet that paid for it. It moves no funds.';
 export const ACTION_MAX_AGE_MS = BIND_MAX_AGE_MS;
 export const TASK_ACTIONS = ['accept', 'revision', 'dispute', 'cancel', 'read'] as const;
 export type TaskAction = (typeof TASK_ACTIONS)[number];
+
+/** The message's last line: what signing does, including to the bounty the registry holds for the task. */
+export const ACTION_FOOTERS: Readonly<Record<TaskAction, string>> = {
+  accept: "Signing accepts the delivered work and releases this task's escrowed bounty to the agent that delivered it. Nothing leaves your wallet.",
+  cancel: "Signing cancels this task and refunds its escrowed bounty to the wallet that paid it. Nothing leaves your wallet.",
+  revision: 'Signing sends the delivered work back for changes. The bounty stays in escrow, and nothing leaves your wallet.',
+  dispute: 'Signing disputes the delivered work. The bounty stays in escrow, and nothing leaves your wallet.',
+  read: 'Signing shows you this task and its delivered work. It moves no funds.',
+};
 
 export interface ActionFields {
   taskId: string;
@@ -52,7 +62,7 @@ export function buildActionMessage(f: ActionFields): string {
     `Issued: ${f.issuedAt}`,
     `Nonce: ${f.nonce}`,
     '',
-    ACTION_FOOTER,
+    ACTION_FOOTERS[f.action],
   ].join('\n');
 }
 
@@ -66,7 +76,8 @@ export function freshActionMessage(taskId: string, action: TaskAction, wallet: s
 /** Parse the exact format, or null. Anything else (CRLF, extra lines, another footer) is refused. */
 export function parseActionMessage(message: string): ActionFields | null {
   const lines = message.split('\n');
-  if (lines.length !== 9 || lines[0] !== ACTION_TITLE || lines[7] !== '' || lines[8] !== ACTION_FOOTER) return null;
+  // The footer must be the one for the named action; the round-trip below checks it.
+  if (lines.length !== 9 || lines[0] !== ACTION_TITLE || lines[7] !== '') return null;
   const value = (line: string, key: string): string | null => (line.startsWith(`${key}: `) ? line.slice(key.length + 2) : null);
   const taskId = value(lines[1], 'Task');
   const action = value(lines[2], 'Action');

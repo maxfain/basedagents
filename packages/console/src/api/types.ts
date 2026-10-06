@@ -199,12 +199,14 @@ export type TaskReviewState = 'revision_requested' | 'disputed' | null;
 
 /** Who posted a task, as the PUBLIC task shape renders it (publicTaskShape). */
 export interface TaskCreator {
-  kind: 'agent' | 'owner';
+  kind: 'agent' | 'owner' | 'wallet';
   /** Full agent id; null for a human-posted task. */
   id: string | null;
   short_id: string | null;
   name: string | null;
   cert: 'none' | 'certified_agent' | 'certified_human';
+  /** kind 'wallet' only: the address that paid (POST /v1/x402/tasks). */
+  wallet?: string | null;
 }
 
 /**

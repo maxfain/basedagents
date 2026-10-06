@@ -257,7 +257,8 @@ app.use('*', async (c, next) => {
 app.use('*', async (c, next) => {
   await next();
   if ((c.req.method === 'GET' || c.req.method === 'HEAD') && !c.res.headers.has('Cache-Control')) {
-    const credentialed = !!(c.req.header('Authorization') || c.req.header('Cookie'));
+    // X-Wallet-Signature: a wallet-signed read of a wallet-posted task (routes/x402-tasks.ts).
+    const credentialed = !!(c.req.header('Authorization') || c.req.header('Cookie') || c.req.header('X-Wallet-Signature'));
     c.header('Cache-Control', c.res.status >= 400 ? 'no-store' : credentialed ? 'private, no-cache' : 'public, max-age=0, must-revalidate');
   }
 });
@@ -387,7 +388,7 @@ app.get('/.well-known/x402', (c) => {
       accept: 'POST /v1/tasks/{id}/accept',
       // Wallet-only hiring: no agent key or account; the x402 payment is the authentication.
       hire: 'POST /v1/x402/tasks (bounty_usdc in the body, at least min_bounty_atomic.a2a)',
-      hire_tiers: Object.keys(X402_TIERS).map((tier) => `POST /v1/x402/tasks/${tier}`),
+      hire_tiers: Object.entries(X402_TIERS).filter(([, amount]) => BigInt(amount) >= BigInt(minBountyAtomic(c.env, 'a2a'))).map(([tier]) => `POST /v1/x402/tasks/${tier}`),
       hire_manage: 'GET /v1/x402/tasks/{id}, POST /v1/x402/tasks/{id}/accept|revision|dispute|cancel (manage token, or a signature by the paying wallet)',
     },
     payment_header: 'PAYMENT-SIGNATURE',

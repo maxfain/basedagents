@@ -215,6 +215,17 @@ describe('Wallet-only hiring over x402 (/v1/x402/tasks)', () => {
     expect(await db.get('SELECT count(*) AS n FROM tasks')).toEqual({ n: 0 });
   });
 
+  it('a tier under the live minimum is neither listed nor quoted', async () => {
+    const raised = createTestApp(db, { ...ENV, MIN_BOUNTY_ATOMIC_A2A: '2000000' });
+    const list = await (await raised.request('/v1/x402/tasks')).json() as Json;
+    expect(list.endpoints.map((e: Json) => e.endpoint)).toEqual(['POST /v1/x402/tasks', 'POST /v1/x402/tasks/usd-5', 'POST /v1/x402/tasks/usd-20']);
+    const res = await raised.request('/v1/x402/tasks/usd-1', { method: 'POST' });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as Json)).toMatchObject({ error: 'bounty_below_minimum', minimum_usdc: '2.00' });
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull();
+    expect((await raised.request('/v1/x402/tasks/usd-5', { method: 'POST' })).status).toBe(402);
+  });
+
   it('without escrow the endpoints answer 503 instead of a 402', async () => {
     setHouseWalletForTests(null);
     const res = await post('/v1/x402/tasks/usd-1');
@@ -256,6 +267,8 @@ describe('Wallet-only hiring over x402 (/v1/x402/tasks)', () => {
     const ok = await app.request(path, { headers });
     expect(ok.status).toBe(200);
     expect(((await ok.json()) as Json).authorized_by).toBe('wallet');
+    // The poster's private view is never stored by a shared cache.
+    expect(ok.headers.get('Cache-Control')).toBe('no-store');
 
     const replay = await app.request(path, { headers });
     expect(replay.status).toBe(401);
@@ -293,6 +306,7 @@ describe('Wallet-only hiring over x402 (/v1/x402/tasks)', () => {
 
     const sub = await app.request(`/v1/x402/tasks/${taskId}/submission`, { headers: bearer(token) });
     expect(sub.status).toBe(200);
+    expect(sub.headers.get('Cache-Control')).toBe('no-store');
     expect(((await sub.json()) as Json).submission.content).toBe('{"items":5}');
 
     // An agent that is not the poster cannot accept it through the agent routes.

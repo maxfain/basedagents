@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  buildActionMessage, parseActionMessage, freshActionMessage, verifyActionProof, ACTION_FOOTER, ACTION_MAX_AGE_MS, type ActionFields,
+  buildActionMessage, parseActionMessage, freshActionMessage, verifyActionProof, ACTION_FOOTERS, ACTION_MAX_AGE_MS, type ActionFields,
 } from './action.js';
 import { personalSign, TEST_WALLET_KEYS } from '../test-helpers.js';
 import { addressFromPrivateKey, parseHousePrivateKey } from '../payments/house-wallet.js';
@@ -21,10 +21,16 @@ const prove = (over: Partial<Parameters<typeof verifyActionProof>[1]> = {}) => v
 });
 
 describe('action message', () => {
+  it('says what each action does with the escrowed bounty', () => {
+    expect(ACTION_FOOTERS.accept).toMatch(/releases this task's escrowed bounty/);
+    expect(ACTION_FOOTERS.cancel).toMatch(/refunds its escrowed bounty/);
+    for (const a of ['accept', 'cancel', 'revision', 'dispute'] as const) expect(ACTION_FOOTERS[a]).not.toMatch(/moves no funds/);
+  });
+
   it('is the documented text, line for line', () => {
     expect(MESSAGE.split('\n')).toEqual([
       'BasedAgents task action', `Task: ${TASK}`, 'Action: accept', `Wallet: ${WALLET}`, 'Network: eip155:8453',
-      'Issued: 2026-10-06T19:06:13Z', 'Nonce: 53dca6690f12cf6b', '', ACTION_FOOTER,
+      'Issued: 2026-10-06T19:06:13Z', 'Nonce: 53dca6690f12cf6b', '', ACTION_FOOTERS.accept,
     ]);
   });
 
@@ -33,7 +39,10 @@ describe('action message', () => {
     expect(parseActionMessage(MESSAGE.replace(/\n/g, '\r\n'))).toBeNull();
     expect(parseActionMessage(MESSAGE + '\n')).toBeNull();
     expect(parseActionMessage(MESSAGE.replace('Action: accept', 'Action: withdraw'))).toBeNull();
-    expect(parseActionMessage(MESSAGE.replace(ACTION_FOOTER, 'Sure, take my money.'))).toBeNull();
+    expect(parseActionMessage(MESSAGE.replace(ACTION_FOOTERS.accept, 'Sure, take my money.'))).toBeNull();
+    // Each action carries its own footer: an accept message with the "read" wording is refused.
+    expect(parseActionMessage(MESSAGE.replace(ACTION_FOOTERS.accept, ACTION_FOOTERS.read))).toBeNull();
+    expect(parseActionMessage(MESSAGE.replace('Action: accept', 'Action: read'))).toBeNull();
     expect(parseActionMessage(MESSAGE.replace('Task: ', 'Task:  '))).toBeNull();
   });
 

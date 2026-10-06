@@ -211,7 +211,8 @@ app.get('/', (c) => {
     escrow_available: escrowDisabledReason(c.env) === null,
     endpoints: [
       { endpoint: 'POST /v1/x402/tasks', url: X402_TASKS_BASE, price: 'bounty_usdc from the body', minimum_usdc: atomicToDisplay(min), minimum_amount: min },
-      ...Object.entries(X402_TIERS).map(([tier, amount]) => ({
+      // Only the tiers at or above the live minimum are on sale.
+      ...Object.entries(X402_TIERS).filter(([, amount]) => !bountyMinimumRefusal(c.env, 'a2a', amount)).map(([tier, amount]) => ({
         endpoint: `POST /v1/x402/tasks/${tier}`, url: `${X402_TASKS_BASE}/${tier}`, price_usdc: atomicToDisplay(amount), price_amount: amount,
       })),
     ],
@@ -238,6 +239,12 @@ async function hire(c: Ctx, tier: string | null): Promise<Response> {
   // An empty call is a price check (x402 clients, directories, health checks):
   // answer the 402 for this endpoint without creating anything.
   const emptyBody = json.empty || (typeof json.body === 'object' && json.body !== null && !Array.isArray(json.body) && Object.keys(json.body).length === 0);
+  // A deployment whose minimum is above a tier's price doesn't sell that tier:
+  // refused before any quote, so nobody signs for a bounty the post would refuse.
+  const tierBelowMinimum = custom ? null : bountyMinimumRefusal(c.env, 'a2a', X402_TIERS[tier!]);
+  if (tierBelowMinimum) {
+    return c.json({ ...tierBelowMinimum, message: `This tier is below this registry's minimum bounty of ${tierBelowMinimum.minimum_usdc} USDC; use a dearer tier or POST /v1/x402/tasks with bounty_usdc. Your payment was not used.` }, 400);
+  }
   const parsed = custom ? CustomBodySchema.safeParse(json.body) : TierBodySchema.safeParse(json.body);
   if (!parsed.success) {
     if (emptyBody && !rawPayment) {
@@ -455,6 +462,8 @@ app.get('/:id', async (c) => {
   const row = await db.get<Record<string, unknown>>(`SELECT ${parts.columns} FROM tasks t ${parts.joins} WHERE t.task_id = ?`, auth.task.task_id);
   if (!row) return c.json({ error: 'not_found', message: 'Task not found' }, 404);
   const delivery = await deliveryOf(db, auth.task.task_id);
+  // The poster's private view (the delivered work): never stored by a shared cache.
+  c.header('Cache-Control', 'no-store');
   return c.json({
     ok: true,
     task: { ...publicTaskShape(row), needs_review: row.status === 'submitted' },
@@ -471,6 +480,7 @@ app.get('/:id/submission', async (c) => {
   const auth = await authorize(c, 'read');
   if (!auth.ok) return auth.res;
   const delivery = await deliveryOf(c.get('db'), auth.task.task_id);
+  c.header('Cache-Control', 'no-store');
   return c.json({ ok: true, ...delivery });
 });
 
