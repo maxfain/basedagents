@@ -12,6 +12,7 @@ import { Hono } from 'hono';
 // Import via JSON (vitest handles JSON imports natively)
 import openApiSpec from '../openapi.json';
 import taskRoutes from './tasks.js';
+import x402TaskRoutes, { X402_TIERS } from './x402-tasks.js';
 
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'];
 const TASKS_MOUNT = '/v1/tasks'; // app.route('/v1/tasks', taskRoutes) in index.ts
@@ -76,6 +77,50 @@ describe('OpenAPI Spec — openapi.json validity', () => {
     expect(() => JSON.parse(serialized)).not.toThrow();
     const reparsed = JSON.parse(serialized);
     expect(reparsed.openapi).toBe((openApiSpec as Record<string, unknown>).openapi);
+  });
+});
+
+type Operation = { requestBody?: { content?: Record<string, { schema?: unknown }> }; responses: Record<string, unknown>; 'x-payment-info'?: { price: Record<string, string>; protocols: Array<Record<string, unknown>> } };
+const specPaths = (openApiSpec as unknown as { paths: Record<string, Record<string, Operation>> }).paths;
+const X402_MOUNT = '/v1/x402/tasks'; // app.route('/v1/x402/tasks', x402TaskRoutes) in index.ts
+
+describe('OpenAPI Spec — agent discovery (x-guidance, x-payment-info)', () => {
+  const info = (openApiSpec as unknown as { info: Record<string, unknown> }).info;
+
+  it('carries agent guidance and a contact address', () => {
+    const guidance = info['x-guidance'] as string;
+    expect(guidance).toContain('/v1/x402/tasks');
+    // Directories budget ~1000 tokens for it; ~4 characters a token.
+    expect(guidance.length).toBeLessThan(4000);
+    expect(info.guidance).toBeUndefined();
+    expect((info.contact as { email?: string }).email).toBe('hello@basedagents.ai');
+  });
+
+  it('prices exactly the wallet-only hire endpoints, each with a 402, a JSON body and the x402 protocol', () => {
+    const paid = Object.entries(specPaths).flatMap(([path, item]) =>
+      Object.entries(item).filter(([, op]) => op && typeof op === 'object' && 'x-payment-info' in op).map(([method, op]) => ({ key: `${method} ${path}`, op })));
+    expect(paid.map((p) => p.key).sort()).toEqual([`post ${X402_MOUNT}`, ...Object.keys(X402_TIERS).map((t) => `post ${X402_MOUNT}/${t}`)].sort());
+    for (const { op } of paid) {
+      const pay = op['x-payment-info']!;
+      expect(pay.protocols).toEqual([{ x402: {} }]);
+      expect(pay.price.currency).toBe('USDC');
+      expect(op.responses['402']).toBeTruthy();
+      expect(op.requestBody?.content?.['application/json']?.schema).toBeTruthy();
+    }
+    // A tier's documented price is the price the route charges (6-decimal USDC).
+    for (const [tier, atomic] of Object.entries(X402_TIERS)) {
+      expect(specPaths[`${X402_MOUNT}/${tier}`].post['x-payment-info']!.price).toEqual({ mode: 'fixed', currency: 'USDC', amount: (Number(atomic) / 1e6).toFixed(6) });
+    }
+    expect(specPaths[X402_MOUNT].post['x-payment-info']!.price).toEqual({ mode: 'dynamic', currency: 'USDC', min: '0.100000', max: '1000.000000' });
+  });
+
+  it('every route on x402TaskRoutes is documented, and vice versa', () => {
+    const registered = [...new Set(x402TaskRoutes.routes.filter((r) => r.method !== 'ALL').map((r) =>
+      `${r.method.toLowerCase()} ${X402_MOUNT}${r.path === '/' ? '' : r.path}`.replace(/:([A-Za-z0-9_]+)/g, '{$1}')))].sort();
+    const documented = Object.entries(specPaths)
+      .filter(([path]) => path === X402_MOUNT || path.startsWith(`${X402_MOUNT}/`))
+      .flatMap(([path, item]) => Object.keys(item).filter((m) => HTTP_METHODS.includes(m)).map((m) => `${m} ${path}`)).sort();
+    expect(documented).toEqual(registered);
   });
 });
 
