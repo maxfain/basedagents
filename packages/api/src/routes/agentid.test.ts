@@ -110,16 +110,21 @@ async function startLink(app: Hono<AppEnv>, agent: TestKeypair) {
   return { res, body };
 }
 
-/** Drive the two-step browser leg: GET /callback (consent) then POST /callback/confirm. */
+/** Drive the two-step browser leg: GET /callback (consent) then POST /callback/confirm,
+ *  threading the consent-browser binding cookie the GET sets. */
 async function completeCallback(app: Hono<AppEnv>, state: string, code = 'abc') {
   const consent = await app.request(`/v1/agentid/callback?code=${code}&state=${encodeURIComponent(state)}`);
-  const form = new URLSearchParams({ state, code });
+  const setCookie = consent.headers.get('set-cookie');
+  const cookie = setCookie ? setCookie.split(';')[0] : '';
   const confirm = await app.request('/v1/agentid/callback/confirm', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: form.toString(),
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      ...(cookie ? { Cookie: cookie } : {}),
+    },
+    body: new URLSearchParams({ state, code }).toString(),
   });
-  return { consent, confirm };
+  return { consent, confirm, cookie };
 }
 
 describe('AgentID link routes', () => {
@@ -300,6 +305,31 @@ describe('AgentID link routes', () => {
     expect(poll.status).toBe('failed');
     // The public poll must surface a coarse code, never the raw upstream/DB error.
     expect(poll.error).toBe('verification_failed');
+  });
+
+  it('rejects a confirm POST lacking the consent-browser cookie (leaked-code replay)', async () => {
+    const app = createTestApp(db, AGENTID_ENV);
+    const agent = await createTestAgent(db, { status: 'active' });
+    const key = await makeIssuerKey();
+    const oidc = installOidcFetch(key.jwk, (nonce) => mintIdToken(key.privateKey, { nonce, sub: 'sub-nocookie' }));
+    const { body } = await startLink(app, agent);
+    const url = new URL(body.link_url);
+    const state = url.searchParams.get('state')!;
+    oidc.setNonce(url.searchParams.get('nonce')!);
+
+    // Victim's browser loads the consent page (binding is set here)...
+    await app.request(`/v1/agentid/callback?code=abc&state=${encodeURIComponent(state)}`);
+    // ...an attacker who only intercepted the code POSTs confirm WITHOUT the cookie.
+    const confirm = await app.request('/v1/agentid/callback/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ state, code: 'abc' }).toString(),
+    });
+    expect(confirm.status).toBe(400);
+    expect(await confirm.text()).toContain('Confirmation could not be verified');
+    // The challenge is NOT burned — the real owner can still complete it.
+    const poll = (await (await app.request(`/v1/agentid/links/${body.link_id}`)).json()) as PollBody;
+    expect(poll.status).toBe('pending');
   });
 
   it('a callback missing the code marks the challenge failed (no stuck pending)', async () => {

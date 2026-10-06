@@ -41,9 +41,10 @@ CREATE TABLE IF NOT EXISTS agentid_link_challenges (
   code_verifier  TEXT NOT NULL,                       -- PKCE S256 verifier (server-held, short-lived)
   nonce          TEXT NOT NULL,                       -- OIDC nonce expected back in the id_token
   status         TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'linked', 'failed')),
-  error          TEXT,                                -- failure reason surfaced to the poller
+  error          TEXT,                                -- coarse failure reason surfaced to the poller
+  confirm_binding TEXT,                               -- sha256hex of the consent-browser cookie, set ONCE at the consent GET
   created_at     TEXT NOT NULL,
   expires_at     TEXT NOT NULL,
-  consumed_at    TEXT                                 -- set when the callback consumes it (single-use)
+  consumed_at    TEXT                                 -- set when the confirm POST consumes it (single-use)
 );
 CREATE INDEX IF NOT EXISTS idx_agentid_challenges_expires ON agentid_link_challenges(expires_at);

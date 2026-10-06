@@ -754,9 +754,11 @@ An **optional** attestation on top of AgentSig. An agent that already holds its 
 The agent proves control of its `ag_` key to **start** a link; the owner proves control of the AgentID in a browser to **finish** it. This is OIDC authorization-code + PKCE (S256), with the registry as a confidential client:
 
 1. **`POST /v1/agents/:id/agentid/link`** — AgentSig; `:id` must be the signer's own agent. The registry mints `state` + `nonce` + a PKCE verifier (stored in a short-lived, single-use challenge) and returns `{ link_id, link_url }`. `link_url` is AgentID's `/v0/authorize` with `code_challenge_method=S256`.
-2. The owner opens `link_url`, signs in with AgentID, and AgentID redirects the browser to **`GET /v1/agentid/callback?code=…&state=…`**.
-3. The callback atomically consumes the challenge (replay-safe), exchanges the code at AgentID's token endpoint (Basic client auth + the PKCE verifier), and verifies the ES256 `id_token` against the issuer JWKS — checking `alg=ES256` (no alg-confusion / `alg:none`), `iss`, `aud`, `exp` (±60s skew), and the `nonce`. On success it records the link and renders a result page.
+2. The owner opens `link_url`, signs in with AgentID, and AgentID redirects the browser to **`GET /v1/agentid/callback?code=…&state=…`**. This renders a **consent page naming the exact target agent** and sets a set-once, HttpOnly browser-binding cookie. It does **not** commit the link.
+3. The owner confirms from that page, which POSTs to **`/v1/agentid/callback/confirm`**. Only now does the registry atomically consume the challenge (replay-safe), verify the binding cookie, exchange the code at AgentID's token endpoint (Basic client auth + the PKCE verifier), and verify the ES256 `id_token` against the issuer JWKS — checking `alg=ES256` (no alg-confusion / `alg:none`), `iss`, `aud` (+ `azp`), `exp` (±60s skew), and the `nonce`. On success it records the link.
 4. **`GET /v1/agentid/links/:link_id`** — poll `pending | linked | failed | expired`. The CLI (`basedagents agentid link`) prints `link_url` and polls this to completion.
+
+The separate consent + confirm steps (plus a `no-referrer` policy on the pages) defend against account-linking CSRF: the browser that commits the link must be the one that completed sign-in, and the owner sees — and must approve — exactly which agent will carry their identity. The one browser-side binding the headless start leg cannot establish is a start-time session; see [GOTCHAS.md](./GOTCHAS.md).
 
 ### What is linked, and what is public
 

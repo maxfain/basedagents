@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS installation_usage_daily (day TEXT NOT NULL, installa
 CREATE TABLE IF NOT EXISTS agentid_links (agent_id TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE, issuer TEXT NOT NULL, sub TEXT NOT NULL, owner_sub TEXT, email TEXT, email_verified INTEGER NOT NULL DEFAULT 0, display_name TEXT, linked_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agentid_links_issuer_sub ON agentid_links(issuer, sub);
 CREATE INDEX IF NOT EXISTS idx_agentid_links_owner_sub ON agentid_links(owner_sub);
-CREATE TABLE IF NOT EXISTS agentid_link_challenges (state_hash TEXT PRIMARY KEY, link_id TEXT NOT NULL UNIQUE, agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, code_verifier TEXT NOT NULL, nonce TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'linked', 'failed')), error TEXT, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, consumed_at TEXT);
+CREATE TABLE IF NOT EXISTS agentid_link_challenges (state_hash TEXT PRIMARY KEY, link_id TEXT NOT NULL UNIQUE, agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, code_verifier TEXT NOT NULL, nonce TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'linked', 'failed')), error TEXT, confirm_binding TEXT, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, consumed_at TEXT);
 CREATE INDEX IF NOT EXISTS idx_agentid_challenges_expires ON agentid_link_challenges(expires_at);
 `.trim();
 

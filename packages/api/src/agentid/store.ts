@@ -30,6 +30,7 @@ export interface AgentIdChallengeRow {
   nonce: string;
   status: 'pending' | 'linked' | 'failed';
   error: string | null;
+  confirm_binding: string | null;
   created_at: string;
   expires_at: string;
   consumed_at: string | null;
@@ -107,6 +108,23 @@ export class AgentIdStore {
     );
     if (res.changes !== 1) return null;
     return row;
+  }
+
+  /**
+   * Bind the consent browser to the challenge ONCE: store sha256hex(cookie) only
+   * if no binding is set yet. Returns true when this call set it. Set-once means a
+   * later (attacker) consent GET cannot overwrite the binding the legitimate
+   * browser already established, so only that browser's cookie can confirm.
+   */
+  async bindConfirmOnce(stateHash: string, bindingHash: string, nowIso: string): Promise<boolean> {
+    const res = await this.db.run(
+      `UPDATE agentid_link_challenges SET confirm_binding = ?
+        WHERE state_hash = ? AND confirm_binding IS NULL AND consumed_at IS NULL AND expires_at > ?`,
+      bindingHash,
+      stateHash,
+      nowIso,
+    );
+    return res.changes === 1;
   }
 
   async markChallengeLinked(linkId: string): Promise<void> {
