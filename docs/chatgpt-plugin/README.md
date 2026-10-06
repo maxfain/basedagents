@@ -59,9 +59,13 @@ What lives where:
    - `MCP_SIGNING_SECRET`: any long random string. Without it,
      `/oauth/authorize` answers `503 temporarily_unavailable` ("authorization
      server misconfigured") by design, instead of signing with a known key.
-   - `RESEND_API_KEY`: the same Resend key the API Worker uses (plus
-     `EMAIL_FROM` if the sender differs from the default). Without it, magic
-     links only go to the worker log and sign-in never completes.
+   - `RESEND_API_KEY`: a real Resend API key (`re_…`, sending access) on the
+     account where `basedagents.ai` is verified, e.g. the one the API Worker
+     uses, plus `EMAIL_FROM` if the sender differs from the default. It is
+     not the random string above. Without it, magic links only go to the
+     worker log. With a wrong key, the send fails after the "Check your
+     email" page; `npx wrangler tail --config wrangler.mcp.toml` shows
+     `[mcp] magic-link send failed: …`.
 
    ```
    cd packages/api

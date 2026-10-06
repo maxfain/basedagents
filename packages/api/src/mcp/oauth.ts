@@ -235,8 +235,13 @@ async function deferSend(c: Context<McpEnv>, p: Promise<unknown>): Promise<void>
   // structurally type the one method we use.
   let ctx: { waitUntil(promise: Promise<unknown>): void } | undefined;
   try { ctx = c.executionCtx; } catch { ctx = undefined; }
-  if (ctx) { ctx.waitUntil(p.catch(() => {})); return; } // prod: deferred, no timing leak
-  await p.catch(() => {}); // tests (no executionCtx): await so the outbox is captured
+  // A failed send never changes the response (low-enumeration), but it must reach
+  // the worker log: a bad RESEND_API_KEY otherwise fails with no trace at all.
+  const logged = p.catch((err: unknown) => {
+    console.error(`[mcp] magic-link send failed: ${err instanceof Error ? err.message : String(err)}`);
+  });
+  if (ctx) { ctx.waitUntil(logged); return; } // prod: deferred, no timing leak
+  await logged; // tests (no executionCtx): await so the outbox is captured
 }
 
 // ─── rendered pages ───
