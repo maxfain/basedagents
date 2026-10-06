@@ -52,8 +52,8 @@ MCP_ANON_HOURLY = "600"           # anonymous tools/call per IP-hash per hour (d
 
 # OpenAI plugin-directory domain verification (public plain text, NOT a secret):
 # the submission portal hands out the token; set it here, redeploy, and
-# GET /.well-known/openai-apps-challenge serves it. Leave commented until then.
-# OPENAI_APPS_CHALLENGE = "<token from the plugin submission portal>"
+# GET /.well-known/openai-apps-challenge serves it.
+OPENAI_APPS_CHALLENGE = "QK3SIRsO4-bcuVBOPOHdrcbG0iwEXSCJVkGu_q08b1c"
 
 # Service binding to the API Worker. REQUIRED for the read tools: a Worker's
 # fetch() to a hostname on its own zone (api.basedagents.ai) skips that zone's

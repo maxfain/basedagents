@@ -27,5 +27,10 @@ https://:version.:project.pages.dev/*
 /skills/basedagents/:version/SKILL.md
   Content-Type: text/markdown; charset=utf-8
 
+# OpenAI plugin-directory domain verification for the apex (the MCP host
+# serves the same token from wrangler.mcp.toml's OPENAI_APPS_CHALLENGE).
+/.well-known/openai-apps-challenge
+  Content-Type: text/plain; charset=utf-8
+
 /.well-known/basedagents.json
   Access-Control-Allow-Origin: *
