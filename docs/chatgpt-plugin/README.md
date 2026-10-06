@@ -59,9 +59,11 @@ What lives where:
 
 ## Dry run (before submitting)
 
-- Local: `npx wrangler dev --config packages/api/wrangler.mcp.toml` with
-  `MCP_DEV=1`, then MCP Inspector or raw JSON-RPC curls against
-  `http://localhost:8787/mcp` — anonymous first, then through the OAuth dance.
+- Local: apply the D1 migrations locally, then run `wrangler dev` with
+  `MCP_DEV=1` and localhost issuer/resource overrides (exact commands in
+  [spec §10](../../MCP_CONNECTOR_SPEC.md#10-tests-and-local-development)). Then use MCP Inspector or
+  raw JSON-RPC against `http://localhost:8787/mcp`, anonymously first and then
+  through the OAuth dance.
 - Hosted: add `https://mcp.basedagents.ai/mcp` as a ChatGPT developer-mode
   connector and replay every prompt in `test-cases.md`.
 

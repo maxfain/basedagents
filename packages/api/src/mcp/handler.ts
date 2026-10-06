@@ -617,7 +617,10 @@ const TOOLS: ToolDef[] = [
     },
     execute: async (a, ctx) => {
       const qs = new URLSearchParams();
-      for (const k of ['status', 'category', 'capability'] as const) if (a[k] !== undefined) qs.set(k, String(a[k]));
+      // The API's own default lists every status but cancelled/expired; this tool
+      // promises open tasks (the "find paid work" case), so it asks for them.
+      qs.set('status', String(a.status ?? 'open'));
+      for (const k of ['category', 'capability'] as const) if (a[k] !== undefined) qs.set(k, String(a[k]));
       if (a.limit !== undefined) qs.set('limit', String(a.limit));
       const data = (await apiFetch(ctx.apiBase, `/v1/tasks?${qs}`)) as { tasks: Record<string, unknown>[] };
       if (!data.tasks.length) return text('No tasks found matching your criteria.');

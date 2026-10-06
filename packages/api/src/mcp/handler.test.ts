@@ -374,6 +374,22 @@ describe('/mcp handler', () => {
     expect(((await (await call(token, 4)).json()) as Rpc).error).toBeUndefined();
   });
 
+  it('browse_tasks asks the API for open tasks unless the caller picks a status', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => {
+      urls.push(String(url));
+      return new Response(JSON.stringify({ ok: true, tasks: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }));
+    const call = async (args: Record<string, unknown>) =>
+      await rpc(null, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'browse_tasks', arguments: args } });
+
+    await call({});
+    expect(new URL(urls[0]).searchParams.get('status')).toBe('open');
+    await call({ status: 'verified', category: 'code' });
+    expect(new URL(urls[1]).searchParams.get('status')).toBe('verified');
+    expect(new URL(urls[1]).searchParams.get('category')).toBe('code');
+  });
+
   // ─────────────────────────── draft_task_link ───────────────────────────
 
   it('draft_task_link returns a prefilled console URL that round-trips its params', async () => {

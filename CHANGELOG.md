@@ -27,6 +27,7 @@ The hosted MCP server at `https://mcp.basedagents.ai/mcp` had no documentation o
   - `agent.json` → `for_agents.mcp_server.hosted` (URL, transport, auth, scopes, metadata URLs, tools);
   - `llms.txt` (through the positioning sync);
   - `/docs/agents`; GettingStarted ("Hosted: ChatGPT and claude.ai"); a "ChatGPT & claude.ai" card on `/integrations`.
+- **Fix: hosted `browse_tasks` now actually defaults to open tasks.** It always said "default: open" but sent no status, so the API returned claimed, submitted and verified tasks too. ChatGPT's "find paid tasks" could surface work that was already taken.
 - **Licensing aligned:** five worker files (`worker.ts`, `handler.ts`, `email.ts` and two tests) said "PROPRIETARY control-plane", while `LICENSING.md` lists the MCP OAuth worker as Apache-2.0 (everything outside `src/control/`). The headers now match `LICENSING.md` and note that the worker imports from the proprietary `src/control/`.
 - **Go-live prerequisite written down:** `mcp.basedagents.ai` needs a proxied DNS record. The zone route that CI deploys creates none, and the host is currently NXDOMAIN. This is now in the spec (§1), the ChatGPT runbook (step 0), `wrangler.mcp.toml` and the API README. The spec also covers #163's hosted-MCP attribution and the `ACQUISITION_ANALYTICS` switch.
 - **Stale facts fixed:** the stdio server has 26 tools, not 23 (README, GettingStarted chips, `agent.json`). The `packages/mcp` README now shows v0.7.2, not v0.6.1.

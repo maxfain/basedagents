@@ -1035,8 +1035,12 @@ The package also builds a **second Worker**, `agent-registry-mcp`, served at `ht
 - **`initialize.instructions`** come from `src/mcp/chatgpt.json`, which `scripts/sync-positioning.ts` generates from `packages/web/src/content/positioning.ts`. Edit them there, never by hand.
 
 ```bash
-# local: http://localhost:8787 (MCP_DEV=1 allows loopback redirect URIs)
-npx wrangler dev --config wrangler.mcp.toml --var MCP_DEV:1
+# local: http://localhost:8787. Apply migrations to the local D1 first (the MCP config
+# declares none; both configs share the database id). Override the issuer and resource
+# so OAuth discovery points at localhost; MCP_DEV=1 allows loopback redirect URIs.
+npx wrangler d1 migrations apply agent-registry --local
+npx wrangler dev --config wrangler.mcp.toml --var MCP_DEV:1 \
+  --var MCP_ISSUER:http://localhost:8787 --var MCP_RESOURCE_URL:http://localhost:8787/mcp
 curl -s http://localhost:8787/mcp -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 
