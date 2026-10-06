@@ -9,6 +9,7 @@ import { createInterface } from 'readline';
 import { prepareNewKeypairPath, stageNewKeypair, commitNewKeypair, discardNewKeypair } from './wallet.js';
 import { generateKeypair, serializeKeypair } from '../index.js';
 import { RegistryClient, DEFAULT_API_URL, cliRegistrationAttribution } from '../index.js';
+import { cliCommand } from './invocation.js';
 
 // ─── ANSI ───
 const R = '\x1b[0m';
@@ -121,7 +122,7 @@ async function registerNonInteractive(identity: Record<string, unknown>, apiUrl:
 
   if (!name || !description || !capabilities.length) {
     console.error(red('  ✗ A profile needs a name, a description, and at least one capability.'));
-    console.error(dim('    basedagents register --name "My Agent" --description "What it does" --capabilities research,code'));
+    console.error(dim(`    ${cliCommand()} register --name "My Agent" --description "What it does" --capabilities research,code`));
     process.exit(1);
   }
 

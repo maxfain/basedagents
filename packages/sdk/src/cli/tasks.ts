@@ -34,6 +34,7 @@ import {
   type AgentKeypair, type Task, type TaskCreateOptions, type DeliverOptions,
 } from '../index.js';
 import { loadKeypair } from './wallet.js';
+import { cliCommand } from './invocation.js';
 
 // ─── ANSI ───
 const R = '\x1b[0m';
@@ -194,12 +195,12 @@ function printEscrowResult(result: { task_id: string; payment_status: string; es
   if (e.deposit_tx_hash) console.log(row('Deposit TX', cyan(e.deposit_tx_hash)));
   if (e.status === 'funded') {
     console.log(`  ${dim('The bounty is held in escrow and released to the deliverer when you accept the delivery')}`);
-    console.log(`  ${dim(`(basedagents tasks accept ${result.task_id}); cancelling refunds it.`)}`);
+    console.log(`  ${dim(`(${cliCommand()} tasks accept ${result.task_id}); cancelling refunds it.`)}`);
   } else if (e.status === 'funding') {
-    console.log(`  ${dim(`The deposit is still settling; the task becomes claimable once it lands. Follow it with: basedagents tasks payment ${result.task_id}`)}`);
+    console.log(`  ${dim(`The deposit is still settling; the task becomes claimable once it lands. Follow it with: ${cliCommand()} tasks payment ${result.task_id}`)}`);
     if (result.settle_error) console.log(row('Settle error', yellow(result.settle_error)));
   } else if (e.status === 'unfunded') {
-    console.log(`  ${dim(`The deposit failed for good (${result.settle_error ?? 'see tasks payment'}). Deposit again with: basedagents tasks fund ${result.task_id}`)}`);
+    console.log(`  ${dim(`The deposit failed for good (${result.settle_error ?? 'see tasks payment'}). Deposit again with: ${cliCommand()} tasks fund ${result.task_id}`)}`);
   }
 }
 
@@ -466,7 +467,7 @@ export async function tasksPost(args: string[]): Promise<void> {
         printEscrowResult(result);
       } else {
         console.log(`  ${dim('Nothing has been paid: the bounty is authorized when you accept the deliverable')}`);
-        console.log(`  ${dim(`(basedagents tasks accept ${result.task_id}).`)}`);
+        console.log(`  ${dim(`(${cliCommand()} tasks accept ${result.task_id}).`)}`);
       }
     }
     console.log('');
@@ -523,12 +524,12 @@ export async function tasksClaim(args: string[]): Promise<void> {
     console.log(`  ${green('✓')} Task claimed`);
     console.log(row('Task ID', cyan(result.task_id)));
     console.log(row('Status', statusColor(result.status)));
-    console.log(`  ${dim(`Deliver with: basedagents tasks deliver ${result.task_id} --summary "..."`)}`);
+    console.log(`  ${dim(`Deliver with: ${cliCommand()} tasks deliver ${result.task_id} --summary "..."`)}`);
     console.log('');
   } catch (err) {
     if (err instanceof ApiError && err.code === 'wallet_required') {
       console.error(yellow('\n  This task pays a bounty to your wallet. Set one first:'));
-      console.error(yellow('    basedagents wallet set 0x... --network <bounty network>\n'));
+      console.error(yellow(`    ${cliCommand()} wallet set 0x... --network <bounty network>\n`));
     }
     return apiFail('Failed to claim task', err);
   }
@@ -667,7 +668,7 @@ export async function tasksSubmit(args: string[]): Promise<void> {
     console.log(row('Task ID', cyan(result.task_id)));
     console.log(row('Receipt', result.receipt_id));
     console.log(row('Status', statusColor(result.status)));
-    console.log(`  ${dim(`Follow it with: basedagents tasks watch ${result.task_id}`)}`);
+    console.log(`  ${dim(`Follow it with: ${cliCommand()} tasks watch ${result.task_id}`)}`);
     console.log('');
   } catch (err) {
     return apiFail('Failed to deliver task', err);
@@ -861,11 +862,11 @@ export async function tasksAccept(args: string[]): Promise<void> {
     if (result.payment_tx_hash) console.log(row('TX hash', cyan(result.payment_tx_hash)));
     if (result.settle_error) console.log(row('Settle error', yellow(result.settle_error)));
     if (result.escrow && result.escrow.status !== 'released') {
-      console.log(`  ${dim(`The escrow release is retried automatically; follow it with: basedagents tasks payment ${result.task_id}`)}`);
+      console.log(`  ${dim(`The escrow release is retried automatically; follow it with: ${cliCommand()} tasks payment ${result.task_id}`)}`);
     } else if (result.payment_status === 'authorized' || result.payment_status === 'settling') {
-      console.log(`  ${dim(`Settlement is retried automatically; follow it with: basedagents tasks payment ${result.task_id}`)}`);
+      console.log(`  ${dim(`Settlement is retried automatically; follow it with: ${cliCommand()} tasks payment ${result.task_id}`)}`);
     } else if (result.payment_status === 'failed') {
-      console.log(`  ${dim(`Settlement failed. Run: basedagents tasks payment ${result.task_id} — if next_settle_at is set it retries automatically; otherwise sign a fresh authorization and re-run tasks accept.`)}`);
+      console.log(`  ${dim(`Settlement failed. Run: ${cliCommand()} tasks payment ${result.task_id} — if next_settle_at is set it retries automatically; otherwise sign a fresh authorization and re-run tasks accept.`)}`);
     }
     console.log('');
   } catch (err) {
@@ -927,7 +928,7 @@ export async function tasksDispute(args: string[]): Promise<void> {
     console.log(row('Task ID', cyan(result.task_id)));
     console.log(row('Status', `${statusColor(result.status)} ${dim(`[${result.review_state}]`)}`));
     if (result.rating) console.log(row('Rating', `${result.rating}/5`));
-    console.log(`  ${dim(`Resolve it with: basedagents tasks accept ${result.task_id}  or  basedagents tasks cancel ${result.task_id}`)}`);
+    console.log(`  ${dim(`Resolve it with: ${cliCommand()} tasks accept ${result.task_id}  or  ${cliCommand()} tasks cancel ${result.task_id}`)}`);
     console.log('');
   } catch (err) {
     return apiFail('Failed to dispute task', err);
@@ -958,7 +959,7 @@ export async function tasksCancel(args: string[]): Promise<void> {
   } catch (err) {
     if (err instanceof ApiError && err.code === 'dispute_first') {
       console.error(yellow(`\n  Delivered work can only be cancelled after a dispute:`));
-      console.error(yellow(`    basedagents tasks dispute ${taskId} --reason "..."\n`));
+      console.error(yellow(`    ${cliCommand()} tasks dispute ${taskId} --reason "..."\n`));
     }
     return apiFail('Failed to cancel task', err);
   }

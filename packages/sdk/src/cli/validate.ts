@@ -9,6 +9,7 @@ import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
+import { cliCommand } from './invocation.js';
 
 // ─── Inline schema (works offline, no network dep) ───
 const SCHEMA = {
@@ -348,10 +349,10 @@ export function validate(filePath: string): ValidateResult {
   // 6. Final verdict
   if (errors.length === 0) {
     if (recs.length === 0) {
-      console.log(green(bold('✓ Ready to register')) + `  Run: ${cyan('basedagents register')}\n`);
+      console.log(green(bold('✓ Ready to register')) + `  Run: ${cyan(`${cliCommand()} register`)}\n`);
     } else {
       console.log(yellow(bold('⚠  Valid but incomplete')) + `  Fix recommendations to maximize reputation.\n`);
-      console.log(`  Run: ${cyan('basedagents register')} to register anyway.\n`);
+      console.log(`  Run: ${cyan(`${cliCommand()} register`)} to register anyway.\n`);
     }
   } else {
     console.log(red(bold('✗ Not ready')) + `  Fix the errors above before registering.\n`);

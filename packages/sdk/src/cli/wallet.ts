@@ -10,6 +10,7 @@ import { homedir } from 'os';
 import { dirname, isAbsolute, join, win32 } from 'path';
 import { RegistryClient, DEFAULT_API_URL, deserializeKeypair, publicKeyToAgentId, ApiError, type AgentKeypair, type WalletInfo } from '../index.js';
 import { walletBindMessage, signWalletBindMessage, walletAddressFromPrivateKey, recoverWalletBindSigner, WALLET_BIND_MAX_AGE_MS } from '../wallet-bind.js';
+import { cliCommand } from './invocation.js';
 
 // ─── ANSI ───
 const R = '\x1b[0m';
@@ -308,7 +309,7 @@ ${bold('Options:')}
       console.log(`  ${dim('Network')}    ${result.wallet_network ?? 'eip155:8453'}`);
       console.log(`  ${dim('Verified')}   ${result.wallet_verified ? green('yes (signed by the wallet)') : yellow('no — set it again to prove control')}`);
     } else {
-      console.log(`  ${dim('No wallet set. Use:')} basedagents wallet set 0x...`);
+      console.log(`  ${dim('No wallet set. Use:')} ${cliCommand()} wallet set 0x...`);
     }
     console.log('');
   };
@@ -352,7 +353,7 @@ ${bold('Options:')}
     let message: string | undefined;
     const messageFlag = flag('--message');
     const nonceFlag = flag('--nonce');
-    const setCmd = `basedagents wallet set ${address}${network !== 'eip155:8453' ? ` --network ${network}` : ''}`;
+    const setCmd = `${cliCommand()} wallet set ${address}${network !== 'eip155:8453' ? ` --network ${network}` : ''}`;
     if (messageFlag) {
       message = readMessageFlag(messageFlag);
     } else {
@@ -376,7 +377,7 @@ ${bold('Options:')}
       }
     }
     if (!message) {
-      console.log(red(`\n  No bind message for ${address} on ${network}. Run: basedagents wallet set ${address}${network !== 'eip155:8453' ? ` --network ${network}` : ''} (it prints one to sign), or pass --message.\n`));
+      console.log(red(`\n  No bind message for ${address} on ${network}. Run: ${cliCommand()} wallet set ${address}${network !== 'eip155:8453' ? ` --network ${network}` : ''} (it prints one to sign), or pass --message.\n`));
       process.exit(1);
     }
     proof = { message, signature };
@@ -399,7 +400,7 @@ ${bold('Options:')}
     try { pendingBinds(agentId, address, network); } catch { /* sweeping stale files is best effort */ }
     savePendingBind({ agent_id: agentId, address, network, message, created_at: new Date().toISOString() });
     const url = signPageUrl(message);
-    const next = `basedagents wallet set ${address}${network !== 'eip155:8453' ? ` --network ${network}` : ''} --nonce ${bindMessageNonce(message)} --signature`;
+    const next = `${cliCommand()} wallet set ${address}${network !== 'eip155:8453' ? ` --network ${network}` : ''} --nonce ${bindMessageNonce(message)} --signature`;
     const circle = circleSignCommand(message, address, network);
     const circleDeploy = circleDeployCommand(address, network);
     if (jsonMode) {
@@ -435,7 +436,7 @@ ${bold('Options:')}
   } catch (err) {
     const body = err instanceof ApiError ? (err.body as { error?: string; reason?: string; message?: string } | undefined) : undefined;
     if (body?.error === 'wallet_proof_invalid' && body.reason === 'expired') {
-      console.log(red(`\n  The signed message expired (15 minutes). Run basedagents wallet set ${address} again for a fresh one.\n`));
+      console.log(red(`\n  The signed message expired (15 minutes). Run ${cliCommand()} wallet set ${address} again for a fresh one.\n`));
     } else {
       console.log(red(`\n  Failed to set wallet: ${err instanceof Error ? err.message : 'unknown error'}\n`));
     }

@@ -14,6 +14,7 @@
 import { readFileSync } from 'node:fs';
 import { RegistryClient, DEFAULT_API_URL, publicKeyToAgentId, base58Encode, ApiError, deserializeKeypair } from '../index.js';
 import { resolveKeypairPath } from './wallet.js';
+import { cliCommand } from './invocation.js';
 
 const R = '\x1b[0m';
 const bold = (s: string) => `\x1b[1m${s}${R}`;
@@ -53,7 +54,7 @@ export async function id(args: string[]): Promise<void> {
     const fromEnv = process.env.BASEDAGENTS_KEYPAIR_PATH?.trim();
     if (!keypairFile && fromEnv && (err as NodeJS.ErrnoException).code === 'ENOENT') {
       // Still "no_keypair": registering is the fix, and register saves the new key at this path.
-      message = `BASEDAGENTS_KEYPAIR_PATH names ${fromEnv}, which doesn't exist. basedagents register saves the new keypair there.`;
+      message = `BASEDAGENTS_KEYPAIR_PATH names ${fromEnv}, which doesn't exist. ${cliCommand()} register saves the new keypair there.`;
     }
     if (jsonMode) console.log(JSON.stringify({ registered: false, agent_id: null, error: 'no_keypair', message }, null, 2));
     else console.error(red(`\n  ✗ ${message}\n`) + dim('  Register once: npx basedagents register --name "..." --description "..." --capabilities a,b\n'));
@@ -106,7 +107,7 @@ export async function id(args: string[]): Promise<void> {
   if (out.registered) {
     console.log(`  ${dim('Name')}        ${out.name}`);
     console.log(`  ${dim('Status')}      ${out.status}`);
-    console.log(`  ${dim('Wallet')}      ${out.wallet_address ?? dim('not set — basedagents wallet set 0x... --network eip155:8453')}`);
+    console.log(`  ${dim('Wallet')}      ${out.wallet_address ?? dim(`not set — ${cliCommand()} wallet set 0x... --network eip155:8453`)}`);
   } else if (code === 2) {
     console.log(red('  Not registered on this registry.') + dim(' Register: npx basedagents register --name ... --description ... --capabilities ...'));
   } else {

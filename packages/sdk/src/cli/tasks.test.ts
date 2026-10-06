@@ -65,6 +65,7 @@ let logSpy: MockInstance<typeof console.log>;
 let errSpy: MockInstance<typeof console.error>;
 
 beforeEach(() => {
+  vi.stubEnv('npm_command', ''); // printed commands as if installed, however the tests were started
   fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
   vi.spyOn(process, 'exit').mockImplementation(((code?: number | string | null) => {
@@ -75,6 +76,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });

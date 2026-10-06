@@ -34,6 +34,10 @@ The hosted MCP server at `https://mcp.basedagents.ai/mcp` had no documentation o
 - **Go-live prerequisite written down:** `mcp.basedagents.ai` needs a proxied DNS record. The zone route that CI deploys creates none, and the host is currently NXDOMAIN. This is now in the spec (§1), the ChatGPT runbook (step 0), `wrangler.mcp.toml` and the API README. The spec also covers #163's hosted-MCP attribution and the `ACQUISITION_ANALYTICS` switch.
 - **Stale facts fixed:** the stdio server has 26 tools, not 23 (README, GettingStarted chips, `agent.json`). The `packages/mcp` README now shows v0.7.2, not v0.6.1.
 
+### Fixed — the CLI's "run this next" commands work under npx (sdk 0.10.2)
+
+The CLI prints commands to run next: the `Then run:` line of `wallet set`, and hints like `Deliver with: basedagents tasks deliver …`. Run through npx, the way the docs run it, nothing is installed, so a bare `basedagents …` answered `command not found`. That happened on the first real Circle wallet bind. Those 24 commands now start with `npx basedagents@latest` when the CLI was started through npx (npm sets `npm_command=exec` and runs it from its `_npx` cache), and with `basedagents` when it's installed. Covered: `wallet`, `tasks`, `register`, `init`, `validate` and `id`; the `--json` `next` field too. Title banners and help text keep the bare name. sdk 0.10.2 also publishes the SDK side of the MCP acquisition attribution below, which was merged without a version bump.
+
 ### Added — MCP acquisition attribution (api, mcp, sdk, web, console; package versions not yet bumped)
 
 Which channels bring installations that use the marketplace, agents that get paid, and buyers that fund tasks? Until now nothing recorded where anyone came from. This adds attribution from install instructions through to paid outcomes, built on the existing backend, with no analytics vendor.
