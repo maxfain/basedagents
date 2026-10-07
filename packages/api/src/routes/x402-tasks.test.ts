@@ -573,6 +573,26 @@ describe('Wallet-only hiring over x402 (/v1/x402/tasks)', () => {
     expect(node.sent).toHaveLength(1);
   });
 
+  it('a payout that lands while its receipt and log can\'t be read is not re-signed on its first attempt', async () => {
+    const { node } = useArc();
+    node.failReceipts = true;
+    node.failLogs = true;
+    await bindClaimer('eip155:8453');
+    const { taskId, token } = await hire('/v1/x402/tasks/usd-5', BRIEF, 'eip155:5042');
+    await claimAndDeliver(taskId);
+    expect((await post(`/v1/x402/tasks/${taskId}/accept`, {}, bearer(token))).status).toBe(200);
+    // The transfer landed; the relay couldn't read it back, so the leg stays open with its hash.
+    const sentHash = decodeArcTx(node.sent[0]).hash;
+    expect(await row(taskId)).toMatchObject({ escrow_status: 'releasing', payment_status: 'settling', payment_tx_hash: sentHash, last_settle_class: 'pending' });
+    const env = { ...ENV, ENVIRONMENT: 'production', CIRCLE_API_KEY: 'LIVE_API_KEY:x:y' } as Bindings;
+    const later = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
+    expect((await escrowSweep(db, env, later(1))).attempted).toBe(0);
+    // Still unreadable: the reuse answer now resolves to our recorded transfer (settled, inferred).
+    await settleTask(db, env, taskId, 'cron', later(3));
+    expect(await row(taskId)).toMatchObject({ escrow_status: 'released', escrow_release_tx_hash: sentHash });
+    expect(node.sent).toHaveLength(1);
+  });
+
   it('an agent cannot post an Arc bounty outside escrow', async () => {
     useArc();
     const res = await signedPost(claimer, '/v1/tasks', { ...BRIEF, bounty: { amount: '1000000', network: 'eip155:5042' }, escrow: false });

@@ -207,6 +207,39 @@ describe('ArcRelay.settle', () => {
     expect(node.sent.map((raw) => decodeArcTx(raw).nonce)).toEqual([4n, 5n]);
   });
 
+  it('a transfer that lands while its receipt and log can\'t be read stays open: pending with its hash, never the reuse answer', async () => {
+    // First attempt (settle.ts believes nothing was ever sent): the transfer lands, but every
+    // receipt read fails, so it looks lost once the nonce moves on; the log can't be read either.
+    node.failReceipts = true;
+    node.failLogs = true;
+    const payload = housePayload();
+    const out = await relay().settle(payload, REQ);
+    // "Already used" here is our own landing: answering it as a reuse would let settle.ts re-sign.
+    expect(out).toEqual({ kind: 'pending', transaction: hashOf(node.sent[0]) });
+    expect(node.sent).toHaveLength(1);
+    // Before any send in a call, the reuse answer stands (settle.ts weighs it against its own record).
+    node.failReceipts = false;
+    expect(await relay().settle(payload, REQ)).toMatchObject({ kind: 'rejected', reason: 'invalid_exact_evm_nonce_already_used' });
+    node.failLogs = false;
+    expect(await relay().settle(payload, REQ)).toMatchObject({ kind: 'settled', transaction: hashOf(node.sent[0]) });
+  });
+
+  it('after a send in this call, a simulation verdict that would allow re-signing waits for the next attempt', async () => {
+    let swapped = false;
+    node.onReceiptPoll = (hash) => {
+      if (swapped) return;
+      swapped = true;
+      const ours = node.mempool.find((t) => t.hash === hash)!;
+      node.drop(hash);
+      node.inject(otherTx(ours.nonce));
+      node.mine();
+      node.estimateError = 'execution reverted: Blacklistable: account is blacklisted';
+    };
+    expect(await relay().settle(housePayload(), REQ)).toMatchObject({ kind: 'unavailable', detail: expect.stringMatching(/after a send in this call/) });
+    // A fresh attempt (settle.ts now knows a broadcast happened) gets the verdict itself.
+    expect(await relay().settle(housePayload(), REQ)).toMatchObject({ kind: 'rejected', reason: 'invalid_exact_evm_payload_authorization_to_address_kyt' });
+  });
+
   it('a simulation revert is the token\'s verdict, classified; a time-related one waits for the chain', async () => {
     node.estimateError = 'execution reverted: FiatTokenV2: invalid signature';
     expect(await relay().settle(housePayload(), REQ)).toMatchObject({ kind: 'rejected', reason: 'invalid_exact_evm_payload_signature' });

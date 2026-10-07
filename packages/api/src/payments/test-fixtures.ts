@@ -181,6 +181,10 @@ export class FakeArcNode {
   revertOnMine = false;
   /** eth_call pinned to a block number errors, as a node a block behind does. */
   lagPinned = false;
+  /** Receipt reads error (after mining, which still happens). */
+  failReceipts = false;
+  /** eth_getLogs errors. */
+  failLogs = false;
   /** Called with the transaction about to enter the mempool, before the node checks its nonce. */
   beforeSend?: (tx: FakeArcTx) => void;
   /** Called on each receipt poll, before the node answers it. */
@@ -284,10 +288,12 @@ export class FakeArcNode {
         const hash = p[0] as string;
         this.onReceiptPoll?.(hash);
         if (!this.receipts.has(hash) && this.autoMine && this.mempool.some((t) => t.hash === hash) && this.polls++ >= this.mineAfterPolls) this.mine();
+        if (this.failReceipts) throw { code: -32000, message: 'receipt unavailable' };
         const r = this.receipts.get(hash);
         return r ? { transactionHash: hash, status: r.status, blockNumber: hexOf(r.blockNumber) } : null;
       }
       case 'eth_getLogs': {
+        if (this.failLogs) throw { code: -32000, message: 'logs unavailable' };
         const q = p[0] as { fromBlock: string; toBlock: string; topics: string[] };
         const from = BigInt(q.fromBlock);
         const to = BigInt(q.toBlock);

@@ -218,11 +218,22 @@ export class ArcRelay implements Facilitator {
     if (BigInt(auth.value) !== BigInt(req.amount)) return this.rejected('invalid_exact_evm_payload_authorization_value_mismatch', 'The authorization moves a different amount.');
     const data = transferWithAuthorizationCalldata(payload);
     const validBefore = BigInt(auth.validBefore);
+    /**
+     * The last transaction this call sent (or tried to). Once there is one, settle.ts can't
+     * know it: its row still says nothing was ever broadcast, and it reads a reuse answer or
+     * a terminal verdict as "this authorization never moved money, sign a new one". So from
+     * then on this call only answers settled, pending, expired-at-a-pinned-block or retry.
+     */
+    let sent: string | null = null;
+    const keepOpen = (outcome: SettleOutcome): SettleOutcome =>
+      sent && outcome.kind === 'rejected' && outcome.reason === 'invalid_exact_evm_nonce_already_used'
+        ? { kind: 'pending', transaction: sent } // used, but its transaction can't be read yet: ours, in all likelihood
+        : outcome;
 
     for (let round = 0; round < MAX_ROUNDS; round++) {
       // 1. Already used? Then the money moved; report the transaction that moved it.
       const used = await this.ifUsed(auth, 'latest');
-      if (used) return used;
+      if (used) return keepOpen(used);
 
       // 2. Expired? Only the chain's clock decides: until a block at or past validBefore
       //    exists, a transaction sent by an earlier attempt can still land, and calling the
@@ -238,7 +249,8 @@ export class ArcRelay implements Facilitator {
           if (err instanceof RpcError) return this.retryLater(`could not read block ${head.number} yet (${err.message}); checking expiry again later`);
           throw err;
         }
-        return usedAtHead ?? this.rejected('invalid_exact_evm_payload_authorization_valid_before', 'The authorization expired on Arc unused.');
+        if (usedAtHead) return keepOpen(usedAtHead);
+        return this.rejected('invalid_exact_evm_payload_authorization_valid_before', 'The authorization expired on Arc unused.');
       }
 
       // 3. One escrow-wallet transaction in flight at a time: wait for another to land
@@ -259,6 +271,8 @@ export class ArcRelay implements Facilitator {
         if (reason === 'invalid_exact_evm_payload_authorization_valid_before' || reason === 'authorization_not_yet_valid') {
           return this.retryLater(`simulation says ${reason}; the chain's clock decides on the next attempt`);
         }
+        // After a send in this call, a verdict that would let settle.ts re-sign waits for the next attempt.
+        if (sent) return this.retryLater(`simulation now says ${reason} after a send in this call; deciding on the next attempt`);
         return this.rejected(reason, `Arc simulation: ${err.message}`.slice(0, 300));
       }
 
@@ -283,6 +297,7 @@ export class ArcRelay implements Facilitator {
         chainId: ARC_CHAIN_ID, nonce: idle.nonce, maxPriorityFeePerGas: tip, maxFeePerGas: maxFee,
         gas: gasLimit, to: ARC_USDC, value: 0n, data,
       }, this.key);
+      sent = signed.hash; // from here a node may hold it, whatever the call answers
       try {
         await this.rpc.call('eth_sendRawTransaction', [signed.raw]);
       } catch (err) {
