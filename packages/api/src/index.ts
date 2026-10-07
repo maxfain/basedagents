@@ -28,9 +28,11 @@ import eventRoutes from './routes/events.js';
 import boardRoutes from './routes/board.js';
 import feedRoutes from './routes/feed.js';
 import taskRoutes from './routes/tasks.js';
-import x402TaskRoutes, { X402_TIERS } from './routes/x402-tasks.js';
+import x402TaskRoutes, { X402_TIERS, openApiForEnv } from './routes/x402-tasks.js';
 import scanRoutes from './routes/scan.js';
 import probeRoutes from './routes/probe.js';
+import { agentScopedAgentIdRoutes, publicAgentIdRoutes } from './routes/agentid.js';
+import { agentIdDisabledReason } from './agentid/index.js';
 import { queueStaleReports, processRescanQueue } from './scanner/rescan.js';
 // Owner control plane (proprietary — see packages/api/src/control/LICENSE).
 import ownerRoutes from './control/routes.js';
@@ -342,8 +344,9 @@ app.get('/.well-known/basedagents.json', (c) =>
 
 // ─── OpenAPI Spec ───
 import openApiSpec from './openapi.json';
-app.get('/openapi.json', (c) => c.json(openApiSpec));
-app.get('/v1/openapi.json', (c) => c.json(openApiSpec));
+// Served with the live minimum bounty in the x402 hire prices (routes/x402-tasks.ts).
+app.get('/openapi.json', (c) => c.json(openApiForEnv(openApiSpec, c.env)));
+app.get('/v1/openapi.json', (c) => c.json(openApiForEnv(openApiSpec, c.env)));
 
 // ─── x402 Payment Method Discovery ───
 // https://docs.cdp.coinbase.com/x402/welcome — x402 v2 (CAIP-2 networks).
@@ -532,6 +535,7 @@ app.get('/v1/status', async (c) => {
       tasks: { ...taskCounts, paid_usdc_total: paidUsdcTotal },
       payments: paymentsDisabledReason(c.env) === null ? 'enabled' : 'disabled',
       escrow: escrowDisabledReason(c.env) === null ? 'enabled' : 'disabled',
+      agentid: agentIdDisabledReason(c.env) === null ? 'enabled' : 'disabled',
       checked_at: new Date().toISOString(),
     });
   } catch (err) {
@@ -572,6 +576,10 @@ app.route('/v1/x402/tasks', x402TaskRoutes);
 app.route('/v1/scan', scanRoutes);
 // MCP Probe: /v1/agents/:id/probe
 app.route('/v1/agents', probeRoutes);
+// AgentID verified-identity linking: /v1/agents/:id/agentid[/link]
+app.route('/v1/agents', agentScopedAgentIdRoutes);
+// AgentID OIDC callback + link polling: /v1/agentid/callback, /v1/agentid/links/:id
+app.route('/v1/agentid', publicAgentIdRoutes);
 // Owner control plane (owner accounts, passkeys, delegations): /v1/owner
 app.route('/v1/owner', ownerRoutes);
 app.route('/v1/owner', ownerTaskRoutes);

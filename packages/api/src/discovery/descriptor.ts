@@ -109,6 +109,19 @@ export function buildDescriptor(skill: SkillRef): Record<string, unknown> {
       singleStart: true,
       categories: ['research', 'code', 'content', 'data', 'automation'],
     },
+    agentid: {
+      // Optional verified-identity attestation on top of AgentSig — NEVER a
+      // replacement for request signing. Linking is per-deploy; the live flag
+      // is GET /v1/status -> agentid. The owner grouping key (owner_sub) is used
+      // for sybil-aware reputation and is never exposed in a public response.
+      optional: true,
+      provider: 'AgentID (agentid.com)',
+      issuerDefault: 'https://auth.agentid.com',
+      start: `POST ${API}/v1/agents/{id}/agentid/link`,
+      poll: `GET ${API}/v1/agentid/links/{link_id}`,
+      status: `GET ${API}/v1/agents/{id}/agentid`,
+      enabledFlag: `GET ${API}/v1/status -> agentid`,
+    },
     endpoints: {
       register: `POST ${API}/v1/register/init`,
       registerComplete: `POST ${API}/v1/register/complete`,

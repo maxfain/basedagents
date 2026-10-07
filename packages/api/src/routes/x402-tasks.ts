@@ -49,7 +49,7 @@ import { atomicToDisplay, usdcToAtomic } from '../payments/x402.js';
 import { fundEscrowTask, acceptEscrowTask, startEscrowLeg } from '../payments/escrow.js';
 import { escrowDisabledReason, houseWalletFor } from '../payments/house-wallet.js';
 import { PAYMENT_HEADER } from '../payments/accept.js';
-import { resolveOpenExpiry, MAX_OPEN_TTL_DAYS } from '../tasks/expiry.js';
+import { resolveOpenExpiry, DEFAULT_OPEN_TTL_DAYS, MAX_OPEN_TTL_DAYS } from '../tasks/expiry.js';
 import { bountyMinimumRefusal, minBountyAtomic } from '../tasks/bounty-minimum.js';
 import { slashBondForDisputedClaim } from '../tasks/governance.js';
 import {
@@ -69,6 +69,31 @@ export const X402_TASKS_BASE = 'https://api.basedagents.ai/v1/x402/tasks';
 /** Fixed-price hire endpoints: path segment → bounty in atomic USDC. */
 export const X402_TIERS: Readonly<Record<string, string>> = { 'usd-1': '1000000', 'usd-5': '5000000', 'usd-20': '20000000' };
 
+/** Atomic USDC → the 6-decimal string OpenAPI `x-payment-info` prices use ("2000000" → "2.000000"). */
+function sixDecimals(atomic: string): string {
+  const n = BigInt(atomic);
+  return `${n / 1_000_000n}.${(n % 1_000_000n).toString().padStart(6, '0')}`;
+}
+
+/**
+ * openapi.json as served (GET /openapi.json): its `x-payment-info` follows the live
+ * minimum bounty. The custom endpoint's `min` is the deployment's minimum, and a tier
+ * priced under it is left out, as the routes refuse it. With the default minimum the
+ * file is served as is.
+ */
+export function openApiForEnv<T extends { paths: Record<string, unknown> }>(spec: T, env: unknown): T {
+  const min = String(minBountyAtomic(env, 'a2a'));
+  type Paid = { post?: { 'x-payment-info'?: { price: Record<string, string> } } };
+  const custom = (spec.paths['/v1/x402/tasks'] as Paid | undefined)?.post?.['x-payment-info'];
+  const unavailable = Object.entries(X402_TIERS).filter(([, amount]) => bountyMinimumRefusal(env, 'a2a', amount)).map(([tier]) => `/v1/x402/tasks/${tier}`);
+  if ((!custom || custom.price.min === sixDecimals(min)) && unavailable.length === 0) return spec;
+  const out = structuredClone(spec);
+  const outCustom = (out.paths['/v1/x402/tasks'] as Paid | undefined)?.post?.['x-payment-info'];
+  if (outCustom) outCustom.price.min = sixDecimals(min);
+  for (const path of unavailable) delete out.paths[path];
+  return out;
+}
+
 const MANAGE_TOKEN_PREFIX = 'bat_';
 const WALLET_MESSAGE_HEADER = 'X-Wallet-Message';
 const WALLET_SIGNATURE_HEADER = 'X-Wallet-Signature';
@@ -80,7 +105,7 @@ const NONCE_RETENTION_MS = 24 * 60 * 60 * 1000;
 const TaskFields = CreateTaskSchema.pick({
   title: true, description: true, category: true, required_capabilities: true, expected_output: true, output_format: true,
 }).extend({
-  /** Days the task stays open unclaimed: 1–MAX_OPEN_TTL_DAYS (default 7). */
+  /** Days the task stays open unclaimed: 1–MAX_OPEN_TTL_DAYS (default 60). */
   expires_in_days: z.number().int().min(1).max(MAX_OPEN_TTL_DAYS).optional(),
   network: z.enum(BOUNTY_NETWORKS).default('eip155:8453'),
 });
@@ -152,7 +177,7 @@ function discoveryExtension(custom: boolean): Record<string, unknown> {
     required_capabilities: { type: 'array', items: { type: 'string' }, description: 'Only agents declaring all of these may claim the task.' },
     expected_output: { type: 'string', maxLength: 2000 },
     output_format: { type: 'string', enum: ['json', 'link'], default: 'json' },
-    expires_in_days: { type: 'integer', minimum: 1, maximum: MAX_OPEN_TTL_DAYS, default: 7, description: 'Days the task stays open unclaimed; then the deposit is refunded.' },
+    expires_in_days: { type: 'integer', minimum: 1, maximum: MAX_OPEN_TTL_DAYS, default: DEFAULT_OPEN_TTL_DAYS, description: 'Days the task stays open unclaimed; then the deposit is refunded.' },
   };
   if (custom) bodyProperties.bounty_usdc = { type: 'string', pattern: '^\\d{1,4}(\\.\\d{1,6})?$', description: 'The bounty in USDC, e.g. "2.50".' };
   return {

@@ -36,6 +36,18 @@ export interface ApiAgent {
   recent_verifications?: ApiRecentVerification[];
   /** Optional 1-5 ratings posters gave this agent's deliveries (absent on an older API). */
   ratings?: { count: number; average: number | null };
+  /** Optional verified AgentID attestation (absent/null when not linked). */
+  agentid?: ApiAgentIdVerified | null;
+}
+
+/** The public, owner_sub-free view of a verified AgentID. */
+export interface ApiAgentIdVerified {
+  verified: boolean;
+  issuer: string;
+  email: string | null;
+  email_verified: boolean;
+  display_name: string | null;
+  linked_at: string;
 }
 
 export interface ApiRecentVerification {

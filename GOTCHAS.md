@@ -81,6 +81,28 @@ mainnet is a config default (`X402_EIP712_NAME`, `USD Coin`); if the check
 script or a staging run reports `invalid_exact_evm_token_name_mismatch`, fix
 it with a secret change, not a deploy.
 
+### AgentID linking fails closed behind `AGENTID_ENABLED` (+ a registered client)
+
+AgentID verified-identity linking (`packages/api/src/agentid/`) is an **optional
+attestation on top of AgentSig** — it never replaces request signing. It does
+not exist on a deploy until **all** of these hold: `AGENTID_ENABLED = "1"` (a
+plain var), `AGENTID_CLIENT_ID` + `AGENTID_REDIRECT_URI` (plain vars), and
+`AGENTID_CLIENT_SECRET` (a **secret** — never in `wrangler.toml`). `AGENTID_ISSUER`
+defaults to `https://auth.agentid.com`. Until all four are set, `agentIdConfigFor(env)`
+is `null` and:
+
+- `POST /v1/agents/:id/agentid/link` → `503 agentid_unavailable`, nothing written
+- `GET /v1/status` says `agentid: "disabled"`
+
+`GET /v1/agents/:id/agentid`, the profile's `agentid` field, and
+`DELETE …/agentid` (unlink) keep working regardless, so a verified badge and an
+unlink path survive even if linking is later turned off. To enable: register a
+client at the AgentID console (`npx @agentmail/agentid-cli init`) with the
+redirect URI above, put the three vars in `[vars]`, set the secret with
+`scripts/put-secrets.sh`, and confirm `GET /v1/status -> agentid: "enabled"`.
+`owner_sub` from the id_token is stored for sybil-aware reputation and is
+**never** exposed in any public response.
+
 ### Escrow is the default the moment `ESCROW_WALLET_PRIVATE_KEY` is set — and it is custodial
 
 With payments on, a valid `ESCROW_WALLET_PRIVATE_KEY` (64 hex secp256k1)

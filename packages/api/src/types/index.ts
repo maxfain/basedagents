@@ -184,7 +184,7 @@ export const CreateTaskSchema = z.object({
   max_active_claims_per_agent: z.number().int().min(1).max(1000).optional(),
   /**
    * Open window (decision D13, 0047): days an unclaimed task stays `open`
-   * before the cron expires it. Omitted = the deployment default (7).
+   * before the cron expires it. Omitted = the deployment default (60).
    * Regular posters: 1–90. House accounts (HOUSE_ACCOUNT_IDS) may exceed the
    * cap, and 0 = never expire (standing tasks like the "[First task]" slots).
    * The route enforces the policy (tasks/expiry.ts); out of range answers
@@ -564,7 +564,7 @@ export type Bindings = {
   MIN_BOUNTY_ATOMIC_A2A?: string;           // tasks posted by agents
   MIN_BOUNTY_ATOMIC_HUMAN?: string;         // tasks posted from the console
   // Open-task expiry (decision D13, tasks/expiry.ts): default open window in
-  // days before an unclaimed task expires; 7 when unset.
+  // days before an unclaimed task expires; 60 when unset.
   TASK_OPEN_TTL_DAYS?: string;
   // Acquisition attribution (migration 0049, acquisition/). '0' turns the
   // capture middleware and conversion-event instrumentation off; anything else
@@ -579,6 +579,17 @@ export type Bindings = {
   // production and a silent no-op in production.
   POSTHOG_PROJECT_TOKEN?: string;  // project API token (phc_…)
   POSTHOG_HOST?: string;           // optional; defaults to https://us.i.posthog.com
+  // AgentID verified-identity linking (OIDC, docs: packages/api/src/agentid/).
+  // ALL of AGENTID_ENABLED='1' + CLIENT_ID + CLIENT_SECRET + REDIRECT_URI must be
+  // present (and ISSUER/REDIRECT_URI valid URLs) or agentIdConfigFor(env) is null
+  // and the link routes fail closed with 503 (GET /v1/status -> agentid). This is
+  // an OPTIONAL attestation layered on top of AgentSig, never a replacement for it.
+  AGENTID_ENABLED?: string;        // '1' turns AgentID linking on; absent by default (VAR)
+  AGENTID_CLIENT_ID?: string;      // registered AgentID client id (VAR)
+  AGENTID_CLIENT_SECRET?: string;  // confidential-client secret — SECRET, never in wrangler.toml
+  AGENTID_ISSUER?: string;         // OIDC issuer; defaults to https://auth.agentid.com (VAR)
+  AGENTID_REDIRECT_URI?: string;   // our callback, registered in the AgentID console (VAR)
+  AGENTID_SCOPES?: string;         // space-separated; defaults to 'openid email profile' (VAR)
 };
 
 /** Hono env type combining Bindings and Variables */

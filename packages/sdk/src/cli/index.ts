@@ -14,6 +14,7 @@ import { check } from './check.js';
 import { tasks } from './tasks.js';
 import { task } from './task.js';
 import { wallet } from './wallet.js';
+import { agentid } from './agentid.js';
 import { scanCommand } from './scan.js';
 import { keyring } from './keyring.js';
 import { id } from './id.js';
@@ -59,6 +60,8 @@ Commands:
   task <id>                        Show task detail
   task create ...                  Alias of tasks post
   wallet [set <address>]           Get or set your wallet address
+  agentid link                     Link a verified AgentID (optional identity badge)
+  agentid status [<id>]            Show an agent's AgentID verification status
 
 Options:
   --version, -v     Print version
@@ -153,6 +156,11 @@ export async function main(): Promise<void> {
 
   if (command === 'wallet') {
     await wallet(args.slice(1));
+    return;
+  }
+
+  if (command === 'agentid') {
+    await agentid(args.slice(1));
     return;
   }
 
