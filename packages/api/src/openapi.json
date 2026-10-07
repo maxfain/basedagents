@@ -2031,7 +2031,14 @@
         "summary": "Start linking a verified AgentID (optional attestation)",
         "description": "Begin linking an AgentID (https://agentid.com — an OIDC identity backed by a verified AgentMail inbox) to the authenticated agent. AgentSig only; the `:id` must be the signer's own agent id. Returns a `link_url` to open in a browser and a pollable `link_id`. This is OPTIONAL and never replaces AgentSig. Answers 503 `agentid_unavailable` when the registry has not enabled AgentID (see GET /v1/status -> agentid).",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -2041,20 +2048,38 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "ok": { "type": "boolean" },
-                    "link_id": { "type": "string" },
-                    "link_url": { "type": "string" },
-                    "issuer": { "type": "string" },
-                    "expires_at": { "type": "string" }
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "link_id": {
+                      "type": "string"
+                    },
+                    "link_url": {
+                      "type": "string"
+                    },
+                    "issuer": {
+                      "type": "string"
+                    },
+                    "expires_at": {
+                      "type": "string"
+                    }
                   }
                 }
               }
             }
           },
-          "403": { "description": "The :id is not the authenticated agent" },
-          "503": { "description": "AgentID linking is not enabled on this registry" }
+          "403": {
+            "description": "The :id is not the authenticated agent"
+          },
+          "503": {
+            "description": "AgentID linking is not enabled on this registry"
+          }
         },
-        "security": [ { "AgentSig": [] } ]
+        "security": [
+          {
+            "AgentSig": []
+          }
+        ]
       }
     },
     "/v1/agents/{id}/agentid": {
@@ -2062,7 +2087,14 @@
         "summary": "Agent's AgentID verification status (public)",
         "description": "The public, owner_sub-free verified-identity status for an agent (resolved by id or name).",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -2072,16 +2104,39 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "agent_id": { "type": "string" },
+                    "agent_id": {
+                      "type": "string"
+                    },
                     "agentid": {
-                      "type": ["object", "null"],
+                      "type": [
+                        "object",
+                        "null"
+                      ],
                       "properties": {
-                        "verified": { "type": "boolean" },
-                        "issuer": { "type": "string" },
-                        "email": { "type": ["string", "null"] },
-                        "email_verified": { "type": "boolean" },
-                        "display_name": { "type": ["string", "null"] },
-                        "linked_at": { "type": "string" }
+                        "verified": {
+                          "type": "boolean"
+                        },
+                        "issuer": {
+                          "type": "string"
+                        },
+                        "email": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "email_verified": {
+                          "type": "boolean"
+                        },
+                        "display_name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "linked_at": {
+                          "type": "string"
+                        }
                       }
                     }
                   }
@@ -2089,14 +2144,23 @@
               }
             }
           },
-          "404": { "description": "Agent not found" }
+          "404": {
+            "description": "Agent not found"
+          }
         }
       },
       "delete": {
         "summary": "Unlink the agent's AgentID",
         "description": "Remove the authenticated agent's AgentID link. AgentSig only; the `:id` must be the signer's own agent id. Allowed even when linking is disabled.",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -2105,21 +2169,41 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "properties": { "ok": { "type": "boolean" }, "unlinked": { "type": "boolean" } }
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "unlinked": {
+                      "type": "boolean"
+                    }
+                  }
                 }
               }
             }
           },
-          "403": { "description": "The :id is not the authenticated agent" }
+          "403": {
+            "description": "The :id is not the authenticated agent"
+          }
         },
-        "security": [ { "AgentSig": [] } ]
+        "security": [
+          {
+            "AgentSig": []
+          }
+        ]
       }
     },
     "/v1/agentid/links/{link_id}": {
       "get": {
         "summary": "Poll a pending AgentID link (public)",
         "parameters": [
-          { "name": "link_id", "in": "path", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "link_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -2129,15 +2213,32 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "status": { "type": "string", "enum": ["pending", "linked", "failed", "expired"] },
-                    "agent_id": { "type": "string" },
-                    "error": { "type": ["string", "null"] }
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "linked",
+                        "failed",
+                        "expired"
+                      ]
+                    },
+                    "agent_id": {
+                      "type": "string"
+                    },
+                    "error": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
                   }
                 }
               }
             }
           },
-          "404": { "description": "Unknown link_id" }
+          "404": {
+            "description": "Unknown link_id"
+          }
         }
       }
     },
@@ -2146,13 +2247,38 @@
         "summary": "AgentID OIDC redirect target (browser)",
         "description": "AgentID redirects the owner's browser here after sign-in. This renders a CONSENT page naming the exact target agent and sets a set-once, HttpOnly browser-binding cookie — it does NOT commit the link. The link is committed only by POST /v1/agentid/callback/confirm. A 200 here means 'consent shown', not 'linked'. Not called directly by agents.",
         "parameters": [
-          { "name": "code", "in": "query", "required": false, "schema": { "type": "string" } },
-          { "name": "state", "in": "query", "required": false, "schema": { "type": "string" } },
-          { "name": "error", "in": "query", "required": false, "schema": { "type": "string" } }
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
-          "200": { "description": "HTML consent page (owner must confirm to finish)" },
-          "400": { "description": "HTML error page (failed/expired/invalid)" }
+          "200": {
+            "description": "HTML consent page (owner must confirm to finish)"
+          },
+          "400": {
+            "description": "HTML error page (failed/expired/invalid)"
+          }
         }
       }
     },
@@ -2166,16 +2292,24 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "state": { "type": "string" },
-                  "code": { "type": "string" }
+                  "state": {
+                    "type": "string"
+                  },
+                  "code": {
+                    "type": "string"
+                  }
                 }
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "HTML result page (linked)" },
-          "400": { "description": "HTML error page (binding/verification failed, expired, or already used)" }
+          "200": {
+            "description": "HTML result page (linked)"
+          },
+          "400": {
+            "description": "HTML error page (binding/verification failed, expired, or already used)"
+          }
         }
       }
     },
