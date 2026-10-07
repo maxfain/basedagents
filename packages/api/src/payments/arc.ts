@@ -40,7 +40,7 @@ export const ARC_MIN_MAX_FEE_WEI = 20_000_000_000n;
 const WEI_PER_ATOMIC = 10n ** 12n;
 /** Arc's nodes answer eth_getLogs for at most ~5,000 blocks per call (about 40 minutes). */
 export const ARC_LOG_CHUNK_BLOCKS = 5_000n;
-const ARC_LOG_MAX_CHUNKS = 4;
+const ARC_LOG_MAX_CHUNKS = 8;
 /** Arc finalizes in under a second; past this the leg is `pending` and the retry looks again. */
 export const ARC_RECEIPT_WAIT_MS = 6_000;
 const RPC_TIMEOUT_MS = 8_000;
@@ -151,6 +151,16 @@ export interface ArcRelayConfig {
 interface Receipt { status?: string; transactionHash?: string }
 interface Block { number?: string; timestamp?: string; baseFeePerGas?: string }
 interface Log { transactionHash?: string }
+interface BlockRef { number: bigint; timestamp: bigint; baseFee: bigint }
+
+/** Rounds of check → send → watch per settle call (a lost nonce race or a dropped tx starts a new round). */
+const MAX_ROUNDS = 4;
+/** How long a send waits for another escrow-wallet transaction to land before giving the slot back. */
+export const ARC_IDLE_WAIT_MS = 4_000;
+const POLL_MS = 400;
+/** Blocks either side of the estimated validity window searched for an AuthorizationUsed log. */
+const LOG_MARGIN_BLOCKS = 600n;
+const hex = (n: bigint) => '0x' + n.toString(16);
 
 export class ArcRelay implements Facilitator {
   readonly address: `0x${string}`;
@@ -191,110 +201,204 @@ export class ArcRelay implements Facilitator {
     return transaction ? { kind: 'rejected', reason, message, transaction, http: 200 } : { kind: 'rejected', reason, message, http: 200 };
   }
 
+  private retryLater(detail: string): SettleOutcome {
+    return { kind: 'unavailable', cause: 'server', detail: `Arc relay: ${detail}`.slice(0, 500) };
+  }
+
+  /**
+   * Every round starts from the chain: used → settled (with the transaction that used it);
+   * expired → only by the chain's own clock; then one transaction, on a nonce no other
+   * escrow-wallet transaction holds, watched until it lands or is lost.
+   */
   private async send(payload: PaymentPayloadV2, req: PaymentRequirementsV2): Promise<SettleOutcome> {
     const auth = payload.payload.authorization;
     if (req.network !== ARC_NETWORK || !sameAddress(req.asset, ARC_USDC)) return this.rejected('unsupported_network', 'The Arc relay sends USDC on Arc only.');
     if (!sameAddress(auth.from, this.address)) return this.rejected('invalid_payload', 'The Arc relay sends only transfers signed by the escrow wallet.');
     if (!sameAddress(auth.to, req.payTo)) return this.rejected('invalid_exact_evm_payload_recipient_mismatch', 'The authorization pays someone other than payTo.');
     if (BigInt(auth.value) !== BigInt(req.amount)) return this.rejected('invalid_exact_evm_payload_authorization_value_mismatch', 'The authorization moves a different amount.');
-
-    // 1. Already used? Then the money moved; find the transaction that moved it.
-    if (await this.authorizationUsed(auth.from, auth.nonce)) {
-      const tx = await this.findAuthorizationTx(auth.from, auth.nonce, Number(auth.validAfter), Number(auth.validBefore));
-      if (tx) return { kind: 'settled', transaction: tx, network: ARC_NETWORK, payer: this.address };
-      return this.rejected('invalid_exact_evm_nonce_already_used', 'The authorization was already used on Arc.');
-    }
-    const nowSec = Math.floor(this.now() / 1000);
-    if (Number(auth.validBefore) <= nowSec + 10) return this.rejected('invalid_exact_evm_payload_authorization_valid_before', 'The authorization has expired.');
-
-    // 2. One escrow-wallet transaction in flight at a time: a pending one may be an
-    //    earlier attempt of this very leg, and a second would only revert and burn gas.
-    const [latest, pending] = await Promise.all([
-      this.rpc.call('eth_getTransactionCount', [this.address, 'latest']),
-      this.rpc.call('eth_getTransactionCount', [this.address, 'pending']),
-    ]);
-    if (BigInt(pending) > BigInt(latest)) {
-      return { kind: 'unavailable', cause: 'server', detail: 'Arc relay: an escrow-wallet transaction is still pending; retrying after it lands' };
-    }
-
-    // 3. Simulate: a revert here is the token's verdict, and nothing was sent.
     const data = transferWithAuthorizationCalldata(payload);
-    let gas: bigint;
-    try {
-      gas = BigInt(await this.rpc.call('eth_estimateGas', [{ from: this.address, to: ARC_USDC, data }]));
-    } catch (err) {
-      if (err instanceof RpcError) return this.rejected(revertReason(err.message), `Arc simulation: ${err.message}`.slice(0, 300));
-      throw err;
-    }
+    const validBefore = BigInt(auth.validBefore);
 
-    // 4. Fees and the gas float: the transfer and its gas come out of one USDC balance.
-    const block = await this.rpc.call<Block>('eth_getBlockByNumber', ['latest', false]);
-    const baseFee = BigInt(block?.baseFeePerGas ?? '0x0');
-    let tip = 0n;
-    try {
-      tip = BigInt(await this.rpc.call('eth_maxPriorityFeePerGas', []));
-    } catch (err) {
-      if (!(err instanceof RpcError)) throw err;
-    }
-    let maxFee = 2n * baseFee + tip;
-    if (maxFee < ARC_MIN_MAX_FEE_WEI) maxFee = ARC_MIN_MAX_FEE_WEI;
-    const gasLimit = (gas * 5n) / 4n;
-    const balance = BigInt(await this.rpc.call('eth_getBalance', [this.address, 'latest']));
-    const needed = BigInt(auth.value) * WEI_PER_ATOMIC + gasLimit * maxFee;
-    if (balance < needed) {
-      return this.rejected('insufficient_funds', `The escrow wallet holds ${balance} wei of USDC on Arc and needs ${needed} (the transfer plus gas). Top it up with a little USDC on Arc.`);
-    }
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+      // 1. Already used? Then the money moved; report the transaction that moved it.
+      const used = await this.ifUsed(auth, 'latest');
+      if (used) return used;
 
-    // 5. Sign and broadcast.
-    const signed = signEip1559({
-      chainId: ARC_CHAIN_ID, nonce: BigInt(latest), maxPriorityFeePerGas: tip, maxFeePerGas: maxFee,
-      gas: gasLimit, to: ARC_USDC, value: 0n, data,
-    }, this.key);
-    try {
-      await this.rpc.call('eth_sendRawTransaction', [signed.raw]);
-    } catch (err) {
-      if (!(err instanceof RpcError)) throw err; // unknown whether a node took it: the retry checks the chain first
-      if (!/already known/i.test(err.message)) {
-        if (/insufficient funds/i.test(err.message)) return this.rejected('insufficient_funds', `Arc broadcast: ${err.message}`.slice(0, 300));
-        return { kind: 'unavailable', cause: 'server', detail: `Arc broadcast refused: ${err.message}`.slice(0, 500) };
+      // 2. Expired? Only the chain's clock decides: until a block at or past validBefore
+      //    exists, a transaction sent by an earlier attempt can still land, and calling the
+      //    leg expired would let the cron sign a second transfer. Read at that very block
+      //    (a node behind it errors instead of answering from older state), an unused
+      //    authorization can never be used again.
+      const head = await this.block('latest');
+      if (head.timestamp >= validBefore) {
+        let usedAtHead: SettleOutcome | null;
+        try {
+          usedAtHead = await this.ifUsed(auth, hex(head.number));
+        } catch (err) {
+          if (err instanceof RpcError) return this.retryLater(`could not read block ${head.number} yet (${err.message}); checking expiry again later`);
+          throw err;
+        }
+        return usedAtHead ?? this.rejected('invalid_exact_evm_payload_authorization_valid_before', 'The authorization expired on Arc unused.');
       }
-    }
 
-    // 6. Wait for the receipt (Arc finalizes in under a second).
+      // 3. One escrow-wallet transaction in flight at a time: wait for another to land
+      //    (it may be this authorization's own, from an earlier attempt).
+      const idle = await this.idleNonce();
+      if (idle === null) return this.retryLater('an escrow-wallet transaction is still pending; retrying after it lands');
+      if (idle.waited) continue; // something landed meanwhile: start again from the chain
+
+      // 4. Simulate: a revert here is the token's verdict, and nothing was sent.
+      let gas: bigint;
+      try {
+        gas = BigInt(await this.rpc.call('eth_estimateGas', [{ from: this.address, to: ARC_USDC, data }]));
+      } catch (err) {
+        if (!(err instanceof RpcError)) throw err;
+        const reason = revertReason(err.message);
+        if (reason === 'invalid_exact_evm_nonce_already_used') continue; // used since step 1: the next round reports it
+        // Time is the chain's to call (step 2), not the simulation's.
+        if (reason === 'invalid_exact_evm_payload_authorization_valid_before' || reason === 'authorization_not_yet_valid') {
+          return this.retryLater(`simulation says ${reason}; the chain's clock decides on the next attempt`);
+        }
+        return this.rejected(reason, `Arc simulation: ${err.message}`.slice(0, 300));
+      }
+
+      // 5. Fees and the gas float: the transfer and its gas come out of one USDC balance.
+      let tip = 0n;
+      try {
+        tip = BigInt(await this.rpc.call('eth_maxPriorityFeePerGas', []));
+      } catch (err) {
+        if (!(err instanceof RpcError)) throw err;
+      }
+      let maxFee = 2n * head.baseFee + tip;
+      if (maxFee < ARC_MIN_MAX_FEE_WEI) maxFee = ARC_MIN_MAX_FEE_WEI;
+      const gasLimit = (gas * 5n) / 4n;
+      const balance = BigInt(await this.rpc.call('eth_getBalance', [this.address, 'latest']));
+      const needed = BigInt(auth.value) * WEI_PER_ATOMIC + gasLimit * maxFee;
+      if (balance < needed) {
+        return this.rejected('insufficient_funds', `The escrow wallet holds ${balance} wei of USDC on Arc and needs ${needed} (the transfer plus gas). Top it up with a little USDC on Arc.`);
+      }
+
+      // 6. Sign and broadcast on the free nonce.
+      const signed = signEip1559({
+        chainId: ARC_CHAIN_ID, nonce: idle.nonce, maxPriorityFeePerGas: tip, maxFeePerGas: maxFee,
+        gas: gasLimit, to: ARC_USDC, value: 0n, data,
+      }, this.key);
+      try {
+        await this.rpc.call('eth_sendRawTransaction', [signed.raw]);
+      } catch (err) {
+        if (!(err instanceof RpcError)) throw err; // unknown whether a node took it: the retry checks the chain first
+        if (/insufficient funds/i.test(err.message)) return this.rejected('insufficient_funds', `Arc broadcast: ${err.message}`.slice(0, 300));
+        // Another escrow-wallet transaction took this nonce (a concurrent payout): next round.
+        if (/nonce too low|replacement transaction underpriced|nonce/i.test(err.message) && !/already known/i.test(err.message)) continue;
+        if (!/already known/i.test(err.message)) return this.retryLater(`broadcast refused: ${err.message}`);
+      }
+
+      // 7. Watch it land (Arc finalizes in under a second).
+      const watched = await this.watch(signed.hash, idle.nonce);
+      if (watched === 'mined') return { kind: 'settled', transaction: signed.hash, network: ARC_NETWORK, payer: this.address };
+      if (watched === 'pending') return { kind: 'pending', transaction: signed.hash };
+      // Reverted after a clean simulation: retried later (with backoff), never resent in a loop that burns gas.
+      if (watched === 'reverted') return this.rejected('transaction_reverted', `Arc transaction ${signed.hash} reverted.`, signed.hash);
+      // 'lost': another transaction took its nonce, so it can never land. Start again from the chain.
+    }
+    return this.retryLater(`no transfer landed after ${MAX_ROUNDS} rounds; retrying later`);
+  }
+
+  /** Mined, reverted, lost (its nonce went to another transaction) or still pending at the deadline. */
+  private async watch(hash: string, nonce: bigint): Promise<'mined' | 'reverted' | 'lost' | 'pending'> {
     const deadline = this.now() + this.receiptWaitMs;
     for (;;) {
-      const receipt = await this.rpc.call<Receipt | null>('eth_getTransactionReceipt', [signed.hash]).catch((err) => {
+      const receipt = await this.rpc.call<Receipt | null>('eth_getTransactionReceipt', [hash]).catch((err) => {
         if (err instanceof RpcError) return null;
         throw err;
       });
-      if (receipt && receipt.status === '0x1') return { kind: 'settled', transaction: signed.hash, network: ARC_NETWORK, payer: this.address };
-      if (receipt) return this.rejected('transaction_reverted', `Arc transaction ${signed.hash} reverted.`, signed.hash);
-      if (this.now() >= deadline) return { kind: 'pending', transaction: signed.hash };
-      await this.sleep(400);
+      if (receipt) return receipt.status === '0x1' ? 'mined' : 'reverted';
+      // The nonce is used but not by this transaction: it was replaced or dropped.
+      if (BigInt(await this.rpc.call('eth_getTransactionCount', [this.address, 'latest'])) > nonce) {
+        const late = await this.rpc.call<Receipt | null>('eth_getTransactionReceipt', [hash]).catch(() => null);
+        if (late) return late.status === '0x1' ? 'mined' : 'reverted';
+        return 'lost';
+      }
+      if (this.now() >= deadline) return 'pending';
+      await this.sleep(POLL_MS);
     }
   }
 
-  private async authorizationUsed(authorizer: string, nonce: string): Promise<boolean> {
-    const out = await this.rpc.call('eth_call', [{ to: ARC_USDC, data: '0x' + AUTHORIZATION_STATE + word(authorizer) + word(nonce) }, 'latest']);
-    return /^0x0*1$/.test(out);
+  /** The escrow wallet's next nonce once nothing of its is pending (waiting up to ARC_IDLE_WAIT_MS), or null. */
+  private async idleNonce(): Promise<{ nonce: bigint; waited: boolean } | null> {
+    const deadline = this.now() + ARC_IDLE_WAIT_MS;
+    let waited = false;
+    for (;;) {
+      const [latest, pending] = await Promise.all([
+        this.rpc.call('eth_getTransactionCount', [this.address, 'latest']),
+        this.rpc.call('eth_getTransactionCount', [this.address, 'pending']),
+      ]);
+      if (BigInt(pending) <= BigInt(latest)) return { nonce: BigInt(latest), waited };
+      if (this.now() >= deadline) return null;
+      waited = true;
+      await this.sleep(POLL_MS);
+    }
+  }
+
+  private async block(tag: bigint | 'latest'): Promise<BlockRef> {
+    const b = await this.rpc.call<Block | null>('eth_getBlockByNumber', [tag === 'latest' ? 'latest' : hex(tag), false]);
+    if (!b?.number || !b.timestamp) throw new RpcError(`block ${tag === 'latest' ? 'latest' : tag} is not available`);
+    return { number: BigInt(b.number), timestamp: BigInt(b.timestamp), baseFee: BigInt(b.baseFeePerGas ?? '0x0') };
+  }
+
+  /** Settled (or the reuse answer) if the authorization is used at `blockTag`; null if it is not. */
+  private async ifUsed(auth: PaymentPayloadV2['payload']['authorization'], blockTag: string): Promise<SettleOutcome | null> {
+    const out = await this.rpc.call('eth_call', [{ to: ARC_USDC, data: '0x' + AUTHORIZATION_STATE + word(auth.from) + word(auth.nonce) }, blockTag]);
+    if (!/^0x0*1$/.test(out)) return null;
+    const tx = await this.findAuthorizationTx(auth.from, auth.nonce, BigInt(auth.validAfter), BigInt(auth.validBefore));
+    if (tx) return { kind: 'settled', transaction: tx, network: ARC_NETWORK, payer: this.address };
+    return this.rejected('invalid_exact_evm_nonce_already_used', 'The authorization was already used on Arc.');
+  }
+
+  /**
+   * The last block whose timestamp is at or before `ts`, to within a few blocks: an
+   * interpolation search over block timestamps (Arc's are close to evenly spaced, so it
+   * lands in a probe or two), with a bisection step whenever a probe gains little.
+   */
+  private async blockAt(ts: bigint, head: BlockRef): Promise<bigint> {
+    if (ts >= head.timestamp) return head.number;
+    let hi = head;
+    // A lower bound: three blocks a second is faster than Arc runs, so this lands before ts.
+    let lo = await this.block(head.number - (head.timestamp - ts) * 3n > 0n ? head.number - (head.timestamp - ts) * 3n : 0n);
+    for (let i = 0; i < 4 && lo.timestamp > ts && lo.number > 0n; i++) {
+      const back = lo.number - (lo.timestamp - ts) * 3n - 1000n;
+      lo = await this.block(back > 0n ? back : 0n);
+    }
+    if (lo.timestamp > ts) return lo.number;
+    for (let i = 0; i < 20 && hi.number - lo.number > 8n; i++) {
+      const span = hi.number - lo.number;
+      let probe = i % 2 === 0 && hi.timestamp > lo.timestamp
+        ? lo.number + (span * (ts - lo.timestamp)) / (hi.timestamp - lo.timestamp)
+        : lo.number + span / 2n;
+      if (probe <= lo.number) probe = lo.number + 1n;
+      if (probe >= hi.number) probe = hi.number - 1n;
+      const b = await this.block(probe);
+      if (b.timestamp <= ts) lo = b; else hi = b;
+    }
+    return lo.number;
   }
 
   /**
    * The transaction that used an authorization, from USDC's AuthorizationUsed log. It was
-   * mined between validAfter and validBefore; Arc makes about two blocks a second, and the
-   * window is widened for drift. Searched newest first, ARC_LOG_CHUNK_BLOCKS at a time.
+   * mined between validAfter and validBefore, so the search covers the blocks of that
+   * window (found by timestamp, however long ago it was), newest first, in
+   * ARC_LOG_CHUNK_BLOCKS slices.
    */
-  private async findAuthorizationTx(authorizer: string, nonce: string, validAfter: number, validBefore: number): Promise<string | null> {
-    const head = await this.rpc.call<Block>('eth_getBlockByNumber', ['latest', false]);
-    const headNum = BigInt(head?.number ?? '0x0');
-    const headTs = Number(BigInt(head?.timestamp ?? '0x0'));
-    const blocksBack = (seconds: number, perSecond: number) => BigInt(Math.max(0, Math.ceil(seconds * perSecond)));
-    let to = headNum - blocksBack(headTs - Math.min(validBefore, headTs), 1.5);
-    const from = headNum - blocksBack(headTs - validAfter, 2.5) - 100n;
-    for (let i = 0; i < ARC_LOG_MAX_CHUNKS && to >= from && to >= 0n; i++) {
+  private async findAuthorizationTx(authorizer: string, nonce: string, validAfter: bigint, validBefore: bigint): Promise<string | null> {
+    const head = await this.block('latest');
+    const fromBlock = await this.blockAt(validAfter, head) - LOG_MARGIN_BLOCKS;
+    let to = await this.blockAt(validBefore, head) + LOG_MARGIN_BLOCKS;
+    if (to > head.number) to = head.number;
+    const from = fromBlock > 0n ? fromBlock : 0n;
+    for (let i = 0; i < ARC_LOG_MAX_CHUNKS && to >= from; i++) {
       const start = to - ARC_LOG_CHUNK_BLOCKS + 1n > from ? to - ARC_LOG_CHUNK_BLOCKS + 1n : from;
       const logs = await this.rpc.call<Log[]>('eth_getLogs', [{
-        address: ARC_USDC, fromBlock: '0x' + (start < 0n ? 0n : start).toString(16), toBlock: '0x' + to.toString(16),
+        address: ARC_USDC, fromBlock: hex(start), toBlock: hex(to),
         topics: [AUTHORIZATION_USED_TOPIC, '0x' + word(authorizer), '0x' + word(nonce)],
       }]).catch((err) => {
         if (err instanceof RpcError) return [] as Log[];

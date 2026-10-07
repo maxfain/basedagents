@@ -7,26 +7,9 @@ import { describe, it, expect } from 'vitest';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { keccak_256 } from '@noble/hashes/sha3';
 import { bigintToBytes, bytesToHex, hexToBytes, rlpEncode, signEip1559, toChecksumAddress, addressFromPrivateKey, type RlpItem } from './evm.js';
+import { rlpDecode } from './test-fixtures.js';
 
 const enc = (s: string) => new TextEncoder().encode(s);
-
-/** Minimal RLP decoder (test only): strings → bytes, lists → arrays. */
-function rlpDecode(input: Uint8Array): RlpItem {
-  const read = (at: number): [RlpItem, number] => {
-    const b = input[at];
-    const int = (from: number, len: number) => input.slice(from, from + len).reduce((n, x) => n * 256 + x, 0);
-    if (b < 0x80) return [input.slice(at, at + 1), at + 1];
-    if (b <= 0xb7) return [input.slice(at + 1, at + 1 + b - 0x80), at + 1 + b - 0x80];
-    if (b <= 0xbf) { const ll = b - 0xb7; const len = int(at + 1, ll); return [input.slice(at + 1 + ll, at + 1 + ll + len), at + 1 + ll + len]; }
-    const ll = b <= 0xf7 ? 0 : b - 0xf7;
-    const len = b <= 0xf7 ? b - 0xc0 : int(at + 1, ll);
-    const end = at + 1 + ll + len;
-    const out: RlpItem[] = [];
-    for (let p = at + 1 + ll; p < end;) { const [item, next] = read(p); out.push(item); p = next; }
-    return [out, end];
-  };
-  return read(0)[0];
-}
 const hex = (b: Uint8Array) => '0x' + bytesToHex(b);
 
 describe('rlpEncode', () => {

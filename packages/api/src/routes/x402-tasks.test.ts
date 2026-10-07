@@ -11,10 +11,14 @@ import {
 } from '../test-helpers.js';
 import type { SQLiteAdapter } from '../db/sqlite-adapter.js';
 import {
-  enablePaymentsForTests, resetPaymentsForTests, paymentHeaderFor, paymentPayloadFor, fakeFacilitator, FakeArcNode, TEST_WALLET, TEST_TX, type FakeFacilitator,
+  enablePaymentsForTests, resetPaymentsForTests, paymentHeaderFor, paymentPayloadFor, fakeFacilitator, FakeArcNode, decodeArcTx, TEST_WALLET, TEST_TX, type FakeFacilitator,
 } from '../payments/test-fixtures.js';
 import { setPaymentProviderForTests } from '../payments/index.js';
 import { ArcFacilitator, ArcRelay, ArcRpc, NetworkRouter } from '../payments/arc.js';
+import { settleTask } from '../payments/settle.js';
+import { escrowSweep } from '../payments/escrow.js';
+import { decryptPaymentSignature } from '../payments/crypto.js';
+import { decodePaymentHeader } from '../payments/x402.js';
 import { encodeB64Json, type PaymentRequirementsV2 } from '../payments/x402.js';
 import { houseWalletFromPrivateKey, parseHousePrivateKey, setHouseWalletForTests, addressFromPrivateKey } from '../payments/house-wallet.js';
 import { parseActionMessage } from '../wallets/action.js';
@@ -471,13 +475,18 @@ describe('Wallet-only hiring over x402 (/v1/x402/tasks)', () => {
    * Production with Circle configured. CDP stays the fake; Arc's facilitator is the real
    * router: a fake Circle for deposits and the relay against a fake Arc node for payouts.
    */
-  function useArc(): { node: FakeArcNode; circle: FakeFacilitator } {
+  function useArc(): { node: FakeArcNode; circle: FakeFacilitator; setRelayClock: (ms: number) => void } {
     const node = new FakeArcNode();
     const circle = fakeFacilitator({ verify: [{ kind: 'valid', payer: BUYER }], settle: [{ kind: 'settled', transaction: TEST_TX, network: 'eip155:5042', payer: BUYER }] });
-    const relay = new ArcRelay({ privateKey: parseHousePrivateKey('0x' + TEST_WALLET_KEYS.a), rpc: new ArcRpc(['https://rpc.mainnet.arc.io'], node.fetch()), sleep: async () => {} });
+    // The relay's clock moves only when it waits, so waits cost no real time.
+    let clock = Date.now();
+    const relay = new ArcRelay({
+      privateKey: parseHousePrivateKey('0x' + TEST_WALLET_KEYS.a), rpc: new ArcRpc(['https://rpc.mainnet.arc.io'], node.fetch()),
+      now: () => clock, sleep: async (ms) => { clock += ms; },
+    });
     setPaymentProviderForTests(new NetworkRouter(facilitator, { 'eip155:5042': new ArcFacilitator(circle, relay) }));
     app = createTestApp(db, { ...ENV, ENVIRONMENT: 'production', CIRCLE_API_KEY: 'LIVE_API_KEY:x:y' });
-    return { node, circle };
+    return { node, circle, setRelayClock: (ms) => { clock = ms; } };
   }
   /** The transferWithAuthorization the relay broadcast: [from, to, value]. */
   const sentTransfer = (raw: string) => {
@@ -535,6 +544,33 @@ describe('Wallet-only hiring over x402 (/v1/x402/tasks)', () => {
     expect((await row(taskId)).escrow_status).toBe('refunded');
     expect(sentTransfer(node.sent[0])).toEqual([house.address.slice(2).toLowerCase(), BUYER.slice(2).toLowerCase(), 1_000_000n]);
     expect(circle.settleCalls).toHaveLength(1);
+  });
+
+  it('a payout still in flight is never re-signed: it is released by its own transaction once it lands', async () => {
+    const { node, setRelayClock } = useArc();
+    node.autoMine = false;
+    await bindClaimer('eip155:8453');
+    const { taskId, token } = await hire('/v1/x402/tasks/usd-5', BRIEF, 'eip155:5042');
+    await claimAndDeliver(taskId);
+    expect((await post(`/v1/x402/tasks/${taskId}/accept`, {}, bearer(token))).status).toBe(200);
+    // The release went out but hasn't landed: held as releasing, with its hash.
+    const sentHash = decodeArcTx(node.sent[0]).hash;
+    expect(await row(taskId)).toMatchObject({ escrow_status: 'releasing', payment_status: 'settling', payment_tx_hash: sentHash });
+    const env = { ...ENV, ENVIRONMENT: 'production', CIRCLE_API_KEY: 'LIVE_API_KEY:x:y' } as Bindings;
+    // Retries near the end of the authorization's life (by the chain's clock too) wait for it: never expired, never back to funded.
+    const validBefore = Number(decodePaymentHeader(await decryptPaymentSignature((await row(taskId)).payment_signature, ENV.PAYMENT_ENCRYPTION_KEY!)).payload.authorization.validBefore);
+    node.advance(validBefore - Number(node.nowSec) - 10);
+    setRelayClock((validBefore - 5) * 1000);
+    const later = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
+    await settleTask(db, env, taskId, 'cron', later(3));
+    expect(await row(taskId)).toMatchObject({ escrow_status: 'releasing', payment_status: 'failed', last_settle_class: 'transient' });
+    expect((await escrowSweep(db, env, later(4))).attempted).toBe(0);
+    // It lands: the next retry finds it and releases with that very transaction. One transfer, ever.
+    node.mine();
+    const settled = await settleTask(db, env, taskId, 'cron', later(30));
+    expect(settled).toMatchObject({ skipped: false, payment_status: 'settled', tx_hash: sentHash });
+    expect(await row(taskId)).toMatchObject({ escrow_status: 'released', escrow_release_tx_hash: sentHash });
+    expect(node.sent).toHaveLength(1);
   });
 
   it('an agent cannot post an Arc bounty outside escrow', async () => {

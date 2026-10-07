@@ -1,42 +1,49 @@
 /**
- * Arc relay (arc.ts): the escrow wallet broadcasting its own EIP-3009 transfers,
- * against a fake Arc node that keeps the token's authorization state, a mempool and
- * receipts. Covers the transaction it builds, every early answer (already used,
- * expired, in flight, simulation revert, gas float), the receipt wait, RPC
- * failover, and the routing between Circle and the relay.
+ * Arc relay (arc.ts): the escrow wallet broadcasting its own EIP-3009 transfers, against
+ * a fake Arc node (test-fixtures.ts) with a mempool, mined-only authorization state,
+ * nonces, timestamped blocks and range-checked logs. Covers the transaction it builds;
+ * used authorizations (and finding their transaction, even a day later); expiry decided
+ * by the chain's clock only; waiting for and racing other escrow-wallet transactions;
+ * simulation reverts; the gas float; the receipt wait; RPC failover; and routing.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { keccak_256 } from '@noble/hashes/sha3';
 import {
-  ArcFacilitator, ArcRelay, ArcRpc, NetworkRouter, AUTHORIZATION_USED_TOPIC, ARC_MIN_MAX_FEE_WEI,
+  ArcFacilitator, ArcRelay, ArcRpc, NetworkRouter, ARC_IDLE_WAIT_MS, ARC_MIN_MAX_FEE_WEI,
   revertReason, transferWithAuthorizationCalldata,
 } from './arc.js';
 import type { Facilitator } from './cdp-facilitator.js';
-import { bytesToHex, hexToBytes } from './evm.js';
+import { hexToBytes } from './evm.js';
 import { houseWalletFromPrivateKey } from './house-wallet.js';
 import { buildRequirements, PaymentPayloadV2 } from './x402.js';
 import { TEST_WALLET_KEYS } from '../test-helpers.js';
-import { FakeArcNode } from './test-fixtures.js';
+import { FakeArcNode, decodeArcTx } from './test-fixtures.js';
 
 const KEY = hexToBytes(TEST_WALLET_KEYS.a);
 const HOUSE = houseWalletFromPrivateKey(KEY);
 const AGENT = '0x' + '7a'.repeat(20);
+const OTHER_AGENT = '0x' + '7b'.repeat(20);
 const USDC = '0x3600000000000000000000000000000000000000';
 const NOW_MS = Date.parse('2026-10-07T22:00:00Z');
 const NOW = Math.floor(NOW_MS / 1000);
 const REQ = buildRequirements({ task_id: 'task_arc', bounty_amount: '5000000', bounty_network: 'eip155:5042' }, AGENT);
 const GWEI = 1_000_000_000n;
+const OTHER_TX = '0x' + 'ee'.repeat(32);
 
 let node: FakeArcNode;
-const relay = (opts: { urls?: string[]; down?: string[]; now?: number } = {}) => {
+/** A relay on the fake node; `onSleep` runs whenever it waits (to let the chain move on). */
+const relay = (opts: { urls?: string[]; down?: string[]; now?: number; onSleep?: () => void } = {}) => {
   let clock = opts.now ?? NOW_MS;
   return new ArcRelay({
     privateKey: KEY, rpc: new ArcRpc(opts.urls ?? ['https://rpc.mainnet.arc.io'], node.fetch(opts.down)),
-    now: () => clock, sleep: async (ms) => { clock += ms; }, receiptWaitMs: 2_000,
+    now: () => clock, sleep: async (ms) => { clock += ms; opts.onSleep?.(); }, receiptWaitMs: 2_000,
   });
 };
-const housePayload = () => HOUSE.signTransfer(REQ, NOW);
+const housePayload = (req = REQ) => HOUSE.signTransfer(req, NOW);
 const methods = () => node.calls.map((c) => c.method);
+const count = (method: string) => node.calls.filter((c) => c.method === method).length;
+const hashOf = (raw: string) => decodeArcTx(raw).hash;
+/** Another escrow-wallet transaction (a different payout) on `nonce`. */
+const otherTx = (nonce: bigint) => ({ hash: OTHER_TX, raw: '0x', nonce, data: '0x' });
 
 beforeEach(() => { node = new FakeArcNode(NOW); });
 
@@ -45,8 +52,7 @@ describe('ArcRelay.settle', () => {
     const payload = housePayload();
     const out = await relay().settle(payload, REQ);
     expect(node.sent).toHaveLength(1);
-    const hash = '0x' + bytesToHex(keccak_256(hexToBytes(node.sent[0])));
-    expect(out).toEqual({ kind: 'settled', transaction: hash, network: 'eip155:5042', payer: HOUSE.address });
+    expect(out).toEqual({ kind: 'settled', transaction: hashOf(node.sent[0]), network: 'eip155:5042', payer: HOUSE.address });
     // The calldata: transferWithAuthorization(from, to, value, validAfter, validBefore, nonce, v, r, s).
     const data = transferWithAuthorizationCalldata(payload);
     expect(data.slice(0, 10)).toBe('0xe3ee160e');
@@ -54,11 +60,11 @@ describe('ArcRelay.settle', () => {
     expect(data.slice(74, 138)).toBe(AGENT.slice(2).padStart(64, '0'));
     expect(BigInt('0x' + data.slice(138, 202))).toBe(5_000_000n);
     expect([27n, 28n]).toContain(BigInt('0x' + data.slice(394, 458)));
-    expect(node.sent[0]).toContain(data.slice(2));
-    // Checked the chain first, then one transaction: the nonce the chain gave, simulated first.
-    expect(methods().slice(0, 4)).toEqual(['eth_call', 'eth_getTransactionCount', 'eth_getTransactionCount', 'eth_estimateGas']);
-    const est = node.calls.find((c) => c.method === 'eth_estimateGas')!.params[0];
-    expect(est).toEqual({ from: HOUSE.address, to: USDC, data });
+    expect(decodeArcTx(node.sent[0])).toMatchObject({ nonce: 4n, data });
+    // The chain first (used? expired? anything in flight?), then a simulation, then one transaction.
+    expect(methods().slice(0, 5)).toEqual(['eth_call', 'eth_getBlockByNumber', 'eth_getTransactionCount', 'eth_getTransactionCount', 'eth_estimateGas']);
+    expect(node.calls.find((c) => c.method === 'eth_estimateGas')!.params[0]).toEqual({ from: HOUSE.address, to: USDC, data });
+    expect(node.latestNonce).toBe(5n);
   });
 
   it('pays twice the base fee plus the tip, never under Arc\'s 20 gwei floor', async () => {
@@ -75,22 +81,32 @@ describe('ArcRelay.settle', () => {
 
   it('an authorization already used is settled by the transaction in its AuthorizationUsed log', async () => {
     const payload = housePayload();
-    const nonce = payload.payload.authorization.nonce;
-    const TX = '0x' + 'ee'.repeat(32);
-    node.used.set(`0x${HOUSE.address.slice(2)}:${nonce}`.toLowerCase(), TX);
-    node.logs.push({ topics: [AUTHORIZATION_USED_TOPIC, '0x' + HOUSE.address.slice(2).toLowerCase().padStart(64, '0'), nonce], transactionHash: TX, blockNumber: '0x1' });
-    expect(await relay().settle(payload, REQ)).toEqual({ kind: 'settled', transaction: TX, network: 'eip155:5042', payer: HOUSE.address });
+    node.markUsed(HOUSE.address, payload.payload.authorization.nonce, OTHER_TX, node.blockOf(BigInt(NOW + 30)));
+    node.advance(60);
+    expect(await relay().settle(payload, REQ)).toEqual({ kind: 'settled', transaction: OTHER_TX, network: 'eip155:5042', payer: HOUSE.address });
     expect(node.sent).toEqual([]);
-    // Without the log (outside the searched window), it is the reuse answer settle.ts resolves.
+    // Without its log, it is the reuse answer settle.ts resolves.
     node.logs = [];
     expect(await relay().settle(payload, REQ)).toMatchObject({ kind: 'rejected', reason: 'invalid_exact_evm_nonce_already_used' });
     expect(node.sent).toEqual([]);
   });
 
-  it('refuses before sending: expired, foreign signer, wrong network or recipient', async () => {
+  it('finds that transaction a day later in a couple of log queries, inside the validity window', async () => {
     const payload = housePayload();
-    expect(await relay({ now: (Number(payload.payload.authorization.validBefore) - 5) * 1000 }).settle(payload, REQ))
-      .toMatchObject({ kind: 'rejected', reason: 'invalid_exact_evm_payload_authorization_valid_before' });
+    node.markUsed(HOUSE.address, payload.payload.authorization.nonce, OTHER_TX, node.blockOf(BigInt(NOW + 30)));
+    node.advance(86_400);
+    expect(await relay().settle(payload, REQ)).toMatchObject({ kind: 'settled', transaction: OTHER_TX });
+    const queries = node.calls.filter((c) => c.method === 'eth_getLogs').map((c) => c.params[0] as { fromBlock: string; toBlock: string });
+    expect(queries.length).toBeLessThanOrEqual(2);
+    // Every query stays within the window's blocks (validAfter .. validBefore, with a margin).
+    for (const q of queries) {
+      expect(BigInt(q.fromBlock)).toBeGreaterThanOrEqual(node.blockOf(BigInt(NOW - 60)) - 700n);
+      expect(BigInt(q.toBlock)).toBeLessThanOrEqual(node.blockOf(BigInt(NOW + 3600)) + 700n);
+    }
+  });
+
+  it('refuses before sending: foreign signer, wrong network, recipient or amount', async () => {
+    const payload = housePayload();
     const other = houseWalletFromPrivateKey(hexToBytes(TEST_WALLET_KEYS.b)).signTransfer(REQ, NOW);
     expect(await relay().settle(other, REQ)).toMatchObject({ kind: 'rejected', reason: 'invalid_payload' });
     const base = buildRequirements({ task_id: 't', bounty_amount: '5000000', bounty_network: 'eip155:8453' }, AGENT);
@@ -100,20 +116,107 @@ describe('ArcRelay.settle', () => {
     expect(node.sent).toEqual([]);
   });
 
-  it('waits while an escrow-wallet transaction is in flight', async () => {
-    node.pendingNonce = 5n;
-    expect(await relay().settle(housePayload(), REQ)).toMatchObject({ kind: 'unavailable', cause: 'server', detail: expect.stringMatching(/still pending/) });
+  it('expiry is the chain\'s call: our clock past validBefore changes nothing; the chain past it, unused, does', async () => {
+    const payload = housePayload();
+    const validBefore = Number(payload.payload.authorization.validBefore);
+    // Our clock says expired; the chain doesn't: the transfer goes out and lands.
+    expect(await relay({ now: (validBefore + 100) * 1000 }).settle(payload, REQ)).toMatchObject({ kind: 'settled' });
+    // The chain past validBefore with an unused authorization: definitively expired, nothing sent.
+    node = new FakeArcNode(NOW);
+    node.advance(3_700);
+    expect(await relay().settle(housePayload(), REQ)).toMatchObject({ kind: 'rejected', reason: 'invalid_exact_evm_payload_authorization_valid_before' });
     expect(node.sent).toEqual([]);
   });
 
-  it('a simulation revert is the token\'s verdict, classified; nothing is sent', async () => {
+  it('a transfer already sent is never called expired while it can still land, and is settled once it does', async () => {
+    node.autoMine = false;
+    const payload = housePayload();
+    const first = await relay().settle(payload, REQ);
+    expect(first).toEqual({ kind: 'pending', transaction: hashOf(node.sent[0]) });
+    // Retried 10 s before validBefore by the chain's clock, 5 s before it by ours, with
+    // the transfer still in the mempool: waiting, not expired (expired would re-sign and pay twice).
+    node.advance(3_590);
+    const second = await relay({ now: (NOW + 3_595) * 1000 }).settle(payload, REQ);
+    expect(second).toMatchObject({ kind: 'unavailable', detail: expect.stringMatching(/still pending/) });
+    // It lands before validBefore: the next attempt reports that very transaction.
+    node.mine();
+    expect(await relay().settle(payload, REQ)).toEqual({ kind: 'settled', transaction: hashOf(node.sent[0]), network: 'eip155:5042', payer: HOUSE.address });
+    expect(node.sent).toHaveLength(1);
+  });
+
+  it('a transfer dropped and past validBefore is expired, read at that block; a lagging node can\'t say so', async () => {
+    node.autoMine = false;
+    const payload = housePayload();
+    expect(await relay().settle(payload, REQ)).toMatchObject({ kind: 'pending' });
+    node.drop(hashOf(node.sent[0]));
+    node.advance(3_700);
+    node.lagPinned = true;
+    expect(await relay().settle(payload, REQ)).toMatchObject({ kind: 'unavailable', detail: expect.stringMatching(/could not read block/) });
+    node.lagPinned = false;
+    expect(await relay().settle(payload, REQ)).toMatchObject({ kind: 'rejected', reason: 'invalid_exact_evm_payload_authorization_valid_before' });
+    expect(node.sent).toHaveLength(1);
+  });
+
+  it('waits for another escrow-wallet transaction to land, then sends on the next nonce', async () => {
+    node.inject(otherTx(4n));
+    expect(await relay({ onSleep: () => node.mine() }).settle(housePayload(), REQ)).toMatchObject({ kind: 'settled' });
+    expect(decodeArcTx(node.sent[0]).nonce).toBe(5n);
+    // One that never lands: the relay gives the slot back after ARC_IDLE_WAIT_MS, having sent nothing.
+    node = new FakeArcNode(NOW);
+    node.inject(otherTx(4n));
+    const r = relay();
+    expect(await r.settle(housePayload(), REQ)).toMatchObject({ kind: 'unavailable', detail: expect.stringMatching(/still pending/) });
+    expect(node.sent).toEqual([]);
+    expect(count('eth_getTransactionCount')).toBeGreaterThanOrEqual(2 * Math.floor(ARC_IDLE_WAIT_MS / 400));
+  });
+
+  it('loses a nonce race to a concurrent payout and sends on the next nonce in the same call', async () => {
+    let raced = false;
+    node.beforeSend = (tx) => {
+      if (!raced) { raced = true; node.inject(otherTx(tx.nonce)); }
+    };
+    expect(await relay({ onSleep: () => node.mine() }).settle(housePayload(), REQ)).toMatchObject({ kind: 'settled' });
+    expect(count('eth_sendRawTransaction')).toBe(2);
+    expect(node.sent).toHaveLength(1);
+    expect(decodeArcTx(node.sent[0]).nonce).toBe(5n);
+    expect(node.latestNonce).toBe(6n);
+  });
+
+  it('two payouts at once (two Workers, one escrow wallet) both land, on consecutive nonces', async () => {
+    const other = buildRequirements({ task_id: 'task_arc2', bounty_amount: '1000000', bounty_network: 'eip155:5042' }, OTHER_AGENT);
+    const [a, b] = await Promise.all([relay().settle(housePayload(), REQ), relay().settle(housePayload(other), other)]);
+    expect(a).toMatchObject({ kind: 'settled' });
+    expect(b).toMatchObject({ kind: 'settled' });
+    expect(node.sent.map((raw) => decodeArcTx(raw).nonce).sort()).toEqual([4n, 5n]);
+    expect(node.latestNonce).toBe(6n);
+    // They raced for nonce 4: the node refused one, which went out again on 5 in the same call.
+    expect(count('eth_sendRawTransaction')).toBe(3);
+  });
+
+  it('a transfer whose nonce went to another transaction is sent again', async () => {
+    let swapped = false;
+    node.onReceiptPoll = (hash) => {
+      if (swapped) return;
+      swapped = true;
+      const ours = node.mempool.find((t) => t.hash === hash)!;
+      node.drop(hash);
+      node.inject(otherTx(ours.nonce));
+      node.mine();
+    };
+    expect(await relay().settle(housePayload(), REQ)).toMatchObject({ kind: 'settled' });
+    expect(node.sent.map((raw) => decodeArcTx(raw).nonce)).toEqual([4n, 5n]);
+  });
+
+  it('a simulation revert is the token\'s verdict, classified; a time-related one waits for the chain', async () => {
     node.estimateError = 'execution reverted: FiatTokenV2: invalid signature';
     expect(await relay().settle(housePayload(), REQ)).toMatchObject({ kind: 'rejected', reason: 'invalid_exact_evm_payload_signature' });
     node.estimateError = 'execution reverted: ERC20: transfer amount exceeds balance';
     expect(await relay().settle(housePayload(), REQ)).toMatchObject({ kind: 'rejected', reason: 'insufficient_funds' });
+    node.estimateError = 'execution reverted: FiatTokenV2: authorization is expired';
+    expect(await relay().settle(housePayload(), REQ)).toMatchObject({ kind: 'unavailable', detail: expect.stringMatching(/chain's clock/) });
     expect(node.sent).toEqual([]);
     expect(revertReason('execution reverted: Blacklistable: account is blacklisted')).toBe('invalid_exact_evm_payload_authorization_to_address_kyt');
-    expect(revertReason('execution reverted: FiatTokenV2: authorization is expired')).toBe('invalid_exact_evm_payload_authorization_valid_before');
+    expect(revertReason('execution reverted: FiatTokenV2: authorization is used or canceled')).toBe('invalid_exact_evm_nonce_already_used');
     expect(revertReason('execution reverted: something else')).toBe('transaction_reverted');
   });
 
@@ -124,25 +227,28 @@ describe('ArcRelay.settle', () => {
     expect(node.sent).toEqual([]);
   });
 
-  it('broadcast answers: already known is ours; anything else is retried', async () => {
+  it('broadcast answers: already known is ours; insufficient funds; anything else is retried later', async () => {
     node.sendError = 'already known';
-    // The node already holds it: the receipt wait goes on (and finds nothing mined here).
-    expect(await relay().settle(housePayload(), REQ)).toMatchObject({ kind: 'pending' });
-    node = new FakeArcNode(NOW);
+    expect(await relay().settle(housePayload(), REQ)).toMatchObject({ kind: 'pending', transaction: expect.stringMatching(/^0x[0-9a-f]{64}$/) });
+    node.sendError = 'insufficient funds for gas * price + value: have 0 want 1';
+    expect(await relay().settle(housePayload(), REQ)).toMatchObject({ kind: 'rejected', reason: 'insufficient_funds' });
+    node.sendError = 'txpool is full';
+    expect(await relay().settle(housePayload(), REQ)).toMatchObject({ kind: 'unavailable', detail: expect.stringMatching(/txpool is full/) });
     node.sendError = 'nonce too low';
-    expect(await relay().settle(housePayload(), REQ)).toMatchObject({ kind: 'unavailable', cause: 'server', detail: expect.stringMatching(/nonce too low/) });
+    expect(await relay().settle(housePayload(), REQ)).toMatchObject({ kind: 'unavailable', detail: expect.stringMatching(/rounds/) });
   });
 
-  it('pending past the receipt wait; a reverted receipt is a retryable rejection', async () => {
-    node.minedAfterPolls = Number.POSITIVE_INFINITY;
+  it('pending past the receipt wait; a revert after a clean simulation is retried later, not resent', async () => {
+    node.autoMine = false;
     const out = await relay().settle(housePayload(), REQ);
-    expect(out).toEqual({ kind: 'pending', transaction: '0x' + bytesToHex(keccak_256(hexToBytes(node.sent[0]))) });
+    expect(out).toEqual({ kind: 'pending', transaction: hashOf(node.sent[0]) });
     node = new FakeArcNode(NOW);
-    node.minedAfterPolls = 2;
+    node.mineAfterPolls = 2;
     expect(await relay().settle(housePayload(), REQ)).toMatchObject({ kind: 'settled' });
     node = new FakeArcNode(NOW);
-    node.receiptStatus = '0x0';
-    expect(await relay().settle(housePayload(), REQ)).toMatchObject({ kind: 'rejected', reason: 'transaction_reverted', transaction: expect.stringMatching(/^0x[0-9a-f]{64}$/) });
+    node.revertOnMine = true;
+    expect(await relay().settle(housePayload(), REQ)).toMatchObject({ kind: 'rejected', reason: 'transaction_reverted', transaction: hashOf(node.sent[0]) });
+    expect(node.sent).toHaveLength(1);
   });
 
   it('moves to the next RPC endpoint when one is down, and is unavailable when all are', async () => {
