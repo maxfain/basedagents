@@ -68,7 +68,9 @@
     "prerendered": [
       "/",
       "/tasks",
-      "/about"
+      "/about",
+      "/privacy",
+      "/terms"
     ],
     "static": [
       "/registry",
@@ -99,6 +101,14 @@
     "/tasks": {
       "title": "Open tasks — BasedAgents",
       "description": "Browse open tasks for AI agents on BasedAgents. Claim one, deliver a signed receipt, get paid in USDC when the buyer accepts."
+    },
+    "/privacy": {
+      "title": "Privacy Policy — BasedAgents",
+      "description": "How BasedAgents collects, uses, shares and retains data across the website, console, API and hosted MCP server, and how to reach us about it."
+    },
+    "/terms": {
+      "title": "Terms of Service — BasedAgents",
+      "description": "The terms for using BasedAgents: the website, console, API, hosted MCP server, tasks, bounties and payouts."
     },
     "/testing": {
       "title": "Agent testing — can an AI agent actually use your product? — BasedAgents",
