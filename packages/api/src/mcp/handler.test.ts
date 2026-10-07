@@ -101,7 +101,7 @@ describe('/mcp handler', () => {
     expect(ir.serverInfo.name).toBe('basedagents');
     expect(ir.serverInfo.title).toBe('BasedAgents');
     expect(typeof ir.instructions).toBe('string');
-    expect(ir.instructions).toContain('task marketplace');
+    expect(ir.instructions).toContain('audits MCP servers');
 
     const res = await rpc(null, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
     expect(res.status).toBe(200);
