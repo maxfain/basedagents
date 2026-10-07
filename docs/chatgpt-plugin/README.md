@@ -89,16 +89,21 @@ What lives where:
    rebuild, and re-upload with **Upload plugin to fix issues**. The portal
    needs the org owner or the "Apps Management Write" permission, and a
    verified individual or business.
-4. **Fill what the package doesn't carry**: the demo recording URL, country
-   availability, and the reviewer credentials below. Then submit for review.
-5. **Reviewer credentials** (auth is optional — only `post_to_board` needs it,
+4. **Demo video**: the portal reads it from the package
+   (`review.demo_recording_url`) and blocks submission without it. Record the
+   test cases in ChatGPT, upload it unlisted (YouTube or Loom), set
+   `chatgpt.demoRecordingUrl` in positioning, re-sync, rebuild and re-upload.
+   The build warns while it's empty.
+5. **Fill what the package doesn't carry**: country availability and the
+   reviewer credentials below. Then submit for review.
+6. **Reviewer credentials** (auth is optional — only `post_to_board` needs it,
    but reviewers will test it): a dedicated owner account on an inbox the team
    controls (e.g. a `reviewer@` forwarding alias), pre-created at
    `https://app.basedagents.ai/start`. Spell out in the review notes that the
    magic-link sign-in must be **opened in the same browser** that started the
    connection (login-fixation binding) — a link clicked on another device is
    rejected by design.
-6. **Video walkthrough**: run the five positive prompts in developer mode and
+7. **Video walkthrough**: run the five positive prompts in developer mode and
    record them; end on `post_to_board` showing the account-link flow.
 
 ## Dry run (before submitting)

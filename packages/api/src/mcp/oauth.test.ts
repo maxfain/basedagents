@@ -75,6 +75,14 @@ function csrfOf(html: string): string {
   return m[1];
 }
 
+/** The window that started the flow fetches the Approve page with its cookie (after the link was clicked). */
+async function approve(cookie: string): Promise<{ cookie: string; csrf: string; html: string; res: Response }> {
+  const res = await app.request('/oauth/approve', { headers: { Cookie: cookie } }, ENV);
+  expect(res.status).toBe(200);
+  const html = await res.text();
+  return { cookie: cookieOf(res), csrf: csrfOf(html), html, res };
+}
+
 async function registerClient(env: Record<string, string>, redirectUris: string[] = [REDIRECT]): Promise<Response> {
   return app.request(
     '/oauth/register',
@@ -122,8 +130,7 @@ async function runToCode(opts: {
 
   const contRes = await app.request(`/oauth/continue?lt=${encodeURIComponent(lt)}&req=${encodeURIComponent(req)}`, { headers: { Cookie: cookie1 } }, ENV);
   expect(contRes.status).toBe(200);
-  const cookie2 = cookieOf(contRes);
-  const csrf2 = csrfOf(await contRes.text());
+  const { cookie: cookie2, csrf: csrf2 } = await approve(cookieOf(contRes));
 
   const decRes = await app.request(
     '/oauth/decision',
@@ -432,11 +439,10 @@ describe('magic-link login + consent handoff', () => {
     const link = new URL(/https?:\/\/\S+/.exec(outbox[0].text)![0]);
     const lt = link.searchParams.get('lt')!, req = link.searchParams.get('req')!;
     const contRes = await app.request(`/oauth/continue?lt=${encodeURIComponent(lt)}&req=${encodeURIComponent(req)}`, { headers: { Cookie: cookie1 } }, ENV);
-    const cookie2 = cookieOf(contRes);
-    const csrf2 = csrfOf(await contRes.text());
-    const decRes = await app.request('/oauth/decision', { method: 'POST', headers: { ...FORM, Cookie: cookie2 }, body: new URLSearchParams({ req, csrf: csrf2, decision: 'allow' }).toString() }, ENV);
+    const appr = await approve(cookieOf(contRes));
+    const decRes = await app.request('/oauth/decision', { method: 'POST', headers: { ...FORM, Cookie: appr.cookie }, body: new URLSearchParams({ req, csrf: appr.csrf, decision: 'allow' }).toString() }, ENV);
 
-    for (const res of [authRes, emailRes, contRes, decRes]) {
+    for (const res of [authRes, emailRes, contRes, appr.res, decRes]) {
       expect(res.headers.get('set-cookie') ?? '').not.toMatch(/ba_owner_session/);
     }
   });
@@ -451,8 +457,7 @@ describe('magic-link login + consent handoff', () => {
     await app.request('/oauth/email', { method: 'POST', headers: { ...FORM, Cookie: cookie1 }, body: new URLSearchParams({ email: 'owner6@example.com', csrf: csrf1 }).toString() }, ENV);
     const link = new URL(/https?:\/\/\S+/.exec(outbox[0].text)![0]);
     const contRes = await app.request(`/oauth/continue?lt=${encodeURIComponent(link.searchParams.get('lt')!)}&req=${encodeURIComponent(link.searchParams.get('req')!)}`, { headers: { Cookie: cookie1 } }, ENV);
-    const cookie2 = cookieOf(contRes);
-    const csrf2 = csrfOf(await contRes.text());
+    const { cookie: cookie2, csrf: csrf2 } = await approve(cookieOf(contRes));
     const decRes = await app.request('/oauth/decision', { method: 'POST', headers: { ...FORM, Cookie: cookie2 }, body: new URLSearchParams({ req: link.searchParams.get('req')!, csrf: csrf2, decision: 'deny' }).toString() }, ENV);
     expect(decRes.status).toBe(302);
     const loc = new URL(decRes.headers.get('location')!);
@@ -502,8 +507,78 @@ describe('login-fixation: the magic-link cookie binding is MANDATORY', () => {
     await app.request('/oauth/email', { method: 'POST', headers: { ...FORM, Cookie: cookie1 }, body: new URLSearchParams({ email: 'informed@example.com', csrf: csrf1 }).toString() }, ENV);
     const link = new URL(/https?:\/\/\S+/.exec(outbox[0].text)![0]);
     const cont = await app.request(`/oauth/continue?lt=${encodeURIComponent(link.searchParams.get('lt')!)}&req=${encodeURIComponent(link.searchParams.get('req')!)}`, { headers: { Cookie: cookie1 } }, ENV);
-    const html = await cont.text();
+    const { html } = await approve(cookieOf(cont));
     expect(html).toMatch(/claude\.ai/); // client name AND redirect host both surface
+  });
+});
+
+// ───────────── the window that started the flow finishes it ─────────────
+// OAuth clients (ChatGPT, claude.ai) open /authorize in a popup and expect the
+// redirect back in THAT window; the email link opens a new tab. The popup polls
+// /oauth/status and moves to /oauth/approve itself; the link tab only signs in.
+
+describe('sign-in completes in the window that started it', () => {
+  async function startAndSend(email: string, state = 'st-hand'): Promise<{ popupCookie: string; lt: string; req: string }> {
+    seedOwner(email);
+    const cid = await clientId();
+    const params = new URLSearchParams({ response_type: 'code', client_id: cid, redirect_uri: REDIRECT, code_challenge: pkce('v-hand'), code_challenge_method: 'S256', resource: RESOURCE, scope: 'board:post', state });
+    const authRes = await app.request(`/oauth/authorize?${params.toString()}`, {}, ENV);
+    const popupCookie = cookieOf(authRes);
+    const csrf1 = csrfOf(await authRes.text());
+    const emailRes = await app.request('/oauth/email', { method: 'POST', headers: { ...FORM, Cookie: popupCookie }, body: new URLSearchParams({ email, csrf: csrf1 }).toString() }, ENV);
+    const page = await emailRes.text();
+    expect(page).toMatch(/Keep this window open/);
+    expect(page).toContain("fetch('/oauth/status'");
+    const link = new URL(/https?:\/\/\S+/.exec(outbox[outbox.length - 1].text)![0]);
+    return { popupCookie, lt: link.searchParams.get('lt')!, req: link.searchParams.get('req')! };
+  }
+  const status = async (cookie?: string) =>
+    ((await (await app.request('/oauth/status', cookie ? { headers: { Cookie: cookie } } : {}, ENV)).json()) as { status: string }).status;
+
+  it('status goes pending → ready when the link is clicked in another tab; the popup approves and gets the code with state', async () => {
+    const { popupCookie, lt, req } = await startAndSend('popup@example.com');
+    expect(await status(popupCookie)).toBe('pending');
+    // Before the click, /oauth/approve has no form: it says to open the link.
+    const early = await app.request('/oauth/approve', { headers: { Cookie: popupCookie } }, ENV);
+    expect(early.status).toBe(200);
+    const earlyHtml = await early.text();
+    expect(earlyHtml).toMatch(/Not signed in yet/);
+    expect(earlyHtml).not.toMatch(/name="csrf"/);
+
+    // The link opens in a NEW tab of the same browser (same cookie jar).
+    const linkTab = await app.request(`/oauth/continue?lt=${encodeURIComponent(lt)}&req=${encodeURIComponent(req)}`, { headers: { Cookie: popupCookie } }, ENV);
+    expect(linkTab.status).toBe(200);
+    const linkHtml = await linkTab.text();
+    expect(linkHtml).toMatch(/Go back to the window where you started/);
+    expect(linkHtml).not.toMatch(/name="csrf"/); // no Allow form in the link tab
+    const jar = cookieOf(linkTab); // the browser's cookie after the link tab re-armed it
+
+    expect(await status(jar)).toBe('ready');
+    // The popup moves on by itself and approves there.
+    const appr = await approve(jar);
+    const dec = await app.request('/oauth/decision', { method: 'POST', headers: { ...FORM, Cookie: appr.cookie }, body: new URLSearchParams({ req, csrf: appr.csrf, decision: 'allow' }).toString() }, ENV);
+    expect(dec.status).toBe(302);
+    const loc = new URL(dec.headers.get('location')!);
+    expect(loc.searchParams.get('code')).toBeTruthy();
+    expect(loc.searchParams.get('state')).toBe('st-hand');
+    expect(await status(appr.cookie)).toBe('done');
+  });
+
+  it('status and approve answer only for the cookie: no cookie or a forged one gets nothing', async () => {
+    const { lt, req, popupCookie } = await startAndSend('nocookie@example.com');
+    await app.request(`/oauth/continue?lt=${encodeURIComponent(lt)}&req=${encodeURIComponent(req)}`, { headers: { Cookie: popupCookie } }, ENV);
+    expect(await status()).toBe('expired');
+    expect(await status('mcp_authreq=forged.value')).toBe('expired');
+    const res = await app.request('/oauth/approve', {}, ENV);
+    expect(res.status).toBe(400);
+    expect(await res.text()).not.toMatch(/name="csrf"/);
+  });
+
+  it('a link clicked in a cookieless browser binds nothing, so the popup stays pending', async () => {
+    const { popupCookie, lt, req } = await startAndSend('elsewhere@example.com');
+    const otherBrowser = await app.request(`/oauth/continue?lt=${encodeURIComponent(lt)}&req=${encodeURIComponent(req)}`, {}, ENV);
+    expect(otherBrowser.status).toBe(400);
+    expect(await status(popupCookie)).toBe('pending');
   });
 });
 

@@ -180,6 +180,12 @@ Browsing and lookups need no account. Posting to the public agent board connects
       { description: 'Generic money-making intent', prompt: 'What are some ways to make money online fast?' },
     ],
   },
+  /**
+   * Video walkthrough for the plugin review (review.demo_recording_url). The
+   * portal blocks submission without it. Record the test cases in ChatGPT,
+   * upload unlisted (YouTube/Loom), paste the https URL here, re-sync, rebuild.
+   */
+  demoRecordingUrl: ``,
   releaseNotes: `Initial release: security-scan MCP servers and agent tools, draft agent compatibility audits, hire AI agents through drafted task links, find paid tasks for your agent, check agent reputation and delivery receipts, and read the public agent board.`,
   /** MCP initialize.instructions for the hosted server (mcp.basedagents.ai). */
   instructions: `BasedAgents is the task marketplace for AI agents. Tools: scan_mcp_server security-scans an MCP server or package; draft_audit_request drafts an agent compatibility audit link; browse_tasks finds paid tasks; search_agents, get_agent, get_reputation check an agent; get_task, get_receipt verify delivered work; read_board reads the agent board; draft_task_link drafts a link to hire an agent; post_to_board posts publicly as the user, needs sign-in and their confirmed text. Only post_to_board needs an account. For "audit my MCP server" or "is this MCP server safe?" use scan_mcp_server, then offer draft_audit_request for a reviewed test by real agents. Use browse_tasks for "find paid tasks for my AI agent" or "how can my AI agent make money". Use draft_task_link for "QA my app" or "outsource this task". Buyers post tasks, optionally with a USDC bounty that is deposited into the registry's escrow wallet at post and released to the agent when the buyer accepts; verified agents claim and deliver them with signed receipts, and payouts settle in USDC on Base. With draft_task_link the user reviews and posts the task at app.basedagents.ai. Do not use these tools to hire human freelancers or to manage a crypto wallet.`,

@@ -275,6 +275,9 @@ jsonFile('packages/api/src/openapi.json', (d) => {
   // Keep initialize.instructions terse — it rides every MCP handshake.
   over('instructions', chatgpt.instructions, 2000);
 
+  if (chatgpt.demoRecordingUrl && !/^https:\/\/\S+$/.test(chatgpt.demoRecordingUrl)) {
+    throw new Error('chatgpt.demoRecordingUrl must be an https:// URL');
+  }
   if (chatgpt.testCases.positive.length !== 5 || chatgpt.testCases.negative.length !== 3) {
     throw new Error('chatgpt.testCases must have exactly 5 positive and 3 negative cases (plugin review requirement)');
   }
@@ -320,6 +323,8 @@ jsonFile('packages/api/src/openapi.json', (d) => {
             negative: chatgpt.testCases.negative.map((t) => ({ description: t.description, prompt: t.prompt })),
           },
           commerce: false,
+          // Required by the portal before submission; omitted until recorded.
+          ...(chatgpt.demoRecordingUrl ? { demo_recording_url: chatgpt.demoRecordingUrl } : {}),
         },
         publication: { release_notes: chatgpt.releaseNotes },
       },
