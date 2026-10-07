@@ -229,13 +229,20 @@ describe('GET /.well-known/x402 networks', () => {
     worker.fetch(new Request(`${BASE}/.well-known/x402`), env as never, { waitUntil() {}, passThroughOnException() {} } as never);
 
   it('production advertises the mainnets, Base first, matching the manifest', async () => {
-    const res = await discover({ ENVIRONMENT: 'production' });
+    const res = await discover({ ENVIRONMENT: 'production', CIRCLE_API_KEY: 'k' });
     expect(res.status).toBe(200);
     const body = await res.json() as { accepts: Array<{ network: string; asset: string }> };
-    expect(body.accepts.map((a) => a.network)).toEqual(['eip155:8453', 'eip155:137']);
+    expect(body.accepts.map((a) => a.network)).toEqual(['eip155:8453', 'eip155:137', 'eip155:5042']);
     const payments = (buildDescriptor({ version: '0' }) as { payments: { contract: string; networks: Array<{ network: string; contract: string }> } }).payments;
     expect(body.accepts[0].asset).toBe(payments.contract);
     expect(body.accepts.map((a) => [a.network, a.asset])).toEqual(payments.networks.map((n) => [n.network, n.contract]));
+  });
+
+  it('holds Arc back until Circle can settle its deposits', async () => {
+    const body = await (await discover({ ENVIRONMENT: 'production' })).json() as { accepts: Array<{ network: string; extra: Record<string, string> }> };
+    expect(body.accepts.map((a) => a.network)).toEqual(['eip155:8453', 'eip155:137']);
+    const arc = (await (await discover({ ENVIRONMENT: 'production', CIRCLE_API_KEY: 'k' })).json() as typeof body).accepts[2];
+    expect(arc.extra).toEqual({ name: 'USDC', version: '2', assetTransferMethod: 'eip3009' });
   });
 
   it('advertises the live minimum bounty for agent and console posters', async () => {

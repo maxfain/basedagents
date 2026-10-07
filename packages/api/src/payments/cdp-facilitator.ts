@@ -36,8 +36,11 @@ export type VerifyOutcome =
 
 export type SettleOutcome =
   | { kind: 'settled'; transaction: string; network?: string; payer?: string }
-  /** `errorReason:'settlement_pending'` with a transaction: broadcast, not yet confirmed. */
-  | { kind: 'pending'; transaction: string }
+  /**
+   * `errorReason:'settlement_pending'`: broadcast (or queued), not yet confirmed. CDP and
+   * the Arc relay give the transaction; Circle reports pending before it has one.
+   */
+  | { kind: 'pending'; transaction?: string }
   | { kind: 'rejected'; reason: string; message?: string; transaction?: string; http: number }
   | { kind: 'unavailable'; cause: UnavailableCause; http?: number; detail: string };
 

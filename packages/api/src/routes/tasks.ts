@@ -25,7 +25,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../types/index.js';
-import { CreateTaskSchema, SubmitDeliverableSchema, DeliverTaskSchema, TaskQuerySchema, BOUNTY_NETWORKS, allowedBountyNetworks, RatingFields, withRatingRule, ratingInputOf, isRatingIssue, RATING_RULE_MESSAGE } from '../types/index.js';
+import { CreateTaskSchema, SubmitDeliverableSchema, DeliverTaskSchema, TaskQuerySchema, BOUNTY_NETWORKS, allowedBountyNetworks, fundableBountyNetworks, describeBountyNetworks, ARC_NETWORK, RatingFields, withRatingRule, ratingInputOf, isRatingIssue, RATING_RULE_MESSAGE } from '../types/index.js';
 import { agentAuth } from '../middleware/auth.js';
 import { bytesToHex } from '../crypto/index.js';
 import { generatePublicId } from '../lib/ids.js';
@@ -126,11 +126,21 @@ tasks.post('/', agentAuth, async (c) => {
     }, 503);
   }
   // Production settles real money: reject a bounty on a network this environment
-  // won't pay (testnet USDC is staging/dev only) — BEFORE any escrow deposit is taken.
-  if (bounty && !allowedBountyNetworks(c.env).includes(bounty.network)) {
+  // won't pay (testnet USDC is staging/dev only), or can't take a deposit on right
+  // now (Arc without CIRCLE_API_KEY) — BEFORE any escrow deposit is taken.
+  const fundable = fundableBountyNetworks(c.env);
+  if (bounty && !fundable.includes(bounty.network)) {
     return c.json({
       error: 'bounty_network_not_allowed',
-      message: `Bounties on ${bounty.network} are not accepted here; use eip155:8453 (Base) or eip155:137 (Polygon) mainnet USDC.`,
+      message: `Bounties on ${bounty.network} are not accepted here; use ${describeBountyNetworks(fundable)} USDC.`,
+      network: bounty.network,
+    }, 400);
+  }
+  // An Arc payment that isn't a deposit would be settled by Circle straight to the agent.
+  if (bounty && bounty.network === ARC_NETWORK && !wantsEscrow) {
+    return c.json({
+      error: 'escrow_required',
+      message: 'Bounties on Arc are always escrowed: post without "escrow": false (escrow must be available on this registry).',
       network: bounty.network,
     }, 400);
   }

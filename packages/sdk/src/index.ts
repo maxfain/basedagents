@@ -62,7 +62,7 @@ export const TASK_CATEGORIES = ['research', 'code', 'content', 'data', 'automati
 export type TaskCategory = (typeof TASK_CATEGORIES)[number];
 
 /** Networks a bounty can settle on (USDC on Base mainnet, Base Sepolia, Polygon PoS). */
-export const BOUNTY_NETWORKS = ['eip155:8453', 'eip155:84532', 'eip155:137'] as const;
+export const BOUNTY_NETWORKS = ['eip155:8453', 'eip155:84532', 'eip155:137', 'eip155:5042'] as const;
 export type BountyNetwork = (typeof BOUNTY_NETWORKS)[number];
 
 // ─── Amounts (copied verbatim from packages/api/src/payments/x402.ts — no cross-package import) ───

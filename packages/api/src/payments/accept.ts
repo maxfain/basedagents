@@ -11,7 +11,7 @@
  */
 import type { DBAdapter } from '../db/adapter.js';
 import type { Bindings } from '../types/index.js';
-import { allowedBountyNetworks } from '../types/index.js';
+import { allowedBountyNetworks, ARC_NETWORK } from '../types/index.js';
 import type { Actor, TaskRow } from '../tasks/service.js';
 import { afterAccept, loadTask, logPaymentEvent, bountyView } from '../tasks/service.js';
 import { paymentProviderFor } from './index.js';
@@ -117,6 +117,11 @@ export async function acceptBountyTask(
   // (prod pays mainnet USDC only). Blocks paying a legacy/testnet bounty in prod.
   if (!allowedBountyNetworks(env).includes(task.bounty_network)) {
     return { status: 409, body: { error: 'bounty_network_not_allowed', message: `This bounty is on ${task.bounty_network}, which is not settled in this environment.`, network: task.bounty_network } };
+  }
+  // Arc bounties are escrowed at post: a payment straight to the agent would bind the
+  // agent's wallet to our Circle account (payments/arc.ts). Unreachable from the routes.
+  if (task.bounty_network === ARC_NETWORK) {
+    return { status: 409, body: { error: 'escrow_required', message: 'Bounties on Arc are paid from escrow, not signed at accept.', network: task.bounty_network } };
   }
   const provider = paymentProviderFor(env);
   // The deliverer's wallet, if it can receive on this bounty's network (a plain key: any EVM chain).

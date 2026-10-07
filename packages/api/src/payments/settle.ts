@@ -124,7 +124,8 @@ export type RejectionClass = 'expired' | 'insufficient' | 'nonce_used' | 'duplic
 /** Classify a STRUCTURED facilitator `errorReason` (never a transport message). */
 export function classifyRejection(reason: string): RejectionClass {
   if (reason === 'duplicate_settlement') return 'duplicate';
-  if (reason === 'invalid_exact_evm_nonce_already_used') return 'nonce_used';
+  // Circle's name for it: "Reusing a nonce that already settled returns invalid_transaction_state".
+  if (reason === 'invalid_exact_evm_nonce_already_used' || reason === 'invalid_transaction_state') return 'nonce_used';
   if (reason === 'invalid_exact_evm_payload_authorization_valid_before' || reason.endsWith('_valid_before') || reason.endsWith('_deadline_expired')) return 'expired';
   if (reason === 'insufficient_funds' || reason === 'invalid_exact_evm_insufficient_balance' || reason === 'invalid_exact_evm_insufficient_funds') return 'insufficient';
   if (TERMINAL_REASONS.has(reason)) return 'terminal';
@@ -137,7 +138,7 @@ export function wireSettleResponse(o: SettleOutcome, network: string | null): Re
     case 'settled':
       return { success: true, transaction: o.transaction, network: o.network ?? network, payer: o.payer };
     case 'pending':
-      return { success: false, errorReason: 'settlement_pending', transaction: o.transaction, network };
+      return { success: false, errorReason: 'settlement_pending', transaction: o.transaction ?? '', network };
     case 'rejected':
       return { success: false, errorReason: o.reason, errorMessage: o.message, transaction: o.transaction ?? '', network };
     case 'unavailable':
@@ -385,14 +386,15 @@ export async function applySettleOutcome(
     case 'settled':
       return settled(outcome.transaction);
     case 'pending': {
+      // Circle reports pending before it has a hash: keep any hash an earlier attempt saw.
       const res = await db.run(
-        `UPDATE tasks SET payment_tx_hash = ?, settle_next_at = ?, last_settle_error = 'settlement_pending', last_settle_class = 'pending'
+        `UPDATE tasks SET payment_tx_hash = COALESCE(?, payment_tx_hash), settle_next_at = ?, last_settle_error = 'settlement_pending', last_settle_class = 'pending'
          WHERE task_id = ? AND payment_status = 'settling'`,
-        outcome.transaction, isoPlus(nowIso, 2 * 60_000), taskId,
+        outcome.transaction ?? null, isoPlus(nowIso, 2 * 60_000), taskId,
       );
       if (res.changes !== 1) return { skipped: true, reason: 'not_due' };
-      await logPaymentEvent(db, taskId, 'settle_pending', { transaction: outcome.transaction, trigger }, nowIso);
-      return { skipped: false, payment_status: 'settling', tx_hash: outcome.transaction, error: 'settlement_pending', facilitator: outcome };
+      await logPaymentEvent(db, taskId, 'settle_pending', { transaction: outcome.transaction ?? null, trigger }, nowIso);
+      return { skipped: false, payment_status: 'settling', tx_hash: outcome.transaction ?? task.payment_tx_hash ?? null, error: 'settlement_pending', facilitator: outcome };
     }
     case 'rejected': {
       const cls = classifyRejection(outcome.reason);

@@ -1,6 +1,10 @@
 /**
  * Payment provider factory — the fail-closed switch (spec N6).
  *
+ * The provider routes by network: CDP settles Base and Polygon; Arc (arc.ts) settles
+ * buyers' deposits through Circle (CIRCLE_API_KEY) and the escrow wallet's own payouts
+ * and refunds through its relay (ESCROW_WALLET_PRIVATE_KEY, ARC_RPC_URL).
+ *
  * `paymentProviderFor(env)` returns a `Facilitator` ONLY when every piece is
  * present and well-formed:
  *   - TASK_PAYMENTS_ENABLED === '1'        (var; absent by default)
@@ -17,17 +21,20 @@
  */
 
 import type { Bindings } from '../types/index.js';
+import { ARC_NETWORK } from '../types/index.js';
 import { CdpFacilitator, DEFAULT_FACILITATOR_URL, type Facilitator } from './cdp-facilitator.js';
 import { parseEd25519Secret } from './cdp-jwt.js';
+import { arcFacilitatorFor, NetworkRouter } from './arc.js';
 
 export type { Facilitator, VerifyOutcome, SettleOutcome, UnavailableCause } from './cdp-facilitator.js';
 
 /** Reported to CDP in Correlation-Context; bump with notable payment-path changes. */
-export const PAYMENTS_SOURCE_VERSION = '0.5.0';
+export const PAYMENTS_SOURCE_VERSION = '0.6.0';
 
 export type PaymentsEnv = Pick<
   Bindings,
   'TASK_PAYMENTS_ENABLED' | 'CDP_API_KEY_ID' | 'CDP_API_KEY_SECRET' | 'PAYMENT_ENCRYPTION_KEY' | 'X402_FACILITATOR_URL'
+  | 'CIRCLE_API_KEY' | 'CIRCLE_FACILITATOR_URL' | 'ESCROW_WALLET_PRIVATE_KEY' | 'ARC_RPC_URL'
 >;
 
 const HEX_KEY_RE = /^[0-9a-fA-F]{64}$/;
@@ -37,7 +44,7 @@ let testOverride: Facilitator | null | undefined = undefined;
 /** The last disabled reason logged by this isolate: one line per distinct reason. */
 let lastLoggedReason: string | null = null;
 /** Single-entry memo so a hot Worker does not re-derive the Ed25519 public key per request. */
-let memo: { keyId: string; secret: string; baseUrl: string; provider: Facilitator } | null = null;
+let memo: { fingerprint: string; provider: Facilitator } | null = null;
 
 /**
  * Why payments are disabled for this env, or null when fully configured.
@@ -85,11 +92,16 @@ export function paymentProviderFor(env: PaymentsEnv | undefined | null): Facilit
   const keyId = env!.CDP_API_KEY_ID!;
   const secret = env!.CDP_API_KEY_SECRET!;
   const baseUrl = env!.X402_FACILITATOR_URL || DEFAULT_FACILITATOR_URL;
-  if (memo && memo.keyId === keyId && memo.secret === secret && memo.baseUrl === baseUrl) {
-    return memo.provider;
-  }
-  const provider = new CdpFacilitator({ keyId, secret, baseUrl, sourceVersion: PAYMENTS_SOURCE_VERSION });
-  memo = { keyId, secret, baseUrl, provider };
+  const fingerprint = JSON.stringify([
+    keyId, secret, baseUrl, env!.CIRCLE_API_KEY ?? '', env!.CIRCLE_FACILITATOR_URL ?? '', env!.ESCROW_WALLET_PRIVATE_KEY ?? '', env!.ARC_RPC_URL ?? '',
+  ]);
+  if (memo && memo.fingerprint === fingerprint) return memo.provider;
+  // CDP settles Base and Polygon; Arc goes to Circle (deposits) or the escrow wallet's own relay (payouts, refunds).
+  const provider = new NetworkRouter(
+    new CdpFacilitator({ keyId, secret, baseUrl, sourceVersion: PAYMENTS_SOURCE_VERSION }),
+    { [ARC_NETWORK]: arcFacilitatorFor(env!) },
+  );
+  memo = { fingerprint, provider };
   return provider;
 }
 

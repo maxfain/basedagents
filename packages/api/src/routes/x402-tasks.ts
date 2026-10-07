@@ -38,7 +38,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../types/index.js';
-import { CreateTaskSchema, BOUNTY_NETWORKS, allowedBountyNetworks, RatingFields, withRatingRule, ratingInputOf, isRatingIssue, RATING_RULE_MESSAGE } from '../types/index.js';
+import { CreateTaskSchema, BOUNTY_NETWORKS, fundableBountyNetworks, describeBountyNetworks, RatingFields, withRatingRule, ratingInputOf, isRatingIssue, RATING_RULE_MESSAGE } from '../types/index.js';
 import type { DBAdapter } from '../db/adapter.js';
 import { sha256, bytesToHex } from '../crypto/index.js';
 import { generatePublicId } from '../lib/ids.js';
@@ -142,7 +142,7 @@ function paymentHeader(c: Ctx): string | null {
 
 /** The chain name `circle wallet sign message --chain` takes for a network, or null. */
 function circleChain(network: string): string | null {
-  return ({ 'eip155:8453': 'BASE', 'eip155:84532': 'BASE-SEPOLIA', 'eip155:137': 'MATIC' } as Record<string, string>)[network] ?? null;
+  return ({ 'eip155:8453': 'BASE', 'eip155:84532': 'BASE-SEPOLIA', 'eip155:137': 'MATIC', 'eip155:5042': 'ARC' } as Record<string, string>)[network] ?? null;
 }
 
 function toHex(text: string): string {
@@ -227,7 +227,7 @@ function hireResource(tier: string | null, amountAtomic: string, custom: boolean
 
 /** GET /v1/x402/tasks — the price list. */
 app.get('/', (c) => {
-  const networks = allowedBountyNetworks(c.env);
+  const networks = fundableBountyNetworks(c.env);
   const min = String(minBountyAtomic(c.env, 'a2a'));
   return c.json({
     ok: true,
@@ -260,7 +260,7 @@ async function hire(c: Ctx, tier: string | null): Promise<Response> {
   const json = await readJson(c);
   if (!json.ok) return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400);
 
-  const accepted = allowedBountyNetworks(c.env);
+  const accepted = fundableBountyNetworks(c.env);
   const minimum = String(minBountyAtomic(c.env, 'a2a'));
 
   // An empty call is a price check (x402 clients, directories, health checks):
@@ -297,7 +297,7 @@ async function hire(c: Ctx, tier: string | null): Promise<Response> {
   }
 
   if (data.network && !accepted.includes(data.network)) {
-    return c.json({ error: 'bounty_network_not_allowed', message: `Bounties on ${data.network} are not accepted here; use ${accepted.join(' or ')}, or leave network out to be offered every one.`, network: data.network }, 400);
+    return c.json({ error: 'bounty_network_not_allowed', message: `Bounties on ${data.network} are not accepted here; use ${describeBountyNetworks(accepted)}, or leave network out to be offered every one.`, network: data.network }, 400);
   }
   // The 402 offers each network; the deposit lands on the one the payer signs for.
   const networks = data.network ? [data.network] : accepted;
@@ -406,7 +406,7 @@ async function quoteByGet(c: Ctx, tier: string): Promise<Response> {
   if (belowMinimum) {
     return c.json({ ...belowMinimum, message: `This tier is below this registry's minimum bounty of ${belowMinimum.minimum_usdc} USDC.` }, 400);
   }
-  return quote(c, c.get('db'), tier, X402_TIERS[tier], allowedBountyNetworks(c.env));
+  return quote(c, c.get('db'), tier, X402_TIERS[tier], fundableBountyNetworks(c.env));
 }
 
 // ─── Manage: the manage token or the paying wallet's signature ───

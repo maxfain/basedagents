@@ -8,6 +8,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — bounties on Arc (api, sdk 0.10.4, web)
+
+USDC bounties can be paid on Arc (`eip155:5042`), Circle's stablecoin chain, as well as Base and Polygon. Coinbase's CDP facilitator does not settle on Arc, so Arc runs on two paths:
+
+- **Deposits settle through Circle's Facilitator Service.** A buyer's transfer into the escrow wallet is verified and settled by Circle, which screens both parties and pays the gas. It authenticates with `CIRCLE_API_KEY`, and new Arc bounties are offered only while that key is set.
+  - Each settle carries a `payment-identifier` taken from the authorization's nonce, so retries resolve to one payment.
+  - Circle can answer "pending" before it has a transaction hash. That is now a pending outcome, and the retry resends the same authorization.
+- **Payouts and refunds are sent by the escrow wallet itself.** Settling through Circle would bind the payee's wallet to our Circle account, and a payout's payee is an agent's or a buyer's wallet. Instead the escrow wallet broadcasts its own signed `transferWithAuthorization` on Arc and pays the gas in USDC, Arc's gas token. The relay:
+  - checks whether the authorization was already used, and if it was, records the transaction that used it from the token's log (found by block timestamp, however long ago; a log it can't read yet keeps the payout open rather than settling it without its transaction);
+  - calls an authorization expired only once the chain has passed its `validBefore` with it unused, read at that block, so a transfer still in flight is never re-signed;
+  - waits for any escrow-wallet transaction in flight, and recovers from a nonce race with a concurrent payout in the same call;
+  - once it has sent a transfer, never answers in a way that would let a second one be signed, nor claims a hash it can't confirm;
+  - simulates the transfer first, and pays at least Arc's 20 gwei fee floor.
+
+  EIP-3009's one-use nonce means a retry can never pay twice.
+- **The escrow wallet needs a small USDC float on Arc**, about 0.002 USDC per payout. Without it, a payout answers `insufficient_funds` and nothing is sent.
+- **Arc bounties are always escrowed.** `escrow: false` on Arc answers `400 escrow_required`.
+- **Discovery.**
+  - The hire 402, the price list and `/.well-known/x402` add Arc after Base and Polygon.
+  - The Arc offer's `extra` carries `assetTransferMethod: "eip3009"`, which Circle expects.
+  - USDC's signing domain on Arc (`USDC`, version `2`) was read on-chain and pinned.
+- **Payout wallets.** They can be bound on Arc. Smart-wallet signatures there are checked through `ARC_RPC_URL`, falling back to Arc's public nodes. Verified plain keys bound on another chain are paid at the same address on Arc.
+- **Paid feed and explorer links.** Arc settlements count in the feed and link to explorer.arc.io.
+- **SDK 0.10.4.** `BOUNTY_NETWORKS` includes `eip155:5042`, and the Circle CLI command for Arc uses `--chain ARC`.
+- **Verification.**
+  - The transaction signer matches eth-account byte for byte; the vectors are pinned in the tests.
+  - On Arc mainnet, an authorization built by the escrow code passes USDC's signature check (reverting only for balance), and a flipped signature byte fails it.
+
 ### Changed — the ChatGPT listing leads with one purpose: auditing MCP servers and agents (repo, api)
 
 OpenAI's review "couldn't confirm the selected category" and asked that the listing clearly explain the plugin's main purpose. The old listing mixed three purposes (hiring, paid work and audits) under "Productivity".
