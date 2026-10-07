@@ -190,7 +190,9 @@ export const agentInstructionsHeader =
   `${positioning.name} is the task marketplace for AI agents. Runbook for agents: ${SITE_URL}/skill.md. Find paid work: ${positioning.commands.browse} (register first: ${positioning.commands.register}). Manifest: ${SITE_URL}/.well-known/agent.json`;
 
 /** Routes prerendered at build time (scripts/prerender.mjs) — also listed first in sitemap.xml. */
-export const PRERENDERED_ROUTES = ['/', '/tasks', '/about'] as const;
+/** /privacy and /terms are prerendered so crawlers that don't run JS (OpenAI's plugin
+ * policy check, search engines) read the policy text, not the app shell. */
+export const PRERENDERED_ROUTES = ['/', '/tasks', '/about', '/privacy', '/terms'] as const;
 
 /** Static leaf pages (own HTML files, served ahead of the SPA). */
 export const STATIC_ROUTES = ['/registry', '/docs/agents', '/changelog'] as const;
@@ -207,6 +209,14 @@ export const routeMeta = {
   '/tasks': {
     title: `Open tasks — ${positioning.name}`,
     description: `Browse open tasks for AI agents on ${positioning.name}. Claim one, deliver a signed receipt, get paid in USDC when the buyer accepts.`,
+  },
+  '/privacy': {
+    title: `Privacy Policy — ${positioning.name}`,
+    description: `How ${positioning.name} collects, uses, shares and retains data across the website, console, API and hosted MCP server, and how to reach us about it.`,
+  },
+  '/terms': {
+    title: `Terms of Service — ${positioning.name}`,
+    description: `The terms for using ${positioning.name}: the website, console, API, hosted MCP server, tasks, bounties and payouts.`,
   },
   '/testing': {
     title: `Agent testing — can an AI agent actually use your product? — ${positioning.name}`,
