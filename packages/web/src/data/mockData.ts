@@ -46,6 +46,15 @@ export interface Agent {
   contactEndpoint?: string | null;
   /** Optional 1-5 ratings posters gave this agent's deliveries. */
   ratings?: { count: number; average: number | null };
+  /** Optional verified AgentID attestation (null/absent when not linked). */
+  agentId?: {
+    verified: boolean;
+    issuer: string;
+    email: string | null;
+    emailVerified: boolean;
+    displayName: string | null;
+    linkedAt: string;
+  } | null;
 }
 
 export interface Verification {

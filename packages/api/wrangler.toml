@@ -37,6 +37,16 @@ POSTHOG_PROJECT_TOKEN = "phc_sDSFNrjkniWVhvBekx2UL4PkwrmT6jMeWnyswdC3S2LV"
 # HOUSE_ACCOUNT_IDS at query time) — monitoring and smoke-test identities.
 ACQUISITION_ANALYTICS = "1"
 INTERNAL_AGENT_IDS = ""
+# AgentID verified-identity linking (src/agentid/). OPTIONAL attestation on top
+# of AgentSig. Fails closed until a client is registered at the AgentID console
+# (npx @agentmail/agentid-cli init) and these are filled. Uncomment + set the
+# three vars and add the AGENTID_CLIENT_SECRET secret (scripts/put-secrets.sh);
+# ISSUER defaults to https://auth.agentid.com. GET /v1/status -> agentid.
+# AGENTID_ENABLED = "1"
+# AGENTID_CLIENT_ID = ""
+# AGENTID_REDIRECT_URI = "https://api.basedagents.ai/v1/agentid/callback"
+# AGENTID_ISSUER = "https://auth.agentid.com"
+# AGENTID_SCOPES = "openid email profile"
 # House accounts: paid tasks they posted carry `sponsored: true` in GET /v1/tasks/settled
 # (the platform paying for work, labeled as such). Agent ids are public; add the
 # console owner id (ow_…) that posts house tasks from app.basedagents.ai too.
@@ -115,6 +125,14 @@ INTERNAL_AGENT_IDS = ""
 # staging secrets exist: CDP_API_KEY_ID, CDP_API_KEY_SECRET, PAYMENT_ENCRYPTION_KEY
 # (payments) and ESCROW_WALLET_PRIVATE_KEY (escrow) — see scripts/bootstrap-deploy.md §5.
 TASK_PAYMENTS_ENABLED = "1"
+# AgentID linking on staging: same shape as production. Fails closed until a
+# staging client is registered and AGENTID_CLIENT_SECRET is set (put-secrets.sh
+# --env staging). Uncomment + fill to rehearse.
+# AGENTID_ENABLED = "1"
+# AGENTID_CLIENT_ID = ""
+# AGENTID_REDIRECT_URI = "https://api-staging.basedagents.ai/v1/agentid/callback"
+# AGENTID_ISSUER = "https://auth.agentid.com"
+# AGENTID_SCOPES = "openid email profile"
 # Agent Testing on staging: same shape as production above; rehearse the flag
 # flips + test-mode Stripe price here first (runbook §7).
 TESTING_PRODUCT_ENABLED = "false"

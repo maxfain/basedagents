@@ -12,6 +12,7 @@ import type { DBAdapter } from '../db/adapter.js';
 import { generatePublicId } from '../lib/ids.js';
 import { freshBindMessage, verifyBindProof } from '../wallets/bind.js';
 import { toChecksumAddress } from '../payments/house-wallet.js';
+import { publicAgentIdView, type AgentIdLinkRowLike } from '../agentid/index.js';
 
 const agents = new Hono<AppEnv>();
 
@@ -222,8 +223,18 @@ agents.get('/:id', async (c) => {
     return { count: 0, average: null };
   });
 
+  // Optional AgentID verified-identity attestation (migration 0050). Tolerates
+  // an OSS deploy whose DB predates the table; owner_sub is never exposed.
+  const agentIdLink = await db
+    .get<AgentIdLinkRowLike>(
+      'SELECT issuer, email, email_verified, display_name, linked_at FROM agentid_links WHERE agent_id = ?',
+      agent.id,
+    )
+    .catch(() => null);
+
   return c.json({
     ...formatAgent(agent),
+    agentid: agentIdLink ? publicAgentIdView(agentIdLink) : null,
     ratings,
     recent_verifications: recentVerifications.map((v) => ({
       verifier: v.verifier_id,

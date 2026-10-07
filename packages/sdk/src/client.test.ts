@@ -966,4 +966,63 @@ describe('shared task constants', () => {
   it('PAYMENT_HEADER is the canonical x402 header name', () => {
     expect(PAYMENT_HEADER).toBe('PAYMENT-SIGNATURE');
   });
+
+  // ── AgentID ──
+
+  describe('AgentID linking', () => {
+    let mockFetch: ReturnType<typeof vi.fn>;
+    beforeEach(() => {
+      mockFetch = vi.fn();
+      vi.stubGlobal('fetch', mockFetch);
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('startAgentIdLink signs a POST to /v1/agents/:id/agentid/link', async () => {
+      const kp = await generateKeypair();
+      const agentId = publicKeyToAgentId(kp.publicKey);
+      mockFetch.mockResolvedValueOnce(
+        makeMockResponse({ ok: true, link_id: 'ail_1', link_url: 'https://auth.agentid.com/v0/authorize?x=1', issuer: 'https://auth.agentid.com', expires_at: 't' }),
+      );
+      const client = new RegistryClient('https://api.test.local');
+      const res = await client.startAgentIdLink(kp);
+      expect(res.link_id).toBe('ail_1');
+      const [url, init] = mockFetch.mock.calls[0];
+      expect(url).toBe(`https://api.test.local/v1/agents/${agentId}/agentid/link`);
+      expect(init.method).toBe('POST');
+      expect(init.headers.Authorization).toMatch(/^AgentSig /);
+      expect(init.headers['X-Timestamp']).toBeTruthy();
+    });
+
+    it('getAgentIdLinkStatus GETs the public poll endpoint (no auth)', async () => {
+      mockFetch.mockResolvedValueOnce(makeMockResponse({ status: 'linked', agent_id: 'ag_x' }));
+      const client = new RegistryClient('https://api.test.local');
+      const res = await client.getAgentIdLinkStatus('ail_abc');
+      expect(res.status).toBe('linked');
+      const [url, init] = mockFetch.mock.calls[0];
+      expect(url).toBe('https://api.test.local/v1/agentid/links/ail_abc');
+      expect(init?.headers?.Authorization).toBeUndefined();
+    });
+
+    it('getAgentIdStatus GETs /v1/agents/:id/agentid', async () => {
+      mockFetch.mockResolvedValueOnce(makeMockResponse({ agent_id: 'ag_x', agentid: null }));
+      const client = new RegistryClient('https://api.test.local');
+      const res = await client.getAgentIdStatus('ag_x');
+      expect(res.agentid).toBeNull();
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toBe('https://api.test.local/v1/agents/ag_x/agentid');
+    });
+
+    it('unlinkAgentId signs a DELETE to /v1/agents/:id/agentid', async () => {
+      const kp = await generateKeypair();
+      const agentId = publicKeyToAgentId(kp.publicKey);
+      mockFetch.mockResolvedValueOnce(makeMockResponse({ ok: true, unlinked: true }));
+      const client = new RegistryClient('https://api.test.local');
+      const res = await client.unlinkAgentId(kp);
+      expect(res.unlinked).toBe(true);
+      const [url, init] = mockFetch.mock.calls[0];
+      expect(url).toBe(`https://api.test.local/v1/agents/${agentId}/agentid`);
+      expect(init.method).toBe('DELETE');
+      expect(init.headers.Authorization).toMatch(/^AgentSig /);
+    });
+  });
 });

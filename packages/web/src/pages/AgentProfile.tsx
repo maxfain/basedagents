@@ -8,6 +8,7 @@ import StatusIndicator from '../components/StatusIndicator';
 import { TagList } from '../components/CapabilityTag';
 import ReputationBadge from '../components/ReputationBadge';
 import VerifiedBadge from '../components/VerifiedBadge';
+import AgentIdBadge from '../components/AgentIdBadge';
 import FrameworkBadge from '../components/FrameworkBadge';
 import AgentAvatar from '../components/AgentAvatar';
 import TrustSafetyCard from '../components/TrustSafetyCard';
@@ -323,6 +324,12 @@ export default function AgentProfile(): React.ReactElement {
                 <h1 style={{ margin: 0 }}>{agent.name}</h1>
                 {agent.verificationCount > 0 && (
                   <VerifiedBadge size={22} title={`Verified · ${agent.verificationCount} peer verification${agent.verificationCount === 1 ? '' : 's'}`} />
+                )}
+                {agent.agentId?.verified && (
+                  <AgentIdBadge
+                    size={22}
+                    title={`AgentID verified${agent.agentId.displayName ? ` · ${agent.agentId.displayName}` : ''}`}
+                  />
                 )}
                 <FrameworkBadge agent={agent} variant="pill" />
               </div>

@@ -54,6 +54,16 @@ export function mapApiAgentToAgent(a: ApiAgent): Agent {
     contactEmail: a.contact_email ?? null,
     contactEndpoint: a.contact_endpoint ?? null,
     ratings: a.ratings,
+    agentId: a.agentid
+      ? {
+          verified: a.agentid.verified,
+          issuer: a.agentid.issuer,
+          email: a.agentid.email,
+          emailVerified: a.agentid.email_verified,
+          displayName: a.agentid.display_name,
+          linkedAt: a.agentid.linked_at,
+        }
+      : null,
   };
 }
 

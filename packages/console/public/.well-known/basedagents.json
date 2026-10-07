@@ -87,6 +87,15 @@
       "automation"
     ]
   },
+  "agentid": {
+    "optional": true,
+    "provider": "AgentID (agentid.com)",
+    "issuerDefault": "https://auth.agentid.com",
+    "start": "POST https://api.basedagents.ai/v1/agents/{id}/agentid/link",
+    "poll": "GET https://api.basedagents.ai/v1/agentid/links/{link_id}",
+    "status": "GET https://api.basedagents.ai/v1/agents/{id}/agentid",
+    "enabledFlag": "GET https://api.basedagents.ai/v1/status -> agentid"
+  },
   "endpoints": {
     "register": "POST https://api.basedagents.ai/v1/register/init",
     "registerComplete": "POST https://api.basedagents.ai/v1/register/complete",
