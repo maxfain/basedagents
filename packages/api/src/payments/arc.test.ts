@@ -207,25 +207,40 @@ describe('ArcRelay.settle', () => {
     expect(node.sent.map((raw) => decodeArcTx(raw).nonce)).toEqual([4n, 5n]);
   });
 
-  it('a transfer that lands while its receipt and log can\'t be read stays open: pending, never the reuse answer', async () => {
-    // First attempt (settle.ts believes nothing was ever sent): the transfer lands, but every
-    // receipt read fails, so it looks lost once the nonce moves on; the log can't be read either.
+  it('a transfer that lands while its receipt and log can\'t be read stays open until its transaction can be read', async () => {
+    // It lands on the first attempt (settle.ts believes nothing was ever sent), but every
+    // receipt read fails, so it looks lost once the nonce moves on, and the log can't be read.
     node.failReceipts = true;
     node.failLogs = true;
     const payload = housePayload();
-    const out = await relay().settle(payload, REQ);
-    // "Already used" here is our own landing: answering it as a reuse would let settle.ts re-sign.
-    // Which transaction landed can't be read, so no hash is claimed (the recorded one stays).
-    expect(out).toEqual({ kind: 'pending' });
+    // Open, never the reuse answer (which would let settle.ts re-sign, or settle without a link).
+    expect(await relay().settle(payload, REQ)).toMatchObject({ kind: 'unavailable', detail: expect.stringMatching(/can't be read yet/) });
     expect(node.sent).toHaveLength(1);
-    // Before any send in a call, the reuse answer stands (settle.ts weighs it against its own record).
+    // A second attempt with logs still unreadable: still open, not settled without its transaction.
     node.failReceipts = false;
-    expect(await relay().settle(payload, REQ)).toMatchObject({ kind: 'rejected', reason: 'invalid_exact_evm_nonce_already_used' });
+    expect(await relay().settle(payload, REQ)).toMatchObject({ kind: 'unavailable', detail: expect.stringMatching(/can't be read yet/) });
+    // Readable again: settled with the transfer that landed.
     node.failLogs = false;
     expect(await relay().settle(payload, REQ)).toMatchObject({ kind: 'settled', transaction: hashOf(node.sent[0]) });
+    expect(node.sent).toHaveLength(1);
   });
 
-  it('an earlier attempt\'s transfer landing as a retry broadcasts: pending without the refused retry\'s hash', async () => {
+  it('log queries move to the next endpoint when one refuses them', async () => {
+    const payload = housePayload();
+    node.markUsed(HOUSE.address, payload.payload.authorization.nonce, OTHER_TX, node.blockOf(BigInt(NOW + 30)));
+    node.advance(60);
+    // The first endpoint is the same chain, but refuses log queries.
+    const refusing: typeof fetch = async (input, init) => {
+      const req = JSON.parse(String(init?.body)) as { method: string };
+      if (req.method === 'eth_getLogs') return Response.json({ jsonrpc: '2.0', id: 1, error: { code: -32005, message: 'query not supported' } });
+      return node.fetch()(input, init);
+    };
+    const fetchBoth: typeof fetch = (input, init) => (String(input) === 'https://a.example' ? refusing(input, init) : node.fetch()(input, init));
+    const r = new ArcRelay({ privateKey: KEY, rpc: new ArcRpc(['https://a.example', 'https://b.example'], fetchBoth), sleep: async () => {}, now: () => NOW_MS });
+    expect(await r.settle(payload, REQ)).toMatchObject({ kind: 'settled', transaction: OTHER_TX });
+  });
+
+  it('used with no log in its window, after a send in this call: pending without the refused retry\'s hash', async () => {
     node.autoMine = false;
     const payload = housePayload();
     expect(await relay().settle(payload, REQ)).toMatchObject({ kind: 'pending', transaction: hashOf(node.sent[0]) });
@@ -234,7 +249,7 @@ describe('ArcRelay.settle', () => {
     const first = node.mempool[0];
     node.drop(first.hash);
     node.tip = 3000n;
-    node.failLogs = true;
+    node.hideLogs = true;
     let landed = false;
     node.beforeSend = (tx) => {
       if (landed || tx.hash === first.hash) return;
@@ -242,13 +257,14 @@ describe('ArcRelay.settle', () => {
       node.inject(first);
       node.mine();
     };
-    const retry = await relay().settle(payload, REQ);
-    // Settled by the first transfer, but its log can't be read: pending, and no hash of the
-    // refused retry, so the first transfer's recorded hash isn't replaced.
-    expect(retry).toEqual({ kind: 'pending' });
+    // Used, and the window reads clean of its log: the reuse answer, which after a send in
+    // this call becomes pending, with no hash (the refused retry's would replace the first one's).
+    expect(await relay().settle(payload, REQ)).toEqual({ kind: 'pending' });
     expect(count('eth_sendRawTransaction')).toBe(2);
     expect(node.sent).toHaveLength(1);
-    node.failLogs = false;
+    // A call that sends nothing gives the reuse answer itself (settle.ts knows a broadcast happened).
+    expect(await relay().settle(payload, REQ)).toMatchObject({ kind: 'rejected', reason: 'invalid_exact_evm_nonce_already_used' });
+    node.hideLogs = false;
     expect(await relay().settle(payload, REQ)).toMatchObject({ kind: 'settled', transaction: first.hash });
   });
 

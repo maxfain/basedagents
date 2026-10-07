@@ -581,16 +581,19 @@ describe('Wallet-only hiring over x402 (/v1/x402/tasks)', () => {
     const { taskId, token } = await hire('/v1/x402/tasks/usd-5', BRIEF, 'eip155:5042');
     await claimAndDeliver(taskId);
     expect((await post(`/v1/x402/tasks/${taskId}/accept`, {}, bearer(token))).status).toBe(200);
-    // The transfer landed; the relay couldn't read it back, so the leg stays open (no hash claimed).
+    // The transfer landed; the relay couldn't read it back, so the leg stays open (retried, no hash claimed).
     const sentHash = decodeArcTx(node.sent[0]).hash;
-    expect(await row(taskId)).toMatchObject({ escrow_status: 'releasing', payment_status: 'settling', payment_tx_hash: null, last_settle_class: 'pending' });
+    expect(await row(taskId)).toMatchObject({ escrow_status: 'releasing', payment_status: 'failed', last_settle_class: 'transient', payment_tx_hash: null });
     const env = { ...ENV, ENVIRONMENT: 'production', CIRCLE_API_KEY: 'LIVE_API_KEY:x:y' } as Bindings;
     const later = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
     expect((await escrowSweep(db, env, later(1))).attempted).toBe(0);
-    // Once the chain can be read again, the retry finds the transfer that landed and releases with it.
+    // A second retry with logs still unreadable: still open, not settled without its transaction.
     node.failReceipts = false;
-    node.failLogs = false;
     await settleTask(db, env, taskId, 'cron', later(3));
+    expect(await row(taskId)).toMatchObject({ escrow_status: 'releasing', payment_status: 'failed', last_settle_class: 'transient', payment_tx_hash: null });
+    // Once the logs can be read, the retry finds the transfer that landed and releases with it.
+    node.failLogs = false;
+    await settleTask(db, env, taskId, 'cron', later(10));
     expect(await row(taskId)).toMatchObject({ escrow_status: 'released', escrow_release_tx_hash: sentHash });
     expect(node.sent).toHaveLength(1);
   });

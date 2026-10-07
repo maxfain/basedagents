@@ -71,9 +71,15 @@ export class ArcRpc {
     if (urls.length === 0) throw new Error('ArcRpc needs at least one endpoint');
   }
 
-  /** Tries each endpoint in turn on transport failure, 429 or 5xx; a JSON-RPC error is final. */
-  async call<T = string>(method: string, params: unknown[]): Promise<T> {
+  /**
+   * Tries each endpoint in turn on transport failure, 429 or 5xx. A JSON-RPC error is the
+   * node's final answer, unless `failover` is set (for reads a node may refuse on its own
+   * account, like eth_getLogs): then the next endpoint is asked, and the last such error is
+   * thrown if none answers.
+   */
+  async call<T = string>(method: string, params: unknown[], opts: { failover?: boolean } = {}): Promise<T> {
     let last = 'no endpoint answered';
+    let refused: RpcError | null = null;
     for (const url of this.urls) {
       let res: Response;
       try {
@@ -95,10 +101,16 @@ export class ArcRpc {
         last = `${url}: non-JSON answer (HTTP ${res.status})`;
         continue;
       }
-      if (body.error) throw new RpcError(body.error.message ?? 'JSON-RPC error', body.error.code);
+      if (body.error) {
+        const err = new RpcError(body.error.message ?? 'JSON-RPC error', body.error.code);
+        if (!opts.failover) throw err;
+        refused = err;
+        continue;
+      }
       if (body.result === undefined) { last = `${url}: no result`; continue; }
       return body.result;
     }
+    if (refused) throw refused;
     throw new RpcUnavailable(`${method}: ${last}`);
   }
 }
@@ -368,9 +380,13 @@ export class ArcRelay implements Facilitator {
   private async ifUsed(auth: PaymentPayloadV2['payload']['authorization'], blockTag: string): Promise<SettleOutcome | null> {
     const out = await this.rpc.call('eth_call', [{ to: ARC_USDC, data: '0x' + AUTHORIZATION_STATE + word(auth.from) + word(auth.nonce) }, blockTag]);
     if (!/^0x0*1$/.test(out)) return null;
-    const tx = await this.findAuthorizationTx(auth.from, auth.nonce, BigInt(auth.validAfter), BigInt(auth.validBefore));
-    if (tx) return { kind: 'settled', transaction: tx, network: ARC_NETWORK, payer: this.address };
-    return this.rejected('invalid_exact_evm_nonce_already_used', 'The authorization was already used on Arc.');
+    const found = await this.findAuthorizationTx(auth.from, auth.nonce, BigInt(auth.validAfter), BigInt(auth.validBefore));
+    if (found.kind === 'found') return { kind: 'settled', transaction: found.hash, network: ARC_NETWORK, payer: this.address };
+    // The money moved, but which transaction moved it can't be read right now: stay open
+    // and look again, so a short outage never settles the leg without its transaction.
+    if (found.kind === 'unreadable') return this.retryLater(`the authorization is used, but its transaction can't be read yet (${found.detail}); looking again later`);
+    // The whole window was read and holds no log for it: the reuse answer settle.ts resolves.
+    return this.rejected('invalid_exact_evm_nonce_already_used', 'The authorization was already used on Arc, and no log for it is in its validity window.');
   }
 
   /**
@@ -405,28 +421,43 @@ export class ArcRelay implements Facilitator {
    * The transaction that used an authorization, from USDC's AuthorizationUsed log. It was
    * mined between validAfter and validBefore, so the search covers the blocks of that
    * window (found by timestamp, however long ago it was), newest first, in
-   * ARC_LOG_CHUNK_BLOCKS slices.
+   * ARC_LOG_CHUNK_BLOCKS slices. `absent` only when every block of the window was read;
+   * a node that refuses a query (every endpoint asked) or a window too wide to finish is
+   * `unreadable`, never taken for an answer.
    */
-  private async findAuthorizationTx(authorizer: string, nonce: string, validAfter: bigint, validBefore: bigint): Promise<string | null> {
-    const head = await this.block('latest');
-    const fromBlock = await this.blockAt(validAfter, head) - LOG_MARGIN_BLOCKS;
-    let to = await this.blockAt(validBefore, head) + LOG_MARGIN_BLOCKS;
-    if (to > head.number) to = head.number;
-    const from = fromBlock > 0n ? fromBlock : 0n;
+  private async findAuthorizationTx(
+    authorizer: string, nonce: string, validAfter: bigint, validBefore: bigint,
+  ): Promise<{ kind: 'found'; hash: string } | { kind: 'absent' } | { kind: 'unreadable'; detail: string }> {
+    let from: bigint;
+    let to: bigint;
+    try {
+      const head = await this.block('latest');
+      const fromBlock = await this.blockAt(validAfter, head) - LOG_MARGIN_BLOCKS;
+      to = await this.blockAt(validBefore, head) + LOG_MARGIN_BLOCKS;
+      if (to > head.number) to = head.number;
+      from = fromBlock > 0n ? fromBlock : 0n;
+    } catch (err) {
+      if (err instanceof RpcError) return { kind: 'unreadable', detail: `blocks: ${err.message}` };
+      throw err;
+    }
     for (let i = 0; i < ARC_LOG_MAX_CHUNKS && to >= from; i++) {
       const start = to - ARC_LOG_CHUNK_BLOCKS + 1n > from ? to - ARC_LOG_CHUNK_BLOCKS + 1n : from;
-      const logs = await this.rpc.call<Log[]>('eth_getLogs', [{
-        address: ARC_USDC, fromBlock: hex(start), toBlock: hex(to),
-        topics: [AUTHORIZATION_USED_TOPIC, '0x' + word(authorizer), '0x' + word(nonce)],
-      }]).catch((err) => {
-        if (err instanceof RpcError) return [] as Log[];
+      let logs: Log[];
+      try {
+        logs = await this.rpc.call<Log[]>('eth_getLogs', [{
+          address: ARC_USDC, fromBlock: hex(start), toBlock: hex(to),
+          topics: [AUTHORIZATION_USED_TOPIC, '0x' + word(authorizer), '0x' + word(nonce)],
+        }], { failover: true });
+      } catch (err) {
+        if (err instanceof RpcError) return { kind: 'unreadable', detail: `logs: ${err.message}` };
         throw err;
-      });
+      }
       const hit = logs.find((l) => typeof l.transactionHash === 'string' && TX_HASH_RE.test(l.transactionHash));
-      if (hit) return hit.transactionHash!;
+      if (hit) return { kind: 'found', hash: hit.transactionHash! };
       to = start - 1n;
     }
-    return null;
+    if (to >= from) return { kind: 'unreadable', detail: `the window needs more than ${ARC_LOG_MAX_CHUNKS} log queries` };
+    return { kind: 'absent' };
   }
 }
 

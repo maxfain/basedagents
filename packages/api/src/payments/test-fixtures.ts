@@ -185,6 +185,8 @@ export class FakeArcNode {
   failReceipts = false;
   /** eth_getLogs errors. */
   failLogs = false;
+  /** eth_getLogs answers, but without the AuthorizationUsed logs (as if they were outside the window). */
+  hideLogs = false;
   /** Called with the transaction about to enter the mempool, before the node checks its nonce. */
   beforeSend?: (tx: FakeArcTx) => void;
   /** Called on each receipt poll, before the node answers it. */
@@ -294,6 +296,7 @@ export class FakeArcNode {
       }
       case 'eth_getLogs': {
         if (this.failLogs) throw { code: -32000, message: 'logs unavailable' };
+        if (this.hideLogs) return [];
         const q = p[0] as { fromBlock: string; toBlock: string; topics: string[] };
         const from = BigInt(q.fromBlock);
         const to = BigInt(q.toBlock);
