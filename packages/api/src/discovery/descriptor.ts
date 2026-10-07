@@ -9,6 +9,7 @@
  * Pure and env-free: nothing here may depend on a request or a binding.
  */
 import { ASSETS } from '../payments/x402.js';
+import { MAINNET_BOUNTY_NETWORKS } from '../types/index.js';
 import { REVIEW_WINDOW_MS, CLAIM_WINDOW_MS, MAX_REVISIONS } from '../tasks/service.js';
 import { CLAIM_WINDOW_MICRO_MS, CLAIM_WINDOW_SMALL_MS, CLAIM_WINDOW_DEFAULT_MS } from '../tasks/governance.js';
 import { MIN_BOUNTY_ATOMIC_DEFAULT } from '../tasks/bounty-minimum.js';
@@ -57,6 +58,8 @@ export function buildDescriptor(skill: SkillRef): Record<string, unknown> {
       network: 'eip155:8453',
       asset: 'USDC',
       contract: ASSETS['eip155:8453'].asset,
+      // Every network a bounty can be paid on (Base is the default above).
+      networks: MAINNET_BOUNTY_NETWORKS.map((network) => ({ network, chainId: ASSETS[network as keyof typeof ASSETS].chainId, contract: ASSETS[network as keyof typeof ASSETS].asset })),
       decimals: 6,
       protocol: 'x402',
       agentsNeedGas: false,

@@ -34,6 +34,50 @@ export async function delivererWallet(db: DBAdapter, agentId: string | null): Pr
   return { address: row.wallet_address, network: row.wallet_network };
 }
 
+export type PayoutWallet =
+  | { ok: true; address: string; walletNetwork: string | null; crossChain: boolean }
+  | { ok: false; reason: 'payee_wallet_missing' | 'payee_wallet_wrong_network'; walletNetwork: string | null };
+
+/**
+ * Whether, and where, the deliverer can be paid a bounty on `network`. Two cases pay:
+ *   * the payout wallet on file is bound on `network` (or predates networks: null);
+ *   * it is a verified plain-key (EOA) wallet bound on another EVM chain. The key controls
+ *     the same address on every EVM chain, so the bounty goes to that address on `network`.
+ * A smart wallet is paid only on the network it was proven on: its address on another
+ * chain may not exist or may not be the agent's. Checked at claim and again at every payout,
+ * since the agent can change wallets in between.
+ */
+export async function payoutWallet(db: DBAdapter, agentId: string | null, network: string | null): Promise<PayoutWallet> {
+  const wallet = await delivererWallet(db, agentId);
+  if (!wallet) return { ok: false, reason: 'payee_wallet_missing', walletNetwork: null };
+  if (!network || !wallet.network || wallet.network === network) {
+    return { ok: true, address: wallet.address, walletNetwork: wallet.network, crossChain: false };
+  }
+  if (network.startsWith('eip155:') && wallet.network.startsWith('eip155:')) {
+    const binding = await db.get<{ signer_kind: string }>(
+      `SELECT b.signer_kind FROM agent_wallet_bindings b JOIN agents a ON a.id = b.agent_id
+       WHERE b.agent_id = ? AND b.unbound_at IS NULL AND a.wallet_verified_at IS NOT NULL
+         AND lower(b.wallet_address) = lower(?) AND b.wallet_network = ?
+       ORDER BY b.bound_at DESC LIMIT 1`,
+      agentId, wallet.address, wallet.network,
+    );
+    if (binding?.signer_kind === 'eoa') return { ok: true, address: wallet.address, walletNetwork: wallet.network, crossChain: true };
+  }
+  return { ok: false, reason: 'payee_wallet_wrong_network', walletNetwork: wallet.network };
+}
+
+/** The 409 body for a deliverer who cannot be paid on the task's network. */
+export function payoutRefusal(p: Extract<PayoutWallet, { ok: false }>, network: string): Record<string, unknown> {
+  return p.reason === 'payee_wallet_missing'
+    ? { error: 'payee_wallet_missing', message: 'The deliverer has no wallet on record; they must set one before the bounty can be paid.' }
+    : {
+        error: 'payee_wallet_wrong_network',
+        message: `The deliverer's payout wallet is bound on ${p.walletNetwork} and is not a verified plain key, and this bounty settles on ${network}. They must bind a wallet on ${network}, or a plain-key wallet (paid at the same address on every EVM chain), before the bounty can be paid.`,
+        network,
+        wallet_network: p.walletNetwork,
+      };
+}
+
 export interface AcceptOutcome {
   status: 200 | 400 | 402 | 409 | 503;
   body: Record<string, unknown>;
@@ -75,12 +119,13 @@ export async function acceptBountyTask(
     return { status: 409, body: { error: 'bounty_network_not_allowed', message: `This bounty is on ${task.bounty_network}, which is not settled in this environment.`, network: task.bounty_network } };
   }
   const provider = paymentProviderFor(env);
-  const wallet = await delivererWallet(db, task.claimed_by_agent_id);
+  // The deliverer's wallet, if it can receive on this bounty's network (a plain key: any EVM chain).
+  const payout = await payoutWallet(db, task.claimed_by_agent_id, task.bounty_network);
 
   if (!rawHeader) {
     if (!provider) return { status: 503, body: { error: 'payments_unavailable', message: 'Payments are not enabled on this registry.' } };
-    if (!wallet) return { status: 409, body: { error: 'payee_wallet_missing', message: 'The deliverer has no wallet on record; they must set one before the bounty can be paid.' } };
-    const requirements = buildRequirements(task, wallet.address, env);
+    if (!payout.ok) return { status: 409, body: payoutRefusal(payout, task.bounty_network) };
+    const requirements = buildRequirements(task, payout.address, env);
     const paymentRequired = buildPaymentRequired(task, requirements);
     return {
       status: 402,
@@ -97,8 +142,8 @@ export async function acceptBountyTask(
     };
   }
 
-  if (!wallet) return { status: 409, body: { error: 'payee_wallet_missing', message: 'The deliverer has no wallet on record; they must set one before the bounty can be paid.' } };
-  const requirements = buildRequirements(task, wallet.address, env);
+  if (!payout.ok) return { status: 409, body: payoutRefusal(payout, task.bounty_network) };
+  const requirements = buildRequirements(task, payout.address, env);
 
   let payload: ReturnType<typeof decodePaymentHeader>;
   try {
@@ -177,7 +222,7 @@ export async function acceptBountyTask(
     side = await afterAccept(db, fresh, { acceptedBy: 'creator', by: actor, nowIso: now, paymentStatus: 'authorized' });
   }
   await logPaymentEvent(db, taskId, 'authorized', {
-    payer: verify.payer ?? auth.from, nonce: auth.nonce, valid_before: expiresAt, amount_atomic: task.bounty_amount, pay_to: wallet.address, trigger: 'accept',
+    payer: verify.payer ?? auth.from, nonce: auth.nonce, valid_before: expiresAt, amount_atomic: task.bounty_amount, pay_to: payout.address, trigger: 'accept',
   }, now);
 
   const settle = await settleTask(db, env, taskId, 'accept', now);

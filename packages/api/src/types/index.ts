@@ -107,10 +107,10 @@ export const VerifySubmitSchema = z.object({
 /**
  * A bounty as declared at task creation (Tasks P0, N1). `amount` is a string
  * of ATOMIC USDC units ("5000000" = 5.00 USDC) capped at 1,000 USDC; SDK/CLI/
- * MCP convert human decimals at the edge. Only USDC on Base (mainnet or
- * Sepolia) is accepted — the facilitator supports exactly these.
+ * MCP convert human decimals at the edge. USDC on Base (mainnet or Sepolia) or
+ * Polygon PoS, the networks the CDP facilitator settles with EIP-3009.
  */
-export const BOUNTY_NETWORKS = ['eip155:8453', 'eip155:84532'] as const;
+export const BOUNTY_NETWORKS = ['eip155:8453', 'eip155:84532', 'eip155:137'] as const;
 export const BountySchema = z.object({
   amount: z.string().regex(/^[1-9][0-9]{0,9}$/, 'atomic USDC units, digits only')
     // The regex issue is still collected when this runs, so guard the BigInt.
@@ -121,16 +121,19 @@ export const BountySchema = z.object({
 
 export type Bounty = z.infer<typeof BountySchema>;
 
+/** The bounty networks that settle real money, in the order a 402 offers them (Base first). */
+export const MAINNET_BOUNTY_NETWORKS: readonly string[] = ['eip155:8453', 'eip155:137'];
+
 /**
  * Bounty networks accepted in THIS environment. Production settles real money
  * (custodial escrow or sign-at-accept), so it accepts mainnet USDC only
- * (`eip155:8453`); staging/dev/tests keep the testnet (Base Sepolia) so the
+ * (Base `eip155:8453` and Polygon `eip155:137`); staging/dev/tests keep the testnet (Base Sepolia) so the
  * deposit/release path can be QA'd without real funds. Keyed on the ENVIRONMENT
  * var. Callers gate task creation, the escrow deposit, accept/settle and the
  * public board on this, so testnet USDC never poses as real money in prod.
  */
 export function allowedBountyNetworks(env: { ENVIRONMENT?: string } | undefined | null): readonly string[] {
-  return env?.ENVIRONMENT === 'production' ? ['eip155:8453'] : BOUNTY_NETWORKS;
+  return env?.ENVIRONMENT === 'production' ? MAINNET_BOUNTY_NETWORKS : BOUNTY_NETWORKS;
 }
 
 /**

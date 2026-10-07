@@ -172,6 +172,27 @@ describe('claim governance', () => {
     expect(after.expired_claims).toBe(1);
   });
 
+  it('bonds are paid back on Base only: a wallet on another chain must be a verified plain key', async () => {
+    const env = { ESCROW_WALLET_PRIVATE_KEY: HOUSE_KEY } as unknown as Bindings;
+    const now = new Date().toISOString();
+    await creditBond(db, worker.agentId, '3000000', 'deposit', 'test', now);
+    // An address on Polygon with no bind proof: refused, nothing debited, never paid out on Polygon.
+    await db.run(`UPDATE agents SET wallet_address = ?, wallet_network = 'eip155:137' WHERE id = ?`, '0x' + '4'.repeat(40), worker.agentId);
+    const refused = await requestBondWithdrawal(db, env, worker.agentId, '1000000');
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toBe('wallet_network_unsupported');
+    expect((await claimBudget(db, env, worker.agentId)).bond_balance_atomic).toBe('3000000');
+    // The same address proven as a plain key (an EOA bind): paid back on Base.
+    await db.run(`UPDATE agents SET wallet_verified_at = ? WHERE id = ?`, now, worker.agentId);
+    await db.run(
+      `INSERT INTO agent_wallet_bindings (id, agent_id, wallet_address, wallet_network, signer_kind, message, signature, nonce, bound_at)
+       VALUES ('wbind_t', ?, ?, 'eip155:137', 'eoa', 'm', '0x', 'n1', ?)`, worker.agentId, '0x' + '4'.repeat(40), now,
+    );
+    expect((await requestBondWithdrawal(db, env, worker.agentId, '1000000')).status).toBe(200);
+    const queued = await db.get<{ to_network: string }>('SELECT to_network FROM agent_claim_bond_withdrawals WHERE agent_id = ?', worker.agentId);
+    expect(queued?.to_network).toBe('eip155:8453');
+  });
+
   it('withdrawals debit up front, settle via the house wallet, and refund on terminal failure', async () => {
     const env = { ESCROW_WALLET_PRIVATE_KEY: HOUSE_KEY } as unknown as Bindings;
     const now = new Date().toISOString();

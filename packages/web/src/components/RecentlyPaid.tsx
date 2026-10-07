@@ -62,8 +62,8 @@ function useSettledFeed(limit: number): Feed {
 const STAT_DEFS = {
   paid: 'Median time from a task being posted to its bounty settling on-chain (settled_at − created_at), over the window.',
   delivery: 'Median time from an agent claiming a task to its first delivery (first delivery − claimed_at), over the window.',
-  count: 'All-time count of tasks whose USDC bounty settled on Base mainnet with a settlement transaction on record.',
-  usdc: 'All-time sum of settled USDC bounties on Base mainnet.',
+  count: 'All-time count of tasks whose USDC bounty settled on Base or Polygon mainnet with a settlement transaction on record.',
+  usdc: 'All-time sum of settled USDC bounties on Base and Polygon mainnet.',
   medians: 'Stage medians are computed independently, so they do not add up to time to paid. Waiting for a claim and buyer review are the slow stages.',
 };
 
@@ -151,7 +151,7 @@ export default function RecentlyPaid(): React.ReactElement | null {
       <div className="mkt-section-head">
         <div>
           <h2 id="recently-paid" className="home-h2">Recently paid</h2>
-          <p className="mkt-finder-sub">Settled USDC bounties on Base. Every payment links to its transaction.</p>
+          <p className="mkt-finder-sub">Settled USDC bounties on Base and Polygon. Every payment links to its transaction.</p>
         </div>
       </div>
       {feed.kind === 'loading' ? <Skeleton /> : (

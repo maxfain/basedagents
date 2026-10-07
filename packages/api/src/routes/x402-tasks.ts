@@ -107,7 +107,8 @@ const TaskFields = CreateTaskSchema.pick({
 }).extend({
   /** Days the task stays open unclaimed: 1–MAX_OPEN_TTL_DAYS (default 60). */
   expires_in_days: z.number().int().min(1).max(MAX_OPEN_TTL_DAYS).optional(),
-  network: z.enum(BOUNTY_NETWORKS).default('eip155:8453'),
+  /** Pay on this network only. Omitted, the 402 offers every network this registry accepts (Base first). */
+  network: z.enum(BOUNTY_NETWORKS).optional(),
 });
 const TierBodySchema = TaskFields.strict();
 const CustomBodySchema = TaskFields.extend({
@@ -141,7 +142,7 @@ function paymentHeader(c: Ctx): string | null {
 
 /** The chain name `circle wallet sign message --chain` takes for a network, or null. */
 function circleChain(network: string): string | null {
-  return network === 'eip155:8453' ? 'BASE' : network === 'eip155:84532' ? 'BASE-SEPOLIA' : null;
+  return ({ 'eip155:8453': 'BASE', 'eip155:84532': 'BASE-SEPOLIA', 'eip155:137': 'MATIC' } as Record<string, string>)[network] ?? null;
 }
 
 function toHex(text: string): string {
@@ -226,12 +227,13 @@ function hireResource(tier: string | null, amountAtomic: string, custom: boolean
 
 /** GET /v1/x402/tasks — the price list. */
 app.get('/', (c) => {
-  const network = allowedBountyNetworks(c.env)[0];
+  const networks = allowedBountyNetworks(c.env);
   const min = String(minBountyAtomic(c.env, 'a2a'));
   return c.json({
     ok: true,
     description: 'Hire an AI agent with a USDC wallet and nothing else. The x402 payment is the authentication: the bounty is held in escrow, released to the agent when you accept the work, refunded if you cancel or nobody claims it.',
-    network,
+    /** Pay on any of these (the escrow wallet is the same address on each); the bounty is paid out on the one you pay on. */
+    networks,
     escrow_wallet: houseWalletFor(c.env)?.address ?? null,
     escrow_available: escrowDisabledReason(c.env) === null,
     endpoints: [
@@ -258,7 +260,7 @@ async function hire(c: Ctx, tier: string | null): Promise<Response> {
   const json = await readJson(c);
   if (!json.ok) return c.json({ error: 'bad_request', message: 'Invalid JSON body' }, 400);
 
-  const network = allowedBountyNetworks(c.env)[0];
+  const accepted = allowedBountyNetworks(c.env);
   const minimum = String(minBountyAtomic(c.env, 'a2a'));
 
   // An empty call is a price check (x402 clients, directories, health checks):
@@ -273,7 +275,7 @@ async function hire(c: Ctx, tier: string | null): Promise<Response> {
   const parsed = custom ? CustomBodySchema.safeParse(json.body) : TierBodySchema.safeParse(json.body);
   if (!parsed.success) {
     if (emptyBody && !rawPayment) {
-      return quote(c, db, tier, custom ? minimum : X402_TIERS[tier!], network);
+      return quote(c, db, tier, custom ? minimum : X402_TIERS[tier!], accepted);
     }
     return c.json({
       error: 'bad_request',
@@ -294,9 +296,11 @@ async function hire(c: Ctx, tier: string | null): Promise<Response> {
     amount = X402_TIERS[tier!];
   }
 
-  if (!allowedBountyNetworks(c.env).includes(data.network)) {
-    return c.json({ error: 'bounty_network_not_allowed', message: `Bounties on ${data.network} are not accepted here; use ${network}.`, network: data.network }, 400);
+  if (data.network && !accepted.includes(data.network)) {
+    return c.json({ error: 'bounty_network_not_allowed', message: `Bounties on ${data.network} are not accepted here; use ${accepted.join(' or ')}, or leave network out to be offered every one.`, network: data.network }, 400);
   }
+  // The 402 offers each network; the deposit lands on the one the payer signs for.
+  const networks = data.network ? [data.network] : accepted;
   const belowMinimum = bountyMinimumRefusal(c.env, 'a2a', amount);
   if (belowMinimum) return c.json(belowMinimum, 400);
   const unavailable = escrowUnavailable(c);
@@ -314,12 +318,13 @@ async function hire(c: Ctx, tier: string | null): Promise<Response> {
     kind: 'new',
     funnel: 'wallet',
     resource: hireResource(tier, amount, custom),
+    networks,
     task: {
       task_id: taskId, creator_agent_id: null, creator_owner_id: null, creator_kind: 'wallet', creator_assertion_id: null,
       manage_token_hash: sha256hex(token), proposer_signature: null,
       title: data.title, description: data.description, category: data.category ?? null,
       required_capabilities: data.required_capabilities ?? null, expected_output: data.expected_output ?? null,
-      output_format: data.output_format, bounty: { amount, token: 'USDC', network: data.network },
+      output_format: data.output_format, bounty: { amount, token: 'USDC', network: networks[0] },
       max_active_claims_per_agent: null, expires_at: expiry.expiresAt,
     },
   }, { rawHeader: rawPayment, nowIso: now });
@@ -330,7 +335,7 @@ async function hire(c: Ctx, tier: string | null): Promise<Response> {
   const task = (await loadTask(db, taskId)) as TaskRow;
   await captureServerEvent(c, 'task_created', {
     has_bounty: true, escrow: true, poster: 'wallet', tier: tier ?? 'custom', category: data.category ?? null,
-    output_format: data.output_format, bounty_network: data.network,
+    output_format: data.output_format, bounty_network: task.bounty_network,
   });
   return c.json({
     ...(outcome.body as Record<string, unknown>),
@@ -358,7 +363,7 @@ function escrowUnavailable(c: Ctx): Response | null {
 }
 
 /** The 402 for an empty call: this endpoint's price, the escrow wallet, and what to send next time. */
-async function quote(c: Ctx, db: DBAdapter, tier: string | null, amount: string, network: string): Promise<Response> {
+async function quote(c: Ctx, db: DBAdapter, tier: string | null, amount: string, networks: readonly string[]): Promise<Response> {
   const unavailable = escrowUnavailable(c);
   if (unavailable) return unavailable;
   const custom = tier === null;
@@ -366,10 +371,11 @@ async function quote(c: Ctx, db: DBAdapter, tier: string | null, amount: string,
     kind: 'new',
     funnel: 'wallet',
     resource: hireResource(tier, amount, custom),
+    networks,
     task: {
       task_id: generatePublicId('task'), creator_agent_id: null, creator_owner_id: null, creator_kind: 'wallet', creator_assertion_id: null,
       proposer_signature: null, title: '', description: '', category: null, required_capabilities: null, expected_output: null,
-      output_format: 'json', bounty: { amount, token: 'USDC', network }, expires_at: null,
+      output_format: 'json', bounty: { amount, token: 'USDC', network: networks[0] }, expires_at: null,
     },
   }, { rawHeader: null, nowIso: new Date().toISOString() });
   for (const [k, v] of Object.entries(outcome.headers ?? {})) c.header(k, v);
@@ -384,7 +390,24 @@ async function quote(c: Ctx, db: DBAdapter, tier: string | null, amount: string,
 }
 
 app.post('/', (c) => hire(c, null));
-for (const tier of Object.keys(X402_TIERS)) app.post(`/${tier}`, (c) => hire(c, tier));
+for (const tier of Object.keys(X402_TIERS)) {
+  app.post(`/${tier}`, (c) => hire(c, tier));
+  // A GET (a CLI inspect, a directory's health check) gets the same price quote; it never pays.
+  app.get(`/${tier}`, (c) => quoteByGet(c, tier));
+}
+
+/** GET on a tier: the 402 quote. A payment sent with a GET is refused unused: hiring is a POST with a body. */
+async function quoteByGet(c: Ctx, tier: string): Promise<Response> {
+  if (paymentHeader(c)) {
+    c.header('Allow', 'POST');
+    return c.json({ error: 'method_not_allowed', message: `Hire with POST {title, description}; a GET only quotes the price. Your payment was not used.` }, 405);
+  }
+  const belowMinimum = bountyMinimumRefusal(c.env, 'a2a', X402_TIERS[tier]);
+  if (belowMinimum) {
+    return c.json({ ...belowMinimum, message: `This tier is below this registry's minimum bounty of ${belowMinimum.minimum_usdc} USDC.` }, 400);
+  }
+  return quote(c, c.get('db'), tier, X402_TIERS[tier], allowedBountyNetworks(c.env));
+}
 
 // ─── Manage: the manage token or the paying wallet's signature ───
 

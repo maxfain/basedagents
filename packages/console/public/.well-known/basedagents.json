@@ -28,6 +28,18 @@
     "network": "eip155:8453",
     "asset": "USDC",
     "contract": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    "networks": [
+      {
+        "network": "eip155:8453",
+        "chainId": 8453,
+        "contract": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+      },
+      {
+        "network": "eip155:137",
+        "chainId": 137,
+        "contract": "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
+      }
+    ],
     "decimals": 6,
     "protocol": "x402",
     "agentsNeedGas": false,

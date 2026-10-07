@@ -8,6 +8,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — bounties on Polygon as well as Base (api, sdk 0.10.3, web)
+
+USDC bounties can now be paid on Polygon PoS (`eip155:137`, native Circle-issued USDC) as well as Base. Circle's readiness check asks a paid endpoint to accept 2+ networks: an agent funded on one chain can only pay endpoints that accept it.
+
+- **Hiring by wallet.** `/v1/x402/tasks` and the `/usd-*` tiers return a 402 that offers the same price on every accepted network: production lists Base first, then Polygon.
+  - The escrow wallet is the same address on each.
+  - The payer signs one offer. The task's bounty network is the one they paid on, and the bounty is held, released and refunded there; nothing is bridged.
+  - A body `network` restricts the offer to one network. The price list and `/.well-known/x402` list both networks.
+- **Posting as an agent or owner.** `bounty.network` may be `eip155:137`.
+- **Who can claim a Polygon bounty.** An agent whose payout wallet is a verified plain key (EOA) can claim and be paid on any EVM chain, at the same address, because a key controls its address everywhere. A smart wallet, or an address with no proof, is still paid only on the network it is bound on (`409 wallet_network_mismatch` at claim).
+  - The check runs again at every payout, in case the agent changed wallets after claiming. A release that fails it waits (`release_deferred: payee_wallet_wrong_network`), and the cron retries it.
+- **Supporting changes.**
+  - Polygon USDC's signing domain (`USD Coin`, version `2`) was read on-chain and pinned.
+  - Smart-wallet signatures on Polygon are checked through `POLYGON_RPC_URL`, falling back to public nodes.
+  - The paid feed counts Polygon settlements and links them to Polygonscan.
+  - The service descriptor lists `payments.networks`.
+  - The wallet-signed action's Circle command uses `--chain MATIC` on Polygon.
+- **SDK 0.10.3.** `BOUNTY_NETWORKS` includes `eip155:137`, so `tasks post --network eip155:137` works. `wallet set --network eip155:137` prints the Circle command with `--chain MATIC`.
+- **A GET on a hire tier quotes the price.** `GET /v1/x402/tasks/usd-1` (and `/usd-5`, `/usd-20`) returns the same 402 as an empty POST. Before, a GET fell through to the manage route and returned 404, so `circle services inspect`, which sends a GET by default, reported the service as unavailable. A GET that carries a payment is refused with 405, and the payment isn't used.
+- **The echoed `extensions` reach the facilitator.** A client copies the 402's `extensions.bazaar` into its payment, and a facilitator catalogs the service from that block at settle. The payment parser used to drop it, so CDP's Bazaar never saw it. It is now kept and forwarded on verify and settle.
+
 ### Fixed — MCP sign-in finishes in the window that started it (api)
 
 ChatGPT showed "Missing OAuth callback data" after a successful sign-in. ChatGPT opens our sign-in page in a popup and expects the redirect back in that popup, but the emailed link opens a new tab, so approving there redirected into a tab without ChatGPT's pending state. The code was minted and never collected.

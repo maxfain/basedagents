@@ -11,9 +11,9 @@ import {
 } from '../test-helpers.js';
 import type { SQLiteAdapter } from '../db/sqlite-adapter.js';
 import {
-  enablePaymentsForTests, resetPaymentsForTests, paymentHeaderFor, TEST_WALLET, TEST_TX, type FakeFacilitator,
+  enablePaymentsForTests, resetPaymentsForTests, paymentHeaderFor, paymentPayloadFor, TEST_WALLET, TEST_TX, type FakeFacilitator,
 } from '../payments/test-fixtures.js';
-import type { PaymentRequirementsV2 } from '../payments/x402.js';
+import { encodeB64Json, type PaymentRequirementsV2 } from '../payments/x402.js';
 import { houseWalletFromPrivateKey, parseHousePrivateKey, setHouseWalletForTests, addressFromPrivateKey } from '../payments/house-wallet.js';
 import { parseActionMessage } from '../wallets/action.js';
 import type { Bindings } from '../types/index.js';
@@ -94,10 +94,10 @@ describe('Wallet-only hiring over x402 (/v1/x402/tasks)', () => {
   }
 
   /** The 402 for `body` at `path`, then the paid retry from BUYER. */
-  async function hire(path = '/v1/x402/tasks/usd-5', body: Json = BRIEF): Promise<{ res: Response; json: Json; taskId: string; token: string }> {
+  async function hire(path = '/v1/x402/tasks/usd-5', body: Json = BRIEF, network = 'eip155:8453'): Promise<{ res: Response; json: Json; taskId: string; token: string }> {
     const first = await post(path, body);
     expect(first.status).toBe(402);
-    const requirements = ((await first.json()) as Json).accepts[0] as PaymentRequirementsV2;
+    const requirements = (((await first.json()) as Json).accepts as PaymentRequirementsV2[]).find((a) => a.network === network)!;
     const res = await post(path, body, { 'PAYMENT-SIGNATURE': paymentHeaderFor(requirements, undefined, { authorization: { from: BUYER } }) });
     const json = await res.json() as Json;
     return { res, json, taskId: json.task_id, token: json.manage?.token };
@@ -150,6 +150,32 @@ describe('Wallet-only hiring over x402 (/v1/x402/tasks)', () => {
     expect(header.extensions.bazaar).toBeTruthy();
     expect(await db.get('SELECT count(*) AS n FROM tasks')).toEqual({ n: 0 });
     expect(facilitator.verifyCalls).toHaveLength(0);
+  });
+
+  it('a GET on a tier quotes the same 402 (CLI inspect, health checks); a payment sent with a GET is refused unused', async () => {
+    const res = await app.request('/v1/x402/tasks/usd-5');
+    expect(res.status).toBe(402);
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeTruthy();
+    const json = await res.json() as Json;
+    expect(json.accepts[0]).toMatchObject({ amount: '5000000', payTo: house.address });
+    expect(json.extensions.bazaar.info.input.method).toBe('POST');
+    const paid = await app.request('/v1/x402/tasks/usd-5', { headers: { 'PAYMENT-SIGNATURE': paymentHeaderFor(json.accepts[0], undefined, { authorization: { from: BUYER } }) } });
+    expect(paid.status).toBe(405);
+    expect(paid.headers.get('Allow')).toBe('POST');
+    expect(facilitator.verifyCalls).toHaveLength(0);
+    expect(await db.get('SELECT count(*) AS n FROM tasks')).toEqual({ n: 0 });
+  });
+
+  it('the bazaar block a client echoes in its payment reaches the facilitator (that is what catalogs the service)', async () => {
+    const first = await (await post('/v1/x402/tasks/usd-1', BRIEF)).json() as Json;
+    const payload = { ...paymentPayloadFor(first.accepts[0], undefined, { authorization: { from: BUYER } }), resource: first.resource, extensions: first.extensions };
+    const res = await post('/v1/x402/tasks/usd-1', BRIEF, { 'PAYMENT-SIGNATURE': encodeB64Json(payload) });
+    expect(res.status).toBe(200);
+    const sent = facilitator.verifyCalls[0].payload as Json;
+    expect(sent.extensions.bazaar.info.input).toMatchObject({ type: 'http', method: 'POST' });
+    expect(sent.resource.url).toBe('https://api.basedagents.ai/v1/x402/tasks/usd-1');
+    // Settled from the stored header, the echo is still there.
+    expect((facilitator.settleCalls[0].payload as Json).extensions.bazaar).toBeTruthy();
   });
 
   it('the custom endpoint quotes the minimum when empty, and the chosen bounty once described', async () => {
@@ -356,6 +382,85 @@ describe('Wallet-only hiring over x402 (/v1/x402/tasks)', () => {
     const cancel = await post(`/v1/x402/tasks/${taskId}/cancel`, {}, bearer(token));
     expect(cancel.status).toBe(200);
     expect((await row(taskId)).status).toBe('cancelled');
+  });
+
+  // ─── Networks: Base and Polygon ───
+
+  /** Hardhat account #2, a public test key: a deliverer whose payout wallet is a plain key. */
+  const DELIVERER_KEY = '5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
+  const DELIVERER = addressFromPrivateKey(parseHousePrivateKey('0x' + DELIVERER_KEY));
+
+  /** Bind the claimer's payout wallet with a real signature (D8) on `network`. */
+  async function bindClaimer(network = 'eip155:8453'): Promise<void> {
+    const body = walletBindBody(claimer.agentId, DELIVERER_KEY, network);
+    const text = JSON.stringify(body);
+    const headers = await signRequest(claimer, 'PATCH', `/v1/agents/${claimer.agentId}/wallet`, text);
+    const res = await app.request(`/v1/agents/${claimer.agentId}/wallet`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...headers }, body: text });
+    expect(res.status).toBe(200);
+  }
+
+  it('the 402 offers the same price on every accepted network, Base first, all paid to the escrow wallet', async () => {
+    const json = await (await post('/v1/x402/tasks/usd-5')).json() as Json;
+    const offers = json.accepts as PaymentRequirementsV2[];
+    expect(offers[0].network).toBe('eip155:8453');
+    expect(offers.map((o) => o.network)).toContain('eip155:137');
+    for (const o of offers) expect(o).toMatchObject({ amount: '5000000', payTo: house.address, scheme: 'exact' });
+    expect(offers.find((o) => o.network === 'eip155:137')!.asset).toBe('0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359');
+    expect(json.networks).toEqual(offers.map((o) => o.network));
+    // The price list says the same.
+    const list = await (await app.request('/v1/x402/tasks')).json() as Json;
+    expect(list.networks).toEqual(offers.map((o) => o.network));
+    // Naming a network in the body offers that one only.
+    const only = await (await post('/v1/x402/tasks/usd-5', { ...BRIEF, network: 'eip155:137' })).json() as Json;
+    expect(only.accepts.map((o: Json) => o.network)).toEqual(['eip155:137']);
+  });
+
+  it('production offers Base and Polygon mainnet, never the testnet', async () => {
+    const prod = createTestApp(db, { ...ENV, ENVIRONMENT: 'production' });
+    const json = await (await prod.request('/v1/x402/tasks/usd-1', { method: 'POST' })).json() as Json;
+    expect(json.accepts.map((o: Json) => o.network)).toEqual(['eip155:8453', 'eip155:137']);
+  });
+
+  it('paying the Polygon offer posts a Polygon bounty: deposited, held and settled on Polygon', async () => {
+    const { res, json, taskId } = await hire('/v1/x402/tasks/usd-5', BRIEF, 'eip155:137');
+    expect(res.status).toBe(200);
+    expect(json.bounty).toMatchObject({ network: 'eip155:137', amount_display: '5.00' });
+    expect(json.escrow.status).toBe('funded');
+    expect((await row(taskId)).bounty_network).toBe('eip155:137');
+    expect(facilitator.verifyCalls[0].requirements.network).toBe('eip155:137');
+    expect(facilitator.settleCalls[0].requirements).toMatchObject({ network: 'eip155:137', payTo: house.address });
+  });
+
+  it('a plain-key payout wallet bound on Base claims a Polygon task and is paid at the same address on Polygon', async () => {
+    await bindClaimer('eip155:8453');
+    const { taskId, token } = await hire('/v1/x402/tasks/usd-5', BRIEF, 'eip155:137');
+    await claimAndDeliver(taskId);
+    const accept = await post(`/v1/x402/tasks/${taskId}/accept`, {}, bearer(token));
+    expect(accept.status).toBe(200);
+    expect((await row(taskId)).escrow_status).toBe('released');
+    expect(facilitator.settleCalls.at(-1)!.requirements).toMatchObject({ network: 'eip155:137', payTo: DELIVERER });
+  });
+
+  it('a payout wallet with no proof of being a plain key claims only on its own network', async () => {
+    // beforeEach gave the claimer an address on Base with no bind proof: it may be a smart wallet.
+    const { taskId } = await hire('/v1/x402/tasks/usd-5', BRIEF, 'eip155:137');
+    const claim = await signedPost(claimer, `/v1/tasks/${taskId}/claim`);
+    expect(claim.status).toBe(409);
+    expect(await claim.json()).toMatchObject({ error: 'wallet_network_mismatch', network: 'eip155:137', wallet_network: 'eip155:8453' });
+  });
+
+  it('a payout wallet switched to a smart wallet after the claim is not paid on another chain; the release waits', async () => {
+    await bindClaimer('eip155:8453');
+    const { taskId, token } = await hire('/v1/x402/tasks/usd-5', BRIEF, 'eip155:137');
+    await claimAndDeliver(taskId);
+    // As if the agent re-bound to a smart wallet on Base after claiming.
+    await db.run("UPDATE agent_wallet_bindings SET signer_kind = 'erc1271' WHERE agent_id = ?", claimer.agentId);
+    const settlesBefore = facilitator.settleCalls.length;
+    const accept = await post(`/v1/x402/tasks/${taskId}/accept`, {}, bearer(token));
+    expect(accept.status).toBe(200);
+    expect(await accept.json()).toMatchObject({ status: 'verified', release_deferred: 'payee_wallet_wrong_network' });
+    expect((await row(taskId)).escrow_status).toBe('funded');
+    expect(facilitator.settleCalls.length).toBe(settlesBefore);
   });
 
   // ─── Wallet identity: list and attach ───

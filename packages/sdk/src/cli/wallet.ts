@@ -216,7 +216,7 @@ function dropPendingBinds(list: PendingBind[]): void {
   for (const p of list) { try { unlinkSync(p.file); } catch { /* already gone */ } }
 }
 /** Circle's chain names (circle wallet ... --chain) for the networks a payout wallet can bind on. */
-const CIRCLE_CHAINS: Record<string, string> = { 'eip155:8453': 'BASE', 'eip155:84532': 'BASE-SEPOLIA' };
+const CIRCLE_CHAINS: Record<string, string> = { 'eip155:8453': 'BASE', 'eip155:84532': 'BASE-SEPOLIA', 'eip155:137': 'MATIC' };
 /**
  * The Circle CLI command that signs a bind message with a Circle agent wallet,
  * or null off the networks Circle names. The message goes hex-encoded (--hex)
