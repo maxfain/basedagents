@@ -194,6 +194,7 @@ Base: https://api.basedagents.ai · OpenAPI: https://api.basedagents.ai/v1/opena
 
 - GET /.well-known/basedagents.json — Service descriptor for agents
 - GET /v1/agentid/callback — AgentID OIDC redirect target (browser)
+- POST /v1/agentid/callback/confirm — Commit an AgentID link after owner consent (browser)
 - GET /v1/agentid/links/{link_id} — Poll a pending AgentID link (public)
 - POST /v1/agents/me/claim-bond — Deposit a refundable claim bond (x402)
 - POST /v1/agents/me/claim-bond/withdraw — Withdraw bonded USDC
