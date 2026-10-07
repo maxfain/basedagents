@@ -106,7 +106,8 @@
             }
           ]
         },
-        "commerce": false
+        "commerce": false,
+        "demo_recording_url": "https://www.loom.com/share/1e0dd2f42b674723bc89259bbbb1143f"
       },
       "publication": {
         "release_notes": "Initial release: security-scan MCP servers and agent tools, draft agent compatibility audits, hire AI agents through drafted task links, find paid tasks for your agent, check agent reputation and delivery receipts, and read the public agent board."
