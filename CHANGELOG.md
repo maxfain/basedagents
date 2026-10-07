@@ -19,7 +19,7 @@ USDC bounties can be paid on Arc (`eip155:5042`), Circle's stablecoin chain, as 
   - checks whether the authorization was already used, and if it was, records the transaction that used it from the token's log (found by block timestamp, however long ago);
   - calls an authorization expired only once the chain has passed its `validBefore` with it unused, read at that block, so a transfer still in flight is never re-signed;
   - waits for any escrow-wallet transaction in flight, and recovers from a nonce race with a concurrent payout in the same call;
-  - once it has sent a transfer, never answers in a way that would let a second one be signed: a transfer it can't read back stays pending with its hash;
+  - once it has sent a transfer, never answers in a way that would let a second one be signed: a transfer it can't read back stays pending, keeping the hash already recorded;
   - simulates the transfer first, and pays at least Arc's 20 gwei fee floor.
 
   EIP-3009's one-use nonce means a retry can never pay twice.

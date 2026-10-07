@@ -207,7 +207,7 @@ describe('ArcRelay.settle', () => {
     expect(node.sent.map((raw) => decodeArcTx(raw).nonce)).toEqual([4n, 5n]);
   });
 
-  it('a transfer that lands while its receipt and log can\'t be read stays open: pending with its hash, never the reuse answer', async () => {
+  it('a transfer that lands while its receipt and log can\'t be read stays open: pending, never the reuse answer', async () => {
     // First attempt (settle.ts believes nothing was ever sent): the transfer lands, but every
     // receipt read fails, so it looks lost once the nonce moves on; the log can't be read either.
     node.failReceipts = true;
@@ -215,13 +215,41 @@ describe('ArcRelay.settle', () => {
     const payload = housePayload();
     const out = await relay().settle(payload, REQ);
     // "Already used" here is our own landing: answering it as a reuse would let settle.ts re-sign.
-    expect(out).toEqual({ kind: 'pending', transaction: hashOf(node.sent[0]) });
+    // Which transaction landed can't be read, so no hash is claimed (the recorded one stays).
+    expect(out).toEqual({ kind: 'pending' });
     expect(node.sent).toHaveLength(1);
     // Before any send in a call, the reuse answer stands (settle.ts weighs it against its own record).
     node.failReceipts = false;
     expect(await relay().settle(payload, REQ)).toMatchObject({ kind: 'rejected', reason: 'invalid_exact_evm_nonce_already_used' });
     node.failLogs = false;
     expect(await relay().settle(payload, REQ)).toMatchObject({ kind: 'settled', transaction: hashOf(node.sent[0]) });
+  });
+
+  it('an earlier attempt\'s transfer landing as a retry broadcasts: pending without the refused retry\'s hash', async () => {
+    node.autoMine = false;
+    const payload = housePayload();
+    expect(await relay().settle(payload, REQ)).toMatchObject({ kind: 'pending', transaction: hashOf(node.sent[0]) });
+    // Our node loses the first transfer, but it lands from elsewhere just as the retry
+    // broadcasts (with other fees, so another hash), which the node refuses: nonce too low.
+    const first = node.mempool[0];
+    node.drop(first.hash);
+    node.tip = 3000n;
+    node.failLogs = true;
+    let landed = false;
+    node.beforeSend = (tx) => {
+      if (landed || tx.hash === first.hash) return;
+      landed = true;
+      node.inject(first);
+      node.mine();
+    };
+    const retry = await relay().settle(payload, REQ);
+    // Settled by the first transfer, but its log can't be read: pending, and no hash of the
+    // refused retry, so the first transfer's recorded hash isn't replaced.
+    expect(retry).toEqual({ kind: 'pending' });
+    expect(count('eth_sendRawTransaction')).toBe(2);
+    expect(node.sent).toHaveLength(1);
+    node.failLogs = false;
+    expect(await relay().settle(payload, REQ)).toMatchObject({ kind: 'settled', transaction: first.hash });
   });
 
   it('after a send in this call, a simulation verdict that would allow re-signing waits for the next attempt', async () => {

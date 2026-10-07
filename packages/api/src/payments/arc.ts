@@ -219,15 +219,18 @@ export class ArcRelay implements Facilitator {
     const data = transferWithAuthorizationCalldata(payload);
     const validBefore = BigInt(auth.validBefore);
     /**
-     * The last transaction this call sent (or tried to). Once there is one, settle.ts can't
-     * know it: its row still says nothing was ever broadcast, and it reads a reuse answer or
-     * a terminal verdict as "this authorization never moved money, sign a new one". So from
-     * then on this call only answers settled, pending, expired-at-a-pinned-block or retry.
+     * Whether this call has broadcast (or tried to). Once it has, settle.ts can't know it: its
+     * row still says nothing was ever broadcast, and it reads a reuse answer or a terminal
+     * verdict as "this authorization never moved money, sign a new one". So from then on this
+     * call only answers settled, pending, expired-at-a-pinned-block or retry.
      */
-    let sent: string | null = null;
+    let sent = false;
+    // Used, but which transaction used it can't be read yet: pending WITHOUT a hash, so the
+    // hash settle.ts already recorded (if any) stays. A hash this call sent may never have
+    // landed (refused, replaced, or beaten by an earlier attempt's transfer).
     const keepOpen = (outcome: SettleOutcome): SettleOutcome =>
       sent && outcome.kind === 'rejected' && outcome.reason === 'invalid_exact_evm_nonce_already_used'
-        ? { kind: 'pending', transaction: sent } // used, but its transaction can't be read yet: ours, in all likelihood
+        ? { kind: 'pending' }
         : outcome;
 
     for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -297,7 +300,7 @@ export class ArcRelay implements Facilitator {
         chainId: ARC_CHAIN_ID, nonce: idle.nonce, maxPriorityFeePerGas: tip, maxFeePerGas: maxFee,
         gas: gasLimit, to: ARC_USDC, value: 0n, data,
       }, this.key);
-      sent = signed.hash; // from here a node may hold it, whatever the call answers
+      sent = true; // from here a node may hold it, whatever the call answers
       try {
         await this.rpc.call('eth_sendRawTransaction', [signed.raw]);
       } catch (err) {
