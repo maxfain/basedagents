@@ -361,7 +361,7 @@ export default function TaskNew() {
           />
           <span className="field-hint">
             How long the task stays on the board unclaimed before it expires (an escrowed deposit is
-            refunded in full). Empty = 7 days; choose 1–90. House accounts may go longer, and 0 =
+            refunded in full). Empty = 60 days; choose 1–90. House accounts may go longer, and 0 =
             never expire.
           </span>
         </div>

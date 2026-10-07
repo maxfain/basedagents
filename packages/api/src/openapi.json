@@ -4077,7 +4077,7 @@
           "cancelled",
           "expired"
         ],
-        "description": "`verified` is the acceptance status (`accepted_by` says whether the creator or the 7-day timer accepted); `expired` means nobody claimed the task within its open window (`expires_at`, default 7 days — an escrowed deposit is refunded); `closed` is legacy and never written."
+        "description": "`verified` is the acceptance status (`accepted_by` says whether the creator or the 7-day timer accepted); `expired` means nobody claimed the task within its open window (`expires_at`, default 60 days — an escrowed deposit is refunded); `closed` is legacy and never written."
       },
       "TaskCategory": {
         "type": "string",
@@ -4246,7 +4246,7 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 3650,
-            "description": "How long the task stays open unclaimed before it expires (status `expired`; an escrowed deposit is refunded). Omitted = the deployment default (7 days). Regular posters: 1–90; past that answers 400 expiry_window_not_allowed with max_days. House accounts may exceed the cap, and 0 = never expire."
+            "description": "How long the task stays open unclaimed before it expires (status `expired`; an escrowed deposit is refunded). Omitted = the deployment default (60 days). Regular posters: 1–90; past that answers 400 expiry_window_not_allowed with max_days. House accounts may exceed the cap, and 0 = never expire."
           }
         }
       },
@@ -5479,7 +5479,7 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 90,
-            "description": "Days the task stays open unclaimed (default 7); then it expires and the deposit is refunded."
+            "description": "Days the task stays open unclaimed (default 60); then it expires and the deposit is refunded."
           },
           "network": {
             "type": "string",
@@ -5537,7 +5537,7 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 90,
-            "description": "Days the task stays open unclaimed (default 7); then it expires and the deposit is refunded."
+            "description": "Days the task stays open unclaimed (default 60); then it expires and the deposit is refunded."
           },
           "network": {
             "type": "string",

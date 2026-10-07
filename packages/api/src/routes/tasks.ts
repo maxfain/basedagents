@@ -142,7 +142,7 @@ tasks.post('/', agentAuth, async (c) => {
   const now = new Date().toISOString();
   const reqCaps = parsed.data.required_capabilities ?? null;
 
-  // D13: how long the task stays open unclaimed — default 7 days; only house
+  // D13: how long the task stays open unclaimed — default 60 days; only house
   // accounts may exceed the cap or post a never-expiring task (tasks/expiry.ts).
   const expiry = resolveOpenExpiry(c.env, creatorId, parsed.data.expires_in_days, now);
   if (!expiry.ok) {

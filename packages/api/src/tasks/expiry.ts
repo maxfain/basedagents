@@ -5,7 +5,7 @@
  * terminal status swept by the cron (openExpiryGate in service.ts). The
  * window is stamped as tasks.expires_at when the task is posted:
  *
- *   * default: TASK_OPEN_TTL_DAYS days (7 when unset), for every poster;
+ *   * default: TASK_OPEN_TTL_DAYS days (60 when unset), for every poster;
  *   * a poster may ask for 1–MAX_OPEN_TTL_DAYS days via `expires_in_days`;
  *   * a HOUSE account (HOUSE_ACCOUNT_IDS — agent ag_… or owner ow_… ids) may
  *     exceed the cap, and 0 = never expire (expires_at NULL): standing tasks
@@ -21,7 +21,7 @@ import { houseAccountIds } from './settled.js';
 import { isoPlus } from './service.js';
 
 /** Default open window, days (env-tunable via TASK_OPEN_TTL_DAYS). */
-export const DEFAULT_OPEN_TTL_DAYS = 7;
+export const DEFAULT_OPEN_TTL_DAYS = 60;
 /** Longest window a non-house poster may ask for. */
 export const MAX_OPEN_TTL_DAYS = 90;
 /** Absolute ceiling for house accounts asking for a finite window. */
@@ -31,7 +31,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 type ExpiryEnv = { TASK_OPEN_TTL_DAYS?: string; HOUSE_ACCOUNT_IDS?: string } | undefined | null;
 
-/** The deployment's default open window in days (bad/unset env → 7). */
+/** The deployment's default open window in days (bad/unset env → 60). */
 export function defaultOpenTtlDays(env: ExpiryEnv): number {
   const raw = Number(env?.TASK_OPEN_TTL_DAYS ?? '');
   return Number.isInteger(raw) && raw >= 1 && raw <= HOUSE_MAX_OPEN_TTL_DAYS ? raw : DEFAULT_OPEN_TTL_DAYS;

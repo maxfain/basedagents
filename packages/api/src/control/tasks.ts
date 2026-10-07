@@ -189,7 +189,7 @@ app.post('/tasks', ownerSession, async (c) => {
   const parsed = OwnerCreateSchema.safeParse(json.body);
   if (!parsed.success) return c.json({ error: 'bad_request', message: 'validation failed', details: parsed.error.flatten() }, 400);
 
-  // D13: open window — default 7 days; only house accounts may exceed the cap
+  // D13: open window — default 60 days; only house accounts may exceed the cap
   // or post a never-expiring task (tasks/expiry.ts). Checked before the 402
   // challenge so nobody signs a deposit for a post that would be refused.
   const expiry = resolveOpenExpiry(c.env, ownerId, parsed.data.expires_in_days, new Date().toISOString());
