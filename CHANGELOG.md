@@ -8,6 +8,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — MCP sign-in finishes in the window that started it (api)
+
+ChatGPT showed "Missing OAuth callback data" after a successful sign-in. ChatGPT opens our sign-in page in a popup and expects the redirect back in that popup, but the emailed link opens a new tab, so approving there redirected into a tab without ChatGPT's pending state. The code was minted and never collected.
+
+- The "check your email" page now polls a new `GET /oauth/status` and moves to a new `GET /oauth/approve` by itself once the link is clicked in any tab of the same browser. There is also a no-JavaScript "continue" link.
+- The link's tab only signs in. It says to go back to the original window, with an "Approve here instead" fallback.
+- Both new endpoints answer only for the request in the browser's signed cookie. Consent still requires the owner to be bound by a same-browser link click, so the login-fixation binding is unchanged.
+- Tests cover the handoff, its states, and cookieless and forged requests.
+
 ### Changed — unclaimed tasks stay open 60 days (api, console, skill 1.3.9)
 
 An open task nobody claims now expires after **60 days** by default, up from 7. A week was too short for the specialised and harder tasks on the board: four of them expired on Oct 6 before anyone claimed them.

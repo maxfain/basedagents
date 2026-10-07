@@ -34,6 +34,7 @@ import { checkRateLimit } from '../lib/rate-limiter.js';
 import { emailSenderFromEnv } from '../control/email.js';
 import type { EmailSender } from '../control/email.js';
 import { OAuthStore, AUTH_CODE_TTL_S, ACCESS_TOKEN_TTL_S } from './oauth-store.js';
+import type { AuthRequestRow } from './oauth-store.js';
 import { sendMcpMagicLink } from './email.js';
 import {
   base64urlEncode,
@@ -490,10 +491,131 @@ app.post('/oauth/email', async (c) => {
       'Check your email',
       `<h1>Check your email</h1>
        <p>If an account exists for that address, we've sent a one-time sign-in link. It expires in 15 minutes.
-       Open it in this same browser.</p>
-       <p>No link? If you don't have a BasedAgents account yet, <a href="${esc(CONSOLE_START_URL)}" target="_blank" rel="noopener">create one</a> with that email, then restart the connection from your app.</p>`,
+       Open it in this same browser. <strong>Keep this window open</strong>: it continues by itself once you click the link.</p>
+       <p id="wait">Waiting for you to click the link…</p>
+       <p><a href="/oauth/approve">I've clicked the link, continue</a></p>
+       <p>No link? If you don't have a BasedAgents account yet, <a href="${esc(CONSOLE_START_URL)}" target="_blank" rel="noopener">create one</a> with that email, then restart the connection from your app.</p>
+       ${WAIT_SCRIPT}`,
     ),
   );
+});
+
+// The email link opens in a NEW tab, but OAuth clients (ChatGPT, claude.ai)
+// expect the redirect back in the window that started the flow, which holds
+// their pending state ("Missing OAuth callback data" otherwise). So the window
+// that started the flow polls /oauth/status and moves on to /oauth/approve
+// itself once the link is clicked in any tab of this browser. Polling stops at
+// the 15-minute link lifetime.
+const WAIT_SCRIPT = `<script>
+(function () {
+  var started = Date.now(), wait = document.getElementById('wait');
+  function say(t) { if (wait) wait.textContent = t; }
+  function tick() {
+    if (Date.now() - started > 15 * 60 * 1000) { say('This sign-in request expired. Restart the connection from your app.'); return; }
+    fetch('/oauth/status', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j.status === 'ready') { say('Signed in. Continuing…'); location.replace('/oauth/approve'); }
+        else if (j.status === 'done') { say('This connection was already approved or denied in another tab.'); }
+        else if (j.status === 'expired') { say('This sign-in request expired. Restart the connection from your app.'); }
+        else { setTimeout(tick, 2500); }
+      })
+      .catch(function () { setTimeout(tick, 5000); });
+  }
+  setTimeout(tick, 2500);
+})();
+</script>`;
+
+/** Where the request bound to this browser's cookie stands; consumed or expired requests are terminal. */
+function authreqStatus(row: AuthRequestRow | null, now: string): 'pending' | 'ready' | 'done' | 'expired' {
+  if (!row) return 'expired';
+  if (row.consumed_at != null) return 'done';
+  if (row.expires_at <= now) return 'expired';
+  return row.owner_id == null ? 'pending' : 'ready';
+}
+
+/**
+ * The Approve page, with a fresh CSRF token re-armed into the cookie. Shows
+ * WHAT is being authorized (defense in depth + informed consent): the
+ * registered client name and the redirect host the code will be sent to, so
+ * the human can recognize the app instead of blindly approving.
+ */
+async function approvePage(c: Context<McpEnv>, config: McpConfig, store: OAuthStore, row: AuthRequestRow): Promise<Response> {
+  const client = await store.getClient(row.client_id);
+  const clientLabel = client?.client_name || 'An application';
+  let redirectHost = '';
+  try { redirectHost = new URL(row.redirect_uri).host; } catch { redirectHost = ''; }
+  const csrf = newCsrfToken();
+  setCookie(c, AUTHREQ_COOKIE, await signCookie(config.signingSecret, { authreq_id: row.id, csrf }), {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Lax',
+    path: '/',
+    maxAge: COOKIE_TTL_S,
+  });
+  return c.html(
+    pageShell(
+      'Approve connection',
+      `<h1>Approve connection</h1>
+       <p>You're signed in. <strong>${esc(clientLabel)}</strong>${redirectHost ? ` (<code>${esc(redirectHost)}</code>)` : ''}
+       is asking to read the BasedAgents registry and post to the public board as your owner account.</p>
+       <p>Only approve this if you started it. If you don't recognize it, Deny.</p>
+       <form method="post" action="/oauth/decision">
+         <input type="hidden" name="req" value="${esc(row.id)}">
+         <input type="hidden" name="csrf" value="${esc(csrf)}">
+         <button type="submit" name="decision" value="allow">Allow</button>
+         <button class="deny" type="submit" name="decision" value="deny">Deny</button>
+       </form>`,
+    ),
+  );
+}
+
+// ── GET /oauth/status (polled by the "Check your email" window) ──
+// Answers only for the request named in THIS browser's signed cookie, so it
+// reveals nothing to anyone else.
+app.get('/oauth/status', async (c) => {
+  const config = cfg(c);
+  const misconfigured = requireSigning(c, config);
+  if (misconfigured) return misconfigured;
+  c.header('Cache-Control', 'no-store');
+  const cookie = await verifyCookie(config.signingSecret, getCookie(c, AUTHREQ_COOKIE));
+  if (!cookie) return c.json({ status: 'expired' });
+  const row = await new OAuthStore(getDb(c)).getAuthRequest(cookie.authreq_id);
+  return c.json({ status: authreqStatus(row, nowIso()) });
+});
+
+// ── GET /oauth/approve (consent, in whichever window asks) ──
+// Same gates as before, just reachable from the window that started the flow:
+// the signed cookie must name the request (same browser), and the owner must
+// already be bound, which only /oauth/continue does after the link is clicked
+// in a browser carrying that same cookie.
+app.get('/oauth/approve', async (c) => {
+  const config = cfg(c);
+  const misconfigured = requireSigning(c, config);
+  if (misconfigured) return misconfigured;
+  const store = new OAuthStore(getDb(c));
+  const cookie = await verifyCookie(config.signingSecret, getCookie(c, AUTHREQ_COOKIE));
+  const row = cookie ? await store.getAuthRequest(cookie.authreq_id) : null;
+  const status = authreqStatus(row, nowIso());
+  if (status === 'pending') {
+    return c.html(
+      pageShell(
+        'Not signed in yet',
+        `<h1>Not signed in yet</h1>
+         <p>Open the sign-in link we emailed you in this browser, then come back to this window.</p>
+         <p id="wait">Waiting for you to click the link…</p>
+         <p><a href="/oauth/approve">I've clicked the link, continue</a></p>
+         ${WAIT_SCRIPT}`,
+      ),
+    );
+  }
+  if (status !== 'ready' || !row) {
+    return c.html(
+      pageShell('Expired', `<h1>Authorization expired</h1><p>This authorization request has expired or is already resolved. Restart the connection from your app.</p>`),
+      400,
+    );
+  }
+  return approvePage(c, config, store, row);
 });
 
 // ── GET /oauth/continue (magic-link landing) ──
@@ -550,19 +672,13 @@ app.get('/oauth/continue', async (c) => {
     return c.html(pageShell('Expired', `<h1>Authorization expired</h1><p>This authorization request has expired or is already resolved.</p>`), 400);
   }
 
-  // Show WHAT is being authorized (defense in depth + informed consent): the
-  // registered client name and the redirect host the code will be sent to, so
-  // the human can recognize the app instead of blindly approving.
-  const areq = await store.getAuthRequest(req);
-  const client = areq ? await store.getClient(areq.client_id) : null;
-  const clientLabel = client?.client_name || 'An application';
-  let redirectHost = '';
-  try { redirectHost = areq ? new URL(areq.redirect_uri).host : ''; } catch { redirectHost = ''; }
-
-  // Fresh cookie + fresh CSRF for the Approve form (re-arms the binding for the
-  // decision POST, whichever browser we're now in).
-  const csrf = newCsrfToken();
-  setCookie(c, AUTHREQ_COOKIE, await signCookie(config.signingSecret, { authreq_id: req, csrf }), {
+  // This tab was opened from the email, so it is usually NOT the window the
+  // app is waiting on: approving here would redirect into a tab without the
+  // app's pending state. Send the person back; the original window is polling
+  // /oauth/status and moves on to /oauth/approve by itself. "Approve here"
+  // covers apps that ran the flow in this same tab (or a closed original).
+  // Re-arm the cookie so its lifetime runs from sign-in, not from /authorize.
+  setCookie(c, AUTHREQ_COOKIE, await signCookie(config.signingSecret, { authreq_id: req, csrf: cookie.csrf }), {
     httpOnly: true,
     secure: true,
     sameSite: 'Lax',
@@ -571,17 +687,10 @@ app.get('/oauth/continue', async (c) => {
   });
   return c.html(
     pageShell(
-      'Approve connection',
-      `<h1>Approve connection</h1>
-       <p>You're signed in. <strong>${esc(clientLabel)}</strong>${redirectHost ? ` (<code>${esc(redirectHost)}</code>)` : ''}
-       is asking to read the BasedAgents registry and post to the public board as your owner account.</p>
-       <p>Only approve this if you started it. If you don't recognize it, Deny.</p>
-       <form method="post" action="/oauth/decision">
-         <input type="hidden" name="req" value="${esc(req)}">
-         <input type="hidden" name="csrf" value="${esc(csrf)}">
-         <button type="submit" name="decision" value="allow">Allow</button>
-         <button class="deny" type="submit" name="decision" value="deny">Deny</button>
-       </form>`,
+      'Signed in',
+      `<h1>You're signed in</h1>
+       <p><strong>Go back to the window where you started connecting.</strong> It continues by itself and asks you to approve there. You can close this tab.</p>
+       <p>Don't see that window anymore? <a href="/oauth/approve">Approve here instead</a>.</p>`,
     ),
   );
 });
