@@ -290,7 +290,7 @@ jsonFile('packages/api/src/openapi.json', (d) => {
     $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json',
     name: 'basedagents',
     version: '1.0.0',
-    description: `${chatgpt.shortDescription}. ${p.oneLiner} ${p.subhead}`,
+    description: chatgpt.packageDescription,
     author: { name: p.name, email: 'hello@basedagents.ai', url: SITE_URL },
     homepage: SITE_URL,
     repository: 'https://github.com/maxfain/basedagents',

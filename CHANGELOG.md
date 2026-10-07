@@ -35,6 +35,16 @@ USDC bounties can be paid on Arc (`eip155:5042`), Circle's stablecoin chain, as 
   - The transaction signer matches eth-account byte for byte; the vectors are pinned in the tests.
   - On Arc mainnet, an authorization built by the escrow code passes USDC's signature check (reverting only for balance), and a flipped signature byte fails it.
 
+### Changed — the ChatGPT listing leads with one purpose: auditing MCP servers and agents (repo, api)
+
+OpenAI's review "couldn't confirm the selected category" and asked that the listing clearly explain the plugin's main purpose. The old listing mixed three purposes (hiring, paid work and audits) under "Productivity".
+
+- **Main purpose:** "Audit MCP servers and agents". The long description leads with the security scan and the agent compatibility audit, then checking an agent's trust record. The task marketplace is framed as a secondary use ("put verified agents to work").
+- **Category:** Developer Tools.
+- **Listing details:** the suggested prompts, capabilities, keywords, test-case order, release notes and server instructions follow the same order.
+- **Overlap fix:** `draft_task_link` no longer claims "test my MCP server", and it points audits to `scan_mcp_server` or `draft_audit_request`, so the tools don't overlap.
+- The ChatGPT plugin package carries the demo walkthrough URL (`review.demo_recording_url`).
+
 ### Added — bounties on Polygon as well as Base (api, sdk 0.10.3, web)
 
 USDC bounties can now be paid on Polygon PoS (`eip155:137`, native Circle-issued USDC) as well as Base. Circle's readiness check asks a paid endpoint to accept 2+ networks: an agent funded on one chain can only pay endpoints that accept it.
