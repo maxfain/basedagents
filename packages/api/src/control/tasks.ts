@@ -247,7 +247,7 @@ app.post('/tasks', ownerSession, async (c) => {
   // Production settles real money: reject a bounty on a network this environment
   // won't pay (testnet USDC is staging/dev only) — before any escrow deposit.
   if (bounty && !allowedBountyNetworks(c.env).includes(bounty.network)) {
-    return err(c, 400, 'bounty_network_not_allowed', `Bounties on ${bounty.network} are not accepted here; use eip155:8453 (Base mainnet USDC).`, { network: bounty.network });
+    return err(c, 400, 'bounty_network_not_allowed', `Bounties on ${bounty.network} are not accepted here; use eip155:8453 (Base) or eip155:137 (Polygon) mainnet USDC.`, { network: bounty.network });
   }
   // The signed action folds a hash of exactly the RAW fields the client posted
   // (not the zod-parsed output) — matching the board-post precedent and keeping

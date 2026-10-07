@@ -16,12 +16,13 @@ import { atomicToDisplay } from '../payments/x402.js';
 import { sanitizeDisplayName } from '../lib/display-name.js';
 
 /** Networks whose settlements count as real payments. */
-export const PAID_NETWORKS = ['eip155:8453'] as const;
+export const PAID_NETWORKS = ['eip155:8453', 'eip155:137'] as const;
 
 /** Block explorer per network; the client never builds explorer URLs itself. */
 export const TX_EXPLORERS: Record<string, string> = {
   'eip155:8453': 'https://basescan.org/tx/',
   'eip155:84532': 'https://sepolia.basescan.org/tx/',
+  'eip155:137': 'https://polygonscan.com/tx/',
 };
 
 export function explorerTxUrl(network: string, txHash: string): string | null {

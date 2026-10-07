@@ -61,8 +61,8 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 export const TASK_CATEGORIES = ['research', 'code', 'content', 'data', 'automation'] as const;
 export type TaskCategory = (typeof TASK_CATEGORIES)[number];
 
-/** Networks a bounty can settle on (USDC on Base mainnet / Base Sepolia). */
-export const BOUNTY_NETWORKS = ['eip155:8453', 'eip155:84532'] as const;
+/** Networks a bounty can settle on (USDC on Base mainnet, Base Sepolia, Polygon PoS). */
+export const BOUNTY_NETWORKS = ['eip155:8453', 'eip155:84532', 'eip155:137'] as const;
 export type BountyNetwork = (typeof BOUNTY_NETWORKS)[number];
 
 // ─── Amounts (copied verbatim from packages/api/src/payments/x402.ts — no cross-package import) ───
@@ -1607,7 +1607,7 @@ export interface TaskPaymentResponse {
   payment: TaskPayment;
   /** Sign-at-accept: present when the task has a bounty, is claimed, and the deliverer has a wallet. Escrow: the deposit to sign, only while `unfunded`. */
   requirements: PaymentRequirements | null;
-  requirements_unavailable_reason?: 'no_bounty' | 'unsupported_network' | 'not_claimed' | 'payee_wallet_missing' | 'escrow_held' | 'escrow_funding' | 'escrow_unavailable';
+  requirements_unavailable_reason?: 'no_bounty' | 'unsupported_network' | 'not_claimed' | 'payee_wallet_missing' | 'payee_wallet_wrong_network' | 'escrow_held' | 'escrow_funding' | 'escrow_unavailable';
   payment_required?: PaymentRequired;
   accept_endpoint: string;
   /** Escrow tasks only. */

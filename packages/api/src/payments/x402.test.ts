@@ -88,7 +88,7 @@ describe('constants', () => {
 });
 
 describe('ASSETS / assetFor', () => {
-  it('pins USDC on Base and Base Sepolia', () => {
+  it('pins USDC on Base, Base Sepolia and Polygon', () => {
     expect(ASSETS['eip155:8453']).toEqual({
       asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
       chainId: 8453,
@@ -99,8 +99,15 @@ describe('ASSETS / assetFor', () => {
       chainId: 84532,
       defaultExtra: { name: 'USDC', version: '2' },
     });
+    // Native (Circle-issued) USDC on Polygon PoS; the domain was read on-chain.
+    expect(ASSETS['eip155:137']).toEqual({
+      asset: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
+      chainId: 137,
+      defaultExtra: { name: 'USD Coin', version: '2' },
+    });
     expect(isNetwork('eip155:8453')).toBe(true);
-    expect(isNetwork('eip155:137')).toBe(false);
+    expect(isNetwork('eip155:137')).toBe(true);
+    expect(isNetwork('eip155:1')).toBe(false);
     expect(isNetwork(null)).toBe(false);
   });
 
@@ -218,7 +225,7 @@ describe('decodePaymentHeader', () => {
       [makePayload({ auth: { to: 'nope' } }), /payload\.authorization\.to/],
       [makePayload({ auth: { value: '5.0' } }), /payload\.authorization\.value/],
       [makePayload({ auth: { validBefore: '1234567890123' } }), /validBefore/],
-      [makePayload({ accepted: { network: 'eip155:137' as never } }), /accepted\.network/],
+      [makePayload({ accepted: { network: 'eip155:1' as never } }), /accepted\.network/],
       [makePayload({ accepted: { scheme: 'upto' as never } }), /accepted\.scheme/],
       [makePayload({ accepted: { extra: undefined as never } }), /accepted\.extra/],
     ];

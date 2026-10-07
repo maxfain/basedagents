@@ -21,6 +21,10 @@ import {
 import { paymentProviderFor } from '../payments/index.js';
 import { houseWalletFor } from '../payments/house-wallet.js';
 import { bondBalanceAtomic, claimBudget, claimGovernanceConfig, creditBond, debitBond } from './governance.js';
+import { payoutWallet } from '../payments/accept.js';
+
+/** Claim bonds are deposited and paid back in USDC on Base only. */
+export const BOND_NETWORK = 'eip155:8453';
 
 const WITHDRAW_MAX_ATTEMPTS = 6;
 const WITHDRAW_BACKOFF_MS = [60_000, 300_000, 900_000, 1_800_000, 3_600_000];
@@ -62,7 +66,7 @@ export async function depositClaimBond(
     return { status: 503, body: { error: 'payments_unavailable', message: 'Claim bonds are not accepting deposits on this deployment (payments are not configured).' } };
   }
   const amount = String(Number(cfg.bondPerSlotAtomic) * slots);
-  const network = 'eip155:8453';
+  const network = BOND_NETWORK;
   if (!isNetwork(network)) return { status: 500, body: { error: 'config', message: 'bond network misconfigured' } };
   const bondRef = { task_id: `claim-bond:${agentId}`, bounty_amount: amount, bounty_network: network };
   const requirements = buildRequirements(bondRef, house.address, env);
@@ -133,16 +137,18 @@ export async function requestBondWithdrawal(
   if (!/^[1-9][0-9]{0,14}$/.test(amountAtomic)) {
     return { status: 400, body: { error: 'bad_request', message: 'amount_atomic must be a positive digit string of USDC atomic units' } };
   }
-  const wallet = await db.get<{ wallet_address: string | null; wallet_network: string | null }>(
-    'SELECT wallet_address, wallet_network FROM agents WHERE id = ?', agentId,
-  );
-  if (!wallet?.wallet_address) {
+  // Bonds are deposited on Base, so they are paid back on Base: to a wallet bound there, or to a
+  // plain-key wallet's same address. Never on the payout wallet's own chain, where the house
+  // wallet holds other buyers' escrow deposits, not bonds.
+  const network = BOND_NETWORK;
+  const payout = await payoutWallet(db, agentId, network);
+  if (!payout.ok && payout.reason === 'payee_wallet_missing') {
     return { status: 409, body: { error: 'wallet_required', message: 'Set a wallet before withdrawing a bond — the payout needs a destination.' } };
   }
-  const network = wallet.wallet_network ?? 'eip155:8453';
-  if (!isNetwork(network)) {
-    return { status: 409, body: { error: 'wallet_network_unsupported', message: `Bond payouts cannot settle on ${network}.` } };
+  if (!payout.ok) {
+    return { status: 409, body: { error: 'wallet_network_unsupported', message: `Bonds are paid back on Base (${network}). Your payout wallet is bound on ${payout.walletNetwork} and is not a verified plain key; bind a Base wallet, or a plain-key wallet, to withdraw.` } };
   }
+  const wallet = { wallet_address: payout.address };
   const now = nowIsoStr();
   const id = randomId('bwd');
   if (!(await debitBond(db, agentId, amountAtomic, 'withdraw', id, now))) {

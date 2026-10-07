@@ -29,7 +29,7 @@ import { readFileSync, statSync } from 'fs';
 import { basename } from 'path';
 import { VERSION } from '../version.js';
 import {
-  RegistryClient, DEFAULT_API_URL, TASK_STATUSES, TASK_CATEGORIES, BOUNTY_NETWORKS,
+  RegistryClient, DEFAULT_API_URL, TASK_STATUSES, TASK_CATEGORIES, BOUNTY_NETWORKS, type BountyNetwork,
   usdcToAtomic, ApiError, PaymentRequiredError, PaymentInvalidError, redactSecrets, getClientHeaders,
   type AgentKeypair, type Task, type TaskCreateOptions, type DeliverOptions,
 } from '../index.js';
@@ -443,7 +443,7 @@ export async function tasksPost(args: string[]): Promise<void> {
     } catch (err) {
       return fail(`Invalid --bounty: ${err instanceof Error ? err.message : String(err)}`);
     }
-    options.bounty = { amount, token: 'USDC', network: (network ?? 'eip155:8453') as 'eip155:8453' | 'eip155:84532' };
+    options.bounty = { amount, token: 'USDC', network: (network ?? 'eip155:8453') as BountyNetwork };
     if (noEscrow) options.escrow = false;
   }
 

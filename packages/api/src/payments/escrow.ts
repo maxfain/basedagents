@@ -35,7 +35,7 @@ import {
 } from './x402.js';
 import { settleTask, reauthPermitted, wireSettleResponse, REAUTH_CLASSES, type SettleTrigger, type SettleResult } from './settle.js';
 import { houseWalletFor, escrowDisabledReason, sameAddress } from './house-wallet.js';
-import { delivererWallet, PAYMENT_HEADER, type AcceptOutcome } from './accept.js';
+import { payoutWallet, PAYMENT_HEADER, type AcceptOutcome } from './accept.js';
 
 /** House-signed legs started per task before the cron stops re-signing and a human looks. */
 export const ESCROW_MAX_LEG_ATTEMPTS = 5;
@@ -76,6 +76,11 @@ export type FundTarget =
       kind: 'new'; task: NewEscrowTask; funnel: 'agent' | 'human' | 'wallet';
       /** The paid resource named in the 402 (default POST /v1/tasks), e.g. a POST /v1/x402/tasks endpoint. */
       resource?: { url: string; description: string; endpoint: string; extensions?: Record<string, unknown> };
+      /**
+       * Networks the deposit may be paid on (default: the bounty's network). The 402 offers
+       * the same amount on each; the task's bounty network is the one the payer signed for.
+       */
+      networks?: readonly string[];
     }
   /** Re-fund an existing task whose deposit definitively failed (`escrow_status = unfunded`). */
   | { kind: 'existing'; task: TaskRow };
@@ -109,18 +114,22 @@ export async function fundEscrowTask(db: DBAdapter, env: Bindings, target: FundT
   const taskId = target.task.task_id;
   /** The row being re-funded (null when creating). */
   const existing: TaskRow | null = target.kind === 'existing' ? target.task : null;
-  const bounty = target.kind === 'new'
+  // `let`: with several offered networks, the network is the one the payer signed for (below).
+  let bounty = target.kind === 'new'
     ? target.task.bounty
     : { amount: existing!.bounty_amount ?? '', token: existing!.bounty_token ?? 'USDC', network: existing!.bounty_network ?? '' };
-  if (!bounty.amount || !isNetwork(bounty.network)) {
-    return { status: 409, body: { error: 'bounty_unsupported_network', message: `This bounty is on ${bounty.network || 'an unknown network'}, which cannot be settled.`, network: bounty.network } };
+  const offered = target.kind === 'new' && target.networks?.length ? [...target.networks] : [bounty.network];
+  for (const network of offered) {
+    if (!bounty.amount || !isNetwork(network)) {
+      return { status: 409, body: { error: 'bounty_unsupported_network', message: `This bounty is on ${network || 'an unknown network'}, which cannot be settled.`, network } };
+    }
+    // Defense-in-depth: production takes escrow deposits in mainnet USDC only; a
+    // testnet deposit is refused before any house-wallet custody begins.
+    if (!allowedBountyNetworks(env).includes(network)) {
+      return { status: 409, body: { error: 'bounty_network_not_allowed', message: `This bounty is on ${network}, which is not settled in this environment.`, network } };
+    }
   }
-  // Defense-in-depth: production takes escrow deposits in mainnet USDC only; a
-  // testnet deposit is refused before any house-wallet custody begins.
-  if (!allowedBountyNetworks(env).includes(bounty.network)) {
-    return { status: 409, body: { error: 'bounty_network_not_allowed', message: `This bounty is on ${bounty.network}, which is not settled in this environment.`, network: bounty.network } };
-  }
-  const bountyOut = bountyView({ bounty_amount: bounty.amount, bounty_token: bounty.token, bounty_network: bounty.network }) as BountyView;
+  let bountyOut = bountyView({ bounty_amount: bounty.amount, bounty_token: bounty.token, bounty_network: bounty.network }) as BountyView;
 
   const reason = escrowDisabledReason(env);
   const house = houseWalletFor(env);
@@ -139,11 +148,12 @@ export async function fundEscrowTask(db: DBAdapter, env: Bindings, target: FundT
     return { status: 409, body: { error: 'invalid_state', message: 'Only an open escrow task whose deposit failed can be funded again.', status: existing.status, escrow: escrowView(existing) } };
   }
 
-  const requirements = buildRequirements({ task_id: taskId, bounty_amount: bounty.amount, bounty_network: bounty.network }, house.address, env);
+  const offers = offered.map((network) => buildRequirements({ task_id: taskId, bounty_amount: bounty.amount, bounty_network: network }, house.address, env));
+  let requirements = offers[0];
   const resource = fundResource(target);
 
   if (!rawHeader) {
-    const paymentRequired = buildPaymentRequired({ task_id: taskId }, requirements, undefined, resource);
+    const paymentRequired = buildPaymentRequired({ task_id: taskId }, offers, undefined, resource);
     if (target.kind === 'new' && target.resource?.extensions) paymentRequired.extensions = target.resource.extensions;
     return {
       status: 402,
@@ -155,6 +165,7 @@ export async function fundEscrowTask(db: DBAdapter, env: Bindings, target: FundT
         ...(target.kind === 'existing' ? { task_id: taskId } : {}),
         bounty: bountyOut,
         escrow: { wallet: house.address },
+        ...(offers.length > 1 ? { networks: offers.map((o) => o.network) } : {}),
         fund_endpoint: target.kind === 'new' ? (target.resource?.endpoint ?? 'POST /v1/tasks') : `POST /v1/tasks/${taskId}/fund`,
         payment_header: PAYMENT_HEADER,
       },
@@ -166,6 +177,13 @@ export async function fundEscrowTask(db: DBAdapter, env: Bindings, target: FundT
     payload = decodePaymentHeader(rawHeader);
   } catch (err) {
     return { status: 400, body: { error: 'payment_malformed', message: 'The payment header is not a valid x402 v2 payment payload.', detail: err instanceof PaymentMalformed ? err.detail : String(err), payment_requirements: requirements } };
+  }
+  // The offer the payer signed for: its network becomes the task's bounty network.
+  const chosen = offers.find((o) => o.network === payload.accepted.network);
+  if (chosen && chosen !== requirements) {
+    requirements = chosen;
+    bounty = { ...bounty, network: chosen.network };
+    bountyOut = bountyView({ bounty_amount: bounty.amount, bounty_token: bounty.token, bounty_network: bounty.network }) as BountyView;
   }
   const nowSec = Math.floor(Date.parse(now) / 1000);
   const pre = localPrechecks(payload, requirements, nowSec);
@@ -275,7 +293,7 @@ export async function fundEscrowTask(db: DBAdapter, env: Bindings, target: FundT
 // ─── House-signed legs (release / refund) ───
 
 export type LegStart =
-  | { started: false; reason: 'no_row' | 'not_escrow' | 'not_funded' | 'wrong_status' | 'max_attempts' | 'escrow_unavailable' | 'wallet_mismatch' | 'payee_wallet_missing' | 'refund_address_missing' | 'self_send' | 'lost_race' }
+  | { started: false; reason: 'no_row' | 'not_escrow' | 'not_funded' | 'wrong_status' | 'max_attempts' | 'escrow_unavailable' | 'wallet_mismatch' | 'payee_wallet_missing' | 'payee_wallet_wrong_network' | 'refund_address_missing' | 'self_send' | 'lost_race' }
   | { started: true; settle: SettleResult };
 
 /**
@@ -318,12 +336,13 @@ export async function startEscrowLeg(
 
   let recipient: string | null;
   if (leg === 'release') {
-    const wallet = await delivererWallet(db, task.claimed_by_agent_id);
-    if (!wallet) {
-      console.warn(`[escrow] ${taskId}: cannot release — the deliverer has no wallet on record; the cron retries`);
-      return { started: false, reason: 'payee_wallet_missing' };
+    // Paid on the deposit's network: to a wallet bound there, or to a plain-key wallet's same address.
+    const payout = await payoutWallet(db, task.claimed_by_agent_id, task.bounty_network);
+    if (!payout.ok) {
+      console.warn(`[escrow] ${taskId}: cannot release on ${task.bounty_network} — ${payout.reason} (wallet on ${payout.walletNetwork ?? 'none'}); the cron retries`);
+      return { started: false, reason: payout.reason };
     }
-    recipient = wallet.address;
+    recipient = payout.address;
   } else {
     recipient = task.escrow_deposit_payer && ADDR_RE.test(task.escrow_deposit_payer) ? task.escrow_deposit_payer : null;
     if (!recipient) {

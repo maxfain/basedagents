@@ -197,6 +197,17 @@ describe('Escrow (Tasks P1)', () => {
       expect(pay.fund_endpoint).toBe(`POST /v1/tasks/${taskId}/fund`);
     });
 
+    it('a Polygon bounty is offered, deposited and held on Polygon only', async () => {
+      const body = { ...TASK_BODY, bounty: { ...TASK_BODY.bounty, network: 'eip155:137' } };
+      const { requirements, json } = await challenge(body);
+      expect((json.accepts as PaymentRequirementsV2[]).map((a) => a.network)).toEqual(['eip155:137']);
+      expect(requirements).toMatchObject({ network: 'eip155:137', asset: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', payTo: HOUSE_ADDR });
+      const { res, taskId } = await postFunded(body);
+      expect(res.status).toBe(200);
+      expect(await row(taskId)).toMatchObject({ bounty_network: 'eip155:137', escrow_status: 'funded' });
+      expect(facilitator.settleCalls[0].requirements.network).toBe('eip155:137');
+    });
+
     it('a deposit nonce is spent once: the same header again → 409 authorization_reused naming the task', async () => {
       const { requirements } = await challenge();
       const header = paymentHeaderFor(requirements);

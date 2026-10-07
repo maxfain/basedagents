@@ -40,7 +40,7 @@ export const TASK_RESOURCE_BASE = 'https://api.basedagents.ai/v1/tasks';
 
 // ─── Networks and assets (N12) ───
 
-export const NETWORKS = ['eip155:8453', 'eip155:84532'] as const;
+export const NETWORKS = ['eip155:8453', 'eip155:84532', 'eip155:137'] as const;
 export type Network = (typeof NETWORKS)[number];
 
 export function isNetwork(v: unknown): v is Network {
@@ -68,6 +68,13 @@ export const ASSETS: Record<Network, AssetInfo> = {
     asset: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
     chainId: 84532,
     defaultExtra: { name: 'USDC', version: '2' },
+  },
+  // Native (Circle-issued) USDC on Polygon PoS, not the bridged USDC.e. Domain read
+  // on-chain (name(), version(), DOMAIN_SEPARATOR() recomputed and matched).
+  'eip155:137': {
+    asset: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
+    chainId: 137,
+    defaultExtra: { name: 'USD Coin', version: '2' },
   },
 };
 
@@ -328,7 +335,8 @@ export function buildRequirements(
 /** The x402 v2 `PaymentRequired` envelope (402 body fields + PAYMENT-REQUIRED header). */
 export function buildPaymentRequired(
   task: { task_id: string },
-  requirements: PaymentRequirementsV2,
+  /** One offer, or several (the same price on different networks; the payer signs one). */
+  requirements: PaymentRequirementsV2 | PaymentRequirementsV2[],
   error?: string,
   /** Override the resource (the escrow deposit is paid to POST /v1/tasks or /fund, not /accept). */
   resource?: { url: string; description: string },
@@ -340,7 +348,7 @@ export function buildPaymentRequired(
       description: resource?.description ?? `BasedAgents task ${task.task_id} bounty`,
       mimeType: 'application/json',
     },
-    accepts: [requirements],
+    accepts: Array.isArray(requirements) ? requirements : [requirements],
   };
   if (error !== undefined) out.error = error;
   return out;

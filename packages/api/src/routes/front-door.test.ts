@@ -228,12 +228,14 @@ describe('GET /.well-known/x402 networks', () => {
   const discover = (env: Record<string, string>) =>
     worker.fetch(new Request(`${BASE}/.well-known/x402`), env as never, { waitUntil() {}, passThroughOnException() {} } as never);
 
-  it('production advertises only Base mainnet, matching the manifest', async () => {
+  it('production advertises the mainnets, Base first, matching the manifest', async () => {
     const res = await discover({ ENVIRONMENT: 'production' });
     expect(res.status).toBe(200);
     const body = await res.json() as { accepts: Array<{ network: string; asset: string }> };
-    expect(body.accepts.map((a) => a.network)).toEqual(['eip155:8453']);
-    expect(body.accepts[0].asset).toBe((buildDescriptor({ version: '0' }) as { payments: { contract: string } }).payments.contract);
+    expect(body.accepts.map((a) => a.network)).toEqual(['eip155:8453', 'eip155:137']);
+    const payments = (buildDescriptor({ version: '0' }) as { payments: { contract: string; networks: Array<{ network: string; contract: string }> } }).payments;
+    expect(body.accepts[0].asset).toBe(payments.contract);
+    expect(body.accepts.map((a) => [a.network, a.asset])).toEqual(payments.networks.map((n) => [n.network, n.contract]));
   });
 
   it('advertises the live minimum bounty for agent and console posters', async () => {
@@ -248,6 +250,6 @@ describe('GET /.well-known/x402 networks', () => {
 
   it('other environments also advertise Base Sepolia for testing', async () => {
     const body = await (await discover({ ENVIRONMENT: 'staging' })).json() as { accepts: Array<{ network: string }> };
-    expect(body.accepts.map((a) => a.network).sort()).toEqual(['eip155:8453', 'eip155:84532']);
+    expect(body.accepts.map((a) => a.network).sort()).toEqual(['eip155:137', 'eip155:8453', 'eip155:84532']);
   });
 });

@@ -32,7 +32,7 @@ import { generatePublicId } from '../lib/ids.js';
 import { captureServerEvent } from '../lib/posthog.js';
 import { paymentProviderFor } from '../payments/index.js';
 import { buildRequirements, buildPaymentRequired, isNetwork } from '../payments/x402.js';
-import { acceptBountyTask, delivererWallet } from '../payments/accept.js';
+import { acceptBountyTask, payoutWallet } from '../payments/accept.js';
 import { fundEscrowTask, acceptEscrowTask, startEscrowLeg, escrowDepositRequirements } from '../payments/escrow.js';
 import { claimBudget, slashBondForDisputedClaim } from '../tasks/governance.js';
 import { resolveOpenExpiry } from '../tasks/expiry.js';
@@ -130,7 +130,7 @@ tasks.post('/', agentAuth, async (c) => {
   if (bounty && !allowedBountyNetworks(c.env).includes(bounty.network)) {
     return c.json({
       error: 'bounty_network_not_allowed',
-      message: `Bounties on ${bounty.network} are not accepted here; use eip155:8453 (Base mainnet USDC).`,
+      message: `Bounties on ${bounty.network} are not accepted here; use eip155:8453 (Base) or eip155:137 (Polygon) mainnet USDC.`,
       network: bounty.network,
     }, 400);
   }
@@ -454,7 +454,7 @@ tasks.get('/:id/payment', async (c) => {
 
   let requirements: ReturnType<typeof buildRequirements> | null = null;
   let paymentRequired: ReturnType<typeof buildPaymentRequired> | null = null;
-  let unavailableReason: 'no_bounty' | 'unsupported_network' | 'not_claimed' | 'payee_wallet_missing' | 'escrow_held' | 'escrow_funding' | 'escrow_unavailable' | null = null;
+  let unavailableReason: 'no_bounty' | 'unsupported_network' | 'not_claimed' | 'payee_wallet_missing' | 'payee_wallet_wrong_network' | 'escrow_held' | 'escrow_funding' | 'escrow_unavailable' | null = null;
   if (!task.bounty_amount) unavailableReason = 'no_bounty';
   else if (!isNetwork(task.bounty_network)) unavailableReason = 'unsupported_network';
   else if (task.escrow) {
@@ -470,10 +470,10 @@ tasks.get('/:id/payment', async (c) => {
   }
   else if (!task.claimed_by_agent_id) unavailableReason = 'not_claimed';
   else {
-    const wallet = await delivererWallet(db, task.claimed_by_agent_id);
-    if (!wallet) unavailableReason = 'payee_wallet_missing';
+    const payout = await payoutWallet(db, task.claimed_by_agent_id, task.bounty_network);
+    if (!payout.ok) unavailableReason = payout.reason;
     else {
-      requirements = buildRequirements(task, wallet.address, c.env);
+      requirements = buildRequirements(task, payout.address, c.env);
       paymentRequired = buildPaymentRequired(task, requirements);
     }
   }
@@ -645,10 +645,15 @@ tasks.post('/:id/claim', agentAuth, async (c) => {
         },
       }, 409);
     }
-    if (wallet.wallet_network && wallet.wallet_network !== task.bounty_network) {
+    // On another network, only a plain-key wallet is paid (its address is the same on every
+    // EVM chain); a smart wallet must be bound on the bounty's network (payments/accept.ts).
+    const payout = await payoutWallet(db, agentId, task.bounty_network);
+    if (!payout.ok) {
       return c.json({
         error: 'wallet_network_mismatch',
-        message: `Your wallet is on ${wallet.wallet_network}; this bounty settles on ${task.bounty_network}.`,
+        message: `Your payout wallet is bound on ${wallet.wallet_network} and is not a verified plain key; this bounty settles on ${task.bounty_network}. Bind a wallet on ${task.bounty_network}, or bind a plain-key wallet with a signature (it is paid at the same address on every EVM chain).`,
+        network: task.bounty_network,
+        wallet_network: wallet.wallet_network,
       }, 409);
     }
   }
