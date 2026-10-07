@@ -581,7 +581,7 @@ export default function TaskDetail(): React.ReactElement {
                 <span>
                   A wallet ·{' '}
                   <a
-                    href={`${task.bounty_network === 'eip155:137' ? 'https://polygonscan.com' : `https://${task.bounty_network === 'eip155:84532' ? 'sepolia.' : ''}basescan.org`}/address/${creator.wallet}`}
+                    href={`${task.bounty_network === 'eip155:137' ? 'https://polygonscan.com' : task.bounty_network === 'eip155:5042' ? 'https://explorer.arc.io' : `https://${task.bounty_network === 'eip155:84532' ? 'sepolia.' : ''}basescan.org`}/address/${creator.wallet}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     title={creator.wallet}

@@ -19,38 +19,19 @@
  */
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { keccak_256 } from '@noble/hashes/sha3';
+import { addressFromPrivateKey, bytesToHex, concat, hexToBytes, parseHousePrivateKey, toChecksumAddress } from './evm.js';
 import type { Bindings } from '../types/index.js';
 import { paymentProviderFor, paymentsDisabledReason, type PaymentsEnv } from './index.js';
 import {
   assetFor, isNetwork, PaymentPayloadV2, type PaymentRequirementsV2, MAX_TIMEOUT_SECONDS, type X402Env,
 } from './x402.js';
 
+// The key parser and address helpers live in the leaf module evm.ts (shared with the Arc relay).
+export { addressFromPrivateKey, toChecksumAddress, parseHousePrivateKey, HouseKeyFormatError, sameAddress } from './evm.js';
+
 export type EscrowEnv = PaymentsEnv & Pick<Bindings, 'ESCROW_WALLET_PRIVATE_KEY' | 'TASK_ESCROW_ENABLED'> & X402Env;
 
-const PRIVATE_KEY_RE = /^(0x)?[0-9a-fA-F]{64}$/;
 const utf8 = new TextEncoder();
-
-// ─── Bytes / hex ───
-
-function hexToBytes(hex: string): Uint8Array {
-  const h = hex.startsWith('0x') ? hex.slice(2) : hex;
-  const out = new Uint8Array(h.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
-  return out;
-}
-
-function bytesToHex(bytes: Uint8Array): string {
-  let s = '';
-  for (const b of bytes) s += b.toString(16).padStart(2, '0');
-  return s;
-}
-
-function concat(...parts: Uint8Array[]): Uint8Array {
-  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-  let o = 0;
-  for (const p of parts) { out.set(p, o); o += p.length; }
-  return out;
-}
 
 /** A 32-byte ABI word: big-endian uint256 / left-padded address / bytes32. */
 function word(value: bigint | Uint8Array): Uint8Array {
@@ -65,28 +46,6 @@ function word(value: bigint | Uint8Array): Uint8Array {
   for (let i = 31; i >= 0; i--) { out[i] = Number(v & 0xffn); v >>= 8n; }
   if (v !== 0n) throw new Error('word: value does not fit in 256 bits');
   return out;
-}
-
-// ─── Addresses ───
-
-/** EIP-55 checksummed address of a 20-byte account. */
-export function toChecksumAddress(addr20: Uint8Array | string): `0x${string}` {
-  const lower = (typeof addr20 === 'string' ? addr20.replace(/^0x/, '') : bytesToHex(addr20)).toLowerCase();
-  if (lower.length !== 40) throw new Error('address must be 20 bytes');
-  const hash = bytesToHex(keccak_256(utf8.encode(lower)));
-  let out = '0x';
-  for (let i = 0; i < 40; i++) out += parseInt(hash[i], 16) >= 8 ? lower[i].toUpperCase() : lower[i];
-  return out as `0x${string}`;
-}
-
-/** The EVM address of a secp256k1 private key (keccak of the uncompressed public key, last 20 bytes). */
-export function addressFromPrivateKey(privateKey: Uint8Array): `0x${string}` {
-  const pub = secp256k1.getPublicKey(privateKey, false); // 0x04 ‖ x ‖ y
-  return toChecksumAddress(keccak_256(pub.slice(1)).slice(12));
-}
-
-export function sameAddress(a: string, b: string): boolean {
-  return a.toLowerCase() === b.toLowerCase();
 }
 
 // ─── EIP-712 TransferWithAuthorization (USDC / EIP-3009) ───
@@ -158,23 +117,6 @@ export interface HouseWallet {
    * apart. `validBefore = nowSec + 3600`.
    */
   signTransfer(requirements: PaymentRequirementsV2, nowSec: number, nonce?: string): PaymentPayloadV2;
-}
-
-export class HouseKeyFormatError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'HouseKeyFormatError';
-  }
-}
-
-/** Parse a 64-hex (optionally 0x-prefixed) secp256k1 private key; rejects zero / out-of-range keys. */
-export function parseHousePrivateKey(raw: string): Uint8Array {
-  if (typeof raw !== 'string' || raw.trim().length === 0) throw new HouseKeyFormatError('ESCROW_WALLET_PRIVATE_KEY is empty');
-  const trimmed = raw.trim();
-  if (!PRIVATE_KEY_RE.test(trimmed)) throw new HouseKeyFormatError('ESCROW_WALLET_PRIVATE_KEY must be 64 hex characters (32 bytes), optionally 0x-prefixed');
-  const bytes = hexToBytes(trimmed);
-  if (!secp256k1.utils.isValidPrivateKey(bytes)) throw new HouseKeyFormatError('ESCROW_WALLET_PRIVATE_KEY is not a valid secp256k1 private key');
-  return bytes;
 }
 
 /** Build a signer around a private key. The key is captured in a closure and never exposed. */

@@ -90,6 +90,7 @@ describe('basedagents wallet set', () => {
     expect(m![2]).toBe(WALLET_ADDR);
     expect(circleSignCommand(printed.message, WALLET_ADDR, 'eip155:84532')).toMatch(/--chain BASE-SEPOLIA$/);
     expect(circleSignCommand(printed.message, WALLET_ADDR, 'eip155:137')).toMatch(/--chain MATIC$/);
+    expect(circleSignCommand(printed.message, WALLET_ADDR, 'eip155:5042')).toMatch(/--chain ARC$/);
     expect(circleSignCommand(printed.message, WALLET_ADDR, 'eip155:1')).toBeNull();
     // Deploys the wallet (Circle won't sign before): a zero-amount transfer to itself. No --token:
     // Circle's CLI takes a contract address there and rejects "usdc" (404 "Cannot find target token").

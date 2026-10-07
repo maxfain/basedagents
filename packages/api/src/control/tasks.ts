@@ -34,7 +34,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../types/index.js';
-import { CreateTaskSchema, allowedBountyNetworks, RatingFields, withRatingRule, ratingInputOf, isRatingIssue, RATING_RULE_MESSAGE } from '../types/index.js';
+import { CreateTaskSchema, fundableBountyNetworks, describeBountyNetworks, ARC_NETWORK, RatingFields, withRatingRule, ratingInputOf, isRatingIssue, RATING_RULE_MESSAGE } from '../types/index.js';
 import type { DBAdapter } from '../db/adapter.js';
 import { ownerSession, verifyAndRecordAction, AssertionSchema } from './routes.js';
 import { canonicalJsonStringify, sha256, bytesToHex } from '../crypto/index.js';
@@ -202,6 +202,10 @@ app.post('/tasks', ownerSession, async (c) => {
   if (rawHeader && !wantsEscrow) {
     return err(c, 400, 'payment_not_expected', 'This task does not use escrow: the bounty is paid when you accept the delivery. Omit the payment header.');
   }
+  // An Arc payment that isn't a deposit would be settled by Circle straight to the agent.
+  if (parsed.data.bounty?.network === ARC_NETWORK && !wantsEscrow) {
+    return err(c, 400, 'escrow_required', 'Bounties on Arc are always escrowed: post without "escrow": false (escrow must be available on this registry).', { network: ARC_NETWORK });
+  }
   // D3: a bounty has a floor. Checked before the escrow challenge below, so the
   // browser wallet is never asked to sign a deposit the post would then refuse.
   const belowMinimum = parsed.data.bounty ? bountyMinimumRefusal(c.env, 'human', parsed.data.bounty.amount) : null;
@@ -246,8 +250,9 @@ app.post('/tasks', ownerSession, async (c) => {
   }
   // Production settles real money: reject a bounty on a network this environment
   // won't pay (testnet USDC is staging/dev only) — before any escrow deposit.
-  if (bounty && !allowedBountyNetworks(c.env).includes(bounty.network)) {
-    return err(c, 400, 'bounty_network_not_allowed', `Bounties on ${bounty.network} are not accepted here; use eip155:8453 (Base) or eip155:137 (Polygon) mainnet USDC.`, { network: bounty.network });
+  const fundable = fundableBountyNetworks(c.env);
+  if (bounty && !fundable.includes(bounty.network)) {
+    return err(c, 400, 'bounty_network_not_allowed', `Bounties on ${bounty.network} are not accepted here; use ${describeBountyNetworks(fundable)} USDC.`, { network: bounty.network });
   }
   // The signed action folds a hash of exactly the RAW fields the client posted
   // (not the zod-parsed output) — matching the board-post precedent and keeping

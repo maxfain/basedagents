@@ -11,8 +11,10 @@ import {
 } from '../test-helpers.js';
 import type { SQLiteAdapter } from '../db/sqlite-adapter.js';
 import {
-  enablePaymentsForTests, resetPaymentsForTests, paymentHeaderFor, paymentPayloadFor, TEST_WALLET, TEST_TX, type FakeFacilitator,
+  enablePaymentsForTests, resetPaymentsForTests, paymentHeaderFor, paymentPayloadFor, fakeFacilitator, FakeArcNode, TEST_WALLET, TEST_TX, type FakeFacilitator,
 } from '../payments/test-fixtures.js';
+import { setPaymentProviderForTests } from '../payments/index.js';
+import { ArcFacilitator, ArcRelay, ArcRpc, NetworkRouter } from '../payments/arc.js';
 import { encodeB64Json, type PaymentRequirementsV2 } from '../payments/x402.js';
 import { houseWalletFromPrivateKey, parseHousePrivateKey, setHouseWalletForTests, addressFromPrivateKey } from '../payments/house-wallet.js';
 import { parseActionMessage } from '../wallets/action.js';
@@ -461,6 +463,85 @@ describe('Wallet-only hiring over x402 (/v1/x402/tasks)', () => {
     expect(await accept.json()).toMatchObject({ status: 'verified', release_deferred: 'payee_wallet_wrong_network' });
     expect((await row(taskId)).escrow_status).toBe('funded');
     expect(facilitator.settleCalls.length).toBe(settlesBefore);
+  });
+
+  // ─── Arc: deposits through Circle, payouts sent by the escrow wallet ───
+
+  /**
+   * Production with Circle configured. CDP stays the fake; Arc's facilitator is the real
+   * router: a fake Circle for deposits and the relay against a fake Arc node for payouts.
+   */
+  function useArc(): { node: FakeArcNode; circle: FakeFacilitator } {
+    const node = new FakeArcNode();
+    const circle = fakeFacilitator({ verify: [{ kind: 'valid', payer: BUYER }], settle: [{ kind: 'settled', transaction: TEST_TX, network: 'eip155:5042', payer: BUYER }] });
+    const relay = new ArcRelay({ privateKey: parseHousePrivateKey('0x' + TEST_WALLET_KEYS.a), rpc: new ArcRpc(['https://rpc.mainnet.arc.io'], node.fetch()), sleep: async () => {} });
+    setPaymentProviderForTests(new NetworkRouter(facilitator, { 'eip155:5042': new ArcFacilitator(circle, relay) }));
+    app = createTestApp(db, { ...ENV, ENVIRONMENT: 'production', CIRCLE_API_KEY: 'LIVE_API_KEY:x:y' });
+    return { node, circle };
+  }
+  /** The transferWithAuthorization the relay broadcast: [from, to, value]. */
+  const sentTransfer = (raw: string) => {
+    const at = raw.indexOf('e3ee160e') + 8;
+    return [raw.slice(at + 24, at + 64), raw.slice(at + 64 + 24, at + 128), BigInt('0x' + raw.slice(at + 128, at + 192))];
+  };
+
+  it('Arc is offered once Circle is configured: Base, Polygon, then Arc', async () => {
+    useArc();
+    const json = await (await post('/v1/x402/tasks/usd-1')).json() as Json;
+    expect(json.accepts.map((o: Json) => o.network)).toEqual(['eip155:8453', 'eip155:137', 'eip155:5042']);
+    expect(json.accepts[2]).toMatchObject({
+      asset: '0x3600000000000000000000000000000000000000', payTo: house.address, amount: '1000000',
+      extra: { name: 'USDC', version: '2', assetTransferMethod: 'eip3009' },
+    });
+  });
+
+  it('without the Circle key, Arc is refused before any payment', async () => {
+    const json = await (await post('/v1/x402/tasks/usd-5', { ...BRIEF, network: 'eip155:5042' })).json() as Json;
+    expect(json).toMatchObject({ error: 'bounty_network_not_allowed', network: 'eip155:5042' });
+    expect(json.message).not.toContain('eip155:5042 (Arc)');
+    expect(facilitator.verifyCalls).toEqual([]);
+  });
+
+  it('an Arc hire deposits through Circle and is paid out by the escrow wallet on Arc', async () => {
+    const { node, circle } = useArc();
+    await bindClaimer('eip155:8453');
+    const { res, json, taskId, token } = await hire('/v1/x402/tasks/usd-5', BRIEF, 'eip155:5042');
+    expect(res.status).toBe(200);
+    expect(json.bounty).toMatchObject({ network: 'eip155:5042', amount_display: '5.00' });
+    expect(json.escrow).toMatchObject({ status: 'funded', deposit_tx_hash: TEST_TX });
+    expect(circle.settleCalls[0].requirements).toMatchObject({ network: 'eip155:5042', payTo: house.address });
+
+    await claimAndDeliver(taskId);
+    const accept = await post(`/v1/x402/tasks/${taskId}/accept`, {}, bearer(token));
+    expect(accept.status).toBe(200);
+    const after = await row(taskId);
+    expect(after.escrow_status).toBe('released');
+    // The release is the escrow wallet's own transaction on Arc, to the deliverer's plain key.
+    expect(node.sent).toHaveLength(1);
+    expect(sentTransfer(node.sent[0])).toEqual([house.address.slice(2).toLowerCase(), DELIVERER.slice(2).toLowerCase(), 5_000_000n]);
+    expect(after.escrow_release_tx_hash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(after.escrow_release_tx_hash).not.toBe(TEST_TX);
+    // Circle saw the deposit only; CDP saw nothing.
+    expect(circle.settleCalls).toHaveLength(1);
+    expect(facilitator.verifyCalls).toEqual([]);
+    expect(facilitator.settleCalls).toEqual([]);
+  });
+
+  it('cancelling an Arc task refunds the paying wallet from the escrow wallet on Arc', async () => {
+    const { node, circle } = useArc();
+    const { taskId, token } = await hire('/v1/x402/tasks/usd-1', BRIEF, 'eip155:5042');
+    const cancel = await post(`/v1/x402/tasks/${taskId}/cancel`, {}, bearer(token));
+    expect(cancel.status).toBe(200);
+    expect((await row(taskId)).escrow_status).toBe('refunded');
+    expect(sentTransfer(node.sent[0])).toEqual([house.address.slice(2).toLowerCase(), BUYER.slice(2).toLowerCase(), 1_000_000n]);
+    expect(circle.settleCalls).toHaveLength(1);
+  });
+
+  it('an agent cannot post an Arc bounty outside escrow', async () => {
+    useArc();
+    const res = await signedPost(claimer, '/v1/tasks', { ...BRIEF, bounty: { amount: '1000000', network: 'eip155:5042' }, escrow: false });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: 'escrow_required', network: 'eip155:5042' });
   });
 
   // ─── Wallet identity: list and attach ───

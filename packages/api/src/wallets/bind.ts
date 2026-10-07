@@ -20,8 +20,8 @@
  * is accepted for BIND_MAX_AGE_MS after `Issued` and each nonce once per agent.
  *
  * Verification: an EOA signature is recovered with secp256k1 (no network).
- * Otherwise, on Base (eip155:8453 / 84532) or Polygon (eip155:137), over JSON-RPC
- * (BASE_RPC_URL / BASE_SEPOLIA_RPC_URL / POLYGON_RPC_URL first, then public endpoints), the ERC-6492 reference validator runs
+ * Otherwise, on Base (eip155:8453 / 84532), Polygon (eip155:137) or Arc (eip155:5042), over JSON-RPC
+ * (BASE_RPC_URL / BASE_SEPOLIA_RPC_URL / POLYGON_RPC_URL / ARC_RPC_URL first, then public endpoints), the ERC-6492 reference validator runs
  * as one deployless eth_call, pinned to the freshest block the nodes report:
  *  - a deployed smart-contract wallet is asked through ERC-1271 isValidSignature;
  *  - a signature wrapped per ERC-6492 (a smart wallet not deployed yet, such as
@@ -30,7 +30,7 @@
  */
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { keccak_256 } from '@noble/hashes/sha3';
-import { toChecksumAddress, sameAddress } from '../payments/house-wallet.js';
+import { toChecksumAddress, sameAddress } from '../payments/evm.js';
 
 export const BIND_TITLE = 'BasedAgents payout wallet';
 export const BIND_FOOTER = "Signing proves you control this wallet and lets BasedAgents pay this agent's bounties to it. It moves no funds.";
@@ -151,6 +151,8 @@ const RPC_DEFAULTS: Record<string, { env: string; urls: string[] }> = {
   'eip155:84532': { env: 'BASE_SEPOLIA_RPC_URL', urls: ['https://sepolia.base.org', 'https://base-sepolia-rpc.publicnode.com', 'https://base-sepolia.drpc.org'] },
   // polygon-rpc.com now requires a key, so it is not a default.
   'eip155:137': { env: 'POLYGON_RPC_URL', urls: ['https://polygon-bor-rpc.publicnode.com', 'https://polygon.drpc.org'] },
+  // Arc's own node, then the providers Arc's docs list (each checked as above).
+  'eip155:5042': { env: 'ARC_RPC_URL', urls: ['https://rpc.mainnet.arc.io', 'https://rpc.drpc.mainnet.arc.io', 'https://rpc.quicknode.mainnet.arc.io', 'https://rpc.blockdaemon.mainnet.arc.io'] },
 };
 
 /** The endpoints to try for a chain: the configured ones first, then the public defaults. */

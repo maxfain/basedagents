@@ -14,6 +14,7 @@ import {
   type PaymentsEnv,
 } from './index.js';
 import { CdpFacilitator } from './cdp-facilitator.js';
+import { ArcFacilitator, NetworkRouter } from './arc.js';
 import { bytesToBase64, buildRequirements, PaymentPayloadV2 } from './x402.js';
 
 const seed = utils.randomPrivateKey();
@@ -46,11 +47,15 @@ afterEach(() => {
 });
 
 describe('paymentProviderFor', () => {
-  it('returns a CdpFacilitator when every piece is valid, memoised per config', () => {
+  it('returns a network router over CDP when every piece is valid, memoised per config', () => {
     const p = paymentProviderFor(VALID);
-    expect(p).toBeInstanceOf(CdpFacilitator);
+    expect(p).toBeInstanceOf(NetworkRouter);
+    expect((p as NetworkRouter).fallback).toBeInstanceOf(CdpFacilitator);
+    expect((p as NetworkRouter).routes['eip155:5042']).toBeInstanceOf(ArcFacilitator);
     expect(paymentProviderFor({ ...VALID })).toBe(p);
     expect(paymentProviderFor({ ...VALID, X402_FACILITATOR_URL: 'https://staging.example.com/x402' })).not.toBe(p);
+    // The Arc pieces are part of the config too.
+    expect(paymentProviderFor({ ...VALID, CIRCLE_API_KEY: 'k' })).not.toBe(p);
     expect(paymentsDisabledReason(VALID)).toBeNull();
     expect(console.log).not.toHaveBeenCalled();
     expect(console.error).not.toHaveBeenCalled();
@@ -126,6 +131,30 @@ describe('paymentProviderFor', () => {
     await prod.verify(payload, req);
     expect(seen).toEqual(['https://staging.example.com/x402/verify', 'https://api.cdp.coinbase.com/platform/v2/x402/verify']);
   });
+
+  it('sends an Arc deposit to Circle with the API key, and Base to CDP', async () => {
+    const seen: Array<{ url: string; auth: string | null }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      seen.push({ url: String(url), auth: new Headers(init?.headers).get('Authorization') });
+      return new Response(JSON.stringify({ isValid: true, payer: '0x' + '2'.repeat(40) }), { status: 200 });
+    }));
+    const paymentFor = (network: 'eip155:5042' | 'eip155:8453') => {
+      const req = buildRequirements({ task_id: 't', bounty_amount: '1', bounty_network: network }, '0x' + '1'.repeat(40));
+      return [PaymentPayloadV2.parse({
+        x402Version: 2, accepted: req,
+        payload: { signature: '0x' + 'ab'.repeat(65), authorization: { from: '0x' + '2'.repeat(40), to: '0x' + '1'.repeat(40), value: '1', validAfter: '0', validBefore: '1', nonce: '0x' + '0'.repeat(64) } },
+      }), req] as const;
+    };
+    // No Circle key: Arc deposits are off, and nothing is sent anywhere.
+    expect(await paymentProviderFor(VALID)!.verify(...paymentFor('eip155:5042'))).toMatchObject({ kind: 'unavailable', cause: 'auth' });
+    expect(seen).toEqual([]);
+    const withCircle = paymentProviderFor({ ...VALID, CIRCLE_API_KEY: 'LIVE_API_KEY:abc:def' })!;
+    expect(await withCircle.verify(...paymentFor('eip155:5042'))).toMatchObject({ kind: 'valid' });
+    await withCircle.verify(...paymentFor('eip155:8453'));
+    expect(seen[0]).toEqual({ url: 'https://api.circle.com/v1/facilitator/x402/verify', auth: 'Bearer LIVE_API_KEY:abc:def' });
+    expect(seen[1].url).toBe('https://api.cdp.coinbase.com/platform/v2/x402/verify');
+    expect(seen[1].auth).not.toContain('LIVE_API_KEY');
+  });
 });
 
 describe('setPaymentProviderForTests', () => {
@@ -151,7 +180,7 @@ describe('setPaymentProviderForTests', () => {
     setPaymentProviderForTests(fake);
     expect(paymentProviderFor(undefined)).toBe(fake);
     setPaymentProviderForTests(undefined);
-    expect(paymentProviderFor(VALID)).toBeInstanceOf(CdpFacilitator);
+    expect(paymentProviderFor(VALID)).toBeInstanceOf(NetworkRouter);
     expect(paymentProviderFor(undefined)).toBeNull();
     expect(console.log).toHaveBeenCalledTimes(2);
   });

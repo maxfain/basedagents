@@ -9,7 +9,7 @@ import { setupTestDb, createTestAgent, type TestKeypair } from '../test-helpers.
 import type { SQLiteAdapter } from '../db/sqlite-adapter.js';
 import type { Bindings } from '../types/index.js';
 import type { SettleOutcome } from './cdp-facilitator.js';
-import { settleTask, applySettleOutcome, settleBackoffMs, type SettleTrigger } from './settle.js';
+import { settleTask, applySettleOutcome, settleBackoffMs, wireSettleResponse, type SettleTrigger } from './settle.js';
 import { drainOutbox } from '../events/service.js';
 import { setPaymentProviderForTests } from './index.js';
 import { encryptPaymentSignature } from './crypto.js';
@@ -275,6 +275,18 @@ describe('payments/settle.ts', () => {
       expect(await chainEntries()).toEqual([]);
       expect(await funnelRows()).toEqual([]);
       expect(webhookEvents()).toEqual([]);
+    });
+
+    it("{kind:'pending'} without a tx (Circle) keeps the tx an earlier attempt recorded", async () => {
+      const outcome: SettleOutcome = { kind: 'pending' };
+      const { result, row: r, events: ev } = await runWith(outcome, {
+        payment_status: 'settling', payment_tx_hash: PRIOR_TX, settle_attempts: 1, settle_broadcast: 1, settle_next_at: NOW,
+      });
+      expect(result).toEqual({ skipped: false, payment_status: 'settling', tx_hash: PRIOR_TX, error: 'settlement_pending', facilitator: outcome });
+      expect(r).toMatchObject({ payment_status: 'settling', payment_tx_hash: PRIOR_TX, last_settle_class: 'pending' });
+      expectNear(r.settle_next_at, isoPlus(NOW, 2 * 60_000));
+      expect(ev[0].details).toEqual({ transaction: null, trigger: 'accept' });
+      expect(wireSettleResponse(outcome, 'eip155:5042')).toEqual({ success: false, errorReason: 'settlement_pending', transaction: '', network: 'eip155:5042' });
     });
 
     it('rejected duplicate_settlement → settled (inferred) with the reported tx', async () => {

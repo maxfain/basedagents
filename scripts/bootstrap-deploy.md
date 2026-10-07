@@ -142,6 +142,17 @@ printf '%s' "$PAYMENT_ENCRYPTION_KEY" | npx wrangler secret put PAYMENT_ENCRYPTI
    wallet address; `TASK_ESCROW_ENABLED = "0"` pauses new deposits without
    stopping releases and refunds. Monitor the wallet's USDC balance against
    the sum of `funded` deposits and any `escrow_stuck` in the cron logs.
+8. **Arc (optional).** Bounties on Arc (`eip155:5042`) need escrow (step 7)
+   and a Circle API key: [Circle Console](https://console.circle.com) → API
+   keys, then `printf '%s' "$CIRCLE_API_KEY" | npx wrangler secret put CIRCLE_API_KEY`.
+   Deposits settle through Circle's Facilitator Service (the first settle
+   binds the escrow wallet to that Circle account); payouts and refunds are
+   sent by the escrow wallet itself, which pays the gas in USDC on Arc. Send
+   the escrow wallet about 1 USDC on Arc first: that float covers ~500
+   payouts, and a payout it can't cover answers `insufficient_funds`. Then
+   `GET /.well-known/x402` lists `eip155:5042`. Check it with one real 1 USDC
+   hire paid on Arc, cancelled (→ `refunded`). Optional: `ARC_RPC_URL`
+   (tried before Arc's public nodes) and `CIRCLE_FACILITATOR_URL`.
 
 Turning payments off again is safe at any time: accepted tasks keep their
 status and their `payment_status` simply stops advancing.

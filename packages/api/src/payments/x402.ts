@@ -40,7 +40,7 @@ export const TASK_RESOURCE_BASE = 'https://api.basedagents.ai/v1/tasks';
 
 // ─── Networks and assets (N12) ───
 
-export const NETWORKS = ['eip155:8453', 'eip155:84532', 'eip155:137'] as const;
+export const NETWORKS = ['eip155:8453', 'eip155:84532', 'eip155:137', 'eip155:5042'] as const;
 export type Network = (typeof NETWORKS)[number];
 
 export function isNetwork(v: unknown): v is Network {
@@ -50,8 +50,11 @@ export function isNetwork(v: unknown): v is Network {
 export interface AssetInfo {
   asset: `0x${string}`;
   chainId: number;
-  /** EIP-712 domain (name, version) of the USDC contract on that chain. */
-  defaultExtra: { name: string; version: string };
+  /**
+   * EIP-712 domain (name, version) of the USDC contract on that chain, plus the
+   * transfer method where the facilitator asks for it (Circle's, on Arc).
+   */
+  defaultExtra: { name: string; version: string; assetTransferMethod?: 'eip3009' };
 }
 
 export const ASSETS: Record<Network, AssetInfo> = {
@@ -76,6 +79,15 @@ export const ASSETS: Record<Network, AssetInfo> = {
     chainId: 137,
     defaultExtra: { name: 'USD Coin', version: '2' },
   },
+  // USDC on Arc mainnet: the ERC-20 interface of Arc's native gas token (6 decimals;
+  // the native balance uses 18). Domain read on-chain (name() "USDC", version() "2",
+  // DOMAIN_SEPARATOR() recomputed and matched). Settled by Circle's Facilitator
+  // Service, which expects `assetTransferMethod` in `extra`.
+  'eip155:5042': {
+    asset: '0x3600000000000000000000000000000000000000',
+    chainId: 5042,
+    defaultExtra: { name: 'USDC', version: '2', assetTransferMethod: 'eip3009' },
+  },
 };
 
 export type X402Env = Pick<Bindings, 'X402_EIP712_NAME' | 'X402_EIP712_VERSION'>;
@@ -87,7 +99,7 @@ export type X402Env = Pick<Bindings, 'X402_EIP712_NAME' | 'X402_EIP712_VERSION'>
 export function assetFor(
   network: Network,
   env?: X402Env | null,
-): { asset: `0x${string}`; extra: { name: string; version: string } } {
+): { asset: `0x${string}`; extra: AssetInfo['defaultExtra'] } {
   const info = ASSETS[network];
   if (!info) throw new Error(`unsupported network: ${String(network)}`);
   let { name, version } = info.defaultExtra;
@@ -95,7 +107,7 @@ export function assetFor(
     if (env?.X402_EIP712_NAME) name = env.X402_EIP712_NAME;
     if (env?.X402_EIP712_VERSION) version = env.X402_EIP712_VERSION;
   }
-  return { asset: info.asset, extra: { name, version } };
+  return { asset: info.asset, extra: { ...info.defaultExtra, name, version } };
 }
 
 // ─── Zod schemas (spec Step 5) ───

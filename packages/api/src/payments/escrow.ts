@@ -22,7 +22,7 @@
  */
 import type { DBAdapter } from '../db/adapter.js';
 import type { Bindings } from '../types/index.js';
-import { allowedBountyNetworks } from '../types/index.js';
+import { fundableBountyNetworks } from '../types/index.js';
 import type { Actor, TaskRow, EscrowLeg } from '../tasks/service.js';
 import {
   loadTask, logPaymentEvent, recordFunnel, bountyView, escrowView, acceptUnpaidGate, afterAccept, type BountyView,
@@ -123,10 +123,11 @@ export async function fundEscrowTask(db: DBAdapter, env: Bindings, target: FundT
     if (!bounty.amount || !isNetwork(network)) {
       return { status: 409, body: { error: 'bounty_unsupported_network', message: `This bounty is on ${network || 'an unknown network'}, which cannot be settled.`, network } };
     }
-    // Defense-in-depth: production takes escrow deposits in mainnet USDC only; a
-    // testnet deposit is refused before any house-wallet custody begins.
-    if (!allowedBountyNetworks(env).includes(network)) {
-      return { status: 409, body: { error: 'bounty_network_not_allowed', message: `This bounty is on ${network}, which is not settled in this environment.`, network } };
+    // Defense-in-depth: production takes escrow deposits in mainnet USDC only (a
+    // testnet deposit is refused before any house-wallet custody begins), and Arc
+    // deposits only while Circle's facilitator is configured.
+    if (!fundableBountyNetworks(env).includes(network)) {
+      return { status: 409, body: { error: 'bounty_network_not_allowed', message: `This bounty is on ${network}, which does not take deposits in this environment.`, network } };
     }
   }
   let bountyOut = bountyView({ bounty_amount: bounty.amount, bounty_token: bounty.token, bounty_network: bounty.network }) as BountyView;

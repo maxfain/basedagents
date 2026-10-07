@@ -48,6 +48,7 @@ export const ALLOWED_WALLET_NETWORKS_CONST = [
   'eip155:137',     // Polygon
   'eip155:42161',   // Arbitrum One
   'eip155:10',      // Optimism
+  'eip155:5042',    // Arc
   'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',  // Solana mainnet
 ] as const;
 
@@ -108,9 +109,10 @@ export const VerifySubmitSchema = z.object({
  * A bounty as declared at task creation (Tasks P0, N1). `amount` is a string
  * of ATOMIC USDC units ("5000000" = 5.00 USDC) capped at 1,000 USDC; SDK/CLI/
  * MCP convert human decimals at the edge. USDC on Base (mainnet or Sepolia) or
- * Polygon PoS, the networks the CDP facilitator settles with EIP-3009.
+ * Polygon PoS, the networks the CDP facilitator settles with EIP-3009, or on Arc,
+ * where Circle's Facilitator Service settles deposits (escrow only).
  */
-export const BOUNTY_NETWORKS = ['eip155:8453', 'eip155:84532', 'eip155:137'] as const;
+export const BOUNTY_NETWORKS = ['eip155:8453', 'eip155:84532', 'eip155:137', 'eip155:5042'] as const;
 export const BountySchema = z.object({
   amount: z.string().regex(/^[1-9][0-9]{0,9}$/, 'atomic USDC units, digits only')
     // The regex issue is still collected when this runs, so guard the BigInt.
@@ -122,7 +124,14 @@ export const BountySchema = z.object({
 export type Bounty = z.infer<typeof BountySchema>;
 
 /** The bounty networks that settle real money, in the order a 402 offers them (Base first). */
-export const MAINNET_BOUNTY_NETWORKS: readonly string[] = ['eip155:8453', 'eip155:137'];
+export const MAINNET_BOUNTY_NETWORKS: readonly string[] = ['eip155:8453', 'eip155:137', 'eip155:5042'];
+
+/**
+ * Arc mainnet. Its deposits settle through Circle's Facilitator Service (not CDP), and
+ * its payouts and refunds are sent by the escrow wallet itself, so an Arc bounty is
+ * always escrowed: sign-at-accept would make Circle settle straight to the agent.
+ */
+export const ARC_NETWORK = 'eip155:5042';
 
 /**
  * Bounty networks accepted in THIS environment. Production settles real money
@@ -134,6 +143,32 @@ export const MAINNET_BOUNTY_NETWORKS: readonly string[] = ['eip155:8453', 'eip15
  */
 export function allowedBountyNetworks(env: { ENVIRONMENT?: string } | undefined | null): readonly string[] {
   return env?.ENVIRONMENT === 'production' ? MAINNET_BOUNTY_NETWORKS : BOUNTY_NETWORKS;
+}
+
+/** Human names for the bounty networks, for error messages. */
+export const BOUNTY_NETWORK_NAMES: Readonly<Record<string, string>> = {
+  'eip155:8453': 'Base', 'eip155:84532': 'Base Sepolia', 'eip155:137': 'Polygon', 'eip155:5042': 'Arc',
+};
+
+/** "eip155:8453 (Base), eip155:137 (Polygon) or eip155:5042 (Arc)". */
+export function describeBountyNetworks(networks: readonly string[]): string {
+  const named = networks.map((n) => `${n} (${BOUNTY_NETWORK_NAMES[n] ?? n})`);
+  return named.length > 1 ? `${named.slice(0, -1).join(', ')} or ${named[named.length - 1]}` : (named[0] ?? 'none');
+}
+
+const WITHOUT_ARC = {
+  mainnet: MAINNET_BOUNTY_NETWORKS.filter((n) => n !== ARC_NETWORK),
+  all: BOUNTY_NETWORKS.filter((n) => n !== ARC_NETWORK),
+};
+
+/**
+ * Bounty networks a NEW deposit can be paid on here: the allowed networks, less Arc
+ * while CIRCLE_API_KEY is unset (no facilitator would settle the deposit). Existing
+ * Arc tasks stay visible and payable through allowedBountyNetworks.
+ */
+export function fundableBountyNetworks(env: { ENVIRONMENT?: string; CIRCLE_API_KEY?: string } | undefined | null): readonly string[] {
+  if (env?.CIRCLE_API_KEY) return allowedBountyNetworks(env);
+  return env?.ENVIRONMENT === 'production' ? WITHOUT_ARC.mainnet : WITHOUT_ARC.all;
 }
 
 /**
@@ -548,6 +583,13 @@ export type Bindings = {
   // (existing deposits are still released/refunded).
   ESCROW_WALLET_PRIVATE_KEY?: string;
   TASK_ESCROW_ENABLED?: string;
+  // Arc (eip155:5042). Deposits settle through Circle's Facilitator Service, so new
+  // Arc bounties are offered only while CIRCLE_API_KEY is set; payouts and refunds are
+  // broadcast by the escrow wallet itself through ARC_RPC_URL (one URL or a
+  // comma-separated list, then the public nodes) and need no Circle key.
+  CIRCLE_API_KEY?: string;         // Circle API key (Bearer) for Facilitator Service
+  CIRCLE_FACILITATOR_URL?: string; // override https://api.circle.com/v1/facilitator/x402
+  ARC_RPC_URL?: string;
   GITHUB_TOKEN?: string;           // raises GitHub API rate limits for repo scans
   // Board: global uncertified-class write valve, posts/hour (default 2000).
   // The emergency dial for a PoW-identity spam wave — see routes/board.ts.

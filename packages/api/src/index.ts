@@ -3,7 +3,7 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { etag } from 'hono/etag';
 import type { AppEnv } from './types/index.js';
-import { allowedBountyNetworks } from './types/index.js';
+import { fundableBountyNetworks } from './types/index.js';
 import { D1Adapter } from './db/d1-adapter.js';
 import type { DBAdapter } from './db/adapter.js';
 import { checkRateLimit } from './lib/rate-limiter.js';
@@ -372,8 +372,9 @@ app.get('/.well-known/x402', (c) => {
       wallet: house?.address ?? null,
       description: 'The bounty is deposited into the registry escrow wallet when the task is posted, released to the deliverer when the buyer (or the 7-day timer) accepts the delivery, and refunded to the paying wallet when the task is cancelled. Opt out per task with "escrow": false.',
     },
-    // Only the networks a bounty can use here: production is Base mainnet only (Sepolia is test-only).
-    accepts: (Object.keys(ASSETS) as Array<keyof typeof ASSETS>).filter((network) => allowedBountyNetworks(c.env).includes(network)).map((network) => ({
+    // Only the networks a new bounty can be paid on here: mainnets in production (Sepolia is
+    // test-only), Arc while Circle's facilitator is configured. Base first.
+    accepts: fundableBountyNetworks(c.env).filter((network): network is keyof typeof ASSETS => network in ASSETS).map((network) => ({
       scheme: 'exact',
       network,
       asset: ASSETS[network].asset,
