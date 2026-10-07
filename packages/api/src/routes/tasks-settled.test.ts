@@ -166,6 +166,17 @@ describe('GET /v1/tasks/settled — the spec fixture', () => {
 });
 
 describe('GET /v1/tasks/settled — exclusions', () => {
+  it('counts a Polygon settlement as paid and links it to Polygonscan', async () => {
+    await seedSettled({ task_id: 'task_base', title: 'Base' });
+    await seedSettled({ task_id: 'task_polygon', title: 'Polygon', bounty_network: 'eip155:137', bounty_amount: '2000000', payment_tx_hash: TX(9), settled_at: '2026-09-21T12:00:00.000Z' });
+    const { body } = await get('/v1/tasks/settled');
+    const polygon = body.tasks.find((t: { task_id: string }) => t.task_id === 'task_polygon')!;
+    expect(polygon.explorer_url).toBe(`https://polygonscan.com/tx/${TX(9)}`);
+    expect(polygon.bounty.network).toBe('eip155:137');
+    expect(body.stats.tasks_paid_all_time).toBe(2);
+    expect(body.stats.usdc_paid_all_time).toBe('3.00');
+  });
+
   it('never shows testnet, refunded, unsettled or no-bounty tasks, in the feed or the stats', async () => {
     await seedSettled({ task_id: 'task_real', title: 'Real' });
     await seedSettled({ task_id: 'task_testnet', bounty_network: 'eip155:84532' });
@@ -310,6 +321,7 @@ describe('settled helpers', () => {
   it('explorer URLs come from the network map, only for well-formed hashes', () => {
     expect(explorerTxUrl('eip155:8453', TX(7))).toBe(`https://basescan.org/tx/${TX(7)}`);
     expect(explorerTxUrl('eip155:84532', TX(7))).toBe(`https://sepolia.basescan.org/tx/${TX(7)}`);
+    expect(explorerTxUrl('eip155:137', TX(7))).toBe(`https://polygonscan.com/tx/${TX(7)}`);
     expect(explorerTxUrl('eip155:1', TX(7))).toBeNull();
     expect(explorerTxUrl('eip155:8453', '0x123')).toBeNull();
   });

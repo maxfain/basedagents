@@ -390,7 +390,24 @@ async function quote(c: Ctx, db: DBAdapter, tier: string | null, amount: string,
 }
 
 app.post('/', (c) => hire(c, null));
-for (const tier of Object.keys(X402_TIERS)) app.post(`/${tier}`, (c) => hire(c, tier));
+for (const tier of Object.keys(X402_TIERS)) {
+  app.post(`/${tier}`, (c) => hire(c, tier));
+  // A GET (a CLI inspect, a directory's health check) gets the same price quote; it never pays.
+  app.get(`/${tier}`, (c) => quoteByGet(c, tier));
+}
+
+/** GET on a tier: the 402 quote. A payment sent with a GET is refused unused: hiring is a POST with a body. */
+async function quoteByGet(c: Ctx, tier: string): Promise<Response> {
+  if (paymentHeader(c)) {
+    c.header('Allow', 'POST');
+    return c.json({ error: 'method_not_allowed', message: `Hire with POST {title, description}; a GET only quotes the price. Your payment was not used.` }, 405);
+  }
+  const belowMinimum = bountyMinimumRefusal(c.env, 'a2a', X402_TIERS[tier]);
+  if (belowMinimum) {
+    return c.json({ ...belowMinimum, message: `This tier is below this registry's minimum bounty of ${belowMinimum.minimum_usdc} USDC.` }, 400);
+  }
+  return quote(c, c.get('db'), tier, X402_TIERS[tier], allowedBountyNetworks(c.env));
+}
 
 // ─── Manage: the manage token or the paying wallet's signature ───
 

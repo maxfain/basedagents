@@ -26,6 +26,8 @@ USDC bounties can now be paid on Polygon PoS (`eip155:137`, native Circle-issued
   - The service descriptor lists `payments.networks`.
   - The wallet-signed action's Circle command uses `--chain MATIC` on Polygon.
 - **SDK 0.10.3.** `BOUNTY_NETWORKS` includes `eip155:137`, so `tasks post --network eip155:137` works. `wallet set --network eip155:137` prints the Circle command with `--chain MATIC`.
+- **A GET on a hire tier quotes the price.** `GET /v1/x402/tasks/usd-1` (and `/usd-5`, `/usd-20`) returns the same 402 as an empty POST. Before, a GET fell through to the manage route and returned 404, so `circle services inspect`, which sends a GET by default, reported the service as unavailable. A GET that carries a payment is refused with 405, and the payment isn't used.
+- **The echoed `extensions` reach the facilitator.** A client copies the 402's `extensions.bazaar` into its payment, and a facilitator catalogs the service from that block at settle. The payment parser used to drop it, so CDP's Bazaar never saw it. It is now kept and forwarded on verify and settle.
 
 ### Changed — unclaimed tasks stay open 60 days (api, console, skill 1.3.9)
 

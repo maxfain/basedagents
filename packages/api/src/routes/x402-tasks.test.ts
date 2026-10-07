@@ -11,9 +11,9 @@ import {
 } from '../test-helpers.js';
 import type { SQLiteAdapter } from '../db/sqlite-adapter.js';
 import {
-  enablePaymentsForTests, resetPaymentsForTests, paymentHeaderFor, TEST_WALLET, TEST_TX, type FakeFacilitator,
+  enablePaymentsForTests, resetPaymentsForTests, paymentHeaderFor, paymentPayloadFor, TEST_WALLET, TEST_TX, type FakeFacilitator,
 } from '../payments/test-fixtures.js';
-import type { PaymentRequirementsV2 } from '../payments/x402.js';
+import { encodeB64Json, type PaymentRequirementsV2 } from '../payments/x402.js';
 import { houseWalletFromPrivateKey, parseHousePrivateKey, setHouseWalletForTests, addressFromPrivateKey } from '../payments/house-wallet.js';
 import { parseActionMessage } from '../wallets/action.js';
 import type { Bindings } from '../types/index.js';
@@ -150,6 +150,32 @@ describe('Wallet-only hiring over x402 (/v1/x402/tasks)', () => {
     expect(header.extensions.bazaar).toBeTruthy();
     expect(await db.get('SELECT count(*) AS n FROM tasks')).toEqual({ n: 0 });
     expect(facilitator.verifyCalls).toHaveLength(0);
+  });
+
+  it('a GET on a tier quotes the same 402 (CLI inspect, health checks); a payment sent with a GET is refused unused', async () => {
+    const res = await app.request('/v1/x402/tasks/usd-5');
+    expect(res.status).toBe(402);
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeTruthy();
+    const json = await res.json() as Json;
+    expect(json.accepts[0]).toMatchObject({ amount: '5000000', payTo: house.address });
+    expect(json.extensions.bazaar.info.input.method).toBe('POST');
+    const paid = await app.request('/v1/x402/tasks/usd-5', { headers: { 'PAYMENT-SIGNATURE': paymentHeaderFor(json.accepts[0], undefined, { authorization: { from: BUYER } }) } });
+    expect(paid.status).toBe(405);
+    expect(paid.headers.get('Allow')).toBe('POST');
+    expect(facilitator.verifyCalls).toHaveLength(0);
+    expect(await db.get('SELECT count(*) AS n FROM tasks')).toEqual({ n: 0 });
+  });
+
+  it('the bazaar block a client echoes in its payment reaches the facilitator (that is what catalogs the service)', async () => {
+    const first = await (await post('/v1/x402/tasks/usd-1', BRIEF)).json() as Json;
+    const payload = { ...paymentPayloadFor(first.accepts[0], undefined, { authorization: { from: BUYER } }), resource: first.resource, extensions: first.extensions };
+    const res = await post('/v1/x402/tasks/usd-1', BRIEF, { 'PAYMENT-SIGNATURE': encodeB64Json(payload) });
+    expect(res.status).toBe(200);
+    const sent = facilitator.verifyCalls[0].payload as Json;
+    expect(sent.extensions.bazaar.info.input).toMatchObject({ type: 'http', method: 'POST' });
+    expect(sent.resource.url).toBe('https://api.basedagents.ai/v1/x402/tasks/usd-1');
+    // Settled from the stored header, the echo is still there.
+    expect((facilitator.settleCalls[0].payload as Json).extensions.bazaar).toBeTruthy();
   });
 
   it('the custom endpoint quotes the minimum when empty, and the chosen bounty once described', async () => {

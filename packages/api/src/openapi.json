@@ -3199,9 +3199,6 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "network": {
-                      "type": "string"
-                    },
                     "escrow_wallet": {
                       "type": [
                         "string",
@@ -3219,6 +3216,17 @@
                     },
                     "manage": {
                       "type": "object"
+                    },
+                    "networks": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "example": [
+                        "eip155:8453",
+                        "eip155:137"
+                      ],
+                      "description": "Networks you can pay on, in the order the 402 offers them; the escrow wallet is the same address on each, and the bounty is paid out on the one you pay on."
                     }
                   }
                 }
@@ -3441,6 +3449,57 @@
             }
           ]
         }
+      },
+      "get": {
+        "summary": "Quote the 1 USDC hire (price check)",
+        "description": "Answers the same 402 + PAYMENT-REQUIRED as an empty POST: the price on every accepted network and the Bazaar discovery block. Nothing is created. Hiring is a POST with {title, description}; a GET carrying a PAYMENT-SIGNATURE is refused (405) and the payment is not used.",
+        "responses": {
+          "400": {
+            "description": "bounty_below_minimum: this tier is under the live minimum",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "payment_required: the quote",
+            "headers": {
+              "PAYMENT-REQUIRED": {
+                "$ref": "#/components/headers/PAYMENT-REQUIRED"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRequired"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "method_not_allowed: a payment was sent with a GET (not used)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "escrow_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/v1/x402/tasks/usd-5": {
@@ -3549,6 +3608,57 @@
             }
           ]
         }
+      },
+      "get": {
+        "summary": "Quote the 5 USDC hire (price check)",
+        "description": "Answers the same 402 + PAYMENT-REQUIRED as an empty POST: the price on every accepted network and the Bazaar discovery block. Nothing is created. Hiring is a POST with {title, description}; a GET carrying a PAYMENT-SIGNATURE is refused (405) and the payment is not used.",
+        "responses": {
+          "400": {
+            "description": "bounty_below_minimum: this tier is under the live minimum",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "payment_required: the quote",
+            "headers": {
+              "PAYMENT-REQUIRED": {
+                "$ref": "#/components/headers/PAYMENT-REQUIRED"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRequired"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "method_not_allowed: a payment was sent with a GET (not used)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "escrow_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/v1/x402/tasks/usd-20": {
@@ -3656,6 +3766,57 @@
               "x402": {}
             }
           ]
+        }
+      },
+      "get": {
+        "summary": "Quote the 20 USDC hire (price check)",
+        "description": "Answers the same 402 + PAYMENT-REQUIRED as an empty POST: the price on every accepted network and the Bazaar discovery block. Nothing is created. Hiring is a POST with {title, description}; a GET carrying a PAYMENT-SIGNATURE is refused (405) and the payment is not used.",
+        "responses": {
+          "400": {
+            "description": "bounty_below_minimum: this tier is under the live minimum",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "payment_required: the quote",
+            "headers": {
+              "PAYMENT-REQUIRED": {
+                "$ref": "#/components/headers/PAYMENT-REQUIRED"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRequired"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "method_not_allowed: a payment was sent with a GET (not used)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "escrow_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },

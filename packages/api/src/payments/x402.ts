@@ -137,6 +137,11 @@ export const PaymentPayloadV2 = z.object({
   x402Version: z.literal(2),
   resource: ResourceInfo.optional(),
   accepted: PaymentRequirementsV2,
+  /**
+   * Extensions the client echoes from the 402 (e.g. `bazaar`). Kept and forwarded to the
+   * facilitator: a facilitator catalogs a resource from the echoed `bazaar` block at settle.
+   */
+  extensions: z.record(z.string(), z.unknown()).optional(),
   payload: z.object({
     signature: z.string().regex(/^0x[0-9a-fA-F]{130,}$/, 'expected a hex EIP-712 signature'),
     authorization: ExactEvmAuthorization,

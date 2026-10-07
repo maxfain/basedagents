@@ -244,12 +244,15 @@ describe('decodePaymentHeader', () => {
     expect(() => decodePaymentHeader(toB64(shortSig))).toThrow(/signature/);
   });
 
-  it('keeps passthrough keys on accepted.extra and drops unknown top-level keys', () => {
+  it('keeps passthrough keys on accepted.extra and the echoed extensions; drops other unknown top-level keys', () => {
     const p = makePayload({ accepted: { extra: { name: 'USD Coin', version: '2', foo: 'bar' } as never } });
-    (p as Record<string, unknown>).extensions = { x: 1 };
+    (p as Record<string, unknown>).extensions = { bazaar: { info: { input: { type: 'http' } } } };
+    (p as Record<string, unknown>).junk = { x: 1 };
     const out = decodePaymentHeader(toB64(p));
     expect((out.accepted.extra as Record<string, unknown>).foo).toBe('bar');
-    expect((out as Record<string, unknown>).extensions).toBeUndefined();
+    // The facilitator catalogs a resource from the echoed bazaar block, so it is forwarded.
+    expect(out.extensions).toEqual({ bazaar: { info: { input: { type: 'http' } } } });
+    expect((out as Record<string, unknown>).junk).toBeUndefined();
   });
 });
 
