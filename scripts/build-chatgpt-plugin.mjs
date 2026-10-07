@@ -60,6 +60,13 @@ for (const key of ['logo', 'logoDark', 'composerIcon', 'composerIconDark']) {
   if (ref && !existsSync(join(STAGE, ref))) fail(`plugin.json ${key} → ${ref} is not in the package`);
 }
 
+// The portal refuses submission without a walkthrough video; say so here
+// rather than after the upload.
+const review = JSON.parse(readFileSync(join(STAGE, 'plugin.json'), 'utf8')).extensions['com.openai'].review;
+if (!review.demo_recording_url) {
+  console.warn('build-chatgpt-plugin: WARNING no review.demo_recording_url: set chatgpt.demoRecordingUrl in positioning.ts before submitting for review');
+}
+
 rmSync(ZIP, { force: true });
 // -X: no extra file attributes, so the archive is the same across machines.
 const zip = spawnSync('zip', ['-r', '-X', ZIP, 'plugin.json', 'mcp.json', 'assets'], { cwd: STAGE, encoding: 'utf8' });
