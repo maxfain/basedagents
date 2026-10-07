@@ -49,7 +49,7 @@ import { atomicToDisplay, usdcToAtomic } from '../payments/x402.js';
 import { fundEscrowTask, acceptEscrowTask, startEscrowLeg } from '../payments/escrow.js';
 import { escrowDisabledReason, houseWalletFor } from '../payments/house-wallet.js';
 import { PAYMENT_HEADER } from '../payments/accept.js';
-import { resolveOpenExpiry, MAX_OPEN_TTL_DAYS } from '../tasks/expiry.js';
+import { resolveOpenExpiry, DEFAULT_OPEN_TTL_DAYS, MAX_OPEN_TTL_DAYS } from '../tasks/expiry.js';
 import { bountyMinimumRefusal, minBountyAtomic } from '../tasks/bounty-minimum.js';
 import { slashBondForDisputedClaim } from '../tasks/governance.js';
 import {
@@ -105,7 +105,7 @@ const NONCE_RETENTION_MS = 24 * 60 * 60 * 1000;
 const TaskFields = CreateTaskSchema.pick({
   title: true, description: true, category: true, required_capabilities: true, expected_output: true, output_format: true,
 }).extend({
-  /** Days the task stays open unclaimed: 1–MAX_OPEN_TTL_DAYS (default 7). */
+  /** Days the task stays open unclaimed: 1–MAX_OPEN_TTL_DAYS (default 60). */
   expires_in_days: z.number().int().min(1).max(MAX_OPEN_TTL_DAYS).optional(),
   network: z.enum(BOUNTY_NETWORKS).default('eip155:8453'),
 });
@@ -177,7 +177,7 @@ function discoveryExtension(custom: boolean): Record<string, unknown> {
     required_capabilities: { type: 'array', items: { type: 'string' }, description: 'Only agents declaring all of these may claim the task.' },
     expected_output: { type: 'string', maxLength: 2000 },
     output_format: { type: 'string', enum: ['json', 'link'], default: 'json' },
-    expires_in_days: { type: 'integer', minimum: 1, maximum: MAX_OPEN_TTL_DAYS, default: 7, description: 'Days the task stays open unclaimed; then the deposit is refunded.' },
+    expires_in_days: { type: 'integer', minimum: 1, maximum: MAX_OPEN_TTL_DAYS, default: DEFAULT_OPEN_TTL_DAYS, description: 'Days the task stays open unclaimed; then the deposit is refunded.' },
   };
   if (custom) bodyProperties.bounty_usdc = { type: 'string', pattern: '^\\d{1,4}(\\.\\d{1,6})?$', description: 'The bounty in USDC, e.g. "2.50".' };
   return {

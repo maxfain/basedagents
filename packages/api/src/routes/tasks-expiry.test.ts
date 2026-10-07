@@ -68,12 +68,12 @@ describe('open-task expiry (0047)', () => {
     return (Date.parse(iso) - Date.now()) / DAY_MS;
   }
 
-  it('stamps the default 7-day window at post and returns it', async () => {
+  it('stamps the default 60-day window at post and returns it', async () => {
     const { res, body } = await createTask();
     expect(res.status).toBe(200);
     expect(typeof body.expires_at).toBe('string');
-    expect(daysFromNow(body.expires_at as string)).toBeGreaterThan(6.9);
-    expect(daysFromNow(body.expires_at as string)).toBeLessThan(7.1);
+    expect(daysFromNow(body.expires_at as string)).toBeGreaterThan(59.9);
+    expect(daysFromNow(body.expires_at as string)).toBeLessThan(60.1);
     const detail = await app.request(`/v1/tasks/${body.task_id}`);
     const shaped = (await detail.json()) as { task: { expires_at: string } };
     expect(shaped.task.expires_at).toBe(body.expires_at);
@@ -164,7 +164,8 @@ describe('open-task expiry (0047)', () => {
     expect(summary.open_expired).toBe(0); // reopened with a fresh window, not swept
     const row = await taskRow(taskId);
     expect(row.status).toBe('open');
-    expect(daysFromNow(row.expires_at as string)).toBeGreaterThan(6.9);
+    expect(daysFromNow(row.expires_at as string)).toBeGreaterThan(59.9);
+    expect(daysFromNow(row.expires_at as string)).toBeLessThan(60.1);
 
     // NULL (never) survives the same round trip.
     await db.run('UPDATE tasks SET status = \'claimed\', claimed_by_agent_id = ?, claim_expires_at = ?, expires_at = NULL WHERE task_id = ?', claimer.agentId, past, taskId);
@@ -210,22 +211,22 @@ describe('open-task expiry (0047)', () => {
   });
 });
 
+function schemaSql(): string {
+  return readFileSync(join(__dirname, '..', 'db', 'schema.sql'), 'utf-8');
+}
+
+function replayTo(name: string, seed?: (db: Database.Database) => void): Database.Database {
+  const raw = new Database(':memory:');
+  raw.pragma('foreign_keys = ON');
+  raw.exec(schemaSql());
+  for (const file of runnerMigrationFiles(MIGRATIONS_DIR)) {
+    if (file >= name && seed) { seed(raw); seed = undefined; }
+    raw.transaction(() => raw.exec(readFileSync(join(MIGRATIONS_DIR, file), 'utf-8')))();
+  }
+  return raw;
+}
+
 describe('migration 0047_task_expiry.sql', () => {
-  function schemaSql(): string {
-    return readFileSync(join(__dirname, '..', 'db', 'schema.sql'), 'utf-8');
-  }
-
-  function replayTo(name: string, seed?: (db: Database.Database) => void): Database.Database {
-    const raw = new Database(':memory:');
-    raw.pragma('foreign_keys = ON');
-    raw.exec(schemaSql());
-    for (const file of runnerMigrationFiles(MIGRATIONS_DIR)) {
-      if (file >= name && seed) { seed(raw); seed = undefined; }
-      raw.transaction(() => raw.exec(readFileSync(join(MIGRATIONS_DIR, file), 'utf-8')))();
-    }
-    return raw;
-  }
-
   it('grandfathers every non-terminal row with a 7-day window; allowlisted and terminal rows keep NULL', () => {
     const db = replayTo('0047', (d) => {
       d.prepare(`INSERT INTO agents (id, public_key, name, description, capabilities, protocols) VALUES ('ag_pre', ?, 'a', 'd', '[]', '[]')`).run(Buffer.from('k'.repeat(32)));
@@ -258,6 +259,53 @@ describe('migration 0047_task_expiry.sql', () => {
     expect(() =>
       db.prepare(`INSERT INTO tasks (task_id, creator_agent_id, title, description, status, created_at) VALUES ('task_y', 'ag_new', 't', 'd', 'bogus', 'now')`).run(),
     ).toThrow(/CHECK/);
+    db.close();
+  });
+});
+
+describe('migration 0052_open_window_60d.sql', () => {
+  it('moves open tasks provably on the 7-day default to 60 days and leaves every other window alone', () => {
+    const created = Date.parse('2026-10-01T04:17:41.518Z');
+    const reopened = created + 5 * DAY_MS + 3 * 3_600_000 + 123;
+    const iso = (ms: number) => new Date(ms).toISOString();
+    // [task_id, status, expires_at (ms or null), escrow, moves]
+    const rows: Array<[string, string, number | null, number, boolean]> = [
+      ['task_default', 'open', created + 7 * DAY_MS, 0, true],
+      // The console stamps the window before its awaited checks, created_at after them.
+      ['task_default_console_6s', 'open', created + 7 * DAY_MS - 6_000, 0, true],
+      ['task_default_console_90s', 'open', created + 7 * DAY_MS - 90_000, 0, true],
+      // A lapsed claim reopened it: the cron recorded task.claim_expired at the re-stamp's base time.
+      ['task_restamped', 'open', reopened + 7 * DAY_MS, 0, true],
+      // Same shape, but no recorded reopen: nothing proves it is a default window.
+      ['task_restamp_shape_no_event', 'open', reopened + 7 * DAY_MS, 0, false],
+      ['task_chosen_14', 'open', created + 14 * DAY_MS, 0, false],
+      // A chosen window whose console post took 6 s to stamp created_at.
+      ['task_chosen_14_console_6s', 'open', created + 14 * DAY_MS - 6_000, 0, false],
+      ['task_chosen_3', 'open', created + 3 * DAY_MS, 0, false],
+      ['task_never', 'open', null, 0, false],
+      ['task_escrow', 'open', created + 7 * DAY_MS, 1, false],
+      ['task_claimed', 'claimed', created + 7 * DAY_MS, 0, false],
+      ['task_expired', 'expired', created + 7 * DAY_MS, 0, false],
+    ];
+    const db = replayTo('0052', (d) => {
+      d.prepare(`INSERT INTO agents (id, public_key, name, description, capabilities, protocols) VALUES ('ag_w', ?, 'a', 'd', '[]', '[]')`).run(Buffer.from('w'.repeat(32)));
+      const insert = d.prepare(
+        `INSERT INTO tasks (task_id, creator_agent_id, claimed_by_agent_id, title, description, status, created_at, expires_at, escrow, escrow_status)
+         VALUES (?, 'ag_w', ?, 't', 'd', ?, ?, ?, ?, ?)`,
+      );
+      for (const [id, status, expires, escrow] of rows) {
+        insert.run(id, status === 'claimed' ? 'ag_w' : null, status, iso(created), expires === null ? null : iso(expires), escrow, escrow ? 'funded' : null);
+      }
+      d.prepare(
+        `INSERT INTO agent_events (id, agent_id, type, ref_kind, ref_id, payload, created_at)
+         VALUES ('evt_reopen', 'ag_w', 'task.claim_expired', 'task', 'task_restamped', '{}', ?)`,
+      ).run(iso(reopened));
+    });
+    for (const [id, , expires, , moves] of rows) {
+      const got = (db.prepare(`SELECT expires_at FROM tasks WHERE task_id = ?`).get(id) as { expires_at: string | null }).expires_at;
+      const want = expires === null ? null : iso(moves ? expires + 53 * DAY_MS : expires);
+      expect(got, id).toBe(want);
+    }
     db.close();
   });
 });
