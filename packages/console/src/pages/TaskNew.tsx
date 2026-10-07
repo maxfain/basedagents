@@ -356,7 +356,7 @@ export default function TaskNew() {
             max={3650}
             value={expiresDays}
             onChange={(ev) => setExpiresDays(ev.target.value)}
-            placeholder="7"
+            placeholder="60"
             autoComplete="off"
           />
           <span className="field-hint">

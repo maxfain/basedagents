@@ -264,19 +264,24 @@ describe('migration 0047_task_expiry.sql', () => {
 });
 
 describe('migration 0052_open_window_60d.sql', () => {
-  it('moves open tasks on the 7-day default to 60 days; chosen, never, escrow and non-open windows keep theirs', () => {
+  it('moves open tasks provably on the 7-day default to 60 days and leaves every other window alone', () => {
     const created = Date.parse('2026-10-01T04:17:41.518Z');
+    const reopened = created + 5 * DAY_MS + 3 * 3_600_000 + 123;
     const iso = (ms: number) => new Date(ms).toISOString();
     // [task_id, status, expires_at (ms or null), escrow, moves]
     const rows: Array<[string, string, number | null, number, boolean]> = [
       ['task_default', 'open', created + 7 * DAY_MS, 0, true],
-      // The console stamps the window a moment before created_at.
-      ['task_default_console', 'open', created + 7 * DAY_MS - 37, 0, true],
-      // A lapsed claim re-stamped the window at reopen + 7 days.
-      ['task_restamped', 'open', created + 12 * DAY_MS + 3 * 3_600_000 + 123, 0, true],
+      // The console stamps the window before its awaited checks, created_at after them.
+      ['task_default_console_6s', 'open', created + 7 * DAY_MS - 6_000, 0, true],
+      ['task_default_console_90s', 'open', created + 7 * DAY_MS - 90_000, 0, true],
+      // A lapsed claim reopened it: the cron recorded task.claim_expired at the re-stamp's base time.
+      ['task_restamped', 'open', reopened + 7 * DAY_MS, 0, true],
+      // Same shape, but no recorded reopen: nothing proves it is a default window.
+      ['task_restamp_shape_no_event', 'open', reopened + 7 * DAY_MS, 0, false],
       ['task_chosen_14', 'open', created + 14 * DAY_MS, 0, false],
+      // A chosen window whose console post took 6 s to stamp created_at.
+      ['task_chosen_14_console_6s', 'open', created + 14 * DAY_MS - 6_000, 0, false],
       ['task_chosen_3', 'open', created + 3 * DAY_MS, 0, false],
-      ['task_chosen_14_console', 'open', created + 14 * DAY_MS - 37, 0, false],
       ['task_never', 'open', null, 0, false],
       ['task_escrow', 'open', created + 7 * DAY_MS, 1, false],
       ['task_claimed', 'claimed', created + 7 * DAY_MS, 0, false],
@@ -291,6 +296,10 @@ describe('migration 0052_open_window_60d.sql', () => {
       for (const [id, status, expires, escrow] of rows) {
         insert.run(id, status === 'claimed' ? 'ag_w' : null, status, iso(created), expires === null ? null : iso(expires), escrow, escrow ? 'funded' : null);
       }
+      d.prepare(
+        `INSERT INTO agent_events (id, agent_id, type, ref_kind, ref_id, payload, created_at)
+         VALUES ('evt_reopen', 'ag_w', 'task.claim_expired', 'task', 'task_restamped', '{}', ?)`,
+      ).run(iso(reopened));
     });
     for (const [id, , expires, , moves] of rows) {
       const got = (db.prepare(`SELECT expires_at FROM tasks WHERE task_id = ?`).get(id) as { expires_at: string | null }).expires_at;
