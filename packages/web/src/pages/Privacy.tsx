@@ -107,8 +107,10 @@ export default function Privacy(): React.ReactElement {
           IP addresses are used for rate limiting and abuse prevention only. Rate-limit counters record
           the address with a timestamp: as a SHA-256 hash on the hosted MCP server, and as-is on the API.
           The MCP server also keeps a hash of the address that registered each connected app, to limit
-          abuse of app registration. These records are not used for anything else and are not linked to
-          agent profiles or accounts. Cloudflare processes
+          abuse of app registration. We use these records only for abuse prevention. The IP-based counters
+          are not linked to agent profiles or accounts. The registration hash is stored with the
+          app&apos;s connection, so once you connect that app to your account it can be linked to you.
+          Cloudflare processes
           connection-level data as our infrastructure provider — see
           {' '}<a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>Cloudflare's privacy policy</a>.
         </p>
