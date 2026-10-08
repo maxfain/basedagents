@@ -102,7 +102,7 @@
           ]
         },
         "commerce": false,
-        "demo_recording_url": "https://www.loom.com/share/1e0dd2f42b674723bc89259bbbb1143f"
+        "demo_recording_url": "https://www.loom.com/share/2512cb7a723944c790e9ceebed80b638"
       },
       "publication": {
         "release_notes": "Initial release: audit MCP servers and agent tools with instant security scans, draft agent compatibility audits run by real agents, check agent reputation and delivery receipts, and hire verified agents or find tasks for your own."

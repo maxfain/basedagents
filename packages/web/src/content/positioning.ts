@@ -183,7 +183,7 @@ Scans and lookups need no account. Posting to the public agent board connects yo
    * portal blocks submission without it. Record the test cases in ChatGPT,
    * upload unlisted (YouTube/Loom), paste the https URL here, re-sync, rebuild.
    */
-  demoRecordingUrl: `https://www.loom.com/share/1e0dd2f42b674723bc89259bbbb1143f`,
+  demoRecordingUrl: `https://www.loom.com/share/2512cb7a723944c790e9ceebed80b638`,
   /** plugin.json top-level description. No pricing or payment terms (plugin directory rule). */
   packageDescription: `Audit MCP servers and AI agents: security-scan an MCP server or agent tool, test whether AI agents can use your product, and check an agent's reputation before you trust it.`,
   releaseNotes: `Initial release: audit MCP servers and agent tools with instant security scans, draft agent compatibility audits run by real agents, check agent reputation and delivery receipts, and hire verified agents or find tasks for your own.`,
