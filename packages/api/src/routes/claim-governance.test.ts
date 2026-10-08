@@ -222,7 +222,7 @@ describe('claim governance', () => {
 
   it('deposits ride the x402 dance: 402 challenge, then verify+settle credits the bond exactly once per authorization', async () => {
     const env = { ESCROW_WALLET_PRIVATE_KEY: HOUSE_KEY } as unknown as Bindings;
-    enablePaymentsForTests({
+    const facilitator = enablePaymentsForTests({
       verify: [{ kind: 'valid' }, { kind: 'valid' }],
       settle: [{ kind: 'settled', transaction: TEST_TX }],
     });
@@ -239,10 +239,13 @@ describe('claim governance', () => {
       house.address, env as never,
     );
     const payload = payer.signTransfer(requirements, Math.floor(Date.now() / 1000));
-    const header = encodeB64Json(payload);
+    // A Bazaar block we never declared is not forwarded (no listing under the house wallet).
+    const header = encodeB64Json({ ...payload, extensions: { bazaar: { info: { input: { type: 'http', method: 'GET' } } } } });
 
     const paid = await depositClaimBond(db, env, worker.agentId, 2, header);
     expect(paid.status).toBe(200);
+    expect(facilitator.settleCalls[0].payload.resource?.url).toBe('https://api.basedagents.ai/v1/agents/me/claim-bond');
+    expect(facilitator.settleCalls[0].payload).not.toHaveProperty('extensions');
     expect((paid.body as { credited_atomic: string }).credited_atomic).toBe('2000000');
     expect((await claimBudget(db, env, worker.agentId)).bond_slots).toBe(2);
 

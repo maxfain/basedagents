@@ -17,7 +17,8 @@ import { afterAccept, loadTask, logPaymentEvent, bountyView } from '../tasks/ser
 import { paymentProviderFor } from './index.js';
 import { encryptPaymentSignature } from './crypto.js';
 import {
-  decodePaymentHeader, buildRequirements, buildPaymentRequired, encodeB64Json, localPrechecks, PaymentMalformed, isNetwork,
+  decodeForFacilitator, buildRequirements, buildPaymentRequired, encodeB64Json, localPrechecks, PaymentMalformed, isNetwork,
+  type PaymentPayloadV2,
 } from './x402.js';
 import { settleTask, reauthPermitted, wireSettleResponse, REAUTH_CLASSES } from './settle.js';
 
@@ -150,9 +151,11 @@ export async function acceptBountyTask(
   if (!payout.ok) return { status: 409, body: payoutRefusal(payout, task.bounty_network) };
   const requirements = buildRequirements(task, payout.address, env);
 
-  let payload: ReturnType<typeof decodePaymentHeader>;
+  let payload: PaymentPayloadV2;
+  /** What is stored and settled: the payer's payload with our resource (no Bazaar block is declared here). */
+  let header: string;
   try {
-    payload = decodePaymentHeader(rawHeader);
+    ({ payload, header } = decodeForFacilitator(rawHeader, buildPaymentRequired(task, requirements)));
   } catch (err) {
     return { status: 400, body: { error: 'payment_malformed', message: 'The payment header is not a valid x402 v2 payment payload.', detail: err instanceof PaymentMalformed ? err.detail : String(err), payment_requirements: requirements } };
   }
@@ -180,7 +183,7 @@ export async function acceptBountyTask(
   }
 
   const encKey = env?.PAYMENT_ENCRYPTION_KEY as string; // guaranteed by paymentProviderFor
-  const encrypted = await encryptPaymentSignature(rawHeader, encKey);
+  const encrypted = await encryptPaymentSignature(header, encKey);
   const auth = payload.payload.authorization;
   const expiresAt = new Date(Number(auth.validBefore) * 1000).toISOString();
 

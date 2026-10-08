@@ -11,6 +11,8 @@ import {
   PaymentMalformed,
   buildRequirements,
   buildPaymentRequired,
+  payloadForFacilitator,
+  decodeForFacilitator,
   encodeB64Json,
   localPrechecks,
   usdcToAtomic,
@@ -250,7 +252,7 @@ describe('decodePaymentHeader', () => {
     (p as Record<string, unknown>).junk = { x: 1 };
     const out = decodePaymentHeader(toB64(p));
     expect((out.accepted.extra as Record<string, unknown>).foo).toBe('bar');
-    // The facilitator catalogs a resource from the echoed bazaar block, so it is forwarded.
+    // Decoding keeps the echo; payloadForFacilitator decides what is forwarded.
     expect(out.extensions).toEqual({ bazaar: { info: { input: { type: 'http' } } } });
     expect((out as Record<string, unknown>).junk).toBeUndefined();
   });
@@ -311,6 +313,63 @@ describe('buildRequirements / buildPaymentRequired', () => {
     expect(JSON.parse(new TextDecoder().decode(base64ToBytes(encoded)))).toEqual(pr);
     // and it round-trips through decodePaymentHeader-style base64 for a payload
     expect(decodePaymentHeader(encodeB64Json(makePayload())).accepted).toEqual(req);
+  });
+});
+
+describe('payloadForFacilitator / decodeForFacilitator', () => {
+  const BAZAAR = {
+    info: { input: { type: 'http', method: 'POST', bodyType: 'json', body: { title: 't', description: 'd' } } },
+    schema: { type: 'object', properties: { input: { type: 'object' } }, required: ['input'] },
+  };
+  const req = buildRequirements(TASK, PAY_TO);
+  const declared = { ...buildPaymentRequired(TASK, req, undefined, { url: 'https://api.basedagents.ai/v1/x402/tasks/usd-5', description: 'Hire' }), extensions: { bazaar: BAZAAR } };
+
+  it("fills in our resource and Bazaar block when the payer echoes neither (Circle's CLI echoes no extensions)", () => {
+    const out = payloadForFacilitator(PaymentPayloadV2.parse(makePayload()), declared);
+    expect(out.resource).toEqual({ url: 'https://api.basedagents.ai/v1/x402/tasks/usd-5', description: 'Hire', mimeType: 'application/json' });
+    expect(out.extensions).toEqual({ bazaar: BAZAAR });
+    // The signed parts are untouched.
+    expect(out.accepted).toEqual(req);
+    expect(out.payload).toEqual(PaymentPayloadV2.parse(makePayload()).payload);
+  });
+
+  it('replaces a rewritten echo and another resource with ours; other extensions pass through', () => {
+    const p = makePayload({ resource: { url: 'https://elsewhere.example/listing', description: 'Free money' } });
+    p.extensions = { bazaar: { info: { input: { type: 'http', method: 'GET' } } }, 'payment-identifier': { info: { required: false, id: 'pay_0123456789abcdef' } } };
+    const out = payloadForFacilitator(PaymentPayloadV2.parse(p), declared);
+    expect(out.resource?.url).toBe('https://api.basedagents.ai/v1/x402/tasks/usd-5');
+    expect(out.extensions).toEqual({ bazaar: BAZAAR, 'payment-identifier': { info: { required: false, id: 'pay_0123456789abcdef' } } });
+  });
+
+  it('drops a Bazaar block we did not declare, and leaves no empty extensions', () => {
+    const plain = buildPaymentRequired(TASK, req);
+    const p = makePayload();
+    p.extensions = { bazaar: BAZAAR };
+    const out = payloadForFacilitator(PaymentPayloadV2.parse(p), plain);
+    expect(out.resource?.url).toBe('https://api.basedagents.ai/v1/tasks/task_abc/accept');
+    expect('extensions' in out).toBe(false);
+    p.extensions = { bazaar: BAZAAR, other: { a: 1 } };
+    expect(payloadForFacilitator(PaymentPayloadV2.parse(p), plain).extensions).toEqual({ other: { a: 1 } });
+  });
+
+  it('returns the header that is stored, which decodes back to the forwarded payload', () => {
+    const { payload, header } = decodeForFacilitator(toB64(makePayload()), declared);
+    expect(decodePaymentHeader(header)).toEqual(payload);
+    expect(payload.extensions?.bazaar).toEqual(BAZAAR);
+    // Malformed input still throws PaymentMalformed.
+    expect(() => decodeForFacilitator('not base64 !', declared)).toThrow(PaymentMalformed);
+  });
+
+  it('refuses a payload that our declarations would push past HEADER_MAX_BYTES (settle could not decode it)', () => {
+    // Under the cap as sent (a large extension of the payer's passes through), over it once our block is added.
+    const p = makePayload();
+    p.extensions = { other: 'x'.repeat(10_500) };
+    const raw = toB64(p);
+    expect(utf8.encode(raw).byteLength).toBeLessThan(HEADER_MAX_BYTES);
+    expect(() => decodePaymentHeader(raw)).not.toThrow();
+    const big = { ...declared, extensions: { bazaar: { ...BAZAAR, note: 'n'.repeat(2_000) } } };
+    expect(() => decodeForFacilitator(raw, big)).toThrow(/exceeds 16384 bytes/);
+    expect(() => decodeForFacilitator(toB64(makePayload()), big)).not.toThrow();
   });
 });
 

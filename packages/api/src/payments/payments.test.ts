@@ -426,9 +426,11 @@ describe('x402 Payment Integration (sign-at-accept)', () => {
       expect(row.settled_at).not.toBeNull();
       expect(row.auto_release_at).toBeNull();
 
-      // The stored payload is the raw header, encrypted, and the requirements are the ones we served.
+      // The stored payload is the payer's, encrypted, with our resource; the requirements are the ones we served.
       const stored = await decryptPaymentSignature(row.payment_signature as string, TEST_ENC_KEY);
-      expect(JSON.parse(Buffer.from(stored, 'base64').toString('utf8')).x402Version).toBe(2);
+      const storedPayload = JSON.parse(Buffer.from(stored, 'base64').toString('utf8'));
+      expect(storedPayload.x402Version).toBe(2);
+      expect(storedPayload.resource.url).toBe(`https://api.basedagents.ai/v1/tasks/${taskId}/accept`);
       expect(JSON.parse(row.payment_requirements as string)).toEqual(requirements);
 
       expect(facilitator.verifyCalls.length).toBe(1);
@@ -438,6 +440,16 @@ describe('x402 Payment Integration (sign-at-accept)', () => {
       expect(await eventTypes(taskId)).toEqual(['bounty_declared', 'authorized', 'settled']);
       const chain = await db.all<{ entry_type: string }>(`SELECT entry_type FROM chain WHERE entry_type LIKE 'task_%' ORDER BY sequence`);
       expect(chain.map((c) => c.entry_type)).toEqual(['task_delivered', 'task_verified', 'task_payment_settled']);
+    });
+
+    it('a Bazaar block the payer sends at accept is not forwarded: nothing is listed under the deliverer', async () => {
+      const { taskId, requirements } = await deliveredPaidTask();
+      const echoed = { ...paymentPayloadFor(requirements), extensions: { bazaar: { info: { input: { type: 'http', method: 'GET' } } } } };
+      expect((await accept(taskId, encodeB64Json(echoed))).status).toBe(200);
+      for (const call of [facilitator.verifyCalls[0], facilitator.settleCalls[0]]) {
+        expect(call.payload).not.toHaveProperty('extensions');
+        expect(call.payload.resource?.url).toBe(`https://api.basedagents.ai/v1/tasks/${taskId}/accept`);
+      }
     });
 
     it('rejects a payload signed to the wrong recipient before calling the facilitator → 402', async () => {
