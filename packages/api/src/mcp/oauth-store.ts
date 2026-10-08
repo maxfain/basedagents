@@ -118,7 +118,8 @@ export interface AccessTokenRow {
 export type RotateResult =
   | { status: 'ok'; refresh_token: string; owner_id: string; client_id: string; resource: string; scope: string }
   | { status: 'reused' } // presented an already-consumed token → chain revoked
-  | { status: 'invalid' }; // unknown / revoked / expired
+  | { status: 'invalid' } // unknown / revoked / expired
+  | { status: 'client_mismatch' }; // live token presented by another client_id; left unconsumed
 
 // Narrow raw-row typing without pulling a helper: every column we read is TEXT.
 type Raw = Record<string, unknown>;
@@ -506,6 +507,9 @@ export class OAuthStore {
    *  - already CONSUMED (replay = theft) → walk `rotated_to` from the presented
    *    row forward and revoke the entire successor chain, forcing full re-auth →
    *    {status:'reused'}
+   *  - live, but `expectedClientId` given and not the token's own client
+   *                                      → {status:'client_mismatch'}, token left
+   *    untouched (a mismatch must not burn the legitimate holder's token)
    *  - live + unconsumed                 → atomically consume it (SET consumed_at,
    *    rotated_to=<new hash>; changes===1 is the gate), then mint the successor →
    *    {status:'ok', refresh_token, …binding}
@@ -514,7 +518,7 @@ export class OAuthStore {
    * consume, changes!==1 and we mint no successor (no orphan valid token). The
    * caller mints the paired access token from the returned binding.
    */
-  async rotateRefreshToken(token: string, nowIso: string): Promise<RotateResult> {
+  async rotateRefreshToken(token: string, nowIso: string, expectedClientId?: string): Promise<RotateResult> {
     const presentedHash = sha256hex(token);
     const row = await this.db.get<Raw>(
       `SELECT client_id, owner_id, resource, scope, expires_at, rotated_to,
@@ -532,6 +536,9 @@ export class OAuthStore {
     }
     if (row.revoked_at != null || s(row.expires_at) <= nowIso) {
       return { status: 'invalid' };
+    }
+    if (expectedClientId !== undefined && expectedClientId !== s(row.client_id)) {
+      return { status: 'client_mismatch' };
     }
 
     const binding = {

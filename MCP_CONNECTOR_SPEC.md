@@ -78,14 +78,14 @@ The request is persisted for 10 minutes. A signed, httpOnly, `SameSite=Lax` cook
    - On `ready`, the page moves to `GET /oauth/approve`. That page requires the same cookie and an owner already bound, which only step 3 does. It renders consent with the request's CSRF token from the cookie, minting one only if the cookie has none. Every window of the browser shares that cookie, so a second load (the link tab's fallback, a reload) must not replace the token: that would fail the Allow form already open in the popup.
    - Both endpoints reveal nothing without the cookie. Neither adds a path around the same-browser binding.
    - A no-JavaScript fallback link, "I've clicked the link, continue", goes to the same page.
-5. **Consent**, `POST /oauth/decision`. The page names the client and its redirect host. Allow consumes the request atomically and mints a 60-second single-use code bound to the full tuple (client, owner, redirect URI, challenge, resource, scope). Deny redirects with `error=access_denied`.
+5. **Consent**, `POST /oauth/decision`. The page names the client and its redirect host. Allow consumes the request atomically and mints a 60-second single-use code bound to the full tuple (client, owner, redirect URI, challenge, resource, scope). Deny also consumes the request, so an Allow form still open in another window can't mint a code afterwards, then redirects with `error=access_denied`.
 
 ## §4 Tokens
 
 `POST /oauth/token` (form-encoded):
 
 - **`authorization_code`.** The code is consumed atomically, so a replay is dead. The server re-verifies `client_id`, the exact `redirect_uri`, PKCE (`base64url(sha256(code_verifier))`) and `resource` if it is resent. It returns an access token (1 hour), a refresh token (30 days), `token_type: Bearer` and the scope.
-- **`refresh_token`.** The token rotates on every use. **Reuse detection:** presenting an already-consumed refresh token revokes the whole chain. If `client_id` is sent, it must be the token's own client.
+- **`refresh_token`.** The token rotates on every use. **Reuse detection:** presenting an already-consumed refresh token revokes the whole chain. If `client_id` is sent, it must be the token's own client. That is checked before the token is consumed, so a mismatch (`invalid_client`) leaves the token usable by its own client.
 - Errors use RFC 6749 §5.2 JSON (`invalid_grant`, `invalid_client`, `invalid_target`, `unsupported_grant_type`).
 - Every response, success or error, carries `Cache-Control: no-store` and `Pragma: no-cache` (RFC 6749 §5.1). A failed refresh logs `[oauth] refresh failed` with its status (`reused` means the chain was just revoked) and the first 8 characters of `client_id`, so a dropped connection shows in `wrangler tail`.
 

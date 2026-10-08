@@ -738,6 +738,12 @@ app.post('/oauth/decision', async (c) => {
 
   // Deny → redirect with access_denied (RFC 6749 §4.1.2.1), no code minted.
   if (decision !== 'allow') {
+    // Deny is final: consume the request so an Allow form still open in
+    // another window of this browser (they share one CSRF token) cannot mint
+    // a code after the user said no, and polling windows see 'done'.
+    if (!(await store.consumeAuthRequest(req, now))) {
+      return oauthError(c, 400, 'invalid_request', 'authorization request already used or expired');
+    }
     const url = new URL(row.redirect_uri);
     url.searchParams.set('error', 'access_denied');
     if (row.state) url.searchParams.set('state', row.state);
@@ -837,17 +843,17 @@ app.post('/oauth/token', async (c) => {
       return oauthError(c, 400, 'invalid_grant', 'refresh_token required');
     }
     // Rotate with reuse-detection: a replayed (already-consumed) token revokes
-    // the whole chain and fails; unknown/expired/revoked also fail.
-    const rot = await store.rotateRefreshToken(presented, now);
+    // the whole chain and fails; unknown/expired/revoked also fail. If the
+    // client identifies itself it must be the token's own client, checked
+    // before the token is consumed so a mismatch doesn't burn it.
+    const rot = await store.rotateRefreshToken(presented, now, clientId);
     if (rot.status !== 'ok') {
       // A failed refresh ends that connection until the user signs in again,
       // so leave a trace: 'reused' means the whole chain was just revoked.
       console.warn('[oauth] refresh failed', { status: rot.status, client: clientId?.slice(0, 8) ?? 'none' });
-      return oauthError(c, 400, 'invalid_grant', 'refresh token invalid, expired, or reused');
-    }
-    // If the client identifies itself it must be the token's own client.
-    if (clientId !== undefined && clientId !== rot.client_id) {
-      return oauthError(c, 400, 'invalid_client', 'client_id does not match the refresh token');
+      return rot.status === 'client_mismatch'
+        ? oauthError(c, 400, 'invalid_client', 'client_id does not match the refresh token')
+        : oauthError(c, 400, 'invalid_grant', 'refresh token invalid, expired, or reused');
     }
     const access = await store.mintAccessToken({
       clientId: rot.client_id,
