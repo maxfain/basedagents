@@ -5468,7 +5468,7 @@
           },
           "extensions": {
             "type": "object",
-            "description": "x402 v2 extensions. The wallet-only hire endpoints carry `bazaar`: how to call them (`info.input`, `info.output`) and the JSON Schema of the body."
+            "description": "x402 v2 extensions. The wallet-only hire endpoints carry `bazaar`: how to call them (`info.input`, `info.output`) and the JSON Schema of the body. A payment may echo it or not: the server forwards its own `resource` and `bazaar` block to the facilitator either way."
           }
         }
       },

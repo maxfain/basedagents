@@ -15,7 +15,7 @@
 import type { DBAdapter } from '../db/adapter.js';
 import type { Bindings } from '../types/index.js';
 import {
-  buildRequirements, buildPaymentRequired, decodePaymentHeader, encodeB64Json, localPrechecks,
+  buildRequirements, buildPaymentRequired, decodeForFacilitator, encodeB64Json, localPrechecks,
   PaymentMalformed, isNetwork, atomicToDisplay,
 } from '../payments/x402.js';
 import { paymentProviderFor } from '../payments/index.js';
@@ -75,8 +75,10 @@ export async function depositClaimBond(
     description: `Refundable claim bond: ${slots} additional claim-budget slot${slots === 1 ? '' : 's'}.`,
   };
 
+  // The 402, and the resource a paid request forwards to the facilitator.
+  const paymentRequired = buildPaymentRequired(bondRef, requirements, undefined, resource);
+
   if (!rawHeader) {
-    const paymentRequired = buildPaymentRequired(bondRef, requirements, undefined, resource);
     return {
       status: 402,
       headers: { 'PAYMENT-REQUIRED': encodeB64Json(paymentRequired) },
@@ -92,7 +94,7 @@ export async function depositClaimBond(
 
   let payload;
   try {
-    payload = decodePaymentHeader(rawHeader);
+    payload = decodeForFacilitator(rawHeader, paymentRequired).payload;
   } catch (err) {
     return { status: 400, body: { error: 'payment_malformed', message: 'The payment header is not a valid x402 v2 payment payload.', detail: err instanceof PaymentMalformed ? err.detail : String(err) } };
   }

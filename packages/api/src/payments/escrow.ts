@@ -30,8 +30,8 @@ import {
 import { paymentProviderFor } from './index.js';
 import { encryptPaymentSignature } from './crypto.js';
 import {
-  decodePaymentHeader, buildRequirements, buildPaymentRequired, encodeB64Json, localPrechecks, PaymentMalformed, isNetwork,
-  TASK_RESOURCE_BASE, type PaymentRequirementsV2,
+  decodeForFacilitator, buildRequirements, buildPaymentRequired, encodeB64Json, localPrechecks, PaymentMalformed, isNetwork,
+  TASK_RESOURCE_BASE, type PaymentPayloadV2, type PaymentRequirementsV2,
 } from './x402.js';
 import { settleTask, reauthPermitted, wireSettleResponse, REAUTH_CLASSES, type SettleTrigger, type SettleResult } from './settle.js';
 import { houseWalletFor, escrowDisabledReason, sameAddress } from './house-wallet.js';
@@ -151,11 +151,11 @@ export async function fundEscrowTask(db: DBAdapter, env: Bindings, target: FundT
 
   const offers = offered.map((network) => buildRequirements({ task_id: taskId, bounty_amount: bounty.amount, bounty_network: network }, house.address, env));
   let requirements = offers[0];
-  const resource = fundResource(target);
+  // The 402, and the resource and declarations a paid request forwards to the facilitator.
+  const paymentRequired = buildPaymentRequired({ task_id: taskId }, offers, undefined, fundResource(target));
+  if (target.kind === 'new' && target.resource?.extensions) paymentRequired.extensions = target.resource.extensions;
 
   if (!rawHeader) {
-    const paymentRequired = buildPaymentRequired({ task_id: taskId }, offers, undefined, resource);
-    if (target.kind === 'new' && target.resource?.extensions) paymentRequired.extensions = target.resource.extensions;
     return {
       status: 402,
       headers: { 'PAYMENT-REQUIRED': encodeB64Json(paymentRequired) },
@@ -173,9 +173,11 @@ export async function fundEscrowTask(db: DBAdapter, env: Bindings, target: FundT
     };
   }
 
-  let payload: ReturnType<typeof decodePaymentHeader>;
+  let payload: PaymentPayloadV2;
+  /** What is stored and settled: the payer's payload with our resource and declarations. */
+  let header: string;
   try {
-    payload = decodePaymentHeader(rawHeader);
+    ({ payload, header } = decodeForFacilitator(rawHeader, paymentRequired));
   } catch (err) {
     return { status: 400, body: { error: 'payment_malformed', message: 'The payment header is not a valid x402 v2 payment payload.', detail: err instanceof PaymentMalformed ? err.detail : String(err), payment_requirements: requirements } };
   }
@@ -215,7 +217,7 @@ export async function fundEscrowTask(db: DBAdapter, env: Bindings, target: FundT
   }
 
   const encKey = env.PAYMENT_ENCRYPTION_KEY as string; // guaranteed by paymentProviderFor
-  const encrypted = await encryptPaymentSignature(rawHeader, encKey);
+  const encrypted = await encryptPaymentSignature(header, encKey);
   const payer = verify.payer ?? auth.from;
   const expiresAt = new Date(Number(auth.validBefore) * 1000).toISOString();
 

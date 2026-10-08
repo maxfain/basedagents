@@ -150,8 +150,9 @@ export const PaymentPayloadV2 = z.object({
   resource: ResourceInfo.optional(),
   accepted: PaymentRequirementsV2,
   /**
-   * Extensions the client echoes from the 402 (e.g. `bazaar`). Kept and forwarded to the
-   * facilitator: a facilitator catalogs a resource from the echoed `bazaar` block at settle.
+   * Extensions the client echoes from the 402 (e.g. `bazaar`). Forwarded to the facilitator,
+   * except that the `bazaar` block, which a facilitator lists the service from, is always the
+   * one we declared (payloadForFacilitator).
    */
   extensions: z.record(z.string(), z.unknown()).optional(),
   payload: z.object({
@@ -369,6 +370,45 @@ export function buildPaymentRequired(
   };
   if (error !== undefined) out.error = error;
   return out;
+}
+
+/**
+ * The payload as we hand it to the facilitator. A facilitator lists a service
+ * in its Bazaar from the payload's `resource` and its echoed `bazaar` block,
+ * and some clients echo no extensions at all (Circle's CLI sends only
+ * `resource` and `accepted`). So both come from the 402 we sent: the resource
+ * is always ours, and the `bazaar` block is the one we declared, or none. A
+ * payer can't keep a service unlisted or rewrite its listing. The payer's
+ * other extensions pass through.
+ */
+export function payloadForFacilitator(
+  payload: PaymentPayloadV2,
+  declared: Pick<PaymentRequired, 'resource' | 'extensions'>,
+): PaymentPayloadV2 {
+  const { extensions: echoed, ...rest } = payload;
+  const passed = Object.fromEntries(Object.entries(echoed ?? {}).filter(([key]) => key !== 'bazaar'));
+  const extensions = { ...passed, ...declared.extensions };
+  return Object.keys(extensions).length
+    ? { ...rest, resource: declared.resource, extensions }
+    : { ...rest, resource: declared.resource };
+}
+
+/**
+ * Decode a payer's header into the payload we forward (payloadForFacilitator)
+ * and the header form of it that is stored and decoded again at settle. Throws
+ * PaymentMalformed like decodePaymentHeader, including when our declarations
+ * would take the stored header past HEADER_MAX_BYTES.
+ */
+export function decodeForFacilitator(
+  raw: string,
+  declared: Pick<PaymentRequired, 'resource' | 'extensions'>,
+): { payload: PaymentPayloadV2; header: string } {
+  const payload = payloadForFacilitator(decodePaymentHeader(raw), declared);
+  const header = encodeB64Json(payload);
+  if (utf8.encode(header).byteLength > HEADER_MAX_BYTES) {
+    throw new PaymentMalformed(`header exceeds ${HEADER_MAX_BYTES} bytes with this resource's declarations`);
+  }
+  return { payload, header };
 }
 
 // ─── Local prechecks (Step 5, before spending a facilitator call) ───

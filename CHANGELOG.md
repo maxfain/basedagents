@@ -8,6 +8,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the hire endpoints get listed even when the client echoes nothing (api)
+
+CDP's Bazaar lists a service from the `resource` and the `extensions.bazaar` block that a payment echoes from the 402. Circle's CLI (`circle services pay`, `@circle-fin/cli` 1.2.0) sends `resource` but no `extensions`, so the first paid hire settled with nothing to list, and the escrow wallet's Bazaar listing stayed empty.
+
+- **The server forwards its own declaration.** The payload that is verified, stored and settled carries the 402's `resource` and the `bazaar` block the endpoint declared, whatever the payer echoed. A payer can no longer keep a hire endpoint unlisted, or list it under another URL or description. The payer's other extensions pass through.
+- **Every forwarded payment gets the same rule.** The sign-at-accept transfer and claim bonds get their 402's `resource`, and a `bazaar` block a payer adds there is dropped, since none is declared.
+- **The size cap still holds.** A payment that our declaration would push past the 16 KB header cap is refused as `payment_malformed` before anything is stored, so settle can always decode what was stored.
+
 ### Added — bounties on Arc (api, sdk 0.10.4, web)
 
 USDC bounties can be paid on Arc (`eip155:5042`), Circle's stablecoin chain, as well as Base and Polygon. Coinbase's CDP facilitator does not settle on Arc, so Arc runs on two paths:

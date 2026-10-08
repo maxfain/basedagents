@@ -178,10 +178,47 @@ describe('Wallet-only hiring over x402 (/v1/x402/tasks)', () => {
     const res = await post('/v1/x402/tasks/usd-1', BRIEF, { 'PAYMENT-SIGNATURE': encodeB64Json(payload) });
     expect(res.status).toBe(200);
     const sent = facilitator.verifyCalls[0].payload as Json;
-    expect(sent.extensions.bazaar.info.input).toMatchObject({ type: 'http', method: 'POST' });
-    expect(sent.resource.url).toBe('https://api.basedagents.ai/v1/x402/tasks/usd-1');
-    // Settled from the stored header, the echo is still there.
-    expect((facilitator.settleCalls[0].payload as Json).extensions.bazaar).toBeTruthy();
+    expect(sent.extensions.bazaar).toEqual(first.extensions.bazaar);
+    expect(sent.resource).toEqual(first.resource);
+    // Settled from the stored header, the block is still there.
+    expect((facilitator.settleCalls[0].payload as Json).extensions.bazaar).toEqual(first.extensions.bazaar);
+  });
+
+  it("a payment that echoes no extensions (Circle's CLI) still lists the service: verify and settle get our resource and Bazaar block", async () => {
+    const first = await (await post('/v1/x402/tasks/usd-1', BRIEF)).json() as Json;
+    // What `circle services pay` sends: the signed transfer, `accepted` and `resource`, nothing else.
+    const circleCli = { ...paymentPayloadFor(first.accepts[0], undefined, { authorization: { from: BUYER } }), resource: first.resource };
+    expect(circleCli).not.toHaveProperty('extensions');
+    const res = await post('/v1/x402/tasks/usd-1', BRIEF, { 'PAYMENT-SIGNATURE': encodeB64Json(circleCli) });
+    expect(res.status).toBe(200);
+    for (const call of [facilitator.verifyCalls[0], facilitator.settleCalls[0]]) {
+      expect((call.payload as Json).resource).toEqual(first.resource);
+      expect((call.payload as Json).extensions).toEqual({ bazaar: first.extensions.bazaar });
+    }
+    // A client that sends no resource either gets ours, on the custom endpoint too.
+    const custom = await (await post('/v1/x402/tasks', { ...BRIEF, bounty_usdc: '2.50' })).json() as Json;
+    const bare = paymentPayloadFor(custom.accepts[0], undefined, { authorization: { from: BUYER } });
+    expect((await post('/v1/x402/tasks', { ...BRIEF, bounty_usdc: '2.50' }, { 'PAYMENT-SIGNATURE': encodeB64Json(bare) })).status).toBe(200);
+    const settled = facilitator.settleCalls[1].payload as Json;
+    expect(settled.resource).toEqual({ url: 'https://api.basedagents.ai/v1/x402/tasks', description: custom.resource.description, mimeType: 'application/json' });
+    expect(settled.extensions.bazaar).toEqual(custom.extensions.bazaar);
+  });
+
+  it("a payer can't rewrite the listing: another resource and an edited Bazaar block are replaced by ours", async () => {
+    const first = await (await post('/v1/x402/tasks/usd-1', BRIEF)).json() as Json;
+    const edited = structuredClone(first.extensions) as Json;
+    edited.bazaar.info.input.body.title = 'Free USDC, claim here';
+    const payload = {
+      ...paymentPayloadFor(first.accepts[0], undefined, { authorization: { from: BUYER } }),
+      resource: { url: 'https://elsewhere.example/free', description: 'Free USDC', mimeType: 'text/html' },
+      extensions: { ...edited, 'payment-identifier': { info: { required: false, id: 'pay_0123456789abcdef' } } },
+    };
+    expect((await post('/v1/x402/tasks/usd-1', BRIEF, { 'PAYMENT-SIGNATURE': encodeB64Json(payload) })).status).toBe(200);
+    const sent = facilitator.settleCalls[0].payload as Json;
+    expect(sent.resource).toEqual(first.resource);
+    expect(sent.extensions.bazaar).toEqual(first.extensions.bazaar);
+    // The payer's other extensions are theirs to send.
+    expect(sent.extensions['payment-identifier']).toEqual({ info: { required: false, id: 'pay_0123456789abcdef' } });
   });
 
   it('the custom endpoint quotes the minimum when empty, and the chosen bounty once described', async () => {
