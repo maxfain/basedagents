@@ -535,17 +535,28 @@ function authreqStatus(row: AuthRequestRow | null, now: string): 'pending' | 're
 }
 
 /**
- * The Approve page, with a fresh CSRF token re-armed into the cookie. Shows
+ * The Approve page, re-arming the cookie with the request's existing CSRF
+ * token (a fresh one only when the cookie has none). Reusing it keeps every
+ * window of the same browser on one token: the popup and the email-link tab
+ * share the cookie jar, so minting a new token per load would let a second
+ * /oauth/approve load (the link tab's "Approve here instead", a reload)
+ * silently invalidate the Allow form already showing in the popup. Shows
  * WHAT is being authorized (defense in depth + informed consent): the
  * registered client name and the redirect host the code will be sent to, so
  * the human can recognize the app instead of blindly approving.
  */
-async function approvePage(c: Context<McpEnv>, config: McpConfig, store: OAuthStore, row: AuthRequestRow): Promise<Response> {
+async function approvePage(
+  c: Context<McpEnv>,
+  config: McpConfig,
+  store: OAuthStore,
+  row: AuthRequestRow,
+  existingCsrf: string | undefined,
+): Promise<Response> {
   const client = await store.getClient(row.client_id);
   const clientLabel = client?.client_name || 'An application';
   let redirectHost = '';
   try { redirectHost = new URL(row.redirect_uri).host; } catch { redirectHost = ''; }
-  const csrf = newCsrfToken();
+  const csrf = existingCsrf || newCsrfToken();
   setCookie(c, AUTHREQ_COOKIE, await signCookie(config.signingSecret, { authreq_id: row.id, csrf }), {
     httpOnly: true,
     secure: true,
@@ -615,7 +626,8 @@ app.get('/oauth/approve', async (c) => {
       400,
     );
   }
-  return approvePage(c, config, store, row);
+  // The row was looked up by this cookie's authreq_id, so its csrf belongs to it.
+  return approvePage(c, config, store, row, cookie?.csrf);
 });
 
 // ── GET /oauth/continue (magic-link landing) ──
@@ -690,7 +702,8 @@ app.get('/oauth/continue', async (c) => {
       'Signed in',
       `<h1>You're signed in</h1>
        <p><strong>Go back to the window where you started connecting.</strong> It continues by itself and asks you to approve there. You can close this tab.</p>
-       <p>Don't see that window anymore? <a href="/oauth/approve">Approve here instead</a>.</p>`,
+       <p>Closed that window? <a href="/oauth/approve">Approve in this tab instead</a>. The app may not
+       finish connecting from here; if it doesn't, restart the connection from the app.</p>`,
     ),
   );
 });
@@ -757,6 +770,10 @@ app.post('/oauth/token', async (c) => {
   const config = cfg(c);
   const db = getDb(c);
   const store = new OAuthStore(db);
+  // RFC 6749 §5.1: responses carrying tokens MUST NOT be cached. Set once, so
+  // every success and error body from this endpoint carries it.
+  c.header('Cache-Control', 'no-store');
+  c.header('Pragma', 'no-cache');
   const form = await c.req.parseBody();
   const grantType = typeof form.grant_type === 'string' ? form.grant_type : '';
   const now = nowIso();
@@ -823,6 +840,9 @@ app.post('/oauth/token', async (c) => {
     // the whole chain and fails; unknown/expired/revoked also fail.
     const rot = await store.rotateRefreshToken(presented, now);
     if (rot.status !== 'ok') {
+      // A failed refresh ends that connection until the user signs in again,
+      // so leave a trace: 'reused' means the whole chain was just revoked.
+      console.warn('[oauth] refresh failed', { status: rot.status, client: clientId?.slice(0, 8) ?? 'none' });
       return oauthError(c, 400, 'invalid_grant', 'refresh token invalid, expired, or reused');
     }
     // If the client identifies itself it must be the token's own client.

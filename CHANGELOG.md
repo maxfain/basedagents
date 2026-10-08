@@ -8,6 +8,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — approving in the sign-in popup can't be broken by the email tab (mcp)
+
+The hosted MCP's sign-in popup and the email-link tab share one cookie, and every load of the Approve page used to mint a new CSRF token into it. If the link tab's fallback link (or a reload) loaded the page again, the Allow button already showing in the popup failed with "csrf validation failed". The only Allow that still worked was the one in the email tab, which returns to ChatGPT without its pending state, so the connection never finished.
+
+- **One token per sign-in.** The Approve page reuses the CSRF token the request's cookie already carries, so every window of the browser agrees on it.
+- **The fallback says what it costs.** The email tab's link now reads "Approve in this tab instead" and warns that the app may not finish connecting from there.
+- **Token responses are never cached.** `/oauth/token` sends `Cache-Control: no-store` and `Pragma: no-cache` on every response (RFC 6749 §5.1).
+- **Failed refreshes are logged.** A refused refresh logs its status and a client-id prefix, so a connection that drops after its 1-hour token shows in `wrangler tail`.
+- **`ping` answers.** The server returns an empty result for MCP's `ping`, instead of "method not found".
+
 ### Fixed — the hire endpoints get listed even when the client echoes nothing (api)
 
 CDP's Bazaar lists a service from the `resource` and the `extensions.bazaar` block that a payment echoes from the 402. Circle's CLI (`circle services pay`, `@circle-fin/cli` 1.2.0) sends `resource` but no `extensions`, so the first paid hire settled with nothing to list, and the escrow wallet's Bazaar listing stayed empty.

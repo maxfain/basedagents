@@ -564,6 +564,25 @@ describe('sign-in completes in the window that started it', () => {
     expect(await status(appr.cookie)).toBe('done');
   });
 
+  it('a second Approve load (the link tab or a reload) keeps the popup\'s Allow form valid', async () => {
+    const { popupCookie, lt, req } = await startAndSend('twice@example.com', 'st-twice');
+    const linkTab = await app.request(`/oauth/continue?lt=${encodeURIComponent(lt)}&req=${encodeURIComponent(req)}`, { headers: { Cookie: popupCookie } }, ENV);
+    const jar = cookieOf(linkTab);
+    // The popup polls to ready and renders its Allow form first...
+    const popup = await approve(jar);
+    // ...then the link tab's "Approve in this tab instead" loads the page again
+    // in the same browser, re-arming the shared cookie.
+    const linkTabApprove = await approve(popup.cookie);
+    expect(linkTabApprove.csrf).toBe(popup.csrf);
+    // The browser now holds the cookie from the latest load; the popup's form
+    // (rendered earlier) must still verify against it.
+    const dec = await app.request('/oauth/decision', { method: 'POST', headers: { ...FORM, Cookie: linkTabApprove.cookie }, body: new URLSearchParams({ req, csrf: popup.csrf, decision: 'allow' }).toString() }, ENV);
+    expect(dec.status).toBe(302);
+    const loc = new URL(dec.headers.get('location')!);
+    expect(loc.searchParams.get('code')).toBeTruthy();
+    expect(loc.searchParams.get('state')).toBe('st-twice');
+  });
+
   it('status and approve answer only for the cookie: no cookie or a forged one gets nothing', async () => {
     const { lt, req, popupCookie } = await startAndSend('nocookie@example.com');
     await app.request(`/oauth/continue?lt=${encodeURIComponent(lt)}&req=${encodeURIComponent(req)}`, { headers: { Cookie: popupCookie } }, ENV);
@@ -620,6 +639,19 @@ describe('/oauth/token', () => {
     expect(body.access_token).toBeTruthy();
     expect(body.refresh_token).toBeTruthy();
     expect(body.scope).toBe('registry:read board:post');
+  });
+
+  it('marks every token response, success or error, as not cacheable', async () => {
+    const verifier = 'nostore-verifier-0000000';
+    const { cid, code } = await freshCode('nostore@example.com', verifier);
+    const ok = await tokenExchange({ grant_type: 'authorization_code', code, client_id: cid, redirect_uri: REDIRECT, code_verifier: verifier });
+    expect(ok.status).toBe(200);
+    const bad = await tokenExchange({ grant_type: 'refresh_token', refresh_token: 'not-a-real-refresh-token', client_id: cid });
+    expect(bad.status).toBe(400);
+    for (const res of [ok, bad]) {
+      expect(res.headers.get('cache-control')).toBe('no-store');
+      expect(res.headers.get('pragma')).toBe('no-cache');
+    }
   });
 
   it('rejects a wrong PKCE verifier with invalid_grant', async () => {
