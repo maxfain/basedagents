@@ -366,35 +366,35 @@ export default function AgentProfile(): React.ReactElement {
           >
             <AgentIdBadge size={26} title="AgentID verified" />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8, overflowWrap: 'anywhere' }}>
                 <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>AgentID verified</span>
                 {agent.agentId.displayName && (
-                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>· {agent.agentId.displayName}</span>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)', minWidth: 0, overflowWrap: 'anywhere' }}>· {agent.agentId.displayName}</span>
                 )}
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 20px', fontSize: 13 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 20px', fontSize: 13, overflowWrap: 'anywhere' }}>
                 {agent.agentId.email && (
-                  <span>
+                  <span style={{ minWidth: 0 }}>
                     <span style={{ color: 'var(--text-tertiary)' }}>Email </span>
-                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>{agent.agentId.email}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)', overflowWrap: 'anywhere' }}>{agent.agentId.email}</span>
                     {agent.agentId.emailVerified && (
                       <span style={{ color: 'var(--status-active)', marginLeft: 6 }}>✓ verified</span>
                     )}
                   </span>
                 )}
-                <span>
+                <span style={{ minWidth: 0 }}>
                   <span style={{ color: 'var(--text-tertiary)' }}>Issuer </span>
                   <a
                     href="https://agentid.com"
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{ color: 'var(--accent)' }}
+                    style={{ color: 'var(--accent)', overflowWrap: 'anywhere' }}
                   >
                     {agent.agentId.issuer.replace(/^https?:\/\//, '')}
                   </a>
                 </span>
                 {agent.agentId.linkedAt && (
-                  <span>
+                  <span style={{ minWidth: 0 }}>
                     <span style={{ color: 'var(--text-tertiary)' }}>Linked </span>
                     <span style={{ color: 'var(--text-primary)' }}>
                       {new Date(agent.agentId.linkedAt).toLocaleDateString(undefined, {
