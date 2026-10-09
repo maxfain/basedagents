@@ -116,14 +116,63 @@ describe('OpenAPI Spec — agent discovery (x-guidance, x-payment-info)', () => 
 
   it('is served with the live minimum: a raised minimum moves the custom min and drops the tiers under it', () => {
     const spec = openApiSpec as unknown as { paths: Record<string, Record<string, Operation>> };
-    expect(openApiForEnv(spec, {})).toBe(spec);
-    const raised = openApiForEnv(spec, { MIN_BOUNTY_ATOMIC_A2A: '2000000' });
+    // Every network offered and the default minimum: the file as is.
+    expect(openApiForEnv(spec, { CIRCLE_API_KEY: 'k' })).toBe(spec);
+    const raised = openApiForEnv(spec, { CIRCLE_API_KEY: 'k', MIN_BOUNTY_ATOMIC_A2A: '2000000' });
     expect(raised.paths[X402_MOUNT].post['x-payment-info']!.price).toMatchObject({ mode: 'dynamic', min: '2.000000', max: '1000.000000' });
     expect(raised.paths[`${X402_MOUNT}/usd-1`]).toBeUndefined();
     expect(raised.paths[`${X402_MOUNT}/usd-5`].post['x-payment-info']!.price.amount).toBe('5.000000');
     // The file itself is untouched.
     expect(specPaths[`${X402_MOUNT}/usd-1`]).toBeDefined();
     expect(specPaths[X402_MOUNT].post['x-payment-info']!.price.min).toBe('0.100000');
+  });
+
+  it('names only the networks a deposit can be paid on here: no Arc without the Circle key, no testnet in production', () => {
+    type Served = {
+      info: { 'x-guidance': string };
+      paths: Record<string, Record<string, { description?: string; responses?: Record<string, { content?: Record<string, { schema?: { properties?: Record<string, { example?: unknown }> } }> }> }>>;
+      components: { schemas: Record<string, { properties: Record<string, { enum?: string[] }> }> };
+    };
+    const spec = openApiSpec as unknown as Served;
+    const hireOps = (s: Served) => Object.entries(s.paths).filter(([path]) => path.startsWith(X402_MOUNT)).flatMap(([, item]) => Object.values(item));
+    const enums = (s: Served) => ['X402TierHireRequest', 'X402HireRequest'].map((n) => s.components.schemas[n].properties.network.enum);
+    const listed = (s: Served) => s.paths[X402_MOUNT].get.responses!['200'].content!['application/json'].schema!.properties!.networks.example;
+    // The file names every mainnet network, in the three wordings openApiForEnv rewrites.
+    expect(spec.info['x-guidance']).toContain('pay in USDC on Base, Polygon or Arc');
+    expect(spec.info['x-guidance']).toContain('USDC on Base eip155:8453, Polygon eip155:137 or Arc eip155:5042');
+    for (const tier of ['', ...Object.keys(X402_TIERS).map((t) => `/${t}`)]) {
+      expect(spec.paths[`${X402_MOUNT}${tier}`].post.description).toContain('(Base, then Polygon, then Arc;');
+    }
+
+    // Production without CIRCLE_API_KEY, which is what is live: Base and Polygon only.
+    const live = openApiForEnv(spec, { ENVIRONMENT: 'production' });
+    expect(live.info['x-guidance']).toContain('pay in USDC on Base or Polygon, or, as an agent');
+    expect(live.info['x-guidance']).toContain('USDC on Base eip155:8453 or Polygon eip155:137, payTo');
+    for (const op of hireOps(live)) {
+      expect(op.description ?? '').not.toMatch(/\bArc\b|eip155:5042/);
+    }
+    expect(live.paths[`${X402_MOUNT}/usd-1`].post.description).toContain('(Base, then Polygon;');
+    expect(live.info['x-guidance']).not.toMatch(/\bArc\b|eip155:5042/);
+    expect(enums(live)).toEqual([['eip155:8453', 'eip155:137'], ['eip155:8453', 'eip155:137']]);
+    expect(listed(live)).toEqual(['eip155:8453', 'eip155:137']);
+
+    // With the key, production offers Arc too; still no testnet.
+    const arc = openApiForEnv(spec, { ENVIRONMENT: 'production', CIRCLE_API_KEY: 'k' });
+    expect(arc.info['x-guidance']).toBe(spec.info['x-guidance']);
+    expect(arc.paths[`${X402_MOUNT}/usd-1`].post.description).toBe(spec.paths[`${X402_MOUNT}/usd-1`].post.description);
+    expect(enums(arc)).toEqual([['eip155:8453', 'eip155:137', 'eip155:5042'], ['eip155:8453', 'eip155:137', 'eip155:5042']]);
+
+    // Off production without the key: the testnet stays, Arc goes.
+    expect(enums(openApiForEnv(spec, {}))).toEqual([['eip155:8453', 'eip155:84532', 'eip155:137'], ['eip155:8453', 'eip155:84532', 'eip155:137']]);
+
+    // Other operations keep their wording, and the file itself is untouched.
+    expect(live.paths['/v1/tasks'].post.description).toBe(spec.paths['/v1/tasks'].post.description);
+    expect(enums(spec)).toEqual([['eip155:8453', 'eip155:84532', 'eip155:137', 'eip155:5042'], ['eip155:8453', 'eip155:84532', 'eip155:137', 'eip155:5042']]);
+    expect(spec.info['x-guidance']).toContain('Base, Polygon or Arc');
+  });
+
+  it('links the runbook as externalDocs (the docs URL directories look for)', () => {
+    expect((openApiSpec as unknown as { externalDocs: { url: string } }).externalDocs.url).toBe('https://basedagents.ai/skill.md');
   });
 
   it('every route on x402TaskRoutes is documented, and vice versa', () => {

@@ -150,6 +150,9 @@ describe('Wallet-only hiring over x402 (/v1/x402/tasks)', () => {
     expect(json.fund_endpoint).toBe('POST /v1/x402/tasks/usd-5');
     expect(json.extensions.bazaar.info.input).toMatchObject({ type: 'http', method: 'POST', bodyType: 'json' });
     expect(json.extensions.bazaar.schema.properties.input.properties.body.required).toEqual(['title', 'description']);
+    // The response envelope is declared too, as the reference declareDiscoveryExtension writes it.
+    expect(json.extensions.bazaar.schema.properties.output).toEqual({ type: 'object', properties: { type: { type: 'string' }, example: { type: 'object' } }, required: ['type'] });
+    expect(json.extensions.bazaar.info.output).toMatchObject({ type: 'json', example: { ok: true, status: 'open' } });
     expect(json.body_example.title).toBeTruthy();
     // The header carries the same envelope, discovery block included.
     const header = JSON.parse(atob(res.headers.get('PAYMENT-REQUIRED')!)) as Json;
