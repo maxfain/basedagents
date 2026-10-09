@@ -38,15 +38,14 @@ POSTHOG_PROJECT_TOKEN = "phc_sDSFNrjkniWVhvBekx2UL4PkwrmT6jMeWnyswdC3S2LV"
 ACQUISITION_ANALYTICS = "1"
 INTERNAL_AGENT_IDS = ""
 # AgentID verified-identity linking (src/agentid/). OPTIONAL attestation on top
-# of AgentSig. Fails closed until a client is registered at the AgentID console
-# (npx @agentmail/agentid-cli init) and these are filled. Uncomment + set the
-# three vars and add the AGENTID_CLIENT_SECRET secret (scripts/put-secrets.sh);
-# ISSUER defaults to https://auth.agentid.com. GET /v1/status -> agentid.
-# AGENTID_ENABLED = "1"
-# AGENTID_CLIENT_ID = ""
-# AGENTID_REDIRECT_URI = "https://api.basedagents.ai/v1/agentid/callback"
-# AGENTID_ISSUER = "https://auth.agentid.com"
-# AGENTID_SCOPES = "openid email profile"
+# of AgentSig. Fails closed until the AGENTID_CLIENT_SECRET secret is also set
+# (scripts/put-secrets.sh) — GET /v1/status -> agentid flips to "enabled" only
+# when the secret is present too. CLIENT_ID is a public identifier; the registered
+# client must list AGENTID_REDIRECT_URI as an allowed redirect. ISSUER/SCOPES
+# default to the values below, so they are left implicit.
+AGENTID_ENABLED = "1"
+AGENTID_CLIENT_ID = "6c151bc5-c838-4f8a-acf3-3655a7e5b47e"
+AGENTID_REDIRECT_URI = "https://api.basedagents.ai/v1/agentid/callback"
 # House accounts: paid tasks they posted carry `sponsored: true` in GET /v1/tasks/settled
 # (the platform paying for work, labeled as such). Agent ids are public; add the
 # console owner id (ow_…) that posts house tasks from app.basedagents.ai too.

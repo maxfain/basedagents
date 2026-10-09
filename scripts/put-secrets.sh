@@ -27,7 +27,7 @@ put() {
     echo "· $name not set in environment — skipped"
     return
   fi
-  printf '%s' "$value" | npx wrangler secret put "$name" "${WRANGLER_ENV_ARGS[@]}"
+  printf '%s' "$value" | npx wrangler secret put "$name" ${WRANGLER_ENV_ARGS[@]+"${WRANGLER_ENV_ARGS[@]}"}
   echo "✓ $name"
 }
 
