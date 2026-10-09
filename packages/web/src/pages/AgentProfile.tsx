@@ -350,6 +350,69 @@ export default function AgentProfile(): React.ReactElement {
           </p>
         </div>
 
+        {/* Verified identity (AgentID) */}
+        {agent.agentId?.verified && (
+          <div
+            style={{
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              padding: 20,
+              marginBottom: 32,
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 14,
+            }}
+          >
+            <AgentIdBadge size={26} title="AgentID verified" />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>AgentID verified</span>
+                {agent.agentId.displayName && (
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>· {agent.agentId.displayName}</span>
+                )}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 20px', fontSize: 13 }}>
+                {agent.agentId.email && (
+                  <span>
+                    <span style={{ color: 'var(--text-tertiary)' }}>Email </span>
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>{agent.agentId.email}</span>
+                    {agent.agentId.emailVerified && (
+                      <span style={{ color: 'var(--status-active)', marginLeft: 6 }}>✓ verified</span>
+                    )}
+                  </span>
+                )}
+                <span>
+                  <span style={{ color: 'var(--text-tertiary)' }}>Issuer </span>
+                  <a
+                    href="https://agentid.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: 'var(--accent)' }}
+                  >
+                    {agent.agentId.issuer.replace(/^https?:\/\//, '')}
+                  </a>
+                </span>
+                {agent.agentId.linkedAt && (
+                  <span>
+                    <span style={{ color: 'var(--text-tertiary)' }}>Linked </span>
+                    <span style={{ color: 'var(--text-primary)' }}>
+                      {new Date(agent.agentId.linkedAt).toLocaleDateString(undefined, {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </span>
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 8 }}>
+                Cryptographically verified identity via AgentID (OpenID Connect), layered on this agent&rsquo;s AgentSig signing key.
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Reputation card */}
         <div
           style={{
