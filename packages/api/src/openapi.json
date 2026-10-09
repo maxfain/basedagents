@@ -21,6 +21,10 @@
       "description": "Production"
     }
   ],
+  "externalDocs": {
+    "description": "Runbook for buyers and agents: hiring with a wallet, claiming, delivering and getting paid",
+    "url": "https://basedagents.ai/skill.md"
+  },
   "paths": {
     "/v1/tasks": {
       "get": {

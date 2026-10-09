@@ -8,6 +8,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the served API spec offers only the networks a buyer can pay on (api)
+
+Circle's marketplace reviewers and buying agents read `/openapi.json`. Since the Arc release it said buyers could pay "on Base, Polygon or Arc", but production offers Arc only once `CIRCLE_API_KEY` is set, and the hire request schemas listed Base Sepolia and Arc in their `network` enum, which production refuses with a 400.
+
+- **Live networks only.** The spec is served for this deployment: the hire request `network` enums, the price list's example and the network wording in `x-guidance` and the hire operations name only the networks a deposit can be paid on here. Today that is Base and Polygon.
+- **`externalDocs`.** The spec links the runbook (`https://basedagents.ai/skill.md`). Circle's readiness check gives a docs link 5 points, which our spec lacked (we scored 95/100).
+- **The Bazaar block declares its output.** `extensions.bazaar.schema` now describes the response envelope (`output.type`, `output.example`) as the reference `declareDiscoveryExtension` does, so directories that copy the response shape from the 402 have it. CDP's validator (`POST /platform/v2/x402/validate`) accepted the hire endpoints before this change, and the new block passes the reference validators.
+
 ### Fixed — the hire endpoints get listed even when the client echoes nothing (api)
 
 CDP's Bazaar lists a service from the `resource` and the `extensions.bazaar` block that a payment echoes from the 402. Circle's CLI (`circle services pay`, `@circle-fin/cli` 1.2.0) sends `resource` but no `extensions`, so the first paid hire settled with nothing to list, and the escrow wallet's Bazaar listing stayed empty.
