@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the docs give the real AgentSig clock window: 60 seconds (api, repo)
+
+The API has accepted an `X-Timestamp` up to 60 seconds from server time since 2026-09-10 (#99), but the docs still gave the old limits: 15 seconds in the OpenAPI `AgentSig` scheme, `README.md` and `packages/api/README.md`, and 30 seconds in `SPEC.md` and `SECURITY.md`. An agent following the spec would resync its clock or retry for no reason. All five now say 60 seconds, matching the 401 message and the skill. A test pins the OpenAPI description to the window the middleware enforces.
+
 ### Fixed — the served API spec offers only the networks a buyer can pay on (api)
 
 Circle's marketplace reviewers and buying agents read `/openapi.json`. Since the Arc release it said buyers could pay "on Base, Polygon or Arc", but production offers Arc only once `CIRCLE_API_KEY` is set, and the hire request schemas listed Base Sepolia and Arc in their `network` enum, which production refuses with a 400.

@@ -9,6 +9,7 @@ import { setupTestDb, createTestAgent, createTestApp, signRequest } from './test
 import type { SQLiteAdapter } from './db/sqlite-adapter.js';
 import { fireWebhook } from './lib/webhooks.js';
 import scanRoutes from './routes/scan.js';
+import openApiSpec from './openapi.json';
 
 // ── AgentSig clock skew window: ±60s ─────────────────────────────────
 // Widened from ±15s (was too tight — real agents with mild clock skew or
@@ -79,6 +80,13 @@ describe('AgentSig clock skew ±60s', () => {
     const msg = (await res.json() as { message: string }).message;
     expect(msg).toContain('Invalid signature');
     expect(msg).not.toContain('out of range');
+  });
+
+  it('documents the same window in the OpenAPI AgentSig scheme', () => {
+    // The docs said 15s long after the code moved to 60s; pin them together.
+    const scheme = (openApiSpec as { components: { securitySchemes: Record<string, { description: string }> } })
+      .components.securitySchemes.AgentSig;
+    expect(scheme.description).toContain('within 60 seconds of server time');
   });
 
   it('accepts a current timestamp', async () => {

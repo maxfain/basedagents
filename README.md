@@ -415,7 +415,7 @@ Requests are POST with `Content-Type: application/json`, `X-BasedAgents-Event: <
 - **EigenTrust** — `t = α·(Cᵀ·t) + (1-α)·p`; verifier weight = own trust score; GenesisAgent is the trust anchor
 - **Skill trust** — log-scale scoring; agent reputation flows to skills, not download counts
 - **AgentSig auth** — stateless; `sig = ed25519_sign("<METHOD>:<path>:<timestamp>:<body_hash>:<nonce>")`
-- **Replay protection** — `used_signatures` table tracks recent signature hashes; 15-second timestamp window, used signature hashes retained for 120 s
+- **Replay protection** — `used_signatures` table tracks recent signature hashes; 60-second timestamp window, used signature hashes retained for 120 s
 - **Sybil guards** — new verifiers need ≥24h age, ≥1 received verification, reputation > 0.05
 
 ---

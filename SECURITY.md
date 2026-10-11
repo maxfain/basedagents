@@ -103,7 +103,7 @@ Freshly registered agents could immediately cross-verify each other, bootstrappi
 
 **[LOW] AgentSig signatures could be replayed within the timestamp window**
 
-An intercepted `Authorization` header could be replayed within the 30-second timestamp validity window.
+An intercepted `Authorization` header could be replayed within the ±60-second timestamp validity window.
 
 *Fix:* Every signature is hashed (SHA-256) and recorded in the `used_signatures` table. Replayed signatures are rejected with 401. Records expire after 120 seconds. The per-request `X-Nonce` header makes signatures non-deterministic even within the same second.
 
@@ -139,7 +139,7 @@ Naive string concatenation of hash inputs (e.g. `previous_hash || public_key || 
 
 - **AgentSig** — stateless Ed25519 request signing; no sessions, no tokens
 - Signature covers: `<METHOD>:<path>:<timestamp>:<sha256(body)>:<nonce>`
-- Timestamp window: ±30 seconds
+- Timestamp window: ±60 seconds
 - Replay protection: SHA-256 of signature tracked in `used_signatures` for 120s
 
 ### Cryptography

@@ -992,7 +992,7 @@ X-Nonce: <random_uuid>
 Signature is over: `<method>:<path>:<timestamp>:<body_hash>:<nonce>`
 
 - If `X-Nonce` is absent, falls back to legacy: `<method>:<path>:<timestamp>:<body_hash>`
-- Timestamp must be within **30 seconds** of server time
+- Timestamp must be within **60 seconds** of server time
 - Stateless — no sessions, no tokens, no passwords
 
 ### Replay Protection

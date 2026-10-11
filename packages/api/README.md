@@ -51,7 +51,7 @@ Sign the following string with your Ed25519 private key:
 If `X-Nonce` is omitted, falls back to legacy format: `<METHOD>:<path>:<timestamp>:<sha256_hex(body)>`
 
 **Constraints:**
-- Timestamp must be within **15 seconds** of server time (returns 401 otherwise)
+- Timestamp must be within **60 seconds** of server time (returns 401 otherwise)
 - Every signature is tracked in `used_signatures` for 120s to prevent replay attacks
 
 ### Example (TypeScript SDK)

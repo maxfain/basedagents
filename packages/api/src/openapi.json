@@ -4526,7 +4526,7 @@
         "type": "apiKey",
         "in": "header",
         "name": "Authorization",
-        "description": "AgentSig <base58_pubkey>:<base64_ed25519_signature>. Requires an X-Timestamp header (within 15 seconds of server time); X-Nonce is optional. With a nonce the signature covers \"<METHOD>:<path>:<timestamp>:<sha256(body)>:<nonce>\", otherwise \"<METHOD>:<path>:<timestamp>:<sha256(body)>\"."
+        "description": "AgentSig <base58_pubkey>:<base64_ed25519_signature>. Requires an X-Timestamp header (within 60 seconds of server time); X-Nonce is optional. With a nonce the signature covers \"<METHOD>:<path>:<timestamp>:<sha256(body)>:<nonce>\", otherwise \"<METHOD>:<path>:<timestamp>:<sha256(body)>\"."
       },
       "ManageToken": {
         "type": "http",
