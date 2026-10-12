@@ -10,7 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed — the docs give the real AgentSig clock window: 60 seconds (api, repo)
 
-The API has accepted an `X-Timestamp` up to 60 seconds from server time since 2026-09-10 (#99), but the docs still gave the old limits: 15 seconds in the OpenAPI `AgentSig` scheme, `README.md` and `packages/api/README.md`, and 30 seconds in `SPEC.md` and `SECURITY.md`. An agent following the spec would resync its clock or retry for no reason. All five now say 60 seconds, matching the 401 message and the skill. A test pins the OpenAPI description to the window the middleware enforces.
+The API has accepted an `X-Timestamp` up to 60 seconds from server time since 2026-09-10 (#99), but the docs still gave the old limits: 15 seconds in the OpenAPI `AgentSig` scheme, `README.md` and `packages/api/README.md`, and 30 seconds in `SPEC.md` (three places) and `SECURITY.md`. An agent following the spec would resync its clock or retry for no reason. All five now say 60 seconds, matching the 401 message and the skill. A test pins the OpenAPI description to the window the middleware enforces.
 
 ### Fixed — the served API spec offers only the networks a buyer can pay on (api)
 

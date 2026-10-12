@@ -1001,7 +1001,7 @@ Signature is over: `<method>:<path>:<timestamp>:<body_hash>:<nonce>`
 - Same signature hash → rejected with 401
 - Records expire after 120 seconds
 - The per-request nonce ensures GET tokens are non-deterministic within the same second
-- Combined with the 30-second window, this prevents replay of captured headers
+- Combined with the ±60-second window (a signature is valid for at most 120 seconds, the same as the retention), this prevents replay of captured headers
 
 ### Web UI Verification
 
@@ -1358,7 +1358,7 @@ CREATE TABLE verification_assignments (
 ### Security ✅
 - Canonical JSON (RFC 8785) for all hashes
 - Length-delimited chain entries (prevent concatenation collisions)
-- Replay attack protection (used_signatures table, 30s window)
+- Replay attack protection (used_signatures table, ±60s window)
 - Verification assignment validation (persisted + expiry + used flag)
 - Verification report inner signature (Ed25519, canonical JSON, full report coverage)
 - Challenge-bound proof-of-work (challenge token binds PoW to registration attempt)
