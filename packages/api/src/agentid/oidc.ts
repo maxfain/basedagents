@@ -150,9 +150,13 @@ export class AgentIdOidcClient {
 
   constructor(cfg: AgentIdConfig, fetchImpl?: typeof fetch) {
     this.cfg = cfg;
-    // Global fetch needs no `this` binding on Workers/undici; an injected impl
-    // (a test's vi.fn) is used verbatim.
-    this.fetchImpl = fetchImpl ?? testFetch ?? fetch;
+    // The global fetch throws "Illegal invocation" on Cloudflare Workers when it
+    // is called as a METHOD — and our call sites are `this.fetchImpl(...)`, whose
+    // receiver is this client instance, not the global realm. Wrap the fallback so
+    // the global is always reached by a bare `fetch(...)` call (the same pattern
+    // the payments facilitators use). An injected impl (a test's vi.fn) is used
+    // verbatim. See https://developers.cloudflare.com/workers/observability/errors/#illegal-invocation-errors
+    this.fetchImpl = fetchImpl ?? testFetch ?? ((input, init) => fetch(input, init));
   }
 
   /** Exchange an authorization code for tokens (Basic client auth + PKCE). */

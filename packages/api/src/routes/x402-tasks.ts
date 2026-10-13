@@ -38,7 +38,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../types/index.js';
-import { CreateTaskSchema, BOUNTY_NETWORKS, fundableBountyNetworks, describeBountyNetworks, RatingFields, withRatingRule, ratingInputOf, isRatingIssue, RATING_RULE_MESSAGE } from '../types/index.js';
+import { CreateTaskSchema, BOUNTY_NETWORKS, BOUNTY_NETWORK_NAMES, MAINNET_BOUNTY_NETWORKS, fundableBountyNetworks, describeBountyNetworks, RatingFields, withRatingRule, ratingInputOf, isRatingIssue, RATING_RULE_MESSAGE } from '../types/index.js';
 import type { DBAdapter } from '../db/adapter.js';
 import { sha256, bytesToHex } from '../crypto/index.js';
 import { generatePublicId } from '../lib/ids.js';
@@ -75,22 +75,75 @@ function sixDecimals(atomic: string): string {
   return `${n / 1_000_000n}.${(n % 1_000_000n).toString().padStart(6, '0')}`;
 }
 
+/** The parts of openapi.json that openApiForEnv adjusts. */
+type ServedSpec = {
+  info?: { 'x-guidance'?: string };
+  paths: Record<string, Record<string, { description?: string; responses?: Record<string, { content?: Record<string, { schema?: { properties?: Record<string, { example?: unknown }> } }> }> }>>;
+  components?: { schemas?: Record<string, { properties?: Record<string, { enum?: string[] }> }> };
+};
+
+/** The hire request bodies, whose `network` lists what a buyer may pin the payment to. */
+const HIRE_REQUEST_SCHEMAS = ['X402TierHireRequest', 'X402HireRequest'];
+
 /**
- * openapi.json as served (GET /openapi.json): its `x-payment-info` follows the live
- * minimum bounty. The custom endpoint's `min` is the deployment's minimum, and a tier
- * priced under it is left out, as the routes refuse it. With the default minimum the
- * file is served as is.
+ * How the spec's prose names the mainnet networks, as [the file's wording, this deployment's]:
+ * "Base, Polygon or Arc", "Base eip155:8453, Polygon eip155:137 or Arc eip155:5042" and
+ * "Base, then Polygon, then Arc", with only the networks offered here.
+ */
+function networkWording(offered: readonly string[]): Array<[string, string]> {
+  const name = (n: string) => BOUNTY_NETWORK_NAMES[n] ?? n;
+  const or = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} or ${xs[xs.length - 1]}` : xs[0] ?? '');
+  const forms = [
+    (ns: readonly string[]) => or(ns.map(name)),
+    (ns: readonly string[]) => or(ns.map((n) => `${name(n)} ${n}`)),
+    (ns: readonly string[]) => ns.map(name).join(', then '),
+  ];
+  return forms.map((form): [string, string] => [form(MAINNET_BOUNTY_NETWORKS), form(offered)]);
+}
+
+/**
+ * openapi.json as served (GET /openapi.json), describing what this deployment takes now:
+ * - its `x-payment-info` follows the live minimum bounty: the custom endpoint's `min` is
+ *   the deployment's minimum, and a tier priced under it is left out, as the routes refuse it;
+ * - the hire endpoints name only the networks a deposit can be paid on here
+ *   (fundableBountyNetworks): no Arc until Circle's facilitator is configured, and no
+ *   testnet in production. Agents and directories read the spec, so it never offers a
+ *   network the 402 doesn't.
+ * When nothing differs, the file is served as is.
  */
 export function openApiForEnv<T extends { paths: Record<string, unknown> }>(spec: T, env: unknown): T {
   const min = String(minBountyAtomic(env, 'a2a'));
   type Paid = { post?: { 'x-payment-info'?: { price: Record<string, string> } } };
   const custom = (spec.paths['/v1/x402/tasks'] as Paid | undefined)?.post?.['x-payment-info'];
   const unavailable = Object.entries(X402_TIERS).filter(([, amount]) => bountyMinimumRefusal(env, 'a2a', amount)).map(([tier]) => `/v1/x402/tasks/${tier}`);
-  if ((!custom || custom.price.min === sixDecimals(min)) && unavailable.length === 0) return spec;
+  const networks = fundableBountyNetworks(env as Parameters<typeof fundableBountyNetworks>[0]);
+  const offered = MAINNET_BOUNTY_NETWORKS.filter((n) => networks.includes(n));
+  const schemas = (spec as unknown as ServedSpec).components?.schemas;
+  const sameNetworks = offered.length === MAINNET_BOUNTY_NETWORKS.length
+    && HIRE_REQUEST_SCHEMAS.every((name) => {
+      const listed = schemas?.[name]?.properties?.network?.enum;
+      return !listed || (listed.length === networks.length && listed.every((n, i) => n === networks[i]));
+    });
+  if ((!custom || custom.price.min === sixDecimals(min)) && unavailable.length === 0 && sameNetworks) return spec;
   const out = structuredClone(spec);
   const outCustom = (out.paths['/v1/x402/tasks'] as Paid | undefined)?.post?.['x-payment-info'];
   if (outCustom) outCustom.price.min = sixDecimals(min);
   for (const path of unavailable) delete out.paths[path];
+  if (!sameNetworks) {
+    const served = out as unknown as ServedSpec;
+    for (const name of HIRE_REQUEST_SCHEMAS) {
+      const network = served.components?.schemas?.[name]?.properties?.network;
+      if (network?.enum) network.enum = [...networks];
+    }
+    const listed = served.paths['/v1/x402/tasks']?.get?.responses?.['200']?.content?.['application/json']?.schema?.properties?.networks;
+    if (listed && 'example' in listed) listed.example = [...networks];
+    const reword = (text: string) => networkWording(offered).reduce((t, [all, here]) => t.replaceAll(all, here), text);
+    if (served.info?.['x-guidance']) served.info['x-guidance'] = reword(served.info['x-guidance']);
+    for (const [path, item] of Object.entries(served.paths)) {
+      if (path !== '/v1/x402/tasks' && !path.startsWith('/v1/x402/tasks/')) continue;
+      for (const op of Object.values(item)) if (op.description) op.description = reword(op.description);
+    }
+  }
   return out;
 }
 
@@ -205,6 +258,12 @@ function discoveryExtension(custom: boolean): Record<string, unknown> {
               body: { type: 'object', properties: bodyProperties, required: custom ? ['title', 'description', 'bounty_usdc'] : ['title', 'description'], additionalProperties: false },
             },
             required: ['type', 'method', 'bodyType', 'body'],
+          },
+          // As the reference declareDiscoveryExtension emits it; directories copy the response shape from here.
+          output: {
+            type: 'object',
+            properties: { type: { type: 'string' }, example: { type: 'object' } },
+            required: ['type'],
           },
         },
         required: ['input'],

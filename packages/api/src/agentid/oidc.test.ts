@@ -221,6 +221,32 @@ describe('agentid/oidc verifyIdToken', () => {
     await expect(new AgentIdOidcClient(CFG, fetchImpl).exchangeCode('c', 'v')).rejects.toThrow(/token endpoint returned 400/);
   });
 
+  it('invokes the global fetch as a bare call, never as a method (Workers Illegal-invocation guard)', async () => {
+    // With no injected impl and no test override, the client must fall back to the
+    // GLOBAL fetch — and reach it via a bare `fetch(...)` call, not `this.fetchImpl(...)`.
+    // Cloudflare's native fetch throws "Illegal invocation" when its receiver is
+    // anything but the global realm, which broke every real token/JWKS request in
+    // production. A mock fetch doesn't care about `this`, so we spy on the global
+    // directly and assert the receiver it was called with is not the client instance.
+    setAgentIdFetchForTests(undefined); // no override → exercise the global fallback
+    const realFetch = globalThis.fetch;
+    const receivers: unknown[] = [];
+    try {
+      globalThis.fetch = function (this: unknown) {
+        receivers.push(this); // record the receiver without aliasing `this` to a variable
+        return new Response(JSON.stringify({ id_token: 'a.b.c' }), { status: 200 });
+      } as unknown as typeof fetch;
+      await new AgentIdOidcClient(CFG).exchangeCode('code', 'verifier'); // no fetchImpl → global fallback
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    expect(receivers).toHaveLength(1);
+    // The pre-fix code (`this.fetchImpl = fetch`) would call the spy with the client
+    // as receiver; the arrow-wrapped fallback calls it bare (receiver undefined).
+    expect(receivers[0]).not.toBeInstanceOf(AgentIdOidcClient);
+    expect(receivers[0]).toBeUndefined();
+  });
+
   it('shares the JWKS cache across client instances (one fetch per URL)', async () => {
     setAgentIdFetchForTests(undefined); // clears the module-level JWKS cache
     const { kp, jwk } = await makeIssuerKey();
