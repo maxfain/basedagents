@@ -564,6 +564,41 @@ describe('sign-in completes in the window that started it', () => {
     expect(await status(appr.cookie)).toBe('done');
   });
 
+  it('a second Approve load (the link tab or a reload) keeps the popup\'s Allow form valid', async () => {
+    const { popupCookie, lt, req } = await startAndSend('twice@example.com', 'st-twice');
+    const linkTab = await app.request(`/oauth/continue?lt=${encodeURIComponent(lt)}&req=${encodeURIComponent(req)}`, { headers: { Cookie: popupCookie } }, ENV);
+    const jar = cookieOf(linkTab);
+    // The popup polls to ready and renders its Allow form first...
+    const popup = await approve(jar);
+    // ...then the link tab's "Approve in this tab instead" loads the page again
+    // in the same browser, re-arming the shared cookie.
+    const linkTabApprove = await approve(popup.cookie);
+    expect(linkTabApprove.csrf).toBe(popup.csrf);
+    // The browser now holds the cookie from the latest load; the popup's form
+    // (rendered earlier) must still verify against it.
+    const dec = await app.request('/oauth/decision', { method: 'POST', headers: { ...FORM, Cookie: linkTabApprove.cookie }, body: new URLSearchParams({ req, csrf: popup.csrf, decision: 'allow' }).toString() }, ENV);
+    expect(dec.status).toBe(302);
+    const loc = new URL(dec.headers.get('location')!);
+    expect(loc.searchParams.get('code')).toBeTruthy();
+    expect(loc.searchParams.get('state')).toBe('st-twice');
+  });
+
+  it('Deny is final: an Allow form still open in another window cannot mint a code afterwards', async () => {
+    const { popupCookie, lt, req } = await startAndSend('denyfinal@example.com', 'st-deny');
+    const jar = cookieOf(await app.request(`/oauth/continue?lt=${encodeURIComponent(lt)}&req=${encodeURIComponent(req)}`, { headers: { Cookie: popupCookie } }, ENV));
+    const popup = await approve(jar);
+    const linkTab = await approve(popup.cookie); // same browser, same token
+    const deny = await app.request('/oauth/decision', { method: 'POST', headers: { ...FORM, Cookie: linkTab.cookie }, body: new URLSearchParams({ req, csrf: linkTab.csrf, decision: 'deny' }).toString() }, ENV);
+    expect(deny.status).toBe(302);
+    expect(new URL(deny.headers.get('location')!).searchParams.get('error')).toBe('access_denied');
+    expect(await status(linkTab.cookie)).toBe('done');
+
+    const lateAllow = await app.request('/oauth/decision', { method: 'POST', headers: { ...FORM, Cookie: linkTab.cookie }, body: new URLSearchParams({ req, csrf: popup.csrf, decision: 'allow' }).toString() }, ENV);
+    expect(lateAllow.status).toBe(400);
+    const codes = rawDb.prepare('SELECT COUNT(*) AS n FROM oauth_auth_codes').get() as { n: number };
+    expect(codes.n).toBe(0);
+  });
+
   it('status and approve answer only for the cookie: no cookie or a forged one gets nothing', async () => {
     const { lt, req, popupCookie } = await startAndSend('nocookie@example.com');
     await app.request(`/oauth/continue?lt=${encodeURIComponent(lt)}&req=${encodeURIComponent(req)}`, { headers: { Cookie: popupCookie } }, ENV);
@@ -622,6 +657,19 @@ describe('/oauth/token', () => {
     expect(body.scope).toBe('registry:read board:post');
   });
 
+  it('marks every token response, success or error, as not cacheable', async () => {
+    const verifier = 'nostore-verifier-0000000';
+    const { cid, code } = await freshCode('nostore@example.com', verifier);
+    const ok = await tokenExchange({ grant_type: 'authorization_code', code, client_id: cid, redirect_uri: REDIRECT, code_verifier: verifier });
+    expect(ok.status).toBe(200);
+    const bad = await tokenExchange({ grant_type: 'refresh_token', refresh_token: 'not-a-real-refresh-token', client_id: cid });
+    expect(bad.status).toBe(400);
+    for (const res of [ok, bad]) {
+      expect(res.headers.get('cache-control')).toBe('no-store');
+      expect(res.headers.get('pragma')).toBe('no-cache');
+    }
+  });
+
   it('rejects a wrong PKCE verifier with invalid_grant', async () => {
     const { cid, code } = await freshCode('t2@example.com', 'right-verifier-111111');
     const res = await tokenExchange({ grant_type: 'authorization_code', code, client_id: cid, redirect_uri: REDIRECT, code_verifier: 'WRONG-verifier' });
@@ -678,6 +726,20 @@ describe('/oauth/token', () => {
 
     const live = rawDb.prepare('SELECT COUNT(*) AS n FROM oauth_refresh_tokens WHERE revoked_at IS NULL').get() as { n: number };
     expect(live.n).toBe(0);
+  });
+
+  it('a refresh from the wrong client_id is refused without burning the token', async () => {
+    const verifier = 'mismatch-verifier-666666';
+    const { cid, code } = await freshCode('t7@example.com', verifier);
+    const first = (await (await tokenExchange({ grant_type: 'authorization_code', code, client_id: cid, redirect_uri: REDIRECT, code_verifier: verifier })).json()) as { refresh_token: string };
+
+    const wrong = await tokenExchange({ grant_type: 'refresh_token', refresh_token: first.refresh_token, client_id: 'oc_someone_else' });
+    expect(wrong.status).toBe(400);
+    expect((await wrong.json()) as { error: string }).toMatchObject({ error: 'invalid_client' });
+
+    // The token's own client can still use it: nothing was consumed or revoked.
+    const right = await tokenExchange({ grant_type: 'refresh_token', refresh_token: first.refresh_token, client_id: cid });
+    expect(right.status).toBe(200);
   });
 
   it('rejects an unsupported grant_type', async () => {

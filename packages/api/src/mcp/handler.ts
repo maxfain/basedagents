@@ -1256,6 +1256,9 @@ app.post('/mcp', bearerMiddleware, async (c) => {
         instructions: chatgptMeta.instructions,
       });
     }
+    case 'ping':
+      // MCP basic utilities: a receiver MUST answer ping promptly with an empty result.
+      return rpcResult(c, id, {});
     case 'tools/list':
       return rpcResult(c, id, {
         tools: TOOLS.map((t) => ({

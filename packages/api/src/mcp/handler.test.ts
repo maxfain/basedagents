@@ -220,6 +220,13 @@ describe('/mcp handler', () => {
     }
   });
 
+  it('ping answers an empty result, anonymously too', async () => {
+    const pong = (await (await rpc(null, { jsonrpc: '2.0', id: 'p1', method: 'ping' })).json()) as Rpc;
+    expect(pong.error).toBeUndefined();
+    expect(pong.result).toEqual({});
+    expect(pong.id).toBe('p1');
+  });
+
   it('unknown method → -32601; malformed JSON body → -32700', async () => {
     makeOwner('ow_e', 'e@example.com');
     const token = await mintToken({ ownerId: 'ow_e', scope: 'registry:read' });

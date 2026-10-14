@@ -200,6 +200,13 @@ describe('oauth_refresh_tokens — rotation + reuse detection', () => {
     expect((await store.rotateRefreshToken(token, iso())).status).toBe('invalid');
   });
 
+  it('another client_id → client_mismatch, and the token stays usable by its own client', async () => {
+    seedOwner('ow_a');
+    const { token } = await store.mintRefreshToken({ clientId: 'oc_1', ownerId: 'ow_a', resource: RESOURCE, scope: 'board:post' });
+    expect((await store.rotateRefreshToken(token, iso(), 'oc_2')).status).toBe('client_mismatch');
+    expect((await store.rotateRefreshToken(token, iso(), 'oc_1')).status).toBe('ok');
+  });
+
   it('REUSE of a consumed token revokes the ENTIRE successor chain', async () => {
     seedOwner('ow_a');
     const { token: r0 } = await store.mintRefreshToken({ clientId: 'oc_1', ownerId: 'ow_a', resource: RESOURCE, scope: 'board:post' });
