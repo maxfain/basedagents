@@ -432,7 +432,8 @@ tested against — not worth it for a dev-only risk. **Re-check when Vite and
 ## Addendum — Dependency and runtime audit (2026-10-22)
 
 Supersedes the 2026-07-17 table above. `npm audit` on the root lockfile
-reported 8 advisories (1 critical, 3 high, 3 moderate, 1 low), and every CI job
+reported 8 vulnerable packages (1 critical, 3 high, 3 moderate, 1 low) across 16
+advisories, and every CI job
 warned that its actions target the deprecated Node 20 runtime. **All patched;
 `npm audit` now reports 0.** Exposure was low throughout: the vulnerable code
 sat in dev and CI tooling, or on paths our code never takes.
@@ -444,30 +445,34 @@ sat in dev and CI tooling, or on paths our code never takes.
 | `vite` | 6.4.3 → 6.4.5 (web, console); 7.3.6 → 7.3.7 (root, via vitest) | high | Dev server only (Windows, WSL, middleware mode or a network-exposed dev server). Production ships static files. |
 | `source-map-js` | 1.2.1 → 1.2.2 | high | postcss at build time; needs a hostile source map. |
 | `hono` | 4.13.8 → 4.13.13 (`packages/api` floor `^4.13.13`) | moderate | `serveStatic` only; the API never uses it. |
-| `vitest`, `@vitest/mocker` | 4.1.11 → 4.1.12 | moderate | Browser mode or a reachable Vite dev-server WebSocket; we only run `vitest run`. |
+| `vitest`, `@vitest/mocker` | 4.1.11 → 4.1.12 | moderate | Only a Vite dev server that adds `@vitest/mocker`'s `mockerPlugin()` or `interceptorPlugin()` and exposes its WebSocket (the backslash bypass also needs Windows). Vitest never registers those handlers, in Node runs or Browser Mode, and no config here adds the plugin. |
 | `esbuild` | 0.27.7 → 0.28.2 (`packages/github-action`; `tsx` 4.23.15 dedupes to it) | low | esbuild's dev server on Windows; we only run the bundler on Linux. |
 | `undici` (in the committed `packages/github-action/dist/index.js`) | 6.28.1 → 6.29.1 | — | Consumers run this bundle through `@main`. 6.29.1 carries the 2026-10-15 undici fixes. |
 
 **Runtimes.**
 - **GitHub Actions.** Every action moved to its Node 24 major: `checkout@v7`, `setup-node@v7`, `setup-python@v7`, `upload-artifact@v7`, `github-script@v9` and `cloudflare/wrangler-action@v4`. Our own action declares `node24`, and its bundle targets `node24`.
-- **Node in CI.** CI stays on Node 22 LTS with `check-latest: true`, so jobs pick up the 2026-10-20 Node security release (22.23.4: TLS, DNS and brotli fixes, plus the eMudhra root removal) before GitHub's runner image carries it. Node 24 needs `better-sqlite3` 12+, which ships Node 24 prebuilds; plan that move before Node 22's end of life on 2027-04-30.
+- **Node in CI.** CI stays on Node 22 LTS with `check-latest: true`, so jobs pick up the 2026-10-20 Node security release (22.23.4: TLS, DNS and brotli fixes, and an updated root-certificate store) before GitHub's runner image carries it. Node 24 needs `better-sqlite3` 12+, which ships Node 24 prebuilds; plan that move before Node 22's end of life on 2027-04-30.
 - **Docker.** The MCP Dockerfiles use `node:22-alpine`, which already resolves to 22.23.4. Images built before 2026-10-21 need a rebuild with `--pull`.
 
 **Supply chain.**
 - **Publish jobs** (`id-token: write`): they restore no npm cache (`package-manager-cache: false`), and they install `npm@12`, pinned to the major. npm 12 runs no dependency install script that an `allowScripts` policy hasn't approved.
 - **wrangler CLI** (installed by `wrangler-action`, so invisible to the root `npm audit`): 4.111.0 → 4.149.0, whose dependency tree audits clean.
 - **Still open upstream** (CI-only, unreachable in our commands, and not fixable here):
-  - wrangler 4.149.0 inlines undici 7.29.1 and other libraries with published advisories.
+  - wrangler 4.149.0 inlines libraries with published advisories: fast-xml-parser 4.4.1, minimatch 5.1.6, brace-expansion 2.0.1 and 5.0.5, shell-quote 1.10.0, uuid 9.0.1, yaml 2.8.1 and `@smithy/config-resolver` 3.0.13. Its inlined undici 7.29.1 has no published advisory, but it predates the 2026-10-15 undici fixes (7.30.1).
   - `wrangler-action` v4.1.3 bundles undici 6.25.0.
 
   Re-check when they release.
-- **Stale lockfile.** The unused `packages/mcp/package-lock.json`, which pinned 17 vulnerable versions, is deleted. `.gitignore` now keeps lockfiles out of the workspaces.
+- **Stale lockfile.** The unused `packages/mcp/package-lock.json`, which pinned 16 packages that `npm audit` flags (3 critical, 7 high), is deleted. `.gitignore` now keeps lockfiles out of the workspaces.
 
 **Python SDK 0.5.3.**
-- `certifi>=2026.10.19`: drops the compromised eMudhra roots. pip keeps an older certifi when upgrading `basedagents` unless the floor requires it.
-- `cryptography>=48.0.1`.
-- `requires-python` stays `>=3.9`, so 3.9 users get these floors too.
-- `pip-audit` of the resolved set is clean.
+- `certifi>=2026.10.19`: removes `emSign ECC Root CA - G3`. Eight eMudhra intermediates under that root had compromised private keys (GHSA-6q48-6c7w-9gw2). pip keeps an older certifi when upgrading `basedagents` unless the floor requires it.
+- `cryptography>=50.0.0`. That floor closes four advisories, none of which the SDK could reach because it uses only Ed25519:
+  - GHSA-537c-gmf6-5ccf: the OpenSSL bundled in the wheels; fixed in 48.0.1.
+  - GHSA-jwv3-5hgf-82ww and GHSA-m2h6-j472-rp4c: X.509 verification; fixed in 49.0.0.
+  - GHSA-g6cj-pr64-35w5: PKCS#7 decryption; fixed in 50.0.0.
+  - Since 49.0.0 cryptography ships no x86_64-macOS or 32-bit-Windows wheels, so pip builds it from source there, as a fresh install already did.
+- `requires-python` stays `>=3.9`, so users on 3.9.2 and later get these floors too. cryptography excludes 3.9.0 and 3.9.1, so pip keeps `basedagents` 0.5.2 there.
+- `pip-audit` of the resolved set is clean on Python 3.10 and later. On 3.9, httpx pulls in anyio 4.12.1, the last anyio for 3.9, which carries GHSA-82r6-8w77-94w6 and GHSA-5p39-cfhj-2xmp. Both are fixed only in anyio 4.14.2, which needs Python 3.10. The SDK can't reach either: it uses only the sync `httpx.Client`, and httpcore uses anyio only in its async backend.
 
 **Not done here.**
 - **Dependabot alerts are disabled** for the repository (Settings → Code security). Enabling them would surface the next advisory without waiting for an audit.

@@ -10,7 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Security — vulnerable dependencies patched, CI off the Node 20 runtime (api, mcp, web, console, github-action, python 0.5.3, ci)
 
-`npm audit` reported 8 advisories (1 critical, 3 high, 3 moderate, 1 low), and every CI job warned that its actions target the deprecated Node 20 runtime. `npm audit` now reports 0. None of the flagged code was reachable in production; details and exposure per package are in `SECURITY_AUDIT.md`.
+`npm audit` reported 8 vulnerable packages (1 critical, 3 high, 3 moderate, 1 low) across 16 advisories, and every CI job warned that its actions target the deprecated Node 20 runtime. `npm audit` now reports 0. None of the flagged code was reachable in production; details and exposure per package are in `SECURITY_AUDIT.md`.
 
 - **npm:**
   - `proxy-addr` 2.0.8 (critical; via the MCP SDK's express 5.3.0).
@@ -21,14 +21,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - `vitest` 4.1.12.
   - `esbuild` 0.28.2, with `tsx` 4.23.15.
   - `undici` 6.29.1 in the GitHub Action bundle.
-- **The unused `packages/mcp/package-lock.json` is gone.** npm workspaces only read the root lockfile, so this one went stale and pinned 17 vulnerable versions. `.gitignore` now keeps lockfiles out of the workspaces.
+- **The unused `packages/mcp/package-lock.json` is gone.** npm workspaces only read the root lockfile, so this one went stale and pinned 16 packages that `npm audit` flags (3 critical, 7 high). `.gitignore` now keeps lockfiles out of the workspaces.
 - **GitHub Actions on Node 24:**
   - `actions/checkout@v7`, `actions/setup-node@v7`, `actions/setup-python@v7`, `actions/upload-artifact@v7`, `actions/github-script@v9` and `cloudflare/wrangler-action@v4`.
-  - Our own action (`packages/github-action`) declares `runs.using: node24`, and its bundle targets Node 24. It needs a GitHub-hosted runner, or a self-hosted runner at v2.328.0 or newer.
+  - Our own action (`packages/github-action`) declares `runs.using: node24`, and its bundle targets Node 24. It needs a GitHub-hosted runner, or a self-hosted runner at v2.327.1 or newer.
 - **Node in CI:** still 22 LTS, with `check-latest: true`, so jobs take Node's 2026-10-20 security release (22.23.4) without waiting for a new runner image.
 - **Publish jobs** (they can mint OIDC tokens): no npm cache, and npm pinned to the 12 major. npm 12 runs no dependency install script an `allowScripts` policy hasn't approved.
 - **wrangler CLI in CI:** 4.111.0 → 4.149.0. The older CLI's dependency tree had published advisories.
-- **Python SDK 0.5.3:** `certifi>=2026.10.19`, which drops the compromised eMudhra roots, and `cryptography>=48.0.1`. `requires-python` stays `>=3.9`.
+- **Python SDK 0.5.3:**
+  - `certifi>=2026.10.19`, which removes `emSign ECC Root CA - G3`. Eight eMudhra intermediates under that root had compromised keys (GHSA-6q48-6c7w-9gw2).
+  - `cryptography>=50.0.0`, the first release with no published advisory.
+  - `requires-python` stays `>=3.9`.
 
 ### Fixed — the docs give the real AgentSig clock window: 60 seconds (api, repo)
 
