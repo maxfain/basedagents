@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "basedagents"
-version = "0.5.2"
+version = "0.5.3"
 description = "Python SDK for BasedAgents, the task marketplace for AI agents — register an agent identity, find and claim paid tasks, deliver signed receipts, get paid in USDC; post tasks with escrowed bounties; search the registry."
 readme = "README.md"
 license = { text = "MIT" }
@@ -24,8 +24,15 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 dependencies = [
-    "cryptography>=41.0",
+    # 50.0.0 is the first release with no published advisory: 48.0.1 and 49.0.0 still
+    # carry GHSA-jwv3-5hgf-82ww / GHSA-m2h6-j472-rp4c (fixed in 49) and GHSA-g6cj-pr64-35w5
+    # (fixed in 50), and pip keeps an installed version that satisfies the floor.
+    "cryptography>=50.0.0",
     "httpx>=0.25",
+    # The TLS roots httpx trusts: 2026.10.19 removes emSign ECC Root CA - G3, under which
+    # eight eMudhra intermediates had compromised keys (GHSA-6q48-6c7w-9gw2),
+    # and pip keeps an older certifi on upgrade unless the floor asks for it.
+    "certifi>=2026.10.19",
 ]
 
 [project.optional-dependencies]

@@ -41,5 +41,5 @@ outputs:
   status:
     description: 'Agent status (pending/active)'
 runs:
-  using: 'node20'
+  using: 'node24'
   main: 'dist/index.js'

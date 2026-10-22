@@ -165,20 +165,20 @@ parameter.
 ### CI `deploy-production` installs the wrong wrangler and can't read `wrangler.jsonc`
 
 The `deploy-production` job (`.github/workflows/ci.yml`) uses
-`cloudflare/wrangler-action@v3`, which runs `npx --no-install wrangler` to reuse
+`cloudflare/wrangler-action`, which runs `npx --no-install wrangler` to reuse
 the repo's wrangler. But **wrangler isn't a dependency** in
 `packages/api/package.json` (it's only ever invoked via `npx`), so that check
-fails and the action falls back to its **default wrangler 3.90.0**. wrangler
-3.90.0 **cannot parse `wrangler.jsonc`** (JSONC config support is newer), so it
-sees no config, finds no `agent-registry` D1 binding, and dies with
+fails and the action installs its **default wrangler**. Under `@v3` that default
+was 3.90.0, which **cannot parse `wrangler.jsonc`** (JSONC config support is
+newer), so it saw no config, found no `agent-registry` D1 binding, and died with
 `Couldn't find a D1 DB with the name or binding 'agent-registry' in wrangler.toml`.
-This fails **after** the node/python/e2e gates go green — the run looks
-"mostly passing" while nothing actually deploys. Fix: pin the action with
-`wranglerVersion: "4.x"` on each of the three `wrangler-action` steps
-(migrations, Worker deploy, console deploy), or add `wrangler` to
-`packages/api` devDependencies so `--no-install` resolves the pinned 4.x. Until
-then, deploy by hand with local wrangler 4.x (the commands in "Deploy order"
-above, then the console Pages deploy).
+That failed **after** the node/python/e2e gates went green — the run looked
+"mostly passing" while nothing deployed. So every `wrangler-action` step pins
+`wranglerVersion` (the CLI we tested, also what our audits cover); `@v4`'s
+floating default would otherwise pick a new 4.x on its own. Bump all the pins
+together, or add `wrangler` to `packages/api` devDependencies so
+`--no-install` resolves it. To deploy by hand, use local wrangler 4.x (the
+commands in "Deploy order" above, then the console Pages deploy).
 
 ---
 
@@ -364,7 +364,11 @@ a required-reviewer gate goes if you ever want a human click before a
 publish; today it has none.
 
 Trusted publishing needs **npm ≥ 11.5.1** (Node 22 ships npm 10; the job
-installs `npm@latest`) and a **public repository or a paid plan** for OIDC.
+installs `npm@12`, pinned to the major on purpose: npm 12 runs no dependency
+install script that an `allowScripts` policy hasn't approved, which matters in a
+job that can mint the OIDC token) and a **public repository or a paid plan** for
+OIDC. The publish jobs also restore no npm cache (`package-manager-cache:
+false`): a poisoned cache would run inside that same job.
 `scripts/publish-if-unpublished.sh <workspace>` is the same skip-or-publish
 step the workflow runs and works from a logged-in shell too.
 

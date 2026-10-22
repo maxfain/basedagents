@@ -20,11 +20,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
+          check-latest: true
           cache: npm
 
       - name: Install
@@ -87,11 +88,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
+          check-latest: true
           cache: npm
 
       - name: Install
@@ -107,9 +109,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -124,11 +126,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
+          check-latest: true
           cache: npm
 
       - name: Install
@@ -157,7 +160,7 @@ jobs:
 
       - name: Upload Playwright report on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: |
@@ -179,11 +182,12 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
+          check-latest: true
           cache: npm
 
       - name: Install
@@ -198,9 +202,9 @@ jobs:
       # ./functions from the CURRENT directory (the `/` negotiation function).
       - name: Deploy console preview to Cloudflare Pages
         id: deploy
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
-          wranglerVersion: "4.111.0"  # pin a current wrangler; the action's v3 default (3.90.0) is ~1.5y old
+          wranglerVersion: "4.149.0"  # pin the wrangler CLI explicitly instead of the action's floating default
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: packages/console
@@ -208,9 +212,9 @@ jobs:
 
       - name: Deploy site preview to Cloudflare Pages
         id: deploy-site
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
-          wranglerVersion: "4.111.0"
+          wranglerVersion: "4.149.0"
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: packages/web
@@ -223,7 +227,7 @@ jobs:
 
       - name: Comment preview URLs on the PR
         if: always()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const url = `${{ steps.deploy.outputs.deployment-url }}`;
@@ -250,11 +254,12 @@ jobs:
     timeout-minutes: 15
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
+          check-latest: true
           cache: npm
 
       - name: Install
@@ -300,18 +305,18 @@ jobs:
       # wrangler tracks applied migrations in the d1_migrations table; see
       # scripts/bootstrap-deploy.md for the one-time bookkeeping check.
       - name: Apply D1 migrations
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
-          wranglerVersion: "4.111.0"  # pin a current wrangler; the action's v3 default (3.90.0) is ~1.5y old
+          wranglerVersion: "4.149.0"  # pin the wrangler CLI explicitly instead of the action's floating default
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: packages/api
           command: d1 migrations apply agent-registry --remote
 
       - name: Deploy API Worker
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
-          wranglerVersion: "4.111.0"  # pin a current wrangler; the action's v3 default (3.90.0) is ~1.5y old
+          wranglerVersion: "4.149.0"  # pin the wrangler CLI explicitly instead of the action's floating default
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: packages/api
@@ -323,9 +328,9 @@ jobs:
       # --config so it never grabs the api Worker's name/route. It declares no
       # migrations_dir, so this deploy migrates nothing.
       - name: Deploy MCP Worker
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
-          wranglerVersion: "4.111.0"  # pin a current wrangler; the action's v3 default (3.90.0) is ~1.5y old
+          wranglerVersion: "4.149.0"  # pin the wrangler CLI explicitly instead of the action's floating default
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --config packages/api/wrangler.mcp.toml --name agent-registry-mcp
@@ -334,9 +339,9 @@ jobs:
         run: npm run build --workspace=packages/console
 
       - name: Deploy console to Cloudflare Pages (production)
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
-          wranglerVersion: "4.111.0"  # pin a current wrangler; the action's v3 default (3.90.0) is ~1.5y old
+          wranglerVersion: "4.149.0"  # pin the wrangler CLI explicitly instead of the action's floating default
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: packages/console  # so ./functions (the `/` negotiation) is compiled
@@ -349,9 +354,9 @@ jobs:
         run: npm run build --workspace=packages/web
 
       - name: Deploy marketing site to Cloudflare Pages (production)
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
-          wranglerVersion: "4.111.0"
+          wranglerVersion: "4.149.0"
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: packages/web  # so ./functions (the `/` negotiation) is compiled

@@ -3,7 +3,7 @@
 # (A stray "basedagents-api" worker from 2026-03-10 is an unused orphan.)
 #
 # TOML rather than wrangler.jsonc so the config parses under ANY wrangler
-# version (the cloudflare/wrangler-action v3 default, 3.90.0, could not read
+# version (the old cloudflare/wrangler-action v3 default, 3.90.0, could not read
 # wrangler.jsonc). CI still pins a current wrangler for deploy reliability.
 name = "agent-registry-api"
 main = "src/index.ts"
