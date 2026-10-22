@@ -426,3 +426,49 @@ upgrade path resolves them. Forcing patched versions would require npm
 `overrides` in the root `package.json`, which overrides what those tools were
 tested against — not worth it for a dev-only risk. **Re-check when Vite and
 `@actions/*` ship releases on patched transitive deps.**
+
+---
+
+## Addendum — Dependency and runtime audit (2026-10-22)
+
+Supersedes the 2026-07-17 table above. `npm audit` on the root lockfile
+reported 8 advisories (1 critical, 3 high, 3 moderate, 1 low), and every CI job
+warned that its actions target the deprecated Node 20 runtime. **All patched;
+`npm audit` now reports 0.** Exposure was low throughout: the vulnerable code
+sat in dev and CI tooling, or on paths our code never takes.
+
+| Package | Was → now | Sev | Exposure |
+|---|---|---|---|
+| `proxy-addr` | 2.0.7 → 2.0.8 (express 5.3.0) | critical | Via the MCP SDK's express. The stdio MCP server never loads express, and nothing configures `trust proxy`. |
+| `@modelcontextprotocol/sdk` | 1.27.1 → 1.32.1 (`packages/mcp` floor `^1.32.1`) | high | The five advisories cover the SDK's OAuth client, HTTP transports, bearer-auth middleware, tasks and HTTP request validation. `@basedagents/mcp` uses only `McpServer` and `StdioServerTransport`. The hosted `/mcp` endpoint is hand-rolled and doesn't use the SDK. |
+| `vite` | 6.4.3 → 6.4.5 (web, console); 7.3.6 → 7.3.7 (root, via vitest) | high | Dev server only (Windows, WSL, middleware mode or a network-exposed dev server). Production ships static files. |
+| `source-map-js` | 1.2.1 → 1.2.2 | high | postcss at build time; needs a hostile source map. |
+| `hono` | 4.13.8 → 4.13.13 (`packages/api` floor `^4.13.13`) | moderate | `serveStatic` only; the API never uses it. |
+| `vitest`, `@vitest/mocker` | 4.1.11 → 4.1.12 | moderate | Browser mode or a reachable Vite dev-server WebSocket; we only run `vitest run`. |
+| `esbuild` | 0.27.7 → 0.28.2 (`packages/github-action`; `tsx` 4.23.15 dedupes to it) | low | esbuild's dev server on Windows; we only run the bundler on Linux. |
+| `undici` (in the committed `packages/github-action/dist/index.js`) | 6.28.1 → 6.29.1 | — | Consumers run this bundle through `@main`. 6.29.1 carries the 2026-10-15 undici fixes. |
+
+**Runtimes.**
+- **GitHub Actions.** Every action moved to its Node 24 major: `checkout@v7`, `setup-node@v7`, `setup-python@v7`, `upload-artifact@v7`, `github-script@v9` and `cloudflare/wrangler-action@v4`. Our own action declares `node24`, and its bundle targets `node24`.
+- **Node in CI.** CI stays on Node 22 LTS with `check-latest: true`, so jobs pick up the 2026-10-20 Node security release (22.23.4: TLS, DNS and brotli fixes, plus the eMudhra root removal) before GitHub's runner image carries it. Node 24 needs `better-sqlite3` 12+, which ships Node 24 prebuilds; plan that move before Node 22's end of life on 2027-04-30.
+- **Docker.** The MCP Dockerfiles use `node:22-alpine`, which already resolves to 22.23.4. Images built before 2026-10-21 need a rebuild with `--pull`.
+
+**Supply chain.**
+- **Publish jobs** (`id-token: write`): they restore no npm cache (`package-manager-cache: false`), and they install `npm@12`, pinned to the major. npm 12 runs no dependency install script that an `allowScripts` policy hasn't approved.
+- **wrangler CLI** (installed by `wrangler-action`, so invisible to the root `npm audit`): 4.111.0 → 4.149.0, whose dependency tree audits clean.
+- **Still open upstream** (CI-only, unreachable in our commands, and not fixable here):
+  - wrangler 4.149.0 inlines undici 7.29.1 and other libraries with published advisories.
+  - `wrangler-action` v4.1.3 bundles undici 6.25.0.
+
+  Re-check when they release.
+- **Stale lockfile.** The unused `packages/mcp/package-lock.json`, which pinned 17 vulnerable versions, is deleted. `.gitignore` now keeps lockfiles out of the workspaces.
+
+**Python SDK 0.5.3.**
+- `certifi>=2026.10.19`: drops the compromised eMudhra roots. pip keeps an older certifi when upgrading `basedagents` unless the floor requires it.
+- `cryptography>=48.0.1`.
+- `requires-python` stays `>=3.9`, so 3.9 users get these floors too.
+- `pip-audit` of the resolved set is clean.
+
+**Not done here.**
+- **Dependabot alerts are disabled** for the repository (Settings → Code security). Enabling them would surface the next advisory without waiting for an audit.
+- The cache purge at the end of `deploy-production` fails with a Cloudflare `Authentication error`: its token lacks the cache-purge permission. This is operational, not a vulnerability.
