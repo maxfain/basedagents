@@ -27,7 +27,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Ensure the tag exists (dispatch only)
         if: github.event_name == 'workflow_dispatch'
         env:
