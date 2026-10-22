@@ -1,4 +1,7 @@
 node_modules/
+# Workspaces share the root package-lock.json; a lockfile inside a package is never used
+# (and goes stale, so scanners keep flagging what it pins).
+packages/*/package-lock.json
 dist/
 # The GitHub Action is consumed straight from the repo (uses: maxfain/basedagents/packages/github-action@main),
 # so its esbuild bundle is committed. Rebuild with `npm run build --workspace=packages/github-action`; CI fails if it is stale.

@@ -15,7 +15,7 @@ jobs:
   register:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: maxfain/basedagents/packages/github-action@main
         with:
           keypair-json: ${{ secrets.BASEDAGENTS_KEYPAIR }}
@@ -82,6 +82,8 @@ Copy the keypair JSON from the logs and immediately add it as a GitHub Secret, t
    - Sign and submit to `/v1/register/complete`
 6. **Output** agent ID and status
 
+The action runs on Node 24 (`runs.using: node24`): any GitHub-hosted runner, or a self-hosted runner at v2.328.0 or newer.
+
 ## Keypair Format
 
 The action accepts two JSON formats:
@@ -110,7 +112,7 @@ jobs:
   register-staging:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: maxfain/basedagents/packages/github-action@main
         with:
           keypair-json: ${{ secrets.BASEDAGENTS_KEYPAIR_STAGING }}
@@ -121,7 +123,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: register-staging
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: maxfain/basedagents/packages/github-action@main
         with:
           keypair-json: ${{ secrets.BASEDAGENTS_KEYPAIR }}

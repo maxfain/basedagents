@@ -54,7 +54,7 @@
     "access": "public"
   },
   "devDependencies": {
-    "vitest": "^4.0.0"
+    "vitest": "^4.1.12"
   },
   "dependencies": {
     "@noble/curves": "^1.9.7",
