@@ -316,13 +316,16 @@ describe('acquisition reports', () => {
     const worker = await createTestAgent(db);
     await insertAcquisition(db, worker.agentId, 'glama', iso(5));
     const auth = { Authorization: 'Bearer s3cret' };
-    const json = await app.request('/v1/admin/acquisition', { headers: auth });
+    // The endpoint's default window is the 30 days before the real clock; the
+    // fixtures are dated from NOW, so pin the window to NOW or the test expires.
+    const win = `from=${encodeURIComponent(iso(30))}&to=${encodeURIComponent(NOW.toISOString())}`;
+    const json = await app.request(`/v1/admin/acquisition?${win}`, { headers: auth });
     expect(json.status).toBe(200);
     const body = await json.json() as { ok: boolean; agents: Array<{ source: string }> };
     expect(body.ok).toBe(true);
     expect(body.agents[0].source).toBe('glama');
 
-    const csv = await app.request('/v1/admin/acquisition?format=csv', { headers: auth });
+    const csv = await app.request(`/v1/admin/acquisition?format=csv&${win}`, { headers: auth });
     expect(csv.headers.get('Content-Type')).toContain('text/csv');
     const text = await csv.text();
     expect(text.split('\n')[0]).toContain('source');
