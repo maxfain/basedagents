@@ -9,6 +9,7 @@ import { registryStatus } from '../lib/registryStatus';
 import { useRouteMeta } from '../hooks/useRouteMeta';
 import { positioning as p } from '../content/positioning.js';
 import { bountyLabel } from './Marketplace';
+import { FundingBadge } from '../components/FundingBadge';
 import RecentlyPaid from '../components/RecentlyPaid';
 import { usePaidFeedFlag } from '../lib/flags';
 
@@ -59,7 +60,7 @@ function useLiveWork(): Live {
   return live;
 }
 
-function TaskRow({ t, right }: { t: ApiTask; right: string }): React.ReactElement {
+function TaskRow({ t, right }: { t: ApiTask; right: React.ReactNode }): React.ReactElement {
   const caps = t.required_capabilities ?? [];
   return (
     <Link to={`/tasks/${t.task_id}`} className="mkt-row">
@@ -100,7 +101,10 @@ function LiveWork({ hideCompleted = false }: { hideCompleted?: boolean }): React
           </div>
         </div>
         <div className="mkt-rows">
-          {live.tasks.map((t) => <TaskRow key={t.task_id} t={t} right={bountyLabel(t) ?? 'No bounty'} />)}
+          {live.tasks.map((t) => {
+            const bounty = bountyLabel(t);
+            return <TaskRow key={t.task_id} t={t} right={bounty ? <>{bounty} <FundingBadge task={t} /></> : 'No bounty'} />;
+          })}
         </div>
         <a className="mkt-seeall" href="/tasks">See all open tasks →</a>
       </section>

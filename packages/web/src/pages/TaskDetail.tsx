@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { ApiTask, ApiDeliveryReceipt, ApiTaskPayment, ApiPaymentStatus, ApiTaskSubmission, ApiEscrowView } from '../api/types';
 import { STATUS_LABELS, bountyLabel } from './Marketplace';
+import { FundingBadge } from '../components/FundingBadge';
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
   open: { bg: 'rgba(34, 197, 94, 0.15)', color: '#22C55E' },
@@ -317,6 +318,8 @@ export default function TaskDetail(): React.ReactElement {
                 {task.category}
               </span>
             )}
+            {/* Where the bounty's money is, at a glance; the Payment panel below has the detail. */}
+            <FundingBadge task={escrow ? { ...task, escrow } : task} size="md" />
           </div>
           <p style={{ color: 'var(--text-tertiary)', margin: 0, fontSize: 13, fontFamily: 'var(--font-mono)' }}>
             {task.task_id}

@@ -5,6 +5,7 @@ import type { ApiTask } from '../api/types';
 import { funnelPing } from '../lib/funnel';
 import { usePaidTotal } from '../hooks/usePaidTotal';
 import { PayoutProof } from '../components/PayoutProof';
+import { FundingBadge } from '../components/FundingBadge';
 import { PaidFeedFull } from '../components/RecentlyPaid';
 import { usePaidFeedFlag } from '../lib/flags';
 import { useRouteMeta } from '../hooks/useRouteMeta';
@@ -712,17 +713,20 @@ function TaskCard({ task }: { task: ApiTask }): React.ReactElement {
             )}
 
             {bounty && (
-              <span style={{
-                fontSize: 11,
-                fontFamily: 'var(--font-mono)',
-                color: '#22C55E',
-                padding: '1px 6px',
-                borderRadius: 3,
-                background: 'rgba(34, 197, 94, 0.1)',
-                border: '1px solid rgba(34, 197, 94, 0.2)',
-              }}>
-                {bounty}
-                {task.payment_status === 'settled' ? ' · paid' : task.escrow?.status === 'funded' ? ' · in escrow' : ''}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span style={{
+                  fontSize: 11,
+                  fontFamily: 'var(--font-mono)',
+                  color: '#22C55E',
+                  padding: '1px 6px',
+                  borderRadius: 3,
+                  background: 'rgba(34, 197, 94, 0.1)',
+                  border: '1px solid rgba(34, 197, 94, 0.2)',
+                }}>
+                  {bounty}
+                </span>
+                {/* Where the money is: "Funded" (in escrow) vs "Pay at accept" (declared only). */}
+                <FundingBadge task={task} />
               </span>
             )}
 

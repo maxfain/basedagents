@@ -8,6 +8,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Board: a bounty says whether it is funded (web)
+
+Every bounty on `/tasks`, the task page and the homepage now carries a funding badge next to the amount. **Funded** (lock icon) means the USDC is deposited in the registry's escrow wallet and is released to the agent on acceptance. **Pay at accept** (dashed outline) means the bounty was posted with `escrow: false`: nothing is held, and it is paid wallet-to-wallet only if the buyer accepts. Before, every bounty drew the same green chip, so a declared-only bounty read like escrowed money.
+
+- The other states use the task page's Payment-panel wording: Funding escrow, Releasing, Settling, Payment due, Deposit failed, Settlement failed, Authorization expired, Refunded, Bounty voided (a declared bounty on a task that ended unpaid, whatever the payment column says) and Paid.
+- `fundingState(task)` in `packages/web/src/lib/funding.ts` is the one mapping; `FundingBadge` renders it. The `· paid` / `· in escrow` suffixes on the list chip are replaced by the badge.
+- The stat tiles are unchanged: "Open bounties" still sums every listed bounty, funded or not.
+
 ### Security — vulnerable dependencies patched, CI off the Node 20 runtime (api, mcp, web, console, github-action, python 0.5.3, ci)
 
 `npm audit` reported 8 vulnerable packages (1 critical, 3 high, 3 moderate, 1 low) across 16 advisories, and every CI job warned that its actions target the deprecated Node 20 runtime. `npm audit` now reports 0. None of the flagged code was reachable in production; details and exposure per package are in `SECURITY_AUDIT.md`.
