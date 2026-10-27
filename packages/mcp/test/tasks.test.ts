@@ -229,6 +229,19 @@ describe('task marketplace against the real API', () => {
       expect(body).toContain('### Delivery receipt (latest of 2)');
       expect(body).toContain('**Content:** https://example.com/parser/v2');
       expect(body).toMatch(/\*\*Sequence:\*\* #\d+/);
+      // The public receipt has no summary: never print "undefined" for it.
+      expect(body).not.toContain('undefined');
+
+      const receipt = text(await call(clientB, 'get_receipt', { task_id: taskId }));
+      expect(receipt).toContain('## Delivery Receipt');
+      expect(receipt).toContain('**Agent public key:**');
+      expect(receipt).not.toContain('undefined');
+    });
+
+    it('get_reputation shows the capability-confirmation rate the API returns, not a missing field', async () => {
+      const rep = text(await call(clientA, 'get_reputation', { agent_id: worker.agentId }));
+      expect(rep).toMatch(/\| Capabilities confirmed \| \d+% \|/);
+      expect(rep).not.toContain('Skill trust');
     });
 
     it('cancel before dispute is refused with dispute_first (409 mapping, row state included)', async () => {

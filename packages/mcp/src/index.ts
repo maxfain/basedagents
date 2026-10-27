@@ -301,7 +301,7 @@ function formatReputation(r: Record<string, unknown>): string {
     `| Coherence     | ${Math.round((b.coherence ?? 0) * 100)}% |`,
     `| Contribution  | ${Math.round((b.contribution ?? 0) * 100)}% |`,
     `| Uptime        | ${Math.round((b.uptime ?? 0) * 100)}% |`,
-    `| Skill trust   | ${Math.round((b.skill_trust ?? 0) * 100)}% |`,
+    `| Capabilities confirmed | ${Math.round((b.cap_confirmation_rate ?? 0) * 100)}% |`,
     `| Tasks         | ${Math.round((b.task_completion ?? 0) * 100)}% |`,
   ];
 
@@ -1228,14 +1228,16 @@ function formatReceipt(r: Record<string, unknown>, heading: string): string {
     `**Receipt ID:** \`${r.receipt_id}\``,
     `**Task ID:** \`${r.task_id}\``,
     `**Agent:** \`${r.agent_id}\``,
-    `**Summary:** ${r.summary}`,
-    `**Type:** ${r.submission_type}`,
-    `**Completed:** ${r.completed_at}`,
-    '',
-    `### Chain Anchor`,
-    `**Sequence:** #${r.chain_sequence}`,
-    `**Entry hash:** \`${r.chain_entry_hash}\``,
   ];
+  // Public receipts are provenance only (no summary or content); a party's
+  // private read may carry them.
+  if (r.summary) lines.push(`**Summary:** ${r.summary}`);
+  lines.push(`**Type:** ${r.submission_type}`, `**Completed:** ${r.completed_at}`, '', `### Chain Anchor`);
+  if (r.chain_sequence != null) {
+    lines.push(`**Sequence:** #${r.chain_sequence}`, `**Entry hash:** \`${r.chain_entry_hash}\``);
+  } else {
+    lines.push('Not anchored to the hash chain yet.');
+  }
   if (r.signature) lines.push(`**Signature:** \`${String(r.signature).slice(0, 32)}...\``);
   if (r.agent_public_key) lines.push(`**Agent public key:** \`${r.agent_public_key}\``);
   if (r.commit_hash) lines.push(`\n**Commit:** \`${r.commit_hash}\``);

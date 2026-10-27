@@ -89,7 +89,7 @@ export type McpEnv = {
 // purpose: this file runs on Workers, where the createRequire(package.json)
 // pattern the Node packages use has no filesystem to read from. Bump it with
 // packages/mcp/package.json (it had silently drifted to 0.5.0 once already).
-const SERVER_VERSION = '0.7.2';
+const SERVER_VERSION = '0.7.3';
 
 // The protocol revisions we can speak; `initialize` echoes the client's if it is
 // one of these, else pins the latest (SPEC §5).
@@ -291,7 +291,7 @@ function formatReputation(r: Record<string, unknown>): string {
     `| Coherence     | ${Math.round((b.coherence ?? 0) * 100)}% |`,
     `| Contribution  | ${Math.round((b.contribution ?? 0) * 100)}% |`,
     `| Uptime        | ${Math.round((b.uptime ?? 0) * 100)}% |`,
-    `| Skill trust   | ${Math.round((b.skill_trust ?? 0) * 100)}% |`,
+    `| Capabilities confirmed | ${Math.round((b.cap_confirmation_rate ?? 0) * 100)}% |`,
     `| Tasks         | ${Math.round((b.task_completion ?? 0) * 100)}% |`,
   ];
   // Task-derived reputation: accepted deliveries (an auto-acceptance counts
@@ -769,7 +769,6 @@ const TOOLS: ToolDef[] = [
         const n = data.receipts_count ?? 1;
         out += `\n\n---\n### Delivery receipt${n > 1 ? ` (latest of ${n})` : ''}`;
         out += `\n**Receipt ID:** \`${r.receipt_id}\`  |  **Agent:** \`${r.agent_id}\`  |  **Completed:** ${r.completed_at}`;
-        out += `\n**Summary:** ${r.summary}`;
         out += `\n**Chain anchor:** #${r.chain_sequence} \`${r.chain_entry_hash}\``;
         if (r.pr_url) out += `\n**PR:** ${r.pr_url}`;
       }
@@ -781,7 +780,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'get_receipt',
     description:
-      'Use this when the user wants the signed delivery receipt for a BasedAgents task — "show me the receipt for this task". Includes all fields needed for independent verification: receipt ID, delivering agent, and the hash-chain anchor.',
+      'Use this when the user wants the signed delivery receipt for a BasedAgents task — "show me the receipt for this task". Includes what is needed to check it independently: receipt ID, delivering agent, the agent\'s signature and public key, and the hash-chain anchor. The delivered work itself stays private.',
     annotations: { title: 'Delivery receipt', ...READ_ONLY },
     inputSchema: obj({ task_id: str('The task ID to get the delivery receipt for') }, ['task_id']),
     validate: (a) => (asString(a.task_id) ? { task_id: a.task_id } : null),
@@ -789,22 +788,27 @@ const TOOLS: ToolDef[] = [
       const data = (await apiFetch(ctx, `/v1/tasks/${encodeURIComponent(String(a.task_id))}/receipt`)) as {
         receipt: Record<string, unknown>;
       };
+      // The public receipt is provenance only (routes/tasks.ts publicReceiptShape):
+      // no summary or content, since the delivered work is private. It does carry
+      // the agent's signature and, from this route, the agent's public key.
       const r = data.receipt;
-      return text(
-        [
-          `## Delivery Receipt`,
-          `**Receipt ID:** \`${r.receipt_id}\``,
-          `**Task ID:** \`${r.task_id}\``,
-          `**Agent:** \`${r.agent_id}\``,
-          `**Summary:** ${r.summary}`,
-          `**Type:** ${r.submission_type}`,
-          `**Completed:** ${r.completed_at}`,
-          '',
-          `### Chain Anchor`,
-          `**Sequence:** #${r.chain_sequence}`,
-          `**Entry hash:** \`${r.chain_entry_hash}\``,
-        ].join('\n'),
-      );
+      const lines = [
+        `## Delivery Receipt`,
+        `**Receipt ID:** \`${r.receipt_id}\``,
+        `**Task ID:** \`${r.task_id}\``,
+        `**Agent:** \`${r.agent_id}\``,
+        `**Type:** ${r.submission_type}`,
+        `**Completed:** ${r.completed_at}`,
+      ];
+      if (r.signature) lines.push(`**Signature:** \`${r.signature}\``);
+      if (r.agent_public_key) lines.push(`**Agent public key:** \`${r.agent_public_key}\``);
+      lines.push('', `### Chain Anchor`);
+      if (r.chain_sequence != null) {
+        lines.push(`**Sequence:** #${r.chain_sequence}`, `**Entry hash:** \`${r.chain_entry_hash}\``);
+      } else {
+        lines.push('Not anchored to the hash chain yet.');
+      }
+      return text(lines.join('\n'));
     },
   },
   // ── draft_task_link (pure function — no auth, no server write) ──
