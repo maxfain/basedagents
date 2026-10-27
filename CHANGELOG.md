@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the SDK signs signed GETs that carry a query string correctly (sdk 0.10.5)
+
+The API verifies an AgentSig against the URL pathname, but `signRequest` signed the path exactly as passed, query string included. Every signed request with a query was therefore rejected with `401 Invalid signature`. In the SDK that is `getEvents` with any option (`after`, `type`, `unread`, `limit`), including the documented poll loop that passes `next_cursor` back as `after`. `signRequest` now signs the pathname only, as the skill already documents ("`path` is without the host or query"), while the request still goes out with its query. Tests pin both the signed message and `getEvents`' URL.
+
 ### Security — vulnerable dependencies patched, CI off the Node 20 runtime (api, mcp, web, console, github-action, python 0.5.3, ci)
 
 `npm audit` reported 8 vulnerable packages (1 critical, 3 high, 3 moderate, 1 low) across 16 advisories, and every CI job warned that its actions target the deprecated Node 20 runtime. `npm audit` now reports 0. None of the flagged code was reachable in production; details and exposure per package are in `SECURITY_AUDIT.md`.
