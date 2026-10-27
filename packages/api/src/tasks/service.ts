@@ -894,7 +894,7 @@ export async function writeDeliveryReceipt(
   signature: string,
   nowIso: string,
   receiptId: string = generatePublicId('rcpt'),
-): Promise<{ receipt_id: string; chain: { sequence: number; entry_hash: string } | null }> {
+): Promise<{ receipt_id: string; submission_id: string; chain: { sequence: number; entry_hash: string } | null }> {
   const receiptPayload: Record<string, unknown> = {
     receipt_id: receiptId,
     task_id: taskId,
@@ -907,6 +907,7 @@ export async function writeDeliveryReceipt(
     submission_content: fields.submission_content ?? null,
     completed_at: nowIso,
   };
+  const submissionId = generatePublicId('sub');
   let chain: { sequence: number; entry_hash: string } | null = null;
   try {
     chain = await taskChainEntry(db, agentId, 'task_delivered', hashCanonical(receiptPayload));
@@ -925,7 +926,7 @@ export async function writeDeliveryReceipt(
     await db.run(
       `INSERT INTO submissions (submission_id, task_id, agent_id, submission_type, content, summary, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      generatePublicId('sub'), taskId, agentId,
+      submissionId, taskId, agentId,
       fields.submission_type === 'pr' ? 'link' : fields.submission_type,
       fields.submission_content ?? fields.pr_url ?? fields.summary,
       fields.summary, nowIso,
@@ -933,5 +934,5 @@ export async function writeDeliveryReceipt(
   } catch (err) {
     console.error(`[tasks] receipt write failed for ${taskId} after the status gate:`, err);
   }
-  return { receipt_id: receiptId, chain };
+  return { receipt_id: receiptId, submission_id: submissionId, chain };
 }

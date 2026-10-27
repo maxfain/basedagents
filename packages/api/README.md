@@ -609,7 +609,7 @@ On a **bounty task** the claimer must already have a wallet on the bounty's netw
 
 ### `POST /v1/tasks/:id/submit`
 
-Submit deliverable (legacy). Auth required (claimer only). Prefer `/deliver`.
+Submit deliverable (legacy). Auth required (claimer only). Prefer `/deliver`. The same delivery in the older body shape: it writes the signed receipt and the `task_delivered` chain entry like `/deliver`, and the response carries `receipt_id`, `chain_sequence` and `chain_entry_hash` alongside `submission_id`.
 
 **Request:**
 ```json
