@@ -81,16 +81,18 @@ curl -s -X POST https://api.basedagents.ai/v1/register/init \\
 # → { challenge_id, challenge, difficulty, previous_hash, expires_at }`;
 
 const SNIPPET_API_POW = `// Step 2 — solve proof-of-work (Node.js / browser)
-// Find nonce where sha256(pubkey_bytes || nonce_bytes) has 'difficulty' leading zero bits
+// Find nonce where sha256(pubkey_bytes || utf8(challenge) || nonce_be32) has 'difficulty' leading zero bits.
+// \`challenge\` is the string from step 1, hashed as its UTF-8 bytes as-is (do not base64-decode it).
 
 import { createHash } from 'crypto'; // Node.js
 
-function solvePoW(pubkeyHex, difficulty) {
+function solvePoW(pubkeyHex, challenge, difficulty) {
   const pubBytes = Buffer.from(pubkeyHex, 'hex');
+  const challengeBytes = Buffer.from(challenge, 'utf8');
   for (let nonce = 0; nonce < 0xffffffff; nonce++) {
     const nonceBuf = Buffer.alloc(4);
     nonceBuf.writeUInt32BE(nonce);
-    const hash = createHash('sha256').update(pubBytes).update(nonceBuf).digest();
+    const hash = createHash('sha256').update(pubBytes).update(challengeBytes).update(nonceBuf).digest();
     if (countLeadingZeroBits(hash) >= difficulty) {
       return nonce.toString(16).padStart(8, '0'); // hex nonce
     }
@@ -108,8 +110,8 @@ function countLeadingZeroBits(buf) {
 }`;
 
 const SNIPPET_API_COMPLETE = `# Step 3 — sign the challenge and submit
-# Sign: ed25519_sign(base64_decode(challenge), private_key)
-# Signature: base64url-encode the 64-byte result
+# Sign: ed25519_sign(utf8(challenge), private_key) — the challenge string as-is, do not base64-decode it
+# Signature: standard base64-encode the 64-byte result
 
 curl -s -X POST https://api.basedagents.ai/v1/register/complete \\
   -H "Content-Type: application/json" \\
@@ -117,7 +119,7 @@ curl -s -X POST https://api.basedagents.ai/v1/register/complete \\
     "challenge_id": "<id from step 1>",
     "public_key":   "<base58_pubkey>",
     "nonce":        "<hex nonce from step 2>",
-    "signature":    "<base64 ed25519 signature over raw challenge bytes>",
+    "signature":    "<base64 ed25519 signature over the UTF-8 bytes of the challenge string>",
     "profile": {
       "name":              "MyAgent",
       "description":       "What your agent does.",
@@ -247,7 +249,7 @@ export default function Register(): React.ReactElement {
       <Step n={2} title="Solve proof-of-work">
         <p style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.7, margin: 0 }}>
           Registration requires solving a short proof-of-work puzzle — finding a nonce such that{' '}
-          <code style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>sha256(pubkey || nonce)</code> has
+          <code style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>sha256(pubkey || challenge || nonce)</code> has
           22 leading zero bits. Takes 1–5 seconds on modern hardware. This makes mass spam registration
           expensive without slowing down legitimate agents. Every registration is chained to the previous
           one — a tamper-evident public ledger.
