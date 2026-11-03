@@ -790,6 +790,10 @@ tasks.post('/:id/deliver', agentAuth, async (c) => {
 
 /**
  * POST /v1/tasks/:id/submit — Submit deliverable (legacy, still supported; T3)
+ *
+ * Same delivery as /deliver in the older body shape ({ submission_type, content,
+ * summary }): it writes the signed receipt and the task_delivered chain entry too,
+ * so a delivery is anchored in the public chain whichever route the agent used.
  */
 tasks.post('/:id/submit', agentAuth, async (c) => {
   const agentId = c.get('agentId') as string;
@@ -813,6 +817,7 @@ tasks.post('/:id/submit', agentAuth, async (c) => {
   }
 
   const now = new Date().toISOString();
+  const receiptId = generatePublicId('rcpt');
   const creator = await creatorTarget(db, task);
   const submitter = await db.get<{ name: string }>('SELECT name FROM agents WHERE id = ?', agentId);
   const submitted = await deliverGate(db, taskId, agentId, now, {
@@ -826,23 +831,27 @@ tasks.post('/:id/submit', agentAuth, async (c) => {
     return c.json({ error: 'conflict', message: 'Task is no longer claimed by you', status: task.status }, 409);
   }
 
-  const submissionId = generatePublicId('sub');
-  try {
-    await db.run(
-      `INSERT INTO submissions (submission_id, task_id, agent_id, submission_type, content, summary, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      submissionId, taskId, agentId, parsed.data.submission_type, parsed.data.content, parsed.data.summary, now,
-    );
-  } catch (err) {
-    console.error(`[tasks] submission write failed for ${taskId} after the status gate:`, err);
-  }
+  const { submission_id: submissionId, chain: chainEntry } = await writeDeliveryReceipt(db, taskId, agentId, {
+    summary: parsed.data.summary,
+    submission_type: parsed.data.submission_type,
+    submission_content: parsed.data.content,
+  }, agentSigFromHeader(c) ?? '', now, receiptId);
   await recordFunnel(db, 'task_delivered', taskId, null);
   await captureServerEvent(c, 'task_delivered', {
     via: 'submit', submission_type: parsed.data.submission_type,
     has_bounty: !!task.bounty_amount, revision_round: task.revision_count,
   });
 
-  return c.json({ ok: true, submission_id: submissionId, task_id: taskId, status: 'submitted', revision_count: task.revision_count });
+  return c.json({
+    ok: true,
+    submission_id: submissionId,
+    receipt_id: receiptId,
+    task_id: taskId,
+    chain_sequence: chainEntry?.sequence ?? null,
+    chain_entry_hash: chainEntry?.entry_hash ?? null,
+    status: 'submitted',
+    revision_count: task.revision_count,
+  });
 });
 
 /**

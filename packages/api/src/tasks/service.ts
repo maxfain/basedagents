@@ -894,7 +894,7 @@ export async function writeDeliveryReceipt(
   signature: string,
   nowIso: string,
   receiptId: string = generatePublicId('rcpt'),
-): Promise<{ receipt_id: string; chain: { sequence: number; entry_hash: string } | null }> {
+): Promise<{ receipt_id: string; submission_id: string; chain: { sequence: number; entry_hash: string } | null }> {
   const receiptPayload: Record<string, unknown> = {
     receipt_id: receiptId,
     task_id: taskId,
@@ -907,6 +907,7 @@ export async function writeDeliveryReceipt(
     submission_content: fields.submission_content ?? null,
     completed_at: nowIso,
   };
+  const submissionId = generatePublicId('sub');
   let chain: { sequence: number; entry_hash: string } | null = null;
   try {
     chain = await taskChainEntry(db, agentId, 'task_delivered', hashCanonical(receiptPayload));
@@ -922,16 +923,22 @@ export async function writeDeliveryReceipt(
       fields.commit_hash ?? null, fields.pr_url ?? null, fields.submission_type,
       fields.submission_content ?? null, nowIso, chain?.sequence ?? null, chain?.entry_hash ?? null, signature,
     );
+  } catch (err) {
+    console.error(`[tasks] receipt write failed for ${taskId} after the status gate:`, err);
+  }
+  // The submission row is what the poster reads. It gets its own handler so a
+  // receipt failure above never takes the delivered content down with it.
+  try {
     await db.run(
       `INSERT INTO submissions (submission_id, task_id, agent_id, submission_type, content, summary, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      generatePublicId('sub'), taskId, agentId,
+      submissionId, taskId, agentId,
       fields.submission_type === 'pr' ? 'link' : fields.submission_type,
       fields.submission_content ?? fields.pr_url ?? fields.summary,
       fields.summary, nowIso,
     );
   } catch (err) {
-    console.error(`[tasks] receipt write failed for ${taskId} after the status gate:`, err);
+    console.error(`[tasks] submission write failed for ${taskId} after the status gate:`, err);
   }
-  return { receipt_id: receiptId, chain };
+  return { receipt_id: receiptId, submission_id: submissionId, chain };
 }

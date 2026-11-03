@@ -507,6 +507,8 @@ export function solveProofOfWorkAsync(
  * Returns headers to include in the request.
  *
  * Signature covers: "<method>:<path>:<timestamp>:<sha256(body)>:<nonce>"
+ * `path` is the pathname only: the server verifies against the URL pathname,
+ * so a query string passed in `path` is left out of the signed message.
  * A random nonce makes signatures non-deterministic even within the same second (L1).
  */
 export async function signRequest(
@@ -518,7 +520,8 @@ export async function signRequest(
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const nonce = crypto.randomUUID();
   const bodyHash = bytesToHex(sha256(new TextEncoder().encode(body)));
-  const message = `${method.toUpperCase()}:${path}:${timestamp}:${bodyHash}:${nonce}`;
+  const pathname = path.split('?')[0];
+  const message = `${method.toUpperCase()}:${pathname}:${timestamp}:${bodyHash}:${nonce}`;
   const messageBytes = new TextEncoder().encode(message);
   const signature = await ed.signAsync(messageBytes, keypair.privateKey);
   const b64sig = btoa(String.fromCharCode(...signature));

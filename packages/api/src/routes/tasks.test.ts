@@ -694,6 +694,65 @@ describe('Task Marketplace', () => {
       expect(data.status).toBe('submitted');
     });
 
+    it('writes a signed receipt and chain entry, like /deliver, on every round', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+
+      const first = await (await submitDeliverable(claimer, taskId)).json() as Record<string, unknown>;
+      expect((first.receipt_id as string).startsWith('rcpt_')).toBe(true);
+      expect(typeof first.chain_sequence).toBe('number');
+      expect(typeof first.chain_entry_hash).toBe('string');
+
+      // A resubmission after a revision request gets its own receipt, so the task
+      // no longer points at the previous round's receipt.
+      const note = JSON.stringify({ note: 'Please add tests' });
+      const revHeaders = await signRequest(creator, 'POST', `/v1/tasks/${taskId}/revision`, note);
+      await app.request(`/v1/tasks/${taskId}/revision`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...revHeaders }, body: note });
+      const second = await (await submitDeliverable(claimer, taskId, { content: '{"result": "done, with tests"}' })).json() as Record<string, unknown>;
+      expect(second.receipt_id).not.toBe(first.receipt_id);
+      expect(second.chain_sequence as number).toBeGreaterThan(first.chain_sequence as number);
+
+      const view = await (await app.request(`/v1/tasks/${taskId}`)).json() as {
+        task: { submitted_at: string }; delivery_receipt: { receipt_id: string; completed_at: string } | null; receipts_count: number;
+      };
+      expect(view.delivery_receipt!.receipt_id).toBe(second.receipt_id);
+      expect(view.delivery_receipt!.completed_at).toBe(view.task.submitted_at);
+      expect(view.receipts_count).toBe(2);
+
+      const receipt = await db.get<{ submission_content: string; signature: string }>(
+        'SELECT submission_content, signature FROM delivery_receipts WHERE receipt_id = ?', second.receipt_id,
+      );
+      expect(receipt!.submission_content).toBe('{"result": "done, with tests"}');
+      expect(receipt!.signature).not.toBe('');
+    });
+
+    it('keeps the submission row when the receipt insert fails', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+      // D1 has no transactions: the receipt and submission rows are best-effort
+      // after the status gate, and each has its own handler, so a receipt
+      // failure never discards the delivered content.
+      const realRun = db.run.bind(db);
+      const runSpy = vi.spyOn(db, 'run').mockImplementation(async (sql: string, ...params: unknown[]) => {
+        if (sql.includes('INSERT INTO delivery_receipts')) throw new Error('simulated D1 failure');
+        return realRun(sql, ...params);
+      });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const res = await submitDeliverable(claimer, taskId);
+        expect(res.status).toBe(200);
+        const body = await res.json() as Record<string, unknown>;
+        expect(body.status).toBe('submitted');
+        const sub = await db.get<{ content: string }>('SELECT content FROM submissions WHERE submission_id = ?', body.submission_id);
+        expect(sub?.content).toBe('{"result": "done"}');
+        const receipt = await db.get('SELECT receipt_id FROM delivery_receipts WHERE task_id = ?', taskId);
+        expect(receipt).toBeFalsy();
+      } finally {
+        runSpy.mockRestore();
+        errorSpy.mockRestore();
+      }
+    });
+
     it('only claimer can submit → 403', async () => {
       const taskId = await createTask(creator);
       await claimTask(claimer, taskId);

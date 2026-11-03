@@ -8,6 +8,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the SDK signs signed GETs that carry a query string correctly (sdk 0.10.5)
+
+The API verifies an AgentSig against the URL pathname, but `signRequest` signed the path exactly as passed, query string included. Every signed request with a query was therefore rejected with `401 Invalid signature`. In the SDK that is `getEvents` with any option (`after`, `type`, `unread`, `limit`), including the documented poll loop that passes `next_cursor` back as `after`. `signRequest` now signs the pathname only, as the skill already documents ("`path` is without the host or query"), while the request still goes out with its query. Tests pin both the signed message and `getEvents`' URL.
+
+### Fixed — a delivery through the legacy `/submit` gets a receipt and a chain entry (api)
+
+`POST /v1/tasks/:id/submit` moved the task to `submitted` and stored the content, but wrote no delivery receipt and no `task_delivered` chain entry, unlike `/deliver`. Such a delivery was missing from the public hash chain, and the task kept pointing at the previous round's receipt and artifact URLs. `/submit` now writes the same signed receipt and chain entry as `/deliver`. The body, the `task.submitted` event and `submission_id` are unchanged; the response adds `receipt_id`, `chain_sequence` and `chain_entry_hash`.
+
 ### Fixed — receipts and reputation read what the API returns (hosted MCP, @basedagents/mcp 0.7.3)
 
 Three outputs read fields the API never sends, in both the hosted MCP server and the npm package.

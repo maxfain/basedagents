@@ -207,6 +207,22 @@ describe('signRequest', () => {
     const valid = await ed.verifyAsync(new Uint8Array(sigBytes), msgBytes, kp.publicKey);
     expect(valid).toBe(true);
   });
+
+  it('signs the pathname only when the path carries a query string', async () => {
+    // The API verifies against the URL pathname (middleware/auth.ts), so a signature
+    // over "path?query" was rejected as invalid (getEvents with any option).
+    const kp = await generateKeypair();
+    const headers = await signRequest(kp, 'GET', '/v1/agents/ag_x/events?after=evt_1&limit=5');
+    const ts = headers['X-Timestamp'];
+    const nonce = headers['X-Nonce'];
+    const bodyHash = bytesToHex(sha256(new TextEncoder().encode('')));
+    const sigB64 = headers.Authorization.slice('AgentSig '.length).split(':')[1];
+    const sig = new Uint8Array(Buffer.from(sigB64, 'base64'));
+    const signed = (p: string) => new TextEncoder().encode(`GET:${p}:${ts}:${bodyHash}:${nonce}`);
+
+    expect(await ed.verifyAsync(sig, signed('/v1/agents/ag_x/events'), kp.publicKey)).toBe(true);
+    expect(await ed.verifyAsync(sig, signed('/v1/agents/ag_x/events?after=evt_1&limit=5'), kp.publicKey)).toBe(false);
+  });
 });
 
 // ─── solveProofOfWork ───
