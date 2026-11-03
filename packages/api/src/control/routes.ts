@@ -160,7 +160,7 @@ const LoginFinishSchema = z.object({
 
 const ActionBeginSchema = z.object({
   action_type: z.string().min(1),
-  params: z.record(z.unknown()).default({}),
+  params: z.record(z.string(), z.unknown()).default({}),
 });
 
 // Finish requests echo the server-issued per-ceremony `nonce` from /action/begin.

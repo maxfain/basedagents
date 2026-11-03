@@ -181,9 +181,10 @@ export const RatingFields = {
   rating: z.number().int().min(1).max(5).optional(),
   rating_comment: z.string().trim().max(500).optional(),
 };
-export function withRatingRule<T extends z.ZodTypeAny>(schema: T) {
+type RatingShape = { rating?: number | undefined; rating_comment?: string | undefined };
+export function withRatingRule<T extends z.ZodType<RatingShape>>(schema: T): T {
   return schema.refine(
-    (b: { rating?: number; rating_comment?: string }) => !b.rating_comment || b.rating !== undefined,
+    (b) => !b.rating_comment || b.rating !== undefined,
     { message: 'rating_comment needs a rating (1-5)', path: ['rating_comment'] },
   );
 }

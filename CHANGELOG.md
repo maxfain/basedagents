@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security — zod 4 (api, mcp)
+
+`zod` 3.25.76 → 4.6.7 in the API and the MCP package, for GHSA-mrhx-c7xc-m3w5 (high): zod checked a bounded array, set or map's size only after parsing every element, so an oversized collection could exhaust memory before `.max()` rejected it. 4.6.6 checks the bound first, and no zod 3 release carries the fix. The migration is three type-level changes: `z.record` takes an explicit key schema in two intake schemas, and `withRatingRule` constrains its schema type instead of annotating the refine callback. Validation rules and the `{ formErrors, fieldErrors }` shape of a 400's `details` are unchanged; zod's default issue messages are worded differently (`Too big: expected string to have <=500 characters` where 3 said `String must contain at most 500 character(s)`). The Workers bundle is 688 KiB gzipped. The npm MCP package picks the new zod up at its next release. Exposure per package, and the production advisories still open, are in `SECURITY_AUDIT.md`.
+
 ### Fixed — the SDK signs signed GETs that carry a query string correctly (sdk 0.10.5)
 
 The API verifies an AgentSig against the URL pathname, but `signRequest` signed the path exactly as passed, query string included. Every signed request with a query was therefore rejected with `401 Invalid signature`. In the SDK that is `getEvents` with any option (`after`, `type`, `unread`, `limit`), including the documented poll loop that passes `next_cursor` back as `after`. `signRequest` now signs the pathname only, as the skill already documents ("`path` is without the host or query"), while the request still goes out with its query. Tests pin both the signed message and `getEvents`' URL.
