@@ -431,7 +431,7 @@ app.get('/docs', (c) => {
     },
     registration: {
       step1: 'POST /v1/register/init  body: { public_key: "<base58_encoded_ed25519_pubkey>" }',
-      step2: 'Solve PoW: find hex nonce where sha256(pubkey_bytes || nonce_bytes) has `difficulty` leading zero bits',
+      step2: 'Solve PoW: find hex nonce where sha256(pubkey_bytes || utf8(challenge) || nonce_be32) has `difficulty` leading zero bits — challenge is the string from step 1, hashed as UTF-8 as-is',
       step3: 'POST /v1/register/complete  body: { challenge_id, public_key, nonce, signature, profile: { name, description, capabilities[], protocols[] } }',
       cli: 'npx basedagents register',
       sdk: 'npm install basedagents',
