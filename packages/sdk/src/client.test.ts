@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as ed from '@noble/ed25519';
 import {
   RegistryClient,
   generateKeypair,
   publicKeyToAgentId,
+  bytesToHex,
+  sha256,
   usdcToAtomic,
   atomicToDisplay,
   ApiError,
@@ -337,6 +340,27 @@ describe('RegistryClient', () => {
       expect(body.result).toBe('pass');
       expect(body.signature).toBeDefined(); // Report signed before submission
       expect(body.nonce).toBeDefined();
+    });
+  });
+
+  // ── getEvents ──
+
+  describe('getEvents()', () => {
+    it('keeps the query in the URL but signs the pathname, as the API verifies it', async () => {
+      const kp = await generateKeypair();
+      const agentId = publicKeyToAgentId(kp.publicKey);
+      mockFetch.mockResolvedValueOnce(makeMockResponse({ ok: true, events: [], next_cursor: null }));
+
+      const client = new RegistryClient('https://api.test.local');
+      await client.getEvents(kp, { after: 'evt_1', unread: true, limit: 5 });
+
+      const [url, init] = mockFetch.mock.calls[0];
+      expect(url).toBe(`https://api.test.local/v1/agents/${agentId}/events?after=evt_1&unread=1&limit=5`);
+      const sigB64 = init.headers.Authorization.slice('AgentSig '.length).split(':')[1];
+      const emptyBodyHash = bytesToHex(sha256(new Uint8Array()));
+      const message = `GET:/v1/agents/${agentId}/events:${init.headers['X-Timestamp']}:${emptyBodyHash}:${init.headers['X-Nonce']}`;
+      const valid = await ed.verifyAsync(new Uint8Array(Buffer.from(sigB64, 'base64')), new TextEncoder().encode(message), kp.publicKey);
+      expect(valid).toBe(true);
     });
   });
 

@@ -825,6 +825,7 @@
     "/v1/tasks/{id}/submit": {
       "post": {
         "summary": "Submit a deliverable (legacy; prefer /deliver)",
+        "description": "The same delivery as /deliver in the older body shape. It writes the signed receipt and the task_delivered chain entry too.",
         "parameters": [
           {
             "name": "id",
@@ -883,8 +884,23 @@
                     "submission_id": {
                       "type": "string"
                     },
+                    "receipt_id": {
+                      "type": "string"
+                    },
                     "task_id": {
                       "type": "string"
+                    },
+                    "chain_sequence": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "chain_entry_hash": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     },
                     "status": {
                       "type": "string",

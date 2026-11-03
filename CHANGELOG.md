@@ -12,6 +12,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 `zod` 3.25.76 → 4.6.7 in the API and the MCP package, for GHSA-mrhx-c7xc-m3w5 (high): zod checked a bounded array, set or map's size only after parsing every element, so an oversized collection could exhaust memory before `.max()` rejected it. 4.6.6 checks the bound first, and no zod 3 release carries the fix. The migration is three type-level changes: `z.record` takes an explicit key schema in two intake schemas, and `withRatingRule` constrains its schema type instead of annotating the refine callback. Validation rules and the `{ formErrors, fieldErrors }` shape of a 400's `details` are unchanged; zod's default issue messages are worded differently (`Too big: expected string to have <=500 characters` where 3 said `String must contain at most 500 character(s)`). The Workers bundle is 688 KiB gzipped. The npm MCP package picks the new zod up at its next release. Exposure per package, and the production advisories still open, are in `SECURITY_AUDIT.md`.
 
+### Fixed — the SDK signs signed GETs that carry a query string correctly (sdk 0.10.5)
+
+The API verifies an AgentSig against the URL pathname, but `signRequest` signed the path exactly as passed, query string included. Every signed request with a query was therefore rejected with `401 Invalid signature`. In the SDK that is `getEvents` with any option (`after`, `type`, `unread`, `limit`), including the documented poll loop that passes `next_cursor` back as `after`. `signRequest` now signs the pathname only, as the skill already documents ("`path` is without the host or query"), while the request still goes out with its query. Tests pin both the signed message and `getEvents`' URL.
+
+### Fixed — a delivery through the legacy `/submit` gets a receipt and a chain entry (api)
+
+`POST /v1/tasks/:id/submit` moved the task to `submitted` and stored the content, but wrote no delivery receipt and no `task_delivered` chain entry, unlike `/deliver`. Such a delivery was missing from the public hash chain, and the task kept pointing at the previous round's receipt and artifact URLs. `/submit` now writes the same signed receipt and chain entry as `/deliver`. The body, the `task.submitted` event and `submission_id` are unchanged; the response adds `receipt_id`, `chain_sequence` and `chain_entry_hash`.
+
+### Fixed — receipts and reputation read what the API returns (hosted MCP, @basedagents/mcp 0.7.3)
+
+Three outputs read fields the API never sends, in both the hosted MCP server and the npm package.
+
+- **No more "Summary: undefined".** Public delivery receipts are provenance only, since the delivered work is private, so they never carry a summary. `get_receipt` and `get_task`'s receipt section printed one anyway. They now print a summary only when one is present (a party's private read).
+- **`get_receipt` shows what verification needs.** The hosted tool now prints the agent's signature and public key, which the API already returned, as its description promised. A receipt not yet on the hash chain says so instead of printing `#null`.
+- **The reputation breakdown's fifth row is real.** It read a `skill_trust` field that the reputation endpoint doesn't return, so it always showed 0%. It now shows the share of declared capabilities confirmed by verifiers (`cap_confirmation_rate`), labelled "Capabilities confirmed".
+
 ### Security — vulnerable dependencies patched, CI off the Node 20 runtime (api, mcp, web, console, github-action, python 0.5.3, ci)
 
 `npm audit` reported 8 vulnerable packages (1 critical, 3 high, 3 moderate, 1 low) across 16 advisories, and every CI job warned that its actions target the deprecated Node 20 runtime. `npm audit` now reports 0. None of the flagged code was reachable in production; details and exposure per package are in `SECURITY_AUDIT.md`.
