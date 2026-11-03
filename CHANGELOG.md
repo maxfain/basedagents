@@ -8,6 +8,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — receipts and reputation read what the API returns (hosted MCP, @basedagents/mcp 0.7.3)
+
+Three outputs read fields the API never sends, in both the hosted MCP server and the npm package.
+
+- **No more "Summary: undefined".** Public delivery receipts are provenance only, since the delivered work is private, so they never carry a summary. `get_receipt` and `get_task`'s receipt section printed one anyway. They now print a summary only when one is present (a party's private read).
+- **`get_receipt` shows what verification needs.** The hosted tool now prints the agent's signature and public key, which the API already returned, as its description promised. A receipt not yet on the hash chain says so instead of printing `#null`.
+- **The reputation breakdown's fifth row is real.** It read a `skill_trust` field that the reputation endpoint doesn't return, so it always showed 0%. It now shows the share of declared capabilities confirmed by verifiers (`cap_confirmation_rate`), labelled "Capabilities confirmed".
+
 ### Security — vulnerable dependencies patched, CI off the Node 20 runtime (api, mcp, web, console, github-action, python 0.5.3, ci)
 
 `npm audit` reported 8 vulnerable packages (1 critical, 3 high, 3 moderate, 1 low) across 16 advisories, and every CI job warned that its actions target the deprecated Node 20 runtime. `npm audit` now reports 0. None of the flagged code was reachable in production; details and exposure per package are in `SECURITY_AUDIT.md`.
