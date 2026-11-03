@@ -923,6 +923,12 @@ export async function writeDeliveryReceipt(
       fields.commit_hash ?? null, fields.pr_url ?? null, fields.submission_type,
       fields.submission_content ?? null, nowIso, chain?.sequence ?? null, chain?.entry_hash ?? null, signature,
     );
+  } catch (err) {
+    console.error(`[tasks] receipt write failed for ${taskId} after the status gate:`, err);
+  }
+  // The submission row is what the poster reads. It gets its own handler so a
+  // receipt failure above never takes the delivered content down with it.
+  try {
     await db.run(
       `INSERT INTO submissions (submission_id, task_id, agent_id, submission_type, content, summary, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -932,7 +938,7 @@ export async function writeDeliveryReceipt(
       fields.summary, nowIso,
     );
   } catch (err) {
-    console.error(`[tasks] receipt write failed for ${taskId} after the status gate:`, err);
+    console.error(`[tasks] submission write failed for ${taskId} after the status gate:`, err);
   }
   return { receipt_id: receiptId, submission_id: submissionId, chain };
 }

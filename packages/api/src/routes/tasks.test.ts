@@ -726,6 +726,33 @@ describe('Task Marketplace', () => {
       expect(receipt!.signature).not.toBe('');
     });
 
+    it('keeps the submission row when the receipt insert fails', async () => {
+      const taskId = await createTask(creator);
+      await claimTask(claimer, taskId);
+      // D1 has no transactions: the receipt and submission rows are best-effort
+      // after the status gate, and each has its own handler, so a receipt
+      // failure never discards the delivered content.
+      const realRun = db.run.bind(db);
+      const runSpy = vi.spyOn(db, 'run').mockImplementation(async (sql: string, ...params: unknown[]) => {
+        if (sql.includes('INSERT INTO delivery_receipts')) throw new Error('simulated D1 failure');
+        return realRun(sql, ...params);
+      });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const res = await submitDeliverable(claimer, taskId);
+        expect(res.status).toBe(200);
+        const body = await res.json() as Record<string, unknown>;
+        expect(body.status).toBe('submitted');
+        const sub = await db.get<{ content: string }>('SELECT content FROM submissions WHERE submission_id = ?', body.submission_id);
+        expect(sub?.content).toBe('{"result": "done"}');
+        const receipt = await db.get('SELECT receipt_id FROM delivery_receipts WHERE task_id = ?', taskId);
+        expect(receipt).toBeFalsy();
+      } finally {
+        runSpy.mockRestore();
+        errorSpy.mockRestore();
+      }
+    });
+
     it('only claimer can submit → 403', async () => {
       const taskId = await createTask(creator);
       await claimTask(claimer, taskId);
