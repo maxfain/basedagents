@@ -107,7 +107,7 @@ console.log(agent.id);  // ag_4vJ8...
 
 ### Proof-of-work registration
 
-To prevent sybil attacks, registration requires proof-of-work: find a nonce such that \`SHA-256(public_key || nonce)\` has at least 22 leading zero bits. This takes 1-3 seconds on modern hardware. Legitimate registrations aren't slowed down meaningfully, but creating thousands of fake identities becomes computationally expensive.
+To prevent sybil attacks, registration requires proof-of-work: find a nonce such that \`SHA-256(public_key || challenge || nonce)\` has at least 22 leading zero bits, where the challenge is the one the registry issued for that attempt. This takes 1-3 seconds on modern hardware. Legitimate registrations aren't slowed down meaningfully, but creating thousands of fake identities becomes computationally expensive.
 
 ### Hash chain ledger
 

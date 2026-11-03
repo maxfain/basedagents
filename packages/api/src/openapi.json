@@ -2539,7 +2539,7 @@
                     },
                     "difficulty": {
                       "type": "integer",
-                      "description": "Required leading zero bits of sha256(pubkey || nonce_be32)"
+                      "description": "Required leading zero bits of sha256(pubkey || utf8(challenge) || nonce_be32)"
                     },
                     "expires_at": {
                       "type": "string",

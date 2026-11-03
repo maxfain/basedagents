@@ -290,7 +290,8 @@ describe('/mcp handler', () => {
     };
     const detail = {
       ok: true, task, submission: { submission_id: 'sub_1', submission_type: 'link', summary: 'v2 report' },
-      delivery_receipt: { receipt_id: 'rcpt_2', agent_id: 'ag_worker', completed_at: '2026-09-08T10:00:00.000Z', summary: 'v2 report', chain_sequence: 9, chain_entry_hash: 'ab'.repeat(32), pr_url: null },
+      // The real public shape (routes/tasks.ts publicReceiptShape): provenance only, no summary.
+      delivery_receipt: { receipt_id: 'rcpt_2', task_id: 'task_1', agent_id: 'ag_worker', submission_type: 'link', completed_at: '2026-09-08T10:00:00.000Z', chain_sequence: 9, chain_entry_hash: 'ab'.repeat(32), signature: 'c2ln', content_private: true },
       receipts_count: 2,
       payment: { bounty: task.bounty, status: 'pending', verified: false, settled: false, settle_attempts: 0, auto_release_at: null, payment_due: false },
     };
@@ -322,6 +323,50 @@ describe('/mcp handler', () => {
     expect(text).toContain('### Payment');
     expect(text).toContain('**Verified:** no  |  **Settled:** no');
     expect(text).not.toContain('undefined');
+  });
+
+  it('get_receipt shows the signature and public key from the real public receipt, never an undefined summary', async () => {
+    const receipt = {
+      receipt_id: 'rcpt_9', task_id: 'task_9', agent_id: 'ag_worker', submission_type: 'link',
+      completed_at: '2026-09-08T10:00:00.000Z', chain_sequence: 12, chain_entry_hash: 'cd'.repeat(32),
+      signature: 'c2lnbmF0dXJl', content_private: true, agent_public_key: 'ef'.repeat(32),
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: true, receipt }), { status: 200, headers: { 'content-type': 'application/json' } })));
+    const res = (await (await rpc(null, {
+      jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_receipt', arguments: { task_id: 'task_9' } },
+    })).json()) as Rpc;
+    const text = (res.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain('**Signature:** `c2lnbmF0dXJl`');
+    expect(text).toContain(`**Agent public key:** \`${'ef'.repeat(32)}\``);
+    expect(text).toContain('**Sequence:** #12');
+    expect(text).not.toContain('Summary');
+    expect(text).not.toContain('undefined');
+
+    // A receipt not yet anchored says so instead of printing "#null".
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: true, receipt: { ...receipt, chain_sequence: null, chain_entry_hash: null } }), { status: 200, headers: { 'content-type': 'application/json' } })));
+    const unanchored = (await (await rpc(null, {
+      jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'get_receipt', arguments: { task_id: 'task_9' } },
+    })).json()) as Rpc;
+    const text2 = (unanchored.result as { content: { text: string }[] }).content[0].text;
+    expect(text2).toContain('Not anchored to the hash chain yet.');
+    expect(text2).not.toContain('null');
+  });
+
+  it('get_reputation reads the capability-confirmation rate the API actually returns', async () => {
+    // The live /v1/agents/:id/reputation breakdown keys (reputation/calculator.ts).
+    const rep = {
+      agent_id: 'ag_rep', reputation_score: 0.315, raw_score: 0.736, confidence: 0.361,
+      breakdown: { pass_rate: 1, coherence: 0.872, contribution: 0.409, uptime: 1, cap_confirmation_rate: 0.4, task_completion: 0 },
+      verifications_received: 2, verifications_given: 4, tasks_accepted: 0, tasks_failed: 0,
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(rep), { status: 200, headers: { 'content-type': 'application/json' } })));
+    const res = (await (await rpc(null, {
+      jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_reputation', arguments: { agent_id: 'ag_rep' } },
+    })).json()) as Rpc;
+    const text = (res.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain('| Capabilities confirmed | 40% |');
+    expect(text).toContain('| Coherence     | 87% |');
+    expect(text).not.toContain('Skill trust');
   });
 
   it('an upstream API failure surfaces as an isError tool result, not a transport error', async () => {
