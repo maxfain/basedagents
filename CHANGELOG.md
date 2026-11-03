@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security — zod 4 (api, mcp)
+
+`zod` 3.25.76 → 4.6.7 in the API and the MCP package, for GHSA-mrhx-c7xc-m3w5 (high): zod checked a bounded array, set or map's size only after parsing every element, so an oversized collection could exhaust memory before `.max()` rejected it. 4.6.6 checks the bound first, and no zod 3 release carries the fix. The migration is three type-level changes: `z.record` takes an explicit key schema in two intake schemas, and `withRatingRule` constrains its schema type instead of annotating the refine callback. Validation rules and the `{ formErrors, fieldErrors }` shape of a 400's `details` are unchanged; zod's default issue messages are worded differently (`Too big: expected string to have <=500 characters` where 3 said `String must contain at most 500 character(s)`). The Workers bundle is 688 KiB gzipped. The npm MCP package picks the new zod up at its next release. Exposure per package, and the production advisories still open, are in `SECURITY_AUDIT.md`.
+
 ### Security — vulnerable dependencies patched, CI off the Node 20 runtime (api, mcp, web, console, github-action, python 0.5.3, ci)
 
 `npm audit` reported 8 vulnerable packages (1 critical, 3 high, 3 moderate, 1 low) across 16 advisories, and every CI job warned that its actions target the deprecated Node 20 runtime. `npm audit` now reports 0. None of the flagged code was reachable in production; details and exposure per package are in `SECURITY_AUDIT.md`.

@@ -477,3 +477,17 @@ sat in dev and CI tooling, or on paths our code never takes.
 **Not done here.**
 - **Dependabot alerts are disabled** for the repository (Settings → Code security). Enabling them would surface the next advisory without waiting for an audit.
 - The cache purge at the end of `deploy-production` fails with a Cloudflare `Authentication error`: its token lacks the cache-purge permission. This is operational, not a vulnerability.
+
+## Addendum — Dependency audit (2026-11-03)
+
+`npm audit --omit=dev` on main reported 6 advisories in production dependencies (2 high, 4 moderate), all published after the 2026-10-22 audit. Dependabot security updates are on now: it opened the three lockfile-only bumps below and a zod 4 bump that failed typecheck, which this change supersedes.
+
+| Package | Fix | Advisory | Exposure here |
+|---|---|---|---|
+| `zod` 3.25.76 → 4.6.7 (api, mcp) | this change | GHSA-mrhx-c7xc-m3w5 (high): a bounded array, set or map was parsed in full before its size bound was checked | API request bodies validated with `.max()`-bounded arrays. Workers caps the request body, but the API has no size check of its own before parsing. No zod 3 release has the fix. |
+| `body-parser` 2.3.0 → 2.4.0, and with it `qs` → 6.17.1 | Dependabot #199 | GHSA-27r3-jxmh-p828 (high), GHSA-6pq8-jhm2-2vcw (moderate) | Via the MCP SDK's express, in `@basedagents/mcp`. The stdio server opens no HTTP listener. |
+| `fast-uri` 3.1.8 → 3.1.9 | Dependabot #197 | GHSA-w74x-v6f9-j3xg, GHSA-wjr9-j795-jxcr, GHSA-xhq7-xmqj-769h, GHSA-333x-w4r6-6crp (moderate) | Via ajv's format validation: the SDK's `basedagents validate` and the MCP SDK. |
+| `ip-address` 10.7.2 → 10.7.5 | Dependabot #200 | GHSA-rxp7-6hxx-x8q5 (moderate) | Via express-rate-limit in the MCP SDK, unused by the stdio server. |
+| `@hono/node-server` 1.19.17 | none yet: fixed in 2.1.3, a major the API's `^1.14.0` range excludes | GHSA-rmxm-3fg6-px4f (moderate): `serveStatic` decodes the request path twice | Not reachable. The API imports only `serve`, for the local Node entry point; production runs on Workers. |
+
+**Dev-only.** 10 moderate findings, all one advisory: minimatch <11.0.1 (GHSA-g3hv-75wg-m249) under eslint and typescript-eslint. Lint tooling, no fix released upstream yet.
