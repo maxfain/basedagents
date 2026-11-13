@@ -64,10 +64,20 @@ describe('content import', () => {
 });
 
 describe('launch controls', () => {
-  it('starts every route noindex and the sitemap empty, as the launch manifest ships', () => {
-    expect(launchManifest.approved_indexable_routes).toEqual([]);
-    for (const route of ATLAS_ROUTES) expect(atlasHead(route).robots, route).toBe('noindex,follow');
-    expect(atlasSitemapXml()).not.toContain('<url>');
+  it('indexes exactly the approved routes, lists only those in the sitemap, and never a directory entry', () => {
+    const approved = new Set(launchManifest.approved_indexable_routes);
+    expect(approved.size).toBeGreaterThan(0);
+    for (const route of ATLAS_ROUTES) {
+      expect(atlasHead(route).robots, route).toBe(approved.has(route) ? 'index,follow' : 'noindex,follow');
+      expect(atlasHead(route, { forceNoindex: true }).robots, route).toBe('noindex,follow');
+    }
+    for (const route of approved) {
+      const r = resolveAtlas(route);
+      if (r.kind === 'project') expect(r.entity.profile_depth, route).not.toBe('directory_entry');
+    }
+    const locs = (atlasSitemapXml().match(/<loc>[^<]*<\/loc>/g) ?? []).map((l) => l.slice(5, -6).replace('https://basedagents.ai', ''));
+    expect(new Set(locs)).toEqual(approved);
+    expect(atlasSitemapXml(true)).not.toContain('<url>');
   });
 
   it('indexes an approved route, and only outside preview builds', () => {

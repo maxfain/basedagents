@@ -6,8 +6,10 @@ A content-led research section of basedagents.ai: 151 source-linked records
 40-answer FAQ. Its job is to bring search and answer-engine traffic to the site
 and to send people who are evaluating agents into the BasedAgents marketplace.
 
-Everything ships in **preview**: every atlas page is `noindex,follow` until its
-route is approved in the launch manifest (see "Publishing" below).
+Indexing is controlled per route by the launch manifest (see "Publishing"
+below). The first approved batch is 65 routes: the 6 hubs, 16 categories, 12
+task guides, 15 expanded profiles, 13 protocol pages and 3 comparisons. The 123
+directory entries stay `noindex,follow`.
 
 ## Layout
 
@@ -51,10 +53,11 @@ changed. The homepage is untouched; the atlas is linked from the site footer.
 ## Publishing (the indexing switch)
 
 `content/implementation/launch-manifest.json` → `approved_indexable_routes` is
-the only switch. It ships empty, so the site currently adds **zero indexable
-pages** — no search traffic arrives until routes are approved.
+the only switch. The content package shipped it empty; the first batch below is
+now approved. Any route not listed stays `noindex,follow` and out of the
+sitemap.
 
-To publish a route:
+To publish another route:
 
 1. Review it on a preview deploy against `content/IMPLEMENTATION.md` (sources
    resolve, caveats visible, nothing reads as a test result or ranking).
@@ -72,10 +75,11 @@ submissions (`never_auto_index`). Preview builds: `*.pages.dev` is noindex via
 atlas page noindex and empties the atlas sitemap for any other non-production
 build. The client also forces noindex on any host other than `basedagents.ai`.
 
-### Suggested first batch
+### First batch (approved)
 
 `recommended_review_order` in the launch manifest is the editorial order. The
-pages with the most first-party detail, and so the best chance of ranking, are:
+approved batch is the pages with the most first-party detail, and so the best
+chance of ranking:
 
 1. Hubs: `/atlas`, `/categories`, `/protocols`, `/guides`, `/glossary`, `/faq`.
 2. The 13 protocol pages and the 3 comparisons — explainer queries ("what is
@@ -131,7 +135,8 @@ days, funding when new evidence appears. No recurring job is set up for this.
 
 - A real submission backend (URL validation, rate limiting, evidence storage,
   review queue) to replace the GitHub hand-off.
-- Editorial review and approval of the first batch of routes (above).
+- Submit `/sitemap-atlas.xml` in Google Search Console and Bing Webmaster Tools
+  after the first production deploy.
 - Confirm on the first Pages preview that `/categories` is served from
   `categories.html` alongside the `categories/` folder (same for `/guides`),
   and that the `{slug}` functions return 404 for unknown slugs.
