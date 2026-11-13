@@ -89,6 +89,12 @@ gtag('config', '${GA_MEASUREMENT_ID}', { allow_google_signals: false, allow_ad_p
 
 export default defineConfig({
   plugins: [react(), devStaticPages(), googleAnalytics()],
+  // Agent Atlas: ATLAS_FORCE_NOINDEX=1 at build time keeps every atlas page
+  // noindex — in the prerendered HTML (scripts/prerender.mjs) AND after the
+  // browser takes over (src/atlas/useAtlasHead.ts reads this constant).
+  define: {
+    __ATLAS_FORCE_NOINDEX__: JSON.stringify(process.env.ATLAS_FORCE_NOINDEX === '1'),
+  },
   build: {
     rollupOptions: {
       input: {

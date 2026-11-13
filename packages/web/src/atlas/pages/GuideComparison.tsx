@@ -4,10 +4,10 @@
  */
 import React from 'react';
 import { entitiesFor, getCategory, getProtocol, SITE, siteCopy } from '../data';
-import { contentStatusLabel, entityTypeLabel, depthLabel, factLabel, shortUrl } from '../format';
+import { contentStatusLabel, entityTypeLabel, depthLabel, factLabel, factStatusLabel, formatDate, shortUrl } from '../format';
 import { breadcrumbsFor, type AtlasResolved } from '../resolve';
 import type { AtlasEntity } from '../types';
-import { AtlasShell, Badge, BasedAgentsCta, CardGrid, EntityCard, EvidenceNotice, ExternalLink, FactValue } from '../ui';
+import { AtlasShell, Badge, BasedAgentsCta, CardGrid, EntityCard, EvidenceNotice, ExternalLink, FactSources, FactValue } from '../ui';
 
 function SourceList({ urls }: { urls: string[] }): React.ReactElement {
   return (
@@ -95,12 +95,27 @@ function CandidateCard({ e }: { e: AtlasEntity }): React.ReactElement {
         <dd>{e.website_url ? <ExternalLink href={e.website_url}>{shortUrl(e.website_url)}</ExternalLink> : NOT_ESTABLISHED}</dd>
         <dt>Pricing snapshot</dt>
         <dd>
-          {pricingSummary ? pricingSummary.summary
-            : pricingFacts.length ? (
-              <ul className="atlas-value-list">
-                {pricingFacts.map((f) => <li key={f.path}><strong>{factLabel(f.path)}:</strong> <FactValue value={f.value} depth={1} /></li>)}
-              </ul>
-            ) : NOT_ESTABLISHED}
+          {pricingSummary ? (
+            <>
+              {pricingSummary.summary}
+              <p className="atlas-cite">
+                {factStatusLabel(pricingSummary.status)} · Source: <ExternalLink href={pricingSummary.source_url}>{shortUrl(pricingSummary.source_url)}</ExternalLink>
+                <span className="atlas-cite-date"> (observed {formatDate(pricingSummary.observed_at)})</span>
+              </p>
+            </>
+          ) : pricingFacts.length ? (
+            <ul className="atlas-value-list">
+              {pricingFacts.map((f) => (
+                <li key={f.path}>
+                  <strong>{factLabel(f.path)}:</strong> <FactValue value={f.value} depth={1} />
+                  {f.scope?.description && <span className="atlas-fact-note"> Scope: {f.scope.description}</span>}
+                  {f.note && <span className="atlas-fact-note"> Note: {f.note}</span>}
+                  <span className="atlas-cite"> {factStatusLabel(f.status)}.</span>
+                  <FactSources fact={f} entity={e} />
+                </li>
+              ))}
+            </ul>
+          ) : NOT_ESTABLISHED}
         </dd>
         <dt>Documented interfaces</dt>
         <dd>{interfaces.length ? interfaces.map((f) => factLabel(f.path)).join(', ') : NOT_ESTABLISHED}</dd>

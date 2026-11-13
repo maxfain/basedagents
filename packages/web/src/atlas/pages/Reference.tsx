@@ -12,6 +12,11 @@ import { breadcrumbsFor, HUB_COPY, type AtlasResolved } from '../resolve';
 import { AtlasShell, BasedAgentsCta, EvidenceNotice, ExternalLink } from '../ui';
 import { counts } from '../data';
 
+/** decodeURIComponent that returns null instead of throwing on a malformed sequence (e.g. "/faq#%"). */
+export function safeDecode(s: string): string | null {
+  try { return decodeURIComponent(s); } catch { return null; }
+}
+
 const norm = (s: string): string => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 export function GlossaryPage({ r }: { r: Extract<AtlasResolved, { kind: 'glossary' }> }): React.ReactElement {
@@ -64,9 +69,9 @@ export function FaqPage({ r }: { r: Extract<AtlasResolved, { kind: 'faq' }> }): 
   const location = useLocation();
   const [open, setOpen] = useState<Set<string>>(() => new Set());
 
-  // A link to /faq#question-id opens that answer.
+  // A link to /faq#question-id opens that answer; anything else (even a malformed fragment) is ignored.
   useEffect(() => {
-    const id = decodeURIComponent(location.hash.replace(/^#/, ''));
+    const id = safeDecode(location.hash.replace(/^#/, ''));
     if (id && faq.some((f) => f.id === id)) {
       setOpen((prev) => new Set(prev).add(id));
       document.getElementById(id)?.scrollIntoView();
@@ -165,14 +170,28 @@ const isHttpUrl = (s: string): boolean => {
   try { const u = new URL(s.trim()); return u.protocol === 'https:' || u.protocol === 'http:'; } catch { return false; }
 };
 
-export function issueUrlFor(route: string, title: string, values: Record<string, string>): string {
+/** Field limits, and the longest pre-filled issue URL we hand to the browser (GitHub rejects much longer ones). */
+export const MAX_FIELD = { short: 300, long: 3000 } as const;
+export const MAX_ISSUE_URL = 7500;
+
+export function issueBodyFor(route: string, values: Record<string, string>): string {
   const heading = route === '/submit' ? 'Agent Atlas: project suggestion' : 'Agent Atlas: correction';
-  const body = [
+  return [
     `<!-- ${heading}, filed from ${siteCopy.base_url}${route}. Do not include secrets or API keys. -->`,
     ...Object.entries(values).filter(([, v]) => v.trim()).map(([k, v]) => `**${k}**\n${v.trim()}`),
   ].join('\n\n');
-  const p = new URLSearchParams({ title, body });
+}
+
+export function issueUrlFor(route: string, title: string, values: Record<string, string>): string {
+  const p = new URLSearchParams({ title, body: issueBodyFor(route, values) });
   return `${ISSUES_NEW}?${p.toString()}`;
+}
+
+/** The hand-off: a pre-filled issue URL, or — when that would be too long — a title-only URL plus the body to paste. */
+export function issueHandoff(route: string, title: string, values: Record<string, string>): { url: string; pasteBody: string | null } {
+  const full = issueUrlFor(route, title, values);
+  if (full.length <= MAX_ISSUE_URL) return { url: full, pasteBody: null };
+  return { url: `${ISSUES_NEW}?${new URLSearchParams({ title }).toString()}`, pasteBody: issueBodyFor(route, values) };
 }
 
 export function FormPage({ r }: { r: Extract<AtlasResolved, { kind: 'form' }> }): React.ReactElement {
@@ -182,7 +201,7 @@ export function FormPage({ r }: { r: Extract<AtlasResolved, { kind: 'form' }> })
   const required = REQUIRED[r.route] ?? [];
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(fields.map((f) => [f, ''])));
   const [errors, setErrors] = useState<string[]>([]);
-  const [handoff, setHandoff] = useState<string | null>(null);
+  const [handoff, setHandoff] = useState<{ url: string; pasteBody: string | null } | null>(null);
 
   // /corrections?profile=<url> — the "Suggest a correction" link on each profile prefills it.
   useEffect(() => {
@@ -205,9 +224,10 @@ export function FormPage({ r }: { r: Extract<AtlasResolved, { kind: 'form' }> })
     const title = r.route === '/submit'
       ? `[Atlas] Suggest a project: ${values['Project name'].trim()}`
       : `[Atlas] Correction: ${values['Field'].trim()} on ${values['Profile URL'].trim().replace(/^https?:\/\/(www\.)?basedagents\.ai/, '')}`;
-    const url = issueUrlFor(r.route, title.slice(0, 200), values);
-    setHandoff(url);
-    window.open(url, '_blank', 'noopener,noreferrer');
+    const next = issueHandoff(r.route, title.slice(0, 200), values);
+    setHandoff(next);
+    // Too long for a pre-filled link: show the body to copy first, and let the visitor open the issue themselves.
+    if (!next.pasteBody) window.open(next.url, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -236,7 +256,7 @@ export function FormPage({ r }: { r: Extract<AtlasResolved, { kind: 'form' }> })
               return (
                 <div key={f} className="atlas-field">
                   {label}
-                  <input id={id} list="atlas-entity-types" value={values[f]} onChange={(e) => setValues({ ...values, [f]: e.target.value })} required={isReq} />
+                  <input id={id} list="atlas-entity-types" maxLength={MAX_FIELD.short} value={values[f]} onChange={(e) => setValues({ ...values, [f]: e.target.value })} required={isReq} />
                   <datalist id="atlas-entity-types">{ENTITY_TYPES.map((t) => <option key={t} value={t} />)}</datalist>
                 </div>
               );
@@ -245,9 +265,9 @@ export function FormPage({ r }: { r: Extract<AtlasResolved, { kind: 'form' }> })
               <div key={f} className="atlas-field">
                 {label}
                 {LONG_FIELD.test(f) ? (
-                  <textarea id={id} rows={f.includes('URLs') ? 3 : 5} value={values[f]} onChange={(e) => setValues({ ...values, [f]: e.target.value })} required={isReq} placeholder={f.includes('URLs') ? 'One URL per line' : undefined} />
+                  <textarea id={id} rows={f.includes('URLs') ? 3 : 5} maxLength={MAX_FIELD.long} value={values[f]} onChange={(e) => setValues({ ...values, [f]: e.target.value })} required={isReq} placeholder={f.includes('URLs') ? 'One URL per line' : undefined} />
                 ) : (
-                  <input id={id} type={URL_FIELD.test(f) ? 'url' : 'text'} inputMode={URL_FIELD.test(f) ? 'url' : undefined} value={values[f]} onChange={(e) => setValues({ ...values, [f]: e.target.value })} required={isReq} />
+                  <input id={id} maxLength={MAX_FIELD.short} type={URL_FIELD.test(f) ? 'url' : 'text'} inputMode={URL_FIELD.test(f) ? 'url' : undefined} value={values[f]} onChange={(e) => setValues({ ...values, [f]: e.target.value })} required={isReq} />
                 )}
               </div>
             );
@@ -261,11 +281,22 @@ export function FormPage({ r }: { r: Extract<AtlasResolved, { kind: 'form' }> })
             <button type="submit" className="btn btn-primary">Review on GitHub</button>
             <noscript><a className="btn btn-secondary" href={ISSUES_NEW} target="_blank" rel="noopener noreferrer">Open a GitHub issue</a></noscript>
           </div>
-          {handoff && (
+          {handoff && !handoff.pasteBody && (
             <p className="atlas-form-status" role="status">
               A pre-filled issue opened in a new tab. Your suggestion is sent only when you submit the issue on GitHub.{' '}
-              If no tab opened, <a href={handoff} target="_blank" rel="noopener noreferrer">open the pre-filled issue</a>.
+              If no tab opened, <a href={handoff.url} target="_blank" rel="noopener noreferrer">open the pre-filled issue</a>.
             </p>
+          )}
+          {handoff?.pasteBody && (
+            <div className="atlas-form-status" role="status">
+              <p>
+                This is too long for a pre-filled GitHub link. Copy the text below, then{' '}
+                <a href={handoff.url} target="_blank" rel="noopener noreferrer">open the issue</a> and paste it as the description.
+                Nothing is sent until you submit the issue on GitHub.
+              </p>
+              <label htmlFor="atlas-paste" className="atlas-sr">Issue description to paste</label>
+              <textarea id="atlas-paste" readOnly rows={8} value={handoff.pasteBody} onFocus={(e) => e.currentTarget.select()} />
+            </div>
           )}
         </form>
       </article>

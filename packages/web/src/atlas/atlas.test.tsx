@@ -18,7 +18,8 @@ import {
 } from './data';
 import { atlasGuard, NOT_FOUND_ASSET, type AtlasGuardContext } from './guard';
 import { atlasHead } from './head';
-import { issueUrlFor } from './pages/Reference';
+import { issueHandoff, issueUrlFor, MAX_ISSUE_URL, safeDecode } from './pages/Reference';
+import { clientRobots } from './useAtlasHead';
 import { resolveAtlas } from './resolve';
 import { guideTaskDraftHref } from './ui';
 
@@ -257,6 +258,38 @@ describe('BasedAgents hand-offs', () => {
     expect(u.origin + u.pathname).toBe('https://github.com/maxfain/basedagents/issues/new');
     expect(u.searchParams.get('title')).toBe('[Atlas] Suggest a project: X');
     expect(u.searchParams.get('body')).toContain('**Official URL**\nhttps://x.example');
+  });
+});
+
+describe('review fixes', () => {
+  it('keeps forced-noindex builds, previews and filtered views noindex in the browser', () => {
+    const approved = launchManifest.approved_indexable_routes[0];
+    expect(clientRobots(approved, '', 'basedagents.ai', false)).toBe('index,follow');
+    expect(clientRobots(approved, '', 'basedagents.ai', true)).toBe('noindex,follow');
+    expect(clientRobots(approved, '', 'abc.auth-ai-web.pages.dev', false)).toBe('noindex,follow');
+    expect(clientRobots('/atlas', '?q=mcp', 'basedagents.ai', false)).toBe('noindex,follow');
+  });
+
+  it('ignores a malformed FAQ fragment instead of throwing', () => {
+    expect(safeDecode('%')).toBeNull();
+    expect(safeDecode('what-is-x402-used-for')).toBe('what-is-x402-used-for');
+  });
+
+  it('keeps each pricing fact\'s note, status and citation on comparison cards', () => {
+    const t = text('/compare/browser-use-browserbase-skyvern');
+    expect(t).toContain('Note: Older indexed content showed $0.02/hour. Current directly opened price used.');
+    expect(t).toContain('Vendor-documented. Source: browser-use.com');
+    expect(t).toContain('Source: browserbase.com/pricing');
+  });
+
+  it('falls back to a copyable body when the pre-filled issue URL would be too long', () => {
+    const short = issueHandoff('/submit', '[Atlas] Suggest a project: X', { 'Project name': 'X' });
+    expect(short.pasteBody).toBeNull();
+    // Two maxed-out long fields of multi-byte text (each "é" URL-encodes to 6 characters).
+    const long = issueHandoff('/submit', '[Atlas] Suggest a project: X', { Description: 'é'.repeat(3000), 'Documentation URLs': 'x'.repeat(3000) });
+    expect(long.pasteBody).toContain('x'.repeat(3000));
+    expect(long.url.length).toBeLessThanOrEqual(MAX_ISSUE_URL);
+    expect(new URL(long.url).searchParams.get('body')).toBeNull();
   });
 });
 

@@ -111,6 +111,8 @@ export function AppRoutes(): React.ReactElement {
               {/* Tasks redirects to main site */}
               <Route path="/tasks"         element={<RedirectToMain />} />
               <Route path="/tasks/:id"     element={<RedirectToMain />} />
+              {/* Agent Atlas lives on the main site only */}
+              {ATLAS_ROUTE_PATTERNS.map((path) => <Route key={path} path={path} element={<RedirectToMain />} />)}
               {/* Shared routes */}
               <Route path="/agents/:id"    element={<AgentProfile />} />
               <Route path="/agent/:name"   element={<AgentProfile />} />
