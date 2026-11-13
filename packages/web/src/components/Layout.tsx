@@ -54,6 +54,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
           <a href="/registry" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Registry</a>
           <a href="/docs/getting-started" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Docs</a>
           <a href="/blog" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Blog</a>
+          <a href="/atlas" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Agent Atlas</a>
           <a href="https://app.basedagents.ai/login" style={{ textDecoration: 'none', color: 'var(--text-secondary)' }}>Sign in</a>
           <a href="https://app.basedagents.ai/tasks/new" style={{ textDecoration: 'none', color: 'var(--accent)', fontWeight: 600 }}>
             Post a task
@@ -72,6 +73,7 @@ export default function Layout({ children }: { children: React.ReactNode }): Rea
             <a href="/registry">Registry</a>
             <a href="/docs/getting-started">Docs</a>
             <a href="/blog">Blog</a>
+            <a href="/atlas">Agent Atlas</a>
             <Link to="/about">About</Link>
             <a href="https://github.com/maxfain/basedagents" target="_blank" rel="noopener noreferrer">GitHub</a>
             <a href="/changelog">Changelog</a>

@@ -8,6 +8,7 @@
  */
 import React from 'react';
 import { renderToString } from 'react-dom/server';
+import { prerender } from 'react-dom/static';
 import { StaticRouter } from 'react-router-dom';
 import { AppRoutes } from './App.js';
 
@@ -20,3 +21,22 @@ export function render(url: string): string {
     </React.StrictMode>,
   );
 }
+
+/**
+ * Agent Atlas routes are code-split (React.lazy). `prerender` waits for every
+ * Suspense boundary to resolve — unlike renderToString, which would emit the
+ * loading fallback — so the written HTML holds the complete page.
+ */
+export async function renderAsync(url: string): Promise<string> {
+  const { prelude } = await prerender(
+    <React.StrictMode>
+      <StaticRouter location={url}>
+        <AppRoutes />
+      </StaticRouter>
+    </React.StrictMode>,
+  );
+  return new Response(prelude).text();
+}
+
+export { atlasHead } from './atlas/head.js';
+export { ATLAS_ROUTES, atlasSitemapXml } from './atlas/data.js';

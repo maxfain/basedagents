@@ -1,0 +1,1199 @@
+[
+  {
+    "module": "identity",
+    "field": "name",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "identity",
+    "field": "aliases",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "identity",
+    "field": "official_url",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "identity",
+    "field": "operator_id",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "identity",
+    "field": "legal_name",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "identity",
+    "field": "founding_date",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "identity",
+    "field": "founding_date_precision",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "identity",
+    "field": "headquarters",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "identity",
+    "field": "official_social_profiles",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "identity",
+    "field": "contact_page",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "identity",
+    "field": "lifecycle",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "identity",
+    "field": "ownership_history",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "identity",
+    "field": "first_seen",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "identity",
+    "field": "last_checked",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "positioning",
+    "field": "description",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "positioning",
+    "field": "stated_mission",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "positioning",
+    "field": "stated_roadmap",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "positioning",
+    "field": "target_users",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "positioning",
+    "field": "industries",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "positioning",
+    "field": "languages",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "positioning",
+    "field": "supported_regions",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "positioning",
+    "field": "excluded_uses",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "capabilities",
+    "field": "action",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "capabilities",
+    "field": "object",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "capabilities",
+    "field": "domain",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "capabilities",
+    "field": "input_formats",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "capabilities",
+    "field": "output_formats",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "capabilities",
+    "field": "task_examples",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "capabilities",
+    "field": "dependencies",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "capabilities",
+    "field": "required_permissions",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "capabilities",
+    "field": "side_effects",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "capabilities",
+    "field": "limitations",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "capabilities",
+    "field": "feature_state",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "capabilities",
+    "field": "evidence_state",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "autonomy",
+    "field": "trigger",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "autonomy",
+    "field": "planning_mode",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "autonomy",
+    "field": "execution_mode",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "autonomy",
+    "field": "approval_policy",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "autonomy",
+    "field": "background_duration",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "autonomy",
+    "field": "human_checkpoints",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "autonomy",
+    "field": "cancellation",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "autonomy",
+    "field": "retry_policy",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "autonomy",
+    "field": "escalation",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "autonomy",
+    "field": "budget_limits",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "autonomy",
+    "field": "memory_scope",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "interfaces",
+    "field": "interface_role",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "interfaces",
+    "field": "protocol",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "interfaces",
+    "field": "protocol_version",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "interfaces",
+    "field": "endpoint",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "interfaces",
+    "field": "package_coordinate",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "interfaces",
+    "field": "deployment_operator",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "interfaces",
+    "field": "transport",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "interfaces",
+    "field": "authentication",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "interfaces",
+    "field": "scopes",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "interfaces",
+    "field": "official_or_community",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "interfaces",
+    "field": "docs_url",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "interfaces",
+    "field": "host_support",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "interfaces",
+    "field": "last_inspected",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "interfaces",
+    "field": "last_tested",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "software",
+    "field": "repository_id",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "software",
+    "field": "repository_url",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "software",
+    "field": "license",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "software",
+    "field": "package_registry",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "software",
+    "field": "package_name",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "software",
+    "field": "release_version",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "software",
+    "field": "release_date",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "software",
+    "field": "archived",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "software",
+    "field": "fork_of",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "software",
+    "field": "maintainer",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "software",
+    "field": "source_available",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "software",
+    "field": "hosted_service_license",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "pricing",
+    "field": "plan",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "pricing",
+    "field": "currency",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "pricing",
+    "field": "amount",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "pricing",
+    "field": "amount_qualifier",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "pricing",
+    "field": "billing_unit",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "pricing",
+    "field": "billing_interval",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "pricing",
+    "field": "commitment",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "pricing",
+    "field": "included_allowances",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "pricing",
+    "field": "overage",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "pricing",
+    "field": "minimum_spend",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "pricing",
+    "field": "model_costs",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "pricing",
+    "field": "browser_costs",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "pricing",
+    "field": "proxy_costs",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "pricing",
+    "field": "storage_costs",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "pricing",
+    "field": "retry_costs",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "pricing",
+    "field": "trial",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "pricing",
+    "field": "refund_terms",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "pricing",
+    "field": "observed_at",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "funding",
+    "field": "round",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "funding",
+    "field": "amount",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "funding",
+    "field": "amount_qualifier",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "funding",
+    "field": "currency",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "funding",
+    "field": "announcement_date",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "funding",
+    "field": "investors",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "funding",
+    "field": "valuation",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "funding",
+    "field": "valuation_basis",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "funding",
+    "field": "cumulative_total_if_disclosed",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "funding",
+    "field": "source_url",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "people",
+    "field": "name",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "people",
+    "field": "public_role",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "people",
+    "field": "organization_id",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "people",
+    "field": "official_profile_url",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "people",
+    "field": "relationship_start",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "people",
+    "field": "relationship_end",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "people",
+    "field": "source_url",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "protocol",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "version",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "scheme",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "network",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "asset",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "payer_type",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "payee_type",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "facilitator",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "account_requirement",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "authorization_model",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "spend_limit",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "custody_model",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "escrow_model",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "refund_behavior",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "dispute_process",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "settlement_state",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "quote_type",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "quote_time",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "payments",
+    "field": "payment_evidence",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "tasks",
+    "field": "performer_type",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "tasks",
+    "field": "task_type",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "tasks",
+    "field": "input",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "tasks",
+    "field": "output",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "tasks",
+    "field": "acceptance_criteria",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "tasks",
+    "field": "acceptance_authority",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "tasks",
+    "field": "evaluator_relationship",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "tasks",
+    "field": "compensation_status",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "tasks",
+    "field": "bounty",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "tasks",
+    "field": "receipt",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "tasks",
+    "field": "privacy_redactions",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "evaluations",
+    "field": "fixture",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "evaluations",
+    "field": "environment",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "evaluations",
+    "field": "agent_version",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "evaluations",
+    "field": "model_version",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "evaluations",
+    "field": "tool_versions",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "evaluations",
+    "field": "attempts",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "evaluations",
+    "field": "successes",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "evaluations",
+    "field": "human_interventions",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "evaluations",
+    "field": "duration_seconds",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "evaluations",
+    "field": "cost",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "evaluations",
+    "field": "rubric",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "evaluations",
+    "field": "reviewer",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "evaluations",
+    "field": "output_artifact",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "evaluations",
+    "field": "started_at",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "evaluations",
+    "field": "finished_at",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "security_data",
+    "field": "scope_manifest",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "security_data",
+    "field": "secret_requirements",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "security_data",
+    "field": "sandbox_boundary",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "security_data",
+    "field": "retention_policy",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "security_data",
+    "field": "data_residency",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "security_data",
+    "field": "training_use_policy",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "security_data",
+    "field": "audit_report",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "security_data",
+    "field": "certification_scope",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "security_data",
+    "field": "incident_history",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "security_data",
+    "field": "security_contact",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "editorial",
+    "field": "fit_assessment",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "editorial",
+    "field": "alternatives",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "editorial",
+    "field": "complementary_stack",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "editorial",
+    "field": "limitations",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "editorial",
+    "field": "change_summary",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "editorial",
+    "field": "reviewer",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "editorial",
+    "field": "reviewed_at",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "editorial",
+    "field": "publication_status",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "editorial",
+    "field": "source_conflicts",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  },
+  {
+    "module": "editorial",
+    "field": "correction_status",
+    "require_evidence": true,
+    "unknown_rule": "Use null plus explicit unknown/not_disclosed/not_applicable/conflicting state; do not infer.",
+    "scope_note": "Proposed collection field; populate only if relevant to this entity."
+  }
+]
