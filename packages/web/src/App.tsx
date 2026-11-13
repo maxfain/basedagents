@@ -26,6 +26,31 @@ import ScanList from './pages/ScanList';
 import Board from './pages/Board';
 import BoardThread from './pages/BoardThread';
 import { AgentAuthProvider } from './hooks/useAgentAuth';
+// Agent Atlas: its styles ship with the main CSS (so prerendered atlas pages are
+// styled on first paint); its pages and ~400 KB of content load as a separate
+// chunk, only on atlas routes.
+import './atlas/atlas.css';
+
+const AtlasPage = React.lazy(() => import('./atlas/AtlasPage'));
+
+/**
+ * Every Agent Atlas route (src/atlas/content/implementation/route-manifest.json).
+ * The build prerenders each one with react-dom/static, which waits for the lazy
+ * chunk, so the HTML is complete; in the browser the Suspense boundary keeps
+ * that server markup until the chunk arrives, then hydrates it.
+ */
+function Atlas(): React.ReactElement {
+  return (
+    <React.Suspense fallback={<div className="container" style={{ padding: '64px 24px', color: 'var(--text-tertiary)' }}>Loading the atlas…</div>}>
+      <AtlasPage />
+    </React.Suspense>
+  );
+}
+
+export const ATLAS_ROUTE_PATTERNS = [
+  '/atlas', '/categories', '/categories/:slug', '/protocols', '/guides', '/guides/:slug', '/glossary', '/faq',
+  '/about-atlas', '/methodology', '/submit', '/corrections', '/projects/:slug', '/compare/:slug',
+] as const;
 
 export const isRegistrySubdomain =
   typeof window !== 'undefined' &&
@@ -129,6 +154,8 @@ export function AppRoutes(): React.ReactElement {
               <Route path="/about"               element={<About />} />
               <Route path="/terms"               element={<Terms />} />
               <Route path="/privacy"             element={<Privacy />} />
+              {/* Agent Atlas — content-led research pages (src/atlas). */}
+              {ATLAS_ROUTE_PATTERNS.map((path) => <Route key={path} path={path} element={<Atlas />} />)}
               {/* Legacy SPA-shell path from the reverted homepage attempt — some
                   browsers cached a 308 to it. Show the homepage and heal the URL. */}
               <Route path="/app"                 element={<LegacyApp />} />

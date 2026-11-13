@@ -40,6 +40,12 @@ jobs:
       - name: Test
         run: npm test
 
+      # Agent Atlas content package (packages/web/src/atlas/content): ids,
+      # routes, categories, evidence references and launch-manifest routes are
+      # consistent. Content integrity only — it contacts no vendor.
+      - name: Atlas content validator
+        run: python3 -I packages/web/src/atlas/content/implementation/validate_content.py
+
       - name: Build all workspaces
         run: npm run build
 
