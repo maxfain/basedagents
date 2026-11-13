@@ -1,0 +1,371 @@
+[
+  {
+    "entity_id": "agent-skills",
+    "route": "/projects/agent-skills",
+    "title": "Agent Skills explained",
+    "layer": "Reusable instructions",
+    "answer": "A portable skill package groups instructions and optional resources around SKILL.md. Record the skill directory, revision and dependencies separately from the agent that loads it.",
+    "limitations": "A skill file does not establish that a host can execute every referenced script or access every required service.",
+    "implementation_checklist": [
+      "Check the exact skill path",
+      "inspect instructions and executable resources",
+      "identify required credentials",
+      "test one bounded task."
+    ],
+    "version_note": null,
+    "sources": [
+      {
+        "url": "https://agentskills.io/specification",
+        "observed_at": "2026-11-13",
+        "evidence_status": "first_party_documentation_read"
+      }
+    ],
+    "editorial_status": "source_based_explanation_with_editorial_checklist",
+    "related_ids": [
+      "anthropic-skills",
+      "hugging-face-skills",
+      "anthropic-docx",
+      "anthropic-pdf",
+      "anthropic-pptx"
+    ]
+  },
+  {
+    "entity_id": "model-context-protocol",
+    "route": "/projects/model-context-protocol",
+    "title": "Model Context Protocol explained",
+    "layer": "Tools and context",
+    "answer": "MCP connects AI applications with external capabilities and context. In this atlas, an MCP server is a separate entity from its operator and the products it exposes.",
+    "limitations": "MCP support alone does not identify the available tools, authorization scopes or successful client/server combinations.",
+    "implementation_checklist": [
+      "Capture server URL or package, transport, protocol version, authentication, tool schemas and read/write effects."
+    ],
+    "version_note": "Documentation resolved to 2026-07-28; individual server protocol negotiation still requires verification.",
+    "sources": [
+      {
+        "url": "https://modelcontextprotocol.io/docs/2026-07-28/getting-started/intro",
+        "observed_at": "2026-11-13",
+        "evidence_status": "primary_source_inspected"
+      }
+    ],
+    "editorial_status": "source_based_explanation_with_editorial_checklist",
+    "related_ids": [
+      "agent2agent",
+      "agent-client-protocol",
+      "agent-communication-protocol-ibm-beeai",
+      "erc-8004-trustless-agents",
+      "open-agentic-schema-framework"
+    ]
+  },
+  {
+    "entity_id": "agent2agent",
+    "route": "/projects/agent2agent",
+    "title": "Agent2Agent explained",
+    "layer": "Agent-to-agent interaction",
+    "answer": "A2A describes agent communication and task coordination. Agent Cards advertise identity, skills and interaction requirements. Store the card and each supported interface as evidence.",
+    "limitations": "An advertised skill is a claim. It does not establish accepted work, service quality or compatibility with every A2A implementation.",
+    "implementation_checklist": [
+      "Record the Agent Card location, interface version, authentication requirements, task states and a reproducible exchange."
+    ],
+    "version_note": null,
+    "sources": [
+      {
+        "url": "https://a2a-protocol.org/latest/specification/",
+        "observed_at": "2026-11-13",
+        "evidence_status": "primary_source_inspected"
+      }
+    ],
+    "editorial_status": "source_based_explanation_with_editorial_checklist",
+    "related_ids": [
+      "model-context-protocol",
+      "agent-client-protocol",
+      "agent-communication-protocol-ibm-beeai",
+      "erc-8004-trustless-agents",
+      "open-agentic-schema-framework"
+    ]
+  },
+  {
+    "entity_id": "agent-payments-protocol",
+    "route": "/projects/agent-payments-protocol",
+    "title": "Agent Payments Protocol explained",
+    "layer": "Payment authorization",
+    "answer": "AP2 describes payment mandates and verifiable credentials for agent commerce. Model the authorization evidence separately from the payment service and its settlement mechanism.",
+    "limitations": "Protocol membership or an announcement does not prove that a particular merchant supports a particular release.",
+    "implementation_checklist": [
+      "Record mandate type, issuer, scope, expiry, implementation release and the evidence connecting authorization to a payment."
+    ],
+    "version_note": "Google announced v0.2 and donation to FIDO Alliance on 2026-04-28; release announcement is not proof that every implementation runs v0.2.",
+    "sources": [
+      {
+        "url": "https://ap2-protocol.org/",
+        "observed_at": "2026-11-13",
+        "evidence_status": "primary_source_inspected"
+      },
+      {
+        "url": "https://blog.google/products-and-platforms/platforms/google-pay/agent-payments-protocol-fido-alliance/",
+        "observed_at": "2026-11-13",
+        "evidence_status": "primary_source_inspected"
+      }
+    ],
+    "editorial_status": "source_based_explanation_with_editorial_checklist",
+    "related_ids": [
+      "x402",
+      "agentic-commerce-protocol-openai-and-stripe",
+      "agent-commerce-protocol-virtuals",
+      "erc-8183-agentic-commerce",
+      "universal-commerce-protocol"
+    ]
+  },
+  {
+    "entity_id": "agentic-commerce-protocol-openai-and-stripe",
+    "route": "/projects/agentic-commerce-protocol-openai-and-stripe",
+    "title": "Agentic Commerce Protocol (OpenAI and Stripe) explained",
+    "layer": "Merchant checkout",
+    "answer": "This ACP is the OpenAI and Stripe commerce protocol. Its scope concerns interactions among buyers, agents and businesses, including checkout and delegated payments.",
+    "limitations": "It is different from Agent Client Protocol and Virtuals Agent Commerce Protocol, despite the shared initials.",
+    "implementation_checklist": [
+      "Record the pinned specification, checkout states, merchant integration and payment authorization mechanism."
+    ],
+    "version_note": "Repository describes beta; latest stable links point to 2026-04-17 snapshot.",
+    "sources": [
+      {
+        "url": "https://github.com/agentic-commerce-protocol/agentic-commerce-protocol",
+        "observed_at": "2026-11-13",
+        "evidence_status": "primary_source_inspected"
+      }
+    ],
+    "editorial_status": "source_based_explanation_with_editorial_checklist",
+    "related_ids": [
+      "x402",
+      "agent-payments-protocol",
+      "agent-commerce-protocol-virtuals",
+      "erc-8183-agentic-commerce",
+      "universal-commerce-protocol"
+    ]
+  },
+  {
+    "entity_id": "agent-commerce-protocol-virtuals",
+    "route": "/projects/agent-commerce-protocol-virtuals",
+    "title": "Agent Commerce Protocol (Virtuals) explained",
+    "layer": "Agent service commerce",
+    "answer": "Virtuals describes ACP as a framework for agreements and commerce among agents and as a reference implementation of proposed ERC-8183. Keep the deployed implementation and draft interface distinct.",
+    "limitations": "A protocol relationship does not establish the deployed contract address, network or payment history of a specific agent.",
+    "implementation_checklist": [
+      "Record service identity, agreement terms, acceptance role, network, contract version and delivery evidence."
+    ],
+    "version_note": null,
+    "sources": [
+      {
+        "url": "https://os.virtuals.io/acp/overview",
+        "observed_at": "2026-11-13",
+        "evidence_status": "primary_source_inspected"
+      }
+    ],
+    "editorial_status": "source_based_explanation_with_editorial_checklist",
+    "related_ids": [
+      "x402",
+      "agent-payments-protocol",
+      "agentic-commerce-protocol-openai-and-stripe",
+      "erc-8183-agentic-commerce",
+      "universal-commerce-protocol"
+    ]
+  },
+  {
+    "entity_id": "agent-client-protocol",
+    "route": "/projects/agent-client-protocol",
+    "title": "Agent Client Protocol explained",
+    "layer": "Coding-agent/editor connection",
+    "answer": "Agent Client Protocol connects coding agents with editors or IDEs. Record which agent, editor and protocol release were documented or tested together.",
+    "limitations": "This ACP is not a payment or merchant checkout protocol. A registry listing is not a completed compatibility test.",
+    "implementation_checklist": [
+      "Capture agent adapter, editor client, protocol version, authentication and supported session functions."
+    ],
+    "version_note": "Documentation navigation shows v1 Latest and v2 Draft.",
+    "sources": [
+      {
+        "url": "https://agentclientprotocol.com/get-started/introduction",
+        "observed_at": "2026-11-13",
+        "evidence_status": "primary_source_inspected"
+      }
+    ],
+    "editorial_status": "source_based_explanation_with_editorial_checklist",
+    "related_ids": [
+      "model-context-protocol",
+      "agent2agent",
+      "agent-communication-protocol-ibm-beeai",
+      "erc-8004-trustless-agents",
+      "open-agentic-schema-framework"
+    ]
+  },
+  {
+    "entity_id": "agent-communication-protocol-ibm-beeai",
+    "route": "/projects/agent-communication-protocol-ibm-beeai",
+    "title": "Agent Communication Protocol (IBM BeeAI) explained",
+    "layer": "Historical interoperability",
+    "answer": "IBM describes this ACP as historical work moving into A2A. Preserve a legacy record so older articles and repositories can be understood in context.",
+    "limitations": "Do not present historical ACP material as evidence of a currently maintained standalone implementation.",
+    "implementation_checklist": [
+      "Record the migration source, last relevant release and whether the deployed service uses A2A or a legacy interface."
+    ],
+    "version_note": "Merged into A2A; IBM says active development is winding down.",
+    "sources": [
+      {
+        "url": "https://www.ibm.com/think/topics/agent-communication-protocol",
+        "observed_at": "2026-11-13",
+        "evidence_status": "primary_source_inspected"
+      },
+      {
+        "url": "https://lfaidata.foundation/communityblog/2025/08/29/acp-joins-forces-with-a2a-under-the-linux-foundations-lf-ai-data/",
+        "observed_at": "2026-11-13",
+        "evidence_status": "primary_source_inspected"
+      }
+    ],
+    "editorial_status": "source_based_explanation_with_editorial_checklist",
+    "related_ids": [
+      "model-context-protocol",
+      "agent2agent",
+      "agent-client-protocol",
+      "erc-8004-trustless-agents",
+      "open-agentic-schema-framework"
+    ]
+  },
+  {
+    "entity_id": "erc-8004-trustless-agents",
+    "route": "/projects/erc-8004-trustless-agents",
+    "title": "ERC-8004 Trustless Agents explained",
+    "layer": "Identity and reputation",
+    "answer": "ERC-8004 proposes registries for agent identity, reputation and validation. The inspected proposal is marked Draft; payments are outside its stated scope.",
+    "limitations": "An identity registration is not proof of competence. Reputation entries and validation claims need their own provenance and interpretation.",
+    "implementation_checklist": [
+      "Record chain, registry address, agent identifier, record timestamp and evidence behind each reputation or validation observation."
+    ],
+    "version_note": "Draft",
+    "sources": [
+      {
+        "url": "https://eips.ethereum.org/EIPS/eip-8004",
+        "observed_at": "2026-11-13",
+        "evidence_status": "primary_source_inspected"
+      }
+    ],
+    "editorial_status": "source_based_explanation_with_editorial_checklist",
+    "related_ids": [
+      "model-context-protocol",
+      "agent2agent",
+      "agent-client-protocol",
+      "agent-communication-protocol-ibm-beeai",
+      "open-agentic-schema-framework"
+    ]
+  },
+  {
+    "entity_id": "erc-8183-agentic-commerce",
+    "route": "/projects/erc-8183-agentic-commerce",
+    "title": "ERC-8183 Agentic Commerce explained",
+    "layer": "Job escrow",
+    "answer": "ERC-8183 proposes a job escrow interface with client, provider and evaluator roles. The evaluator accepts or rejects work and may be the client. The inspected proposal is Draft.",
+    "limitations": "An evaluator attestation is not necessarily an independent audit. A funded escrow is not the same as accepted delivery.",
+    "implementation_checklist": [
+      "Record job terms, amount, asset, expiry, parties, evaluator relationship and acceptance or rejection evidence."
+    ],
+    "version_note": "Draft",
+    "sources": [
+      {
+        "url": "https://eips.ethereum.org/EIPS/eip-8183",
+        "observed_at": "2026-11-13",
+        "evidence_status": "primary_source_inspected"
+      }
+    ],
+    "editorial_status": "source_based_explanation_with_editorial_checklist",
+    "related_ids": [
+      "x402",
+      "agent-payments-protocol",
+      "agentic-commerce-protocol-openai-and-stripe",
+      "agent-commerce-protocol-virtuals",
+      "universal-commerce-protocol"
+    ]
+  },
+  {
+    "entity_id": "universal-commerce-protocol",
+    "route": "/projects/universal-commerce-protocol",
+    "title": "Universal Commerce Protocol explained",
+    "layer": "Commerce lifecycle",
+    "answer": "UCP supplies commerce building blocks covering discovery, checkout and later interactions. Treat a merchant implementation as a separate record with its own supported capabilities.",
+    "limitations": "A protocol description does not establish that a merchant implements every lifecycle capability or payment option.",
+    "implementation_checklist": [
+      "Capture declared capabilities, release, merchant endpoint, authentication and supported checkout and post-purchase operations."
+    ],
+    "version_note": null,
+    "sources": [
+      {
+        "url": "https://ucp.dev/",
+        "observed_at": "2026-11-13",
+        "evidence_status": "primary_source_inspected"
+      }
+    ],
+    "editorial_status": "source_based_explanation_with_editorial_checklist",
+    "related_ids": [
+      "x402",
+      "agent-payments-protocol",
+      "agentic-commerce-protocol-openai-and-stripe",
+      "agent-commerce-protocol-virtuals",
+      "erc-8183-agentic-commerce"
+    ]
+  },
+  {
+    "entity_id": "machine-payments-protocol",
+    "route": "/projects/machine-payments-protocol",
+    "title": "Machine Payments Protocol explained",
+    "layer": "Machine payments",
+    "answer": "MPP describes web payments with SDKs, service discovery and extensible payment methods. Separate the protocol, service catalog and individual paid endpoints.",
+    "limitations": "Catalog visibility does not establish uptime, delivered value or support for every payment method.",
+    "implementation_checklist": [
+      "Record payment method, network if applicable, challenge and receipt behavior, fees and the delivery associated with a successful payment."
+    ],
+    "version_note": null,
+    "sources": [
+      {
+        "url": "https://mpp.dev/",
+        "observed_at": "2026-11-13",
+        "evidence_status": "primary_source_inspected"
+      }
+    ],
+    "editorial_status": "source_based_explanation_with_editorial_checklist",
+    "related_ids": [
+      "x402",
+      "agent-payments-protocol",
+      "agentic-commerce-protocol-openai-and-stripe",
+      "agent-commerce-protocol-virtuals",
+      "erc-8183-agentic-commerce"
+    ]
+  },
+  {
+    "entity_id": "x402",
+    "route": "/projects/x402",
+    "title": "x402 explained",
+    "layer": "HTTP resource payments",
+    "answer": "x402 describes payment for internet resources through an HTTP payment flow. Distinguish the resource seller, client, facilitator and discovery catalog.",
+    "limitations": "Support for x402 is not proof of a specific network, asset, facilitator, price or refund policy. Testnet observations are different from production settlement.",
+    "implementation_checklist": [
+      "Capture endpoint, protocol version, payment requirements, network, asset, facilitator, settlement evidence and the resource actually received."
+    ],
+    "version_note": null,
+    "sources": [
+      {
+        "url": "https://github.com/x402-foundation/x402",
+        "observed_at": "2026-11-13",
+        "evidence_status": "primary_source_inspected"
+      },
+      {
+        "url": "https://x402.org/",
+        "observed_at": "2026-11-13",
+        "evidence_status": "primary_source_inspected"
+      }
+    ],
+    "editorial_status": "source_based_explanation_with_editorial_checklist",
+    "related_ids": [
+      "agent-payments-protocol",
+      "agentic-commerce-protocol-openai-and-stripe",
+      "agent-commerce-protocol-virtuals",
+      "erc-8183-agentic-commerce",
+      "universal-commerce-protocol"
+    ]
+  }
+]

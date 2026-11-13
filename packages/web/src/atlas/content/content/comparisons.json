@@ -1,0 +1,85 @@
+[
+  {
+    "id": "browser-use-vs-browserbase-vs-skyvern",
+    "route": "/compare/browser-use-browserbase-skyvern",
+    "title": "Browser Use vs Browserbase vs Skyvern: compare the layer before the price",
+    "answer": "These records describe overlapping browser-related offerings, but their units differ. Browser Use documents browser automation software and hosted offerings; Browserbase provides browser infrastructure and platform services; Skyvern describes browser workflow automation.",
+    "entity_ids": [
+      "browser-use",
+      "browserbase",
+      "skyvern"
+    ],
+    "decision_questions": [
+      "Do you need a browser runtime, a task-executing agent or both?",
+      "What is charged separately for models, traffic, proxies and retries?",
+      "What final state proves that your workflow succeeded?"
+    ],
+    "conclusion": "Editorial guidance: run the same allowed workflow on the relevant offering from each vendor. Compare cost per accepted completion, authentication behavior and interventions. No winner is established by this research.",
+    "status": "editorial_draft_not_tested",
+    "indexable": false,
+    "sources": [
+      "https://browser-use.com/",
+      "https://browser-use.com/pricing",
+      "https://www.ycombinator.com/companies/browser-use",
+      "https://browser-use.com/posts/seed-round",
+      "https://github.com/browser-use/browser-use/blob/main/CLOUD.md",
+      "https://github.com/browser-use/browser-use/blob/main/skills/open-source/references/integrations.md",
+      "https://www.browserbase.com/",
+      "https://www.browserbase.com/pricing",
+      "https://www.skyvern.com/",
+      "https://www.skyvern.com/pricing"
+    ]
+  },
+  {
+    "id": "mcp-vs-a2a-vs-agent-client-protocol",
+    "route": "/compare/mcp-a2a-agent-client-protocol",
+    "title": "MCP vs A2A vs Agent Client Protocol: different connection layers",
+    "answer": "MCP connects applications to external capabilities and context. A2A concerns agent communication and task coordination. Agent Client Protocol connects coding agents with editors or IDEs. A system can use more than one of these layers.",
+    "entity_ids": [
+      "model-context-protocol",
+      "agent2agent",
+      "agent-client-protocol"
+    ],
+    "decision_questions": [
+      "Are you exposing a callable tool, coordinating with an agent or integrating an editor?",
+      "Which exact versions and authentication methods does each endpoint support?",
+      "Has the specific client/server pair been tested?"
+    ],
+    "conclusion": "Editorial guidance: choose the protocol for the interaction you need, then test the concrete implementation. The shared word agent does not make these protocols interchangeable.",
+    "status": "editorial_draft_not_tested",
+    "indexable": false,
+    "sources": [
+      "https://modelcontextprotocol.io/docs/2026-07-28/getting-started/intro",
+      "https://a2a-protocol.org/latest/specification/",
+      "https://agentclientprotocol.com/get-started/introduction"
+    ]
+  },
+  {
+    "id": "x402-ap2-erc-8004-erc-8183",
+    "route": "/compare/x402-ap2-erc-8004-erc-8183",
+    "title": "x402, AP2, ERC-8004 and ERC-8183: payments, authority, identity and jobs",
+    "answer": "These records cover different concerns. x402 describes HTTP resource payments; AP2 describes payment authorization mandates; ERC-8004 proposes identity, reputation and validation registries; ERC-8183 proposes job escrow with an evaluator.",
+    "entity_ids": [
+      "x402",
+      "agent-payments-protocol",
+      "erc-8004-trustless-agents",
+      "erc-8183-agentic-commerce"
+    ],
+    "decision_questions": [
+      "Which party is authorized to spend?",
+      "What identifies the provider, and what supports its reputation?",
+      "Who evaluates delivery, and what causes settlement or release?"
+    ],
+    "conclusion": "Editorial guidance: model identity, authorization, payment and work acceptance separately. These sources do not establish a universal interoperable stack.",
+    "status": "editorial_draft_not_tested",
+    "indexable": false,
+    "sources": [
+      "https://github.com/x402-foundation/x402",
+      "https://x402.org/",
+      "https://ap2-protocol.org/",
+      "https://blog.google/products-and-platforms/platforms/google-pay/agent-payments-protocol-fido-alliance/",
+      "https://eips.ethereum.org/EIPS/eip-8004",
+      "https://eips.ethereum.org/EIPS/eip-8183"
+    ]
+  }
+]

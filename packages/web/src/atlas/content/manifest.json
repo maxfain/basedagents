@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "created_at": "2026-11-13",
+  "counts": {
+    "entities": 151,
+    "expanded_profiles": 15,
+    "protocol_profiles": 13,
+    "directory_entries": 123,
+    "categories": 16,
+    "task_guides": 12,
+    "glossary_terms": 76,
+    "faq_answers": 40
+  },
+  "scope": "Build-ready content assets and research drafts; not a deployed site or independently tested agent corpus.",
+  "primary_data": "data/entities.json",
+  "canonical_content_format": "JSON",
+  "markdown_role": "Readable exports of project and guide content; regenerate after changing JSON.",
+  "runtime_tests_performed": 0,
+  "payments_performed": 0,
+  "indexing_default": "noindex until a route enters approved_indexable_routes"
+}

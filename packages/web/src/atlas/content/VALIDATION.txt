@@ -1,0 +1,3 @@
+PASS: 151 entities; 192 unique routes; valid source/evidence and internal references. No live product or URL tests performed.
+Entity JSON also validated against implementation/entities.schema.json.
+Checks cover content integrity only; no live product testing or external URL availability check.

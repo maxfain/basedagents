@@ -1,0 +1,59 @@
+[
+  {
+    "route": "/about-atlas",
+    "title": "About Agent Atlas",
+    "body": [
+      "Agent Atlas is a proposed discovery and research layer for BasedAgents. It connects agent companies, products, MCP servers, skills, protocols and task services.",
+      "The aim is to help readers understand what a project claims to do, what evidence exists and what still needs testing. An organization, a product and a protocol are separate records, even when they belong to the same ecosystem.",
+      "This release combines source-linked descriptions with editorial evaluation guides. It contains no newly executed agent tasks, security audits or payment tests."
+    ]
+  },
+  {
+    "route": "/methodology",
+    "title": "How the atlas handles evidence",
+    "body": [
+      "We distinguish source inspection from runtime testing. A vendor page supports an attributed product claim; it does not establish successful execution.",
+      "Every profile carries source links and an observation date. Numerical prices retain units and notes about extra costs. Funding events remain separate from cumulative funding and valuation.",
+      "Unknown means not established by the inspected sources. It must not be rendered as No, unsupported or zero. Editorial comparisons and testing suggestions are labeled as guidance.",
+      "Profile pages with limited evidence stay outside the initial indexing set. A listing can be useful for discovery without being ready for an expanded search page.",
+      "No aggregate safety, trust or autonomy score is supplied in this release. Future test results should identify the fixture, version, environment, permission policy, evaluator, cost and acceptance result."
+    ]
+  },
+  {
+    "route": "/submit",
+    "title": "Suggest a project",
+    "body": [
+      "Help expand the atlas with a source-backed listing. Submit an official URL, entity type, short description and documentation that explains the capabilities.",
+      "If the project exposes an MCP server, skill, agent interface or payment integration, include the exact documentation or repository path. Never submit secrets or API keys.",
+      "Submissions should enter an editorial review queue. This content package does not implement or activate a submission backend."
+    ],
+    "form_fields": [
+      "Project name",
+      "Official URL",
+      "Entity type",
+      "Description",
+      "Documentation URLs",
+      "Your relationship to the project",
+      "Optional contact email"
+    ],
+    "success_copy": "Suggestion received for review. This is not a published listing.",
+    "implementation_note": "Use success_copy only after a real successful backend write; otherwise show a disabled form or configured contact route."
+  },
+  {
+    "route": "/corrections",
+    "title": "Suggest a correction",
+    "body": [
+      "Send the profile URL, the specific field that needs changing, the corrected value and a supporting source.",
+      "For pricing, include currency, billing interval and whether the price requires an annual commitment. For people or funding, identify the source date and the organization concerned.",
+      "Corrections should preserve an internal history of the previous claim and evidence. The public page should reflect the latest reviewed information."
+    ],
+    "form_fields": [
+      "Profile URL",
+      "Field",
+      "Proposed correction",
+      "Supporting source URL",
+      "Optional contact email"
+    ],
+    "implementation_note": "Requires a real submission backend. Do not simulate receipt."
+  }
+]

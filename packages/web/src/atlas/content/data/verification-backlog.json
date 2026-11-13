@@ -1,0 +1,2011 @@
+[
+  {
+    "entity_id": "cognition",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://cognition.com/"
+    ]
+  },
+  {
+    "entity_id": "cursor",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://cursor.com/",
+      "https://cursor.com/pricing"
+    ]
+  },
+  {
+    "entity_id": "replit",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://replit.com/"
+    ]
+  },
+  {
+    "entity_id": "factory",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://factory.com/",
+      "https://factory.com/pricing"
+    ]
+  },
+  {
+    "entity_id": "coderabbit",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://www.coderabbit.ai/",
+      "https://www.coderabbit.ai/pricing"
+    ]
+  },
+  {
+    "entity_id": "augment-code",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.augmentcode.com/"
+    ]
+  },
+  {
+    "entity_id": "lovable",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://lovable.dev/"
+    ]
+  },
+  {
+    "entity_id": "qodo",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.qodo.ai/"
+    ]
+  },
+  {
+    "entity_id": "openhands",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://www.openhands.dev/",
+      "https://www.openhands.dev/pricing"
+    ]
+  },
+  {
+    "entity_id": "continue",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://continue.dev/"
+    ]
+  },
+  {
+    "entity_id": "sierra",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://sierra.ai/",
+      "https://sierra.ai/"
+    ]
+  },
+  {
+    "entity_id": "decagon",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://decagon.ai/"
+    ]
+  },
+  {
+    "entity_id": "ada",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.ada.cx/"
+    ]
+  },
+  {
+    "entity_id": "maven-agi",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.mavenagi.com/"
+    ]
+  },
+  {
+    "entity_id": "forethought",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://forethought.ai/"
+    ]
+  },
+  {
+    "entity_id": "yuma-ai",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://yuma.ai/"
+    ]
+  },
+  {
+    "entity_id": "parahelp",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://parahelp.com/"
+    ]
+  },
+  {
+    "entity_id": "pylon",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.usepylon.com/"
+    ]
+  },
+  {
+    "entity_id": "inkeep",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://inkeep.com/"
+    ]
+  },
+  {
+    "entity_id": "11x",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.11x.ai/"
+    ]
+  },
+  {
+    "entity_id": "artisan",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.artisan.co/"
+    ]
+  },
+  {
+    "entity_id": "aisdr",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://aisdr.com/"
+    ]
+  },
+  {
+    "entity_id": "regie-ai",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://regie.ai/"
+    ]
+  },
+  {
+    "entity_id": "qualified",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.qualified.com/"
+    ]
+  },
+  {
+    "entity_id": "unify",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.unifygtm.com/"
+    ]
+  },
+  {
+    "entity_id": "lindy",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://www.lindy.ai/",
+      "https://www.lindy.ai/pricing"
+    ]
+  },
+  {
+    "entity_id": "gumloop",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://www.gumloop.com/",
+      "https://www.gumloop.com/pricing"
+    ]
+  },
+  {
+    "entity_id": "relevance-ai",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://relevanceai.com/",
+      "https://relevanceai.com/pricing"
+    ]
+  },
+  {
+    "entity_id": "browser-use",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://browser-use.com/",
+      "https://browser-use.com/pricing",
+      "https://www.ycombinator.com/companies/browser-use",
+      "https://browser-use.com/posts/seed-round",
+      "https://github.com/browser-use/browser-use/blob/main/CLOUD.md",
+      "https://github.com/browser-use/browser-use/blob/main/skills/open-source/references/integrations.md"
+    ]
+  },
+  {
+    "entity_id": "browserbase",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://www.browserbase.com/",
+      "https://www.browserbase.com/pricing"
+    ]
+  },
+  {
+    "entity_id": "skyvern",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://www.skyvern.com/",
+      "https://www.skyvern.com/pricing"
+    ]
+  },
+  {
+    "entity_id": "simular",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.simular.ai/"
+    ]
+  },
+  {
+    "entity_id": "manus",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://manus.im/"
+    ]
+  },
+  {
+    "entity_id": "genspark",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.genspark.ai/"
+    ]
+  },
+  {
+    "entity_id": "crewai",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://crewai.com/",
+      "https://crewai.com/pricing"
+    ]
+  },
+  {
+    "entity_id": "langchain",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.langchain.com/"
+    ]
+  },
+  {
+    "entity_id": "letta",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://www.letta.com/",
+      "https://docs.letta.com/pricing"
+    ]
+  },
+  {
+    "entity_id": "ema",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.ema.ai/"
+    ]
+  },
+  {
+    "entity_id": "basis",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.getbasis.ai/"
+    ]
+  },
+  {
+    "entity_id": "rogo",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://rogo.com/"
+    ]
+  },
+  {
+    "entity_id": "hebbia",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.hebbia.com/"
+    ]
+  },
+  {
+    "entity_id": "harvey",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.harvey.ai/"
+    ]
+  },
+  {
+    "entity_id": "legora",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://legora.com/"
+    ]
+  },
+  {
+    "entity_id": "evenup",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.evenuplaw.com/"
+    ]
+  },
+  {
+    "entity_id": "norm",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.norm.ai/"
+    ]
+  },
+  {
+    "entity_id": "hippocratic-ai",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://hippocraticai.com/"
+    ]
+  },
+  {
+    "entity_id": "ambience-healthcare",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.ambiencehealthcare.com/"
+    ]
+  },
+  {
+    "entity_id": "tennr",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.tennr.com/"
+    ]
+  },
+  {
+    "entity_id": "didero",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.didero.ai/"
+    ]
+  },
+  {
+    "entity_id": "lio",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.lio.ai/"
+    ]
+  },
+  {
+    "entity_id": "dropzone-ai",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.dropzone.ai/"
+    ]
+  },
+  {
+    "entity_id": "torq",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://torq.io/"
+    ]
+  },
+  {
+    "entity_id": "7ai",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://7ai.com/"
+    ]
+  },
+  {
+    "entity_id": "sema4-ai",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://sema4.ai/"
+    ]
+  },
+  {
+    "entity_id": "orby-ai",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.uniphore.com/orby-ai/"
+    ]
+  },
+  {
+    "entity_id": "lila",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.lila.ai/"
+    ]
+  },
+  {
+    "entity_id": "futurehouse",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.futurehouse.org/"
+    ]
+  },
+  {
+    "entity_id": "sakana-ai",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://sakana.ai/"
+    ]
+  },
+  {
+    "entity_id": "pomerado",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.ycombinator.com/companies/pomerado"
+    ]
+  },
+  {
+    "entity_id": "gbrain",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.ycombinator.com/companies/gbrain"
+    ]
+  },
+  {
+    "entity_id": "opentag",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.ycombinator.com/companies/opentag"
+    ]
+  },
+  {
+    "entity_id": "billow-ai-labs",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.ycombinator.com/companies/billow-ai-labs"
+    ]
+  },
+  {
+    "entity_id": "nex",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.ycombinator.com/companies/nex"
+    ]
+  },
+  {
+    "entity_id": "onecli",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.ycombinator.com/companies/onecli"
+    ]
+  },
+  {
+    "entity_id": "zomma",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.ycombinator.com/companies/zomma"
+    ]
+  },
+  {
+    "entity_id": "poth-labs",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.ycombinator.com/companies/poth-labs"
+    ]
+  },
+  {
+    "entity_id": "index-law",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.ycombinator.com/companies/index-law"
+    ]
+  },
+  {
+    "entity_id": "gatherhq",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.ycombinator.com/companies/gatherhq"
+    ]
+  },
+  {
+    "entity_id": "clad-labs",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.ycombinator.com/companies/clad-labs"
+    ]
+  },
+  {
+    "entity_id": "rulebase",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.ycombinator.com/companies/rulebase"
+    ]
+  },
+  {
+    "entity_id": "markitdown-mcp",
+    "priority": "normal",
+    "required_checks": [
+      "Resolve upstream identity from registry detail page",
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/mcp/microsoft/markitdown"
+    ]
+  },
+  {
+    "entity_id": "context7",
+    "priority": "normal",
+    "required_checks": [
+      "Resolve upstream identity from registry detail page",
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/mcp/upstash/context7"
+    ]
+  },
+  {
+    "entity_id": "chrome-devtools-mcp",
+    "priority": "normal",
+    "required_checks": [
+      "Resolve upstream identity from registry detail page",
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/mcp/ChromeDevTools/chrome-devtools-mcp"
+    ]
+  },
+  {
+    "entity_id": "playwright-mcp",
+    "priority": "normal",
+    "required_checks": [
+      "Resolve upstream identity from registry detail page",
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/mcp/microsoft/playwright-mcp"
+    ]
+  },
+  {
+    "entity_id": "github-mcp-server",
+    "priority": "normal",
+    "required_checks": [
+      "Resolve upstream identity from registry detail page",
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/mcp/github/github-mcp-server"
+    ]
+  },
+  {
+    "entity_id": "serena",
+    "priority": "normal",
+    "required_checks": [
+      "Resolve upstream identity from registry detail page",
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/mcp/oraios/serena"
+    ]
+  },
+  {
+    "entity_id": "skyvern-mcp",
+    "priority": "normal",
+    "required_checks": [
+      "Resolve upstream identity from registry detail page",
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/mcp/Skyvern-AI/skyvern"
+    ]
+  },
+  {
+    "entity_id": "unity-mcp",
+    "priority": "normal",
+    "required_checks": [
+      "Resolve upstream identity from registry detail page",
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/mcp/coplaydev/unity-mcp"
+    ]
+  },
+  {
+    "entity_id": "desktop-commander",
+    "priority": "normal",
+    "required_checks": [
+      "Resolve upstream identity from registry detail page",
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/mcp/wonderwhy-er/desktop-commander"
+    ]
+  },
+  {
+    "entity_id": "basic-memory",
+    "priority": "normal",
+    "required_checks": [
+      "Resolve upstream identity from registry detail page",
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/mcp/basicmachines-co/basic-memory"
+    ]
+  },
+  {
+    "entity_id": "dbhub",
+    "priority": "normal",
+    "required_checks": [
+      "Resolve upstream identity from registry detail page",
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/mcp/bytebase/dbhub"
+    ]
+  },
+  {
+    "entity_id": "omnara",
+    "priority": "normal",
+    "required_checks": [
+      "Resolve upstream identity from registry detail page",
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/mcp/com.omnara/omnara"
+    ]
+  },
+  {
+    "entity_id": "supabase-mcp",
+    "priority": "normal",
+    "required_checks": [
+      "Resolve upstream identity from registry detail page",
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/mcp/com.supabase/mcp"
+    ]
+  },
+  {
+    "entity_id": "apify-mcp-server",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://docs.apify.com/mcp"
+    ]
+  },
+  {
+    "entity_id": "composio",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://composio.dev/toolkits"
+    ]
+  },
+  {
+    "entity_id": "pipedream-connect",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://pipedream.com/connect"
+    ]
+  },
+  {
+    "entity_id": "tiny-agents",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://huggingface.co/docs/hub/en/agents-libraries"
+    ]
+  },
+  {
+    "entity_id": "smolagents",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://huggingface.co/docs/hub/en/agents-libraries",
+      "https://github.com/huggingface/smolagents"
+    ]
+  },
+  {
+    "entity_id": "gradio-mcp-support",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://huggingface.co/docs/hub/en/spaces-mcp-servers"
+    ]
+  },
+  {
+    "entity_id": "agent-skills",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://agentskills.io/specification"
+    ]
+  },
+  {
+    "entity_id": "anthropic-skills",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/anthropics/skills"
+    ]
+  },
+  {
+    "entity_id": "vercel-agent-skills",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/vercel-labs/agent-skills"
+    ]
+  },
+  {
+    "entity_id": "hugging-face-skills",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/huggingface/skills"
+    ]
+  },
+  {
+    "entity_id": "vercel-optimize",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/vercel-labs/agent-skills"
+    ]
+  },
+  {
+    "entity_id": "react-best-practices",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/vercel-labs/agent-skills"
+    ]
+  },
+  {
+    "entity_id": "web-design-guidelines",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/vercel-labs/agent-skills"
+    ]
+  },
+  {
+    "entity_id": "writing-guidelines",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/vercel-labs/agent-skills"
+    ]
+  },
+  {
+    "entity_id": "react-native-guidelines",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/vercel-labs/agent-skills"
+    ]
+  },
+  {
+    "entity_id": "anthropic-docx",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/anthropics/skills"
+    ]
+  },
+  {
+    "entity_id": "anthropic-pdf",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/anthropics/skills"
+    ]
+  },
+  {
+    "entity_id": "anthropic-pptx",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/anthropics/skills"
+    ]
+  },
+  {
+    "entity_id": "anthropic-xlsx",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/anthropics/skills"
+    ]
+  },
+  {
+    "entity_id": "mcp-reference-everything",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/modelcontextprotocol/servers"
+    ]
+  },
+  {
+    "entity_id": "mcp-reference-fetch",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/modelcontextprotocol/servers"
+    ]
+  },
+  {
+    "entity_id": "mcp-reference-filesystem",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/modelcontextprotocol/servers"
+    ]
+  },
+  {
+    "entity_id": "mcp-reference-git",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/modelcontextprotocol/servers"
+    ]
+  },
+  {
+    "entity_id": "mcp-reference-memory",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/modelcontextprotocol/servers"
+    ]
+  },
+  {
+    "entity_id": "mcp-reference-sequential-thinking",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/modelcontextprotocol/servers"
+    ]
+  },
+  {
+    "entity_id": "mcp-reference-time",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/modelcontextprotocol/servers"
+    ]
+  },
+  {
+    "entity_id": "x402",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/x402-foundation/x402",
+      "https://x402.org/"
+    ]
+  },
+  {
+    "entity_id": "model-context-protocol",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://modelcontextprotocol.io/docs/2026-07-28/getting-started/intro"
+    ]
+  },
+  {
+    "entity_id": "agent2agent",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://a2a-protocol.org/latest/specification/"
+    ]
+  },
+  {
+    "entity_id": "agent-payments-protocol",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://ap2-protocol.org/",
+      "https://blog.google/products-and-platforms/platforms/google-pay/agent-payments-protocol-fido-alliance/"
+    ]
+  },
+  {
+    "entity_id": "agentic-commerce-protocol-openai-and-stripe",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/agentic-commerce-protocol/agentic-commerce-protocol"
+    ]
+  },
+  {
+    "entity_id": "agent-commerce-protocol-virtuals",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://os.virtuals.io/acp/overview"
+    ]
+  },
+  {
+    "entity_id": "agent-client-protocol",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://agentclientprotocol.com/get-started/introduction"
+    ]
+  },
+  {
+    "entity_id": "agent-communication-protocol-ibm-beeai",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://www.ibm.com/think/topics/agent-communication-protocol",
+      "https://lfaidata.foundation/communityblog/2025/08/29/acp-joins-forces-with-a2a-under-the-linux-foundations-lf-ai-data/"
+    ]
+  },
+  {
+    "entity_id": "erc-8004-trustless-agents",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://eips.ethereum.org/EIPS/eip-8004"
+    ]
+  },
+  {
+    "entity_id": "erc-8183-agentic-commerce",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://eips.ethereum.org/EIPS/eip-8183"
+    ]
+  },
+  {
+    "entity_id": "universal-commerce-protocol",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://ucp.dev/"
+    ]
+  },
+  {
+    "entity_id": "machine-payments-protocol",
+    "priority": "high",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://mpp.dev/"
+    ]
+  },
+  {
+    "entity_id": "open-agentic-schema-framework",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://docs.agntcy.org/oasf/open-agentic-schema-framework/",
+      "https://dir.agntcy.org/latest/dir/dir-overview/"
+    ]
+  },
+  {
+    "entity_id": "agntcy-agent-directory-service",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://dir.agntcy.org/latest/dir/dir-overview/"
+    ]
+  },
+  {
+    "entity_id": "agentverse",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://docs.agentverse.ai/documentation/getting-started/agentverse-marketplace"
+    ]
+  },
+  {
+    "entity_id": "virtuals-economyos",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://os.virtuals.io/acp/overview"
+    ]
+  },
+  {
+    "entity_id": "olas-mech-marketplace",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://olas.network/mech-marketplace"
+    ]
+  },
+  {
+    "entity_id": "rentahuman",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://rentahuman.ai/about",
+      "https://rentahuman.ai/terms"
+    ]
+  },
+  {
+    "entity_id": "clawtasks",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://clawtasks.com/"
+    ]
+  },
+  {
+    "entity_id": "skyfire",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://skyfire.xyz/"
+    ]
+  },
+  {
+    "entity_id": "nevermined",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://nevermined.ai/product/"
+    ]
+  },
+  {
+    "entity_id": "crossmint",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.crossmint.com/solutions/agentic-payments"
+    ]
+  },
+  {
+    "entity_id": "privy",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.privy.io/agent-wallets"
+    ]
+  },
+  {
+    "entity_id": "turnkey",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.turnkey.com/solutions/ai-agents"
+    ]
+  },
+  {
+    "entity_id": "coinbase-agentkit",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/coinbase/agentkit"
+    ]
+  },
+  {
+    "entity_id": "payai",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://payai.network/developers",
+      "https://facilitator.payai.network/about"
+    ]
+  },
+  {
+    "entity_id": "arcade",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.arcade.dev/"
+    ]
+  },
+  {
+    "entity_id": "descope-agentic-identity-hub",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://docs.descope.com/agentic-identity-hub"
+    ]
+  },
+  {
+    "entity_id": "langsmith",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.langchain.com/langsmith/evaluation"
+    ]
+  },
+  {
+    "entity_id": "langfuse",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://langfuse.com/"
+    ]
+  },
+  {
+    "entity_id": "braintrust",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.braintrust.dev/articles/agent-evaluation"
+    ]
+  },
+  {
+    "entity_id": "arize-phoenix",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://arize.com/phoenix/"
+    ]
+  },
+  {
+    "entity_id": "snyk-agent-scan",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/snyk/agent-scan"
+    ]
+  },
+  {
+    "entity_id": "corbits",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://www.corbits.dev/"
+    ]
+  },
+  {
+    "entity_id": "agentic-market",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://agentic.market/"
+    ]
+  },
+  {
+    "entity_id": "pay-sh",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://pay.sh/"
+    ]
+  },
+  {
+    "entity_id": "ampersend-marketplace",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://app.ampersend.ai/discover"
+    ]
+  },
+  {
+    "entity_id": "x402scan",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://github.com/x402-foundation/x402",
+      "https://www.x402scan.com/"
+    ]
+  },
+  {
+    "entity_id": "mpp-services-catalog",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://mpp.dev/services"
+    ]
+  },
+  {
+    "entity_id": "coinbase-cdp-bazaar",
+    "priority": "normal",
+    "required_checks": [
+      "Approval policy",
+      "Runtime compatibility",
+      "Independent task results",
+      "Collect substantive first-party detail before indexing an individual profile"
+    ],
+    "sources_to_start_with": [
+      "https://docs.cdp.coinbase.com/api-reference/v2/rest-api/x402-facilitator/browse-the-catalog",
+      "https://docs.cdp.coinbase.com/api-reference/v2/rest-api/x402-facilitator/bazaar-mcp-server"
+    ]
+  },
+  {
+    "entity_id": "agentmail",
+    "priority": "high",
+    "required_checks": [
+      "Which MCP tools and authentication methods are currently exposed?",
+      "What approval and sending controls apply to the intended deployment?",
+      "What retention and residency terms apply to the chosen plan?",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://www.agentmail.to/pricing",
+      "https://www.ycombinator.com/companies/agentmail",
+      "https://www.agentmail.to/blog/agentmail-seed-launch"
+    ]
+  },
+  {
+    "entity_id": "devin",
+    "priority": "high",
+    "required_checks": [
+      "What exact approval policy applies to each integration and plan?",
+      "What is the reproducible cost for the selected task fixture?",
+      "Which MCP transport/version and per-tool scopes are currently enforced?",
+      "Recheck volatile prices and versions at publication"
+    ],
+    "sources_to_start_with": [
+      "https://devin.ai/",
+      "https://cognition.com/",
+      "https://devin.ai/pricing",
+      "https://cognition.com/blog/series-e",
+      "https://www.southparkcommons.com/companies/cognition-ai/",
+      "https://docs.devin.ai/work-with-devin/devin-mcp"
+    ]
+  }
+]
