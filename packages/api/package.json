@@ -16,7 +16,7 @@
     "@noble/hashes": "^1.7.0",
     "@simplewebauthn/server": "^13.3.2",
     "better-sqlite3": "^11.8.0",
-    "hono": "^4.13.13",
+    "hono": "^4.13.18",
     "posthog-node": "^5.46.1",
     "stripe": "^22.3.2",
     "uuid": "^11.1.0",
