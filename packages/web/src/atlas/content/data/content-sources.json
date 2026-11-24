@@ -1,0 +1,1164 @@
+[
+  {
+    "url": "https://cognition.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "cognition",
+      "devin"
+    ]
+  },
+  {
+    "url": "https://cursor.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "cursor"
+    ]
+  },
+  {
+    "url": "https://cursor.com/pricing",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "cursor"
+    ]
+  },
+  {
+    "url": "https://replit.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "replit"
+    ]
+  },
+  {
+    "url": "https://factory.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "factory"
+    ]
+  },
+  {
+    "url": "https://factory.com/pricing",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "factory"
+    ]
+  },
+  {
+    "url": "https://www.coderabbit.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "coderabbit"
+    ]
+  },
+  {
+    "url": "https://www.coderabbit.ai/pricing",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "coderabbit"
+    ]
+  },
+  {
+    "url": "https://www.augmentcode.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "augment-code"
+    ]
+  },
+  {
+    "url": "https://lovable.dev/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "lovable"
+    ]
+  },
+  {
+    "url": "https://www.qodo.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "qodo"
+    ]
+  },
+  {
+    "url": "https://www.openhands.dev/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "openhands"
+    ]
+  },
+  {
+    "url": "https://www.openhands.dev/pricing",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "openhands"
+    ]
+  },
+  {
+    "url": "https://continue.dev/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "continue"
+    ]
+  },
+  {
+    "url": "https://sierra.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "sierra",
+      "sierra"
+    ]
+  },
+  {
+    "url": "https://decagon.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "decagon"
+    ]
+  },
+  {
+    "url": "https://www.ada.cx/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "ada"
+    ]
+  },
+  {
+    "url": "https://www.mavenagi.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "maven-agi"
+    ]
+  },
+  {
+    "url": "https://forethought.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "forethought"
+    ]
+  },
+  {
+    "url": "https://yuma.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "yuma-ai"
+    ]
+  },
+  {
+    "url": "https://parahelp.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "parahelp"
+    ]
+  },
+  {
+    "url": "https://www.usepylon.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "pylon"
+    ]
+  },
+  {
+    "url": "https://inkeep.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "inkeep"
+    ]
+  },
+  {
+    "url": "https://www.11x.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "11x"
+    ]
+  },
+  {
+    "url": "https://www.artisan.co/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "artisan"
+    ]
+  },
+  {
+    "url": "https://aisdr.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "aisdr"
+    ]
+  },
+  {
+    "url": "https://regie.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "regie-ai"
+    ]
+  },
+  {
+    "url": "https://www.qualified.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "qualified"
+    ]
+  },
+  {
+    "url": "https://www.unifygtm.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "unify"
+    ]
+  },
+  {
+    "url": "https://www.lindy.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "lindy"
+    ]
+  },
+  {
+    "url": "https://www.lindy.ai/pricing",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "lindy"
+    ]
+  },
+  {
+    "url": "https://www.gumloop.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "gumloop"
+    ]
+  },
+  {
+    "url": "https://www.gumloop.com/pricing",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "gumloop"
+    ]
+  },
+  {
+    "url": "https://relevanceai.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "relevance-ai"
+    ]
+  },
+  {
+    "url": "https://relevanceai.com/pricing",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "relevance-ai"
+    ]
+  },
+  {
+    "url": "https://browser-use.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "browser-use"
+    ]
+  },
+  {
+    "url": "https://browser-use.com/pricing",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "browser-use"
+    ]
+  },
+  {
+    "url": "https://www.ycombinator.com/companies/browser-use",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "browser-use"
+    ]
+  },
+  {
+    "url": "https://browser-use.com/posts/seed-round",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "browser-use"
+    ]
+  },
+  {
+    "url": "https://github.com/browser-use/browser-use/blob/main/CLOUD.md",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "browser-use"
+    ]
+  },
+  {
+    "url": "https://github.com/browser-use/browser-use/blob/main/skills/open-source/references/integrations.md",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "browser-use"
+    ]
+  },
+  {
+    "url": "https://www.browserbase.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "browserbase"
+    ]
+  },
+  {
+    "url": "https://www.browserbase.com/pricing",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "browserbase"
+    ]
+  },
+  {
+    "url": "https://www.skyvern.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "skyvern"
+    ]
+  },
+  {
+    "url": "https://www.skyvern.com/pricing",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "skyvern"
+    ]
+  },
+  {
+    "url": "https://www.simular.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "simular"
+    ]
+  },
+  {
+    "url": "https://manus.im/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "manus"
+    ]
+  },
+  {
+    "url": "https://www.genspark.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "genspark"
+    ]
+  },
+  {
+    "url": "https://crewai.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "crewai"
+    ]
+  },
+  {
+    "url": "https://crewai.com/pricing",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "crewai"
+    ]
+  },
+  {
+    "url": "https://www.langchain.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "langchain"
+    ]
+  },
+  {
+    "url": "https://www.letta.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "letta"
+    ]
+  },
+  {
+    "url": "https://docs.letta.com/pricing",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "letta"
+    ]
+  },
+  {
+    "url": "https://www.ema.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "ema"
+    ]
+  },
+  {
+    "url": "https://www.getbasis.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "basis"
+    ]
+  },
+  {
+    "url": "https://rogo.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "rogo"
+    ]
+  },
+  {
+    "url": "https://www.hebbia.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "hebbia"
+    ]
+  },
+  {
+    "url": "https://www.harvey.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "harvey"
+    ]
+  },
+  {
+    "url": "https://legora.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "legora"
+    ]
+  },
+  {
+    "url": "https://www.evenuplaw.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "evenup"
+    ]
+  },
+  {
+    "url": "https://www.norm.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "norm"
+    ]
+  },
+  {
+    "url": "https://hippocraticai.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "hippocratic-ai"
+    ]
+  },
+  {
+    "url": "https://www.ambiencehealthcare.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "ambience-healthcare"
+    ]
+  },
+  {
+    "url": "https://www.tennr.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "tennr"
+    ]
+  },
+  {
+    "url": "https://www.didero.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "didero"
+    ]
+  },
+  {
+    "url": "https://www.lio.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "lio"
+    ]
+  },
+  {
+    "url": "https://www.dropzone.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "dropzone-ai"
+    ]
+  },
+  {
+    "url": "https://torq.io/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "torq"
+    ]
+  },
+  {
+    "url": "https://7ai.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "7ai"
+    ]
+  },
+  {
+    "url": "https://sema4.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "sema4-ai"
+    ]
+  },
+  {
+    "url": "https://www.uniphore.com/orby-ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "orby-ai"
+    ]
+  },
+  {
+    "url": "https://www.lila.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "lila"
+    ]
+  },
+  {
+    "url": "https://www.futurehouse.org/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "futurehouse"
+    ]
+  },
+  {
+    "url": "https://sakana.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "sakana-ai"
+    ]
+  },
+  {
+    "url": "https://www.ycombinator.com/companies/pomerado",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "pomerado"
+    ]
+  },
+  {
+    "url": "https://www.ycombinator.com/companies/gbrain",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "gbrain"
+    ]
+  },
+  {
+    "url": "https://www.ycombinator.com/companies/opentag",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "opentag"
+    ]
+  },
+  {
+    "url": "https://www.ycombinator.com/companies/billow-ai-labs",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "billow-ai-labs"
+    ]
+  },
+  {
+    "url": "https://www.ycombinator.com/companies/nex",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "nex"
+    ]
+  },
+  {
+    "url": "https://www.ycombinator.com/companies/onecli",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "onecli"
+    ]
+  },
+  {
+    "url": "https://www.ycombinator.com/companies/zomma",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "zomma"
+    ]
+  },
+  {
+    "url": "https://www.ycombinator.com/companies/poth-labs",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "poth-labs"
+    ]
+  },
+  {
+    "url": "https://www.ycombinator.com/companies/index-law",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "index-law"
+    ]
+  },
+  {
+    "url": "https://www.ycombinator.com/companies/gatherhq",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "gatherhq"
+    ]
+  },
+  {
+    "url": "https://www.ycombinator.com/companies/clad-labs",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "clad-labs"
+    ]
+  },
+  {
+    "url": "https://www.ycombinator.com/companies/rulebase",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "rulebase"
+    ]
+  },
+  {
+    "url": "https://github.com/mcp/microsoft/markitdown",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "markitdown-mcp"
+    ]
+  },
+  {
+    "url": "https://github.com/mcp/upstash/context7",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "context7"
+    ]
+  },
+  {
+    "url": "https://github.com/mcp/ChromeDevTools/chrome-devtools-mcp",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "chrome-devtools-mcp"
+    ]
+  },
+  {
+    "url": "https://github.com/mcp/microsoft/playwright-mcp",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "playwright-mcp"
+    ]
+  },
+  {
+    "url": "https://github.com/mcp/github/github-mcp-server",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "github-mcp-server"
+    ]
+  },
+  {
+    "url": "https://github.com/mcp/oraios/serena",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "serena"
+    ]
+  },
+  {
+    "url": "https://github.com/mcp/Skyvern-AI/skyvern",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "skyvern-mcp"
+    ]
+  },
+  {
+    "url": "https://github.com/mcp/coplaydev/unity-mcp",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "unity-mcp"
+    ]
+  },
+  {
+    "url": "https://github.com/mcp/wonderwhy-er/desktop-commander",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "desktop-commander"
+    ]
+  },
+  {
+    "url": "https://github.com/mcp/basicmachines-co/basic-memory",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "basic-memory"
+    ]
+  },
+  {
+    "url": "https://github.com/mcp/bytebase/dbhub",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "dbhub"
+    ]
+  },
+  {
+    "url": "https://github.com/mcp/com.omnara/omnara",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "omnara"
+    ]
+  },
+  {
+    "url": "https://github.com/mcp/com.supabase/mcp",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "supabase-mcp"
+    ]
+  },
+  {
+    "url": "https://docs.apify.com/mcp",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "apify-mcp-server"
+    ]
+  },
+  {
+    "url": "https://composio.dev/toolkits",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "composio"
+    ]
+  },
+  {
+    "url": "https://pipedream.com/connect",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "pipedream-connect"
+    ]
+  },
+  {
+    "url": "https://huggingface.co/docs/hub/en/agents-libraries",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "tiny-agents",
+      "smolagents"
+    ]
+  },
+  {
+    "url": "https://github.com/huggingface/smolagents",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "smolagents"
+    ]
+  },
+  {
+    "url": "https://huggingface.co/docs/hub/en/spaces-mcp-servers",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "gradio-mcp-support"
+    ]
+  },
+  {
+    "url": "https://agentskills.io/specification",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "agent-skills"
+    ]
+  },
+  {
+    "url": "https://github.com/anthropics/skills",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "anthropic-skills",
+      "anthropic-docx",
+      "anthropic-pdf",
+      "anthropic-pptx",
+      "anthropic-xlsx"
+    ]
+  },
+  {
+    "url": "https://github.com/vercel-labs/agent-skills",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "vercel-agent-skills",
+      "vercel-optimize",
+      "react-best-practices",
+      "web-design-guidelines",
+      "writing-guidelines",
+      "react-native-guidelines"
+    ]
+  },
+  {
+    "url": "https://github.com/huggingface/skills",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "hugging-face-skills"
+    ]
+  },
+  {
+    "url": "https://github.com/modelcontextprotocol/servers",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "mcp-reference-everything",
+      "mcp-reference-fetch",
+      "mcp-reference-filesystem",
+      "mcp-reference-git",
+      "mcp-reference-memory",
+      "mcp-reference-sequential-thinking",
+      "mcp-reference-time"
+    ]
+  },
+  {
+    "url": "https://github.com/x402-foundation/x402",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "x402",
+      "x402scan"
+    ]
+  },
+  {
+    "url": "https://x402.org/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "x402"
+    ]
+  },
+  {
+    "url": "https://modelcontextprotocol.io/docs/2026-07-28/getting-started/intro",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "model-context-protocol"
+    ]
+  },
+  {
+    "url": "https://a2a-protocol.org/latest/specification/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "agent2agent"
+    ]
+  },
+  {
+    "url": "https://ap2-protocol.org/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "agent-payments-protocol"
+    ]
+  },
+  {
+    "url": "https://blog.google/products-and-platforms/platforms/google-pay/agent-payments-protocol-fido-alliance/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "agent-payments-protocol"
+    ]
+  },
+  {
+    "url": "https://github.com/agentic-commerce-protocol/agentic-commerce-protocol",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "agentic-commerce-protocol-openai-and-stripe"
+    ]
+  },
+  {
+    "url": "https://os.virtuals.io/acp/overview",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "agent-commerce-protocol-virtuals",
+      "virtuals-economyos"
+    ]
+  },
+  {
+    "url": "https://agentclientprotocol.com/get-started/introduction",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "agent-client-protocol"
+    ]
+  },
+  {
+    "url": "https://www.ibm.com/think/topics/agent-communication-protocol",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "agent-communication-protocol-ibm-beeai"
+    ]
+  },
+  {
+    "url": "https://lfaidata.foundation/communityblog/2025/08/29/acp-joins-forces-with-a2a-under-the-linux-foundations-lf-ai-data/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "agent-communication-protocol-ibm-beeai"
+    ]
+  },
+  {
+    "url": "https://eips.ethereum.org/EIPS/eip-8004",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "erc-8004-trustless-agents"
+    ]
+  },
+  {
+    "url": "https://eips.ethereum.org/EIPS/eip-8183",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "erc-8183-agentic-commerce"
+    ]
+  },
+  {
+    "url": "https://ucp.dev/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "universal-commerce-protocol"
+    ]
+  },
+  {
+    "url": "https://mpp.dev/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "machine-payments-protocol"
+    ]
+  },
+  {
+    "url": "https://docs.agntcy.org/oasf/open-agentic-schema-framework/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "open-agentic-schema-framework"
+    ]
+  },
+  {
+    "url": "https://dir.agntcy.org/latest/dir/dir-overview/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "open-agentic-schema-framework",
+      "agntcy-agent-directory-service"
+    ]
+  },
+  {
+    "url": "https://docs.agentverse.ai/documentation/getting-started/agentverse-marketplace",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "agentverse"
+    ]
+  },
+  {
+    "url": "https://olas.network/mech-marketplace",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "olas-mech-marketplace"
+    ]
+  },
+  {
+    "url": "https://rentahuman.ai/about",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "rentahuman"
+    ]
+  },
+  {
+    "url": "https://rentahuman.ai/terms",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "rentahuman"
+    ]
+  },
+  {
+    "url": "https://clawtasks.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "clawtasks"
+    ]
+  },
+  {
+    "url": "https://skyfire.xyz/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "skyfire"
+    ]
+  },
+  {
+    "url": "https://nevermined.ai/product/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "nevermined"
+    ]
+  },
+  {
+    "url": "https://www.crossmint.com/solutions/agentic-payments",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "crossmint"
+    ]
+  },
+  {
+    "url": "https://www.privy.io/agent-wallets",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "privy"
+    ]
+  },
+  {
+    "url": "https://www.turnkey.com/solutions/ai-agents",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "turnkey"
+    ]
+  },
+  {
+    "url": "https://github.com/coinbase/agentkit",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "coinbase-agentkit"
+    ]
+  },
+  {
+    "url": "https://payai.network/developers",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "payai"
+    ]
+  },
+  {
+    "url": "https://facilitator.payai.network/about",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "payai"
+    ]
+  },
+  {
+    "url": "https://www.arcade.dev/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "arcade"
+    ]
+  },
+  {
+    "url": "https://docs.descope.com/agentic-identity-hub",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "descope-agentic-identity-hub"
+    ]
+  },
+  {
+    "url": "https://www.langchain.com/langsmith/evaluation",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "langsmith"
+    ]
+  },
+  {
+    "url": "https://langfuse.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "langfuse"
+    ]
+  },
+  {
+    "url": "https://www.braintrust.dev/articles/agent-evaluation",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "braintrust"
+    ]
+  },
+  {
+    "url": "https://arize.com/phoenix/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "arize-phoenix"
+    ]
+  },
+  {
+    "url": "https://github.com/snyk/agent-scan",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "snyk-agent-scan"
+    ]
+  },
+  {
+    "url": "https://www.corbits.dev/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "corbits"
+    ]
+  },
+  {
+    "url": "https://agentic.market/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "agentic-market"
+    ]
+  },
+  {
+    "url": "https://pay.sh/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "pay-sh"
+    ]
+  },
+  {
+    "url": "https://app.ampersend.ai/discover",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "ampersend-marketplace"
+    ]
+  },
+  {
+    "url": "https://www.x402scan.com/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "x402scan"
+    ]
+  },
+  {
+    "url": "https://mpp.dev/services",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "mpp-services-catalog"
+    ]
+  },
+  {
+    "url": "https://docs.cdp.coinbase.com/api-reference/v2/rest-api/x402-facilitator/browse-the-catalog",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "coinbase-cdp-bazaar"
+    ]
+  },
+  {
+    "url": "https://docs.cdp.coinbase.com/api-reference/v2/rest-api/x402-facilitator/bazaar-mcp-server",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "coinbase-cdp-bazaar"
+    ]
+  },
+  {
+    "url": "https://www.agentmail.to/pricing",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "agentmail"
+    ]
+  },
+  {
+    "url": "https://www.ycombinator.com/companies/agentmail",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "agentmail"
+    ]
+  },
+  {
+    "url": "https://www.agentmail.to/blog/agentmail-seed-launch",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "agentmail"
+    ]
+  },
+  {
+    "url": "https://devin.ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "devin"
+    ]
+  },
+  {
+    "url": "https://devin.ai/pricing",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "devin"
+    ]
+  },
+  {
+    "url": "https://cognition.com/blog/series-e",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "devin"
+    ]
+  },
+  {
+    "url": "https://www.southparkcommons.com/companies/cognition-ai/",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "devin"
+    ]
+  },
+  {
+    "url": "https://docs.devin.ai/work-with-devin/devin-mcp",
+    "observed_at": "2026-11-13",
+    "entity_ids": [
+      "devin"
+    ]
+  }
+]

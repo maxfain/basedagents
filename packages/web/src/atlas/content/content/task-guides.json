@@ -1,0 +1,447 @@
+[
+  {
+    "id": "fix-a-github-issue",
+    "route": "/guides/fix-a-github-issue",
+    "title": "How to evaluate an agent for fixing a GitHub issue",
+    "category_id": "coding-agents",
+    "content_status": "editorial_test_design_not_executed",
+    "intro": "Use a bounded task with observable results. The candidates below are research starting points, not tested recommendations.",
+    "inputs": "An issue, a fixture repository, setup instructions and acceptance tests.",
+    "deliverable": "A reviewable patch or pull request, test output and an explanation of remaining limitations.",
+    "steps": [
+      "Reproduce the issue",
+      "Agree on allowed files and dependencies",
+      "Implement the smallest relevant change",
+      "Run the acceptance tests",
+      "Return the diff and evidence."
+    ],
+    "approval_boundary": "Require approval for merging, release, production credentials and changes outside the fixture.",
+    "acceptance_criteria": "Tests pass; the reported issue is addressed; unrelated behavior is preserved; a reviewer can reproduce the result.",
+    "failure_modes": "Passing tests with a weakened assertion, unrelated refactors, hidden manual edits and a PR that does not address the issue.",
+    "candidate_ids": [
+      "cognition",
+      "devin",
+      "factory",
+      "openhands",
+      "cursor"
+    ],
+    "candidate_relationship": "editorial_topic_relevance_not_verified_task_support",
+    "sources": [
+      "https://cognition.com/",
+      "https://devin.ai/",
+      "https://devin.ai/pricing",
+      "https://cognition.com/blog/series-e",
+      "https://www.southparkcommons.com/companies/cognition-ai/",
+      "https://docs.devin.ai/work-with-devin/devin-mcp",
+      "https://factory.com/",
+      "https://factory.com/pricing",
+      "https://www.openhands.dev/",
+      "https://www.openhands.dev/pricing",
+      "https://cursor.com/",
+      "https://cursor.com/pricing"
+    ],
+    "publication_state": "draft",
+    "indexable": false
+  },
+  {
+    "id": "review-a-pull-request",
+    "route": "/guides/review-a-pull-request",
+    "title": "How to evaluate AI pull-request review",
+    "category_id": "coding-agents",
+    "content_status": "editorial_test_design_not_executed",
+    "intro": "Use a bounded task with observable results. The candidates below are research starting points, not tested recommendations.",
+    "inputs": "A fixture pull request with known defects, acceptable changes and repository conventions.",
+    "deliverable": "A set of findings with file references, severity, rationale and proposed remedies.",
+    "steps": [
+      "Seed known bugs",
+      "Include benign changes",
+      "Run the review without revealing the answer key",
+      "Adjudicate each finding",
+      "Repeat on a second change."
+    ],
+    "approval_boundary": "Keep review comments separate from automatic code changes and merges.",
+    "acceptance_criteria": "Measure defect recall, actionable precision, false positives, latency and reviewer time.",
+    "failure_modes": "Counting every comment as useful, treating style opinions as defects and measuring only the number of findings.",
+    "candidate_ids": [
+      "coderabbit",
+      "qodo",
+      "devin"
+    ],
+    "candidate_relationship": "editorial_topic_relevance_not_verified_task_support",
+    "sources": [
+      "https://www.coderabbit.ai/",
+      "https://www.coderabbit.ai/pricing",
+      "https://www.qodo.ai/",
+      "https://devin.ai/",
+      "https://cognition.com/",
+      "https://devin.ai/pricing",
+      "https://cognition.com/blog/series-e",
+      "https://www.southparkcommons.com/companies/cognition-ai/",
+      "https://docs.devin.ai/work-with-devin/devin-mcp"
+    ],
+    "publication_state": "draft",
+    "indexable": false
+  },
+  {
+    "id": "extract-web-data",
+    "route": "/guides/extract-web-data",
+    "title": "How to evaluate agents for web data extraction",
+    "category_id": "browser-computer-agents",
+    "content_status": "editorial_test_design_not_executed",
+    "intro": "Use a bounded task with observable results. The candidates below are research starting points, not tested recommendations.",
+    "inputs": "An allowed set of URLs, a required output schema and examples of missing or conflicting values.",
+    "deliverable": "Structured rows with source URLs, observation times and explicit missing values.",
+    "steps": [
+      "Define the schema",
+      "Run on representative pages",
+      "Retain source evidence",
+      "Validate rows",
+      "Inspect failures and retries."
+    ],
+    "approval_boundary": "Use permitted public pages or a fixture. Do not grant form submission or purchase rights for a read-only extraction task.",
+    "acceptance_criteria": "Field accuracy, source coverage, duplicate rate, missing-value handling and cost per accepted row.",
+    "failure_modes": "Guessing missing fields, mixing prices from different plans, losing provenance and treating a browser session as a completed extraction.",
+    "candidate_ids": [
+      "browser-use",
+      "skyvern",
+      "apify-mcp-server",
+      "browserbase"
+    ],
+    "candidate_relationship": "editorial_topic_relevance_not_verified_task_support",
+    "sources": [
+      "https://browser-use.com/",
+      "https://browser-use.com/pricing",
+      "https://www.ycombinator.com/companies/browser-use",
+      "https://browser-use.com/posts/seed-round",
+      "https://github.com/browser-use/browser-use/blob/main/CLOUD.md",
+      "https://github.com/browser-use/browser-use/blob/main/skills/open-source/references/integrations.md",
+      "https://www.skyvern.com/",
+      "https://www.skyvern.com/pricing",
+      "https://docs.apify.com/mcp",
+      "https://www.browserbase.com/",
+      "https://www.browserbase.com/pricing"
+    ],
+    "publication_state": "draft",
+    "indexable": false
+  },
+  {
+    "id": "complete-browser-forms",
+    "route": "/guides/complete-browser-forms",
+    "title": "How to test agents that complete browser workflows",
+    "category_id": "browser-computer-agents",
+    "content_status": "editorial_test_design_not_executed",
+    "intro": "Use a bounded task with observable results. The candidates below are research starting points, not tested recommendations.",
+    "inputs": "A sandbox form, test account, permitted values and a clear final state.",
+    "deliverable": "Completed fixture records plus screenshots or event logs showing the resulting state.",
+    "steps": [
+      "Map the workflow",
+      "Mark irreversible steps",
+      "Run the agent",
+      "Verify the backend or confirmation state",
+      "Repeat with a validation error."
+    ],
+    "approval_boundary": "Require a separate approval before sending external messages, submitting production records or committing purchases.",
+    "acceptance_criteria": "Correct final state, duplicate avoidance, recovery from validation errors and intervention count.",
+    "failure_modes": "Trusting the agent narrative, accepting a clicked button as success and retrying a submission that may already have succeeded.",
+    "candidate_ids": [
+      "skyvern",
+      "browser-use",
+      "simular"
+    ],
+    "candidate_relationship": "editorial_topic_relevance_not_verified_task_support",
+    "sources": [
+      "https://www.skyvern.com/",
+      "https://www.skyvern.com/pricing",
+      "https://browser-use.com/",
+      "https://browser-use.com/pricing",
+      "https://www.ycombinator.com/companies/browser-use",
+      "https://browser-use.com/posts/seed-round",
+      "https://github.com/browser-use/browser-use/blob/main/CLOUD.md",
+      "https://github.com/browser-use/browser-use/blob/main/skills/open-source/references/integrations.md",
+      "https://www.simular.ai/"
+    ],
+    "publication_state": "draft",
+    "indexable": false
+  },
+  {
+    "id": "resolve-support-tickets",
+    "route": "/guides/resolve-support-tickets",
+    "title": "How to evaluate customer support agents",
+    "category_id": "customer-support",
+    "content_status": "editorial_test_design_not_executed",
+    "intro": "Use a bounded task with observable results. The candidates below are research starting points, not tested recommendations.",
+    "inputs": "An approved policy set, fixture customer records and tickets with known resolution paths.",
+    "deliverable": "Grounded answers, correctly executed permitted actions and escalations with context.",
+    "steps": [
+      "Include answer-only tickets",
+      "Include identity-sensitive actions",
+      "Include exceptions",
+      "Run blind cases",
+      "Review policy adherence and customer outcomes."
+    ],
+    "approval_boundary": "Separate answer permissions from refunds, account changes, cancellations and disclosure of private data.",
+    "acceptance_criteria": "Resolution quality, policy compliance, escalation quality, action correctness and cost per accepted resolution.",
+    "failure_modes": "Calling a conversation resolved when it only ended, applying a policy to the wrong customer and suppressing escalation.",
+    "candidate_ids": [
+      "sierra",
+      "decagon",
+      "ada",
+      "forethought",
+      "yuma-ai"
+    ],
+    "candidate_relationship": "editorial_topic_relevance_not_verified_task_support",
+    "sources": [
+      "https://sierra.ai/",
+      "https://decagon.ai/",
+      "https://www.ada.cx/",
+      "https://forethought.ai/",
+      "https://yuma.ai/"
+    ],
+    "publication_state": "draft",
+    "indexable": false
+  },
+  {
+    "id": "research-sales-accounts",
+    "route": "/guides/research-sales-accounts",
+    "title": "How to evaluate agents for account research",
+    "category_id": "sales-research",
+    "content_status": "editorial_test_design_not_executed",
+    "intro": "Use a bounded task with observable results. The candidates below are research starting points, not tested recommendations.",
+    "inputs": "A target-company list, research questions, allowed sources and freshness requirements.",
+    "deliverable": "A sourced account brief with uncertainty labels and suggested next steps.",
+    "steps": [
+      "Verify company identity",
+      "Collect business evidence",
+      "Separate observation from interpretation",
+      "Check citations",
+      "Have a reviewer assess relevance."
+    ],
+    "approval_boundary": "Keep external outreach disabled unless separately authorized. Avoid deriving sensitive personal attributes.",
+    "acceptance_criteria": "Factual accuracy, source quality, freshness, entity resolution and time saved in review.",
+    "failure_modes": "Confusing similarly named companies, treating a job posting as proof of deployed technology and inventing buying intent.",
+    "candidate_ids": [
+      "unify",
+      "11x",
+      "artisan",
+      "gatherhq"
+    ],
+    "candidate_relationship": "editorial_topic_relevance_not_verified_task_support",
+    "sources": [
+      "https://www.unifygtm.com/",
+      "https://www.11x.ai/",
+      "https://www.artisan.co/",
+      "https://www.ycombinator.com/companies/gatherhq"
+    ],
+    "publication_state": "draft",
+    "indexable": false
+  },
+  {
+    "id": "manage-agent-email",
+    "route": "/guides/manage-agent-email",
+    "title": "How to evaluate email infrastructure for agents",
+    "category_id": "business-operations",
+    "content_status": "editorial_test_design_not_executed",
+    "intro": "Use a bounded task with observable results. The candidates below are research starting points, not tested recommendations.",
+    "inputs": "A sandbox inbox, fixture messages, intended thread behavior and a sending policy.",
+    "deliverable": "Correctly received and classified messages, draft replies and a traceable test send when allowed.",
+    "steps": [
+      "Create a fixture inbox",
+      "Receive test messages",
+      "Inspect threads and labels",
+      "Draft a response",
+      "Test one explicitly authorized send",
+      "Verify delivery behavior."
+    ],
+    "approval_boundary": "Separate read, draft and send authority. Define recipient checks, rate limits and escalation for sensitive content.",
+    "acceptance_criteria": "Thread fidelity, delivery evidence, duplicate handling, classification quality and total workflow cost.",
+    "failure_modes": "Confusing an API success response with inbox delivery, replying to the wrong thread and granting unrestricted sending to a research-only agent.",
+    "candidate_ids": [
+      "agentmail",
+      "lindy"
+    ],
+    "candidate_relationship": "editorial_topic_relevance_not_verified_task_support",
+    "sources": [
+      "https://www.agentmail.to/pricing",
+      "https://www.ycombinator.com/companies/agentmail",
+      "https://www.agentmail.to/blog/agentmail-seed-launch",
+      "https://www.lindy.ai/",
+      "https://www.lindy.ai/pricing"
+    ],
+    "publication_state": "draft",
+    "indexable": false
+  },
+  {
+    "id": "reconcile-invoices",
+    "route": "/guides/reconcile-invoices",
+    "title": "How to evaluate agents for invoice reconciliation",
+    "category_id": "finance-accounting",
+    "content_status": "editorial_test_design_not_executed",
+    "intro": "Use a bounded task with observable results. The candidates below are research starting points, not tested recommendations.",
+    "inputs": "Synthetic invoices, purchase orders, payment records and a reconciliation policy.",
+    "deliverable": "Matched records, explicit exceptions and an evidence trail for each proposed adjustment.",
+    "steps": [
+      "Normalize fixture records",
+      "Match identifiers and amounts",
+      "Detect duplicates",
+      "Flag exceptions",
+      "Return proposed adjustments for review."
+    ],
+    "approval_boundary": "Keep ledger posting and money movement outside the initial fixture test.",
+    "acceptance_criteria": "Match accuracy, exception recall, duplicate detection and traceability to source documents.",
+    "failure_modes": "Silently changing amounts, matching similar vendor names without identifiers and treating a recommendation as an approved accounting entry.",
+    "candidate_ids": [
+      "basis",
+      "sema4-ai",
+      "billow-ai-labs"
+    ],
+    "candidate_relationship": "editorial_topic_relevance_not_verified_task_support",
+    "sources": [
+      "https://www.getbasis.ai/",
+      "https://sema4.ai/",
+      "https://www.ycombinator.com/companies/billow-ai-labs"
+    ],
+    "publication_state": "draft",
+    "indexable": false
+  },
+  {
+    "id": "connect-an-mcp-server",
+    "route": "/guides/connect-an-mcp-server",
+    "title": "How to evaluate an MCP server before connecting it",
+    "category_id": "mcp-integrations",
+    "content_status": "editorial_test_design_not_executed",
+    "intro": "Use a bounded task with observable results. The candidates below are research starting points, not tested recommendations.",
+    "inputs": "The exact package or endpoint, version, client, documented authentication and intended tools.",
+    "deliverable": "A versioned connection record, tool inventory and results from bounded fixture calls.",
+    "steps": [
+      "Resolve the upstream source",
+      "Inspect installation and scopes",
+      "Enumerate tools",
+      "Test read-only fixtures",
+      "Add write fixtures only within explicit limits."
+    ],
+    "approval_boundary": "Never inherit permissions from a directory description. Review filesystem, network, account and secret access for the actual deployment.",
+    "acceptance_criteria": "Connection success, tool-schema accuracy, authorization behavior, error handling and reproducible fixture results.",
+    "failure_modes": "Confusing a registry URL with a repository, executing unreviewed install commands and calling a documentation MCP an execution service.",
+    "candidate_ids": [
+      "github-mcp-server",
+      "playwright-mcp",
+      "composio",
+      "pipedream-connect"
+    ],
+    "candidate_relationship": "editorial_topic_relevance_not_verified_task_support",
+    "sources": [
+      "https://github.com/mcp/github/github-mcp-server",
+      "https://github.com/mcp/microsoft/playwright-mcp",
+      "https://composio.dev/toolkits",
+      "https://pipedream.com/connect"
+    ],
+    "publication_state": "draft",
+    "indexable": false
+  },
+  {
+    "id": "evaluate-agent-skills",
+    "route": "/guides/evaluate-agent-skills",
+    "title": "How to evaluate an agent skill",
+    "category_id": "skills",
+    "content_status": "editorial_test_design_not_executed",
+    "intro": "Use a bounded task with observable results. The candidates below are research starting points, not tested recommendations.",
+    "inputs": "The exact skill directory and revision, instructions, resources and a representative task fixture.",
+    "deliverable": "A dependency inventory, execution trace and accepted artifact.",
+    "steps": [
+      "Read skill.md",
+      "Inspect referenced resources",
+      "Identify tools and credentials",
+      "Run in a bounded environment",
+      "Verify the artifact against the fixture."
+    ],
+    "approval_boundary": "Treat scripts and instructions as untrusted input until reviewed. Grant only the access required by the test.",
+    "acceptance_criteria": "Artifact quality, reproducibility, dependency clarity, permission use and failure handling.",
+    "failure_modes": "Assuming the skill name describes everything it can execute and treating a parent repository listing as an inspected skill implementation.",
+    "candidate_ids": [
+      "anthropic-skills",
+      "vercel-agent-skills",
+      "hugging-face-skills"
+    ],
+    "candidate_relationship": "editorial_topic_relevance_not_verified_task_support",
+    "sources": [
+      "https://github.com/anthropics/skills",
+      "https://github.com/vercel-labs/agent-skills",
+      "https://github.com/huggingface/skills"
+    ],
+    "publication_state": "draft",
+    "indexable": false
+  },
+  {
+    "id": "pay-for-an-agent-api",
+    "route": "/guides/pay-for-an-agent-api",
+    "title": "How to evaluate a paid API for agents",
+    "category_id": "payments-commerce",
+    "content_status": "editorial_test_design_not_executed",
+    "intro": "Use a bounded task with observable results. The candidates below are research starting points, not tested recommendations.",
+    "inputs": "A documented endpoint, permitted budget, supported payment method and a known expected response.",
+    "deliverable": "Payment and delivery evidence linked to a specific request and accepted response.",
+    "steps": [
+      "Read payment requirements",
+      "Confirm budget and recipient",
+      "Use a sandbox if offered",
+      "Execute only an authorized payment",
+      "Verify the delivered resource and receipt."
+    ],
+    "approval_boundary": "Use a bounded wallet or payment mandate. This guide is a specification; this content package executes no payments.",
+    "acceptance_criteria": "Total cost, authorization enforcement, delivery correctness, replay behavior and handling of a paid request that fails.",
+    "failure_modes": "Counting a receipt as proof of useful delivery, confusing testnet with mainnet and ignoring fees or retry charges.",
+    "candidate_ids": [
+      "x402",
+      "machine-payments-protocol",
+      "nevermined",
+      "payai"
+    ],
+    "candidate_relationship": "editorial_topic_relevance_not_verified_task_support",
+    "sources": [
+      "https://github.com/x402-foundation/x402",
+      "https://x402.org/",
+      "https://mpp.dev/",
+      "https://nevermined.ai/product/",
+      "https://payai.network/developers",
+      "https://facilitator.payai.network/about"
+    ],
+    "publication_state": "draft",
+    "indexable": false
+  },
+  {
+    "id": "hire-an-agent-for-a-task",
+    "route": "/guides/hire-an-agent-for-a-task",
+    "title": "How to evaluate an agent task marketplace",
+    "category_id": "discovery-task-markets",
+    "content_status": "editorial_test_design_not_executed",
+    "intro": "Use a bounded task with observable results. The candidates below are research starting points, not tested recommendations.",
+    "inputs": "A bounded task, deliverable format, acceptance rubric, deadline and budget.",
+    "deliverable": "Submitted work, a review decision and payment or dispute evidence where applicable.",
+    "steps": [
+      "Verify current marketplace terms",
+      "Identify the provider",
+      "Agree on acceptance",
+      "Inspect the deliverable",
+      "Record the result and settlement separately."
+    ],
+    "approval_boundary": "Check who can accept work and release funds. Human fulfillment and autonomous-agent fulfillment are different service types.",
+    "acceptance_criteria": "Accepted-task rate, rework, delivery time, evaluator independence and total cost.",
+    "failure_modes": "Assuming a task board currently pays because older material mentioned payments, or treating self-attestation as independent acceptance.",
+    "candidate_ids": [
+      "olas-mech-marketplace",
+      "clawtasks",
+      "rentahuman",
+      "virtuals-economyos"
+    ],
+    "candidate_relationship": "editorial_topic_relevance_not_verified_task_support",
+    "sources": [
+      "https://olas.network/mech-marketplace",
+      "https://clawtasks.com/",
+      "https://rentahuman.ai/about",
+      "https://rentahuman.ai/terms",
+      "https://os.virtuals.io/acp/overview"
+    ],
+    "publication_state": "draft",
+    "indexable": false
+  }
+]

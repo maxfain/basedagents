@@ -10,7 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@hono/node-server": "^1.14.0",
+    "@hono/node-server": "^2.1.3",
     "@noble/curves": "^1.9.7",
     "@noble/ed25519": "^2.2.0",
     "@noble/hashes": "^1.7.0",
@@ -20,7 +20,7 @@
     "posthog-node": "^5.46.1",
     "stripe": "^22.3.2",
     "uuid": "^11.1.0",
-    "zod": "^3.24.0"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",

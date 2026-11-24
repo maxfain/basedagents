@@ -1,0 +1,99 @@
+{
+  "brand": "BasedAgents",
+  "product_name": "Agent Atlas",
+  "base_url": "https://basedagents.ai",
+  "content_as_of": "2026-11-13",
+  "content_notice": "Source-linked research and editorial guidance. Capabilities are not independently tested unless a profile explicitly includes a reproducible test record.",
+  "navigation": [
+    {
+      "label": "Explore",
+      "href": "/atlas"
+    },
+    {
+      "label": "Categories",
+      "href": "/categories"
+    },
+    {
+      "label": "Protocols",
+      "href": "/protocols"
+    },
+    {
+      "label": "Task guides",
+      "href": "/guides"
+    },
+    {
+      "label": "Glossary",
+      "href": "/glossary"
+    }
+  ],
+  "homepage": {
+    "route": "/atlas",
+    "title": "Find the agents and tools for the work you need done.",
+    "subtitle": "Explore agent companies, MCP servers, skills, payment protocols and task services—with sources, capability notes and clear evidence limits.",
+    "search_placeholder": "Search a project, capability, protocol or task",
+    "primary_cta": {
+      "label": "Explore the atlas",
+      "href": "/categories"
+    },
+    "secondary_cta": {
+      "label": "Start with a task",
+      "href": "/guides"
+    },
+    "sections": [
+      {
+        "heading": "Start with the job",
+        "body": "Define the outcome first. Use a task guide to compare inputs, permissions, deliverables and acceptance criteria."
+      },
+      {
+        "heading": "Understand the stack",
+        "body": "Find the company behind a product, the tools it exposes and the protocols it documents. Keep those relationships visible."
+      },
+      {
+        "heading": "See what the evidence supports",
+        "body": "Profiles distinguish published descriptions from observed behavior. Missing information stays visible; it does not become a guessed feature."
+      },
+      {
+        "heading": "Compare the full cost",
+        "body": "Look beyond a subscription price. Check model usage, infrastructure, traffic, retries and review effort for your workflow."
+      }
+    ]
+  },
+  "ui": {
+    "empty_search": "No matching records. Try a broader task or remove a filter.",
+    "missing_value": "Not established by the inspected sources",
+    "vendor_documented": "Vendor-documented",
+    "source_summary": "Source summary",
+    "not_tested": "Not runtime-tested",
+    "draft": "Research draft",
+    "related_heading": "Related records to investigate",
+    "related_note": "Linked by topic; not a ranking or a verified compatibility claim.",
+    "pricing_note": "Snapshot from the cited source. Recheck current terms and total workflow cost.",
+    "external_link": "Visit source",
+    "submit_cta": "Suggest a project",
+    "correction_cta": "Suggest a correction"
+  },
+  "filters": [
+    "entity_type",
+    "category_id",
+    "profile_depth"
+  ],
+  "disabled_filters_until_supported": [
+    "verified capability",
+    "runtime compatibility",
+    "security score",
+    "payment success rate",
+    "funding total",
+    "autonomy level"
+  ],
+  "counts": {
+    "entities": 151,
+    "expanded_profiles": 15,
+    "protocol_profiles": 13,
+    "directory_entries": 123,
+    "categories": 16,
+    "task_guides": 12,
+    "glossary_terms": 76,
+    "faq_answers": 40
+  },
+  "footer": "Sources checked November 13, 2026. Listings are research records, not endorsements. Prices and capabilities can change."
+}

@@ -1,0 +1,339 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BasedAgents proposed project profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "entity_id",
+    "name",
+    "entity_type",
+    "canonical_url",
+    "publication_status",
+    "as_of",
+    "evidence",
+    "facts"
+  ],
+  "properties": {
+    "entity_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "entity_type": {
+      "enum": [
+        "organization",
+        "agent_product",
+        "project",
+        "mcp_server",
+        "tool",
+        "skill",
+        "skill_pack",
+        "protocol",
+        "schema",
+        "registry",
+        "marketplace",
+        "platform",
+        "agent_platform",
+        "agent_infrastructure",
+        "agent_framework",
+        "sdk",
+        "product",
+        "directory",
+        "explorer",
+        "nonprofit",
+        "deployment",
+        "person",
+        "workflow",
+        "package",
+        "package_release",
+        "plugin",
+        "extension"
+      ]
+    },
+    "canonical_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "publication_status": {
+      "enum": [
+        "research_candidate",
+        "in_review",
+        "published",
+        "historical",
+        "withdrawn"
+      ]
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date"
+    },
+    "operator_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "aliases": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fact"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    },
+    "editorial": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/editorial"
+      }
+    },
+    "open_questions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "predicate",
+          "target_id",
+          "evidence_ids"
+        ],
+        "properties": {
+          "predicate": {
+            "type": "string"
+          },
+          "target_id": {
+            "type": "string"
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "value",
+        "status",
+        "evidence_ids"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {},
+        "status": {
+          "enum": [
+            "vendor_documented",
+            "primary_metadata",
+            "third_party_documented",
+            "technically_inspected",
+            "tested",
+            "transaction_observed",
+            "accepted_task",
+            "unknown",
+            "not_disclosed",
+            "not_applicable",
+            "conflicting",
+            "historical"
+          ]
+        },
+        "evidence_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "scope": {
+          "type": "object"
+        },
+        "valid_from": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "valid_to": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "not": {
+                  "enum": [
+                    "unknown",
+                    "not_disclosed",
+                    "not_applicable"
+                  ]
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence_ids": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_id",
+        "url",
+        "source_kind",
+        "retrieved_on",
+        "summary"
+      ],
+      "properties": {
+        "evidence_id": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "source_kind": {
+          "enum": [
+            "official_website",
+            "official_docs",
+            "official_repository",
+            "registry",
+            "accelerator_profile",
+            "investor",
+            "press",
+            "social",
+            "test_run",
+            "transaction",
+            "receipt"
+          ]
+        },
+        "retrieved_on": {
+          "type": "string",
+          "format": "date"
+        },
+        "published_on": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "content_hash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reuse_notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "editorial": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "text"
+      ],
+      "properties": {
+        "label": {
+          "enum": [
+            "Inference",
+            "Proposal",
+            "Assessment"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "publication_status": {
+            "const": "published"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "facts": {
+            "minItems": 1
+          },
+          "evidence": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ]
+}

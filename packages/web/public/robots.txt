@@ -2,5 +2,8 @@ User-agent: *
 Allow: /
 
 Sitemap: https://basedagents.ai/sitemap.xml
+# Agent Atlas: generated at build time from the atlas launch manifest — only
+# editorially approved routes are listed (src/atlas/README.md).
+Sitemap: https://basedagents.ai/sitemap-atlas.xml
 
 # AI agents: see /.well-known/agent.json for machine-readable instructions

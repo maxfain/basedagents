@@ -1,0 +1,458 @@
+[
+  {
+    "id": "agent",
+    "term": "Agent",
+    "definition": "A software system described as pursuing a task through model-guided decisions and actions. This atlas records the actual action and approval boundaries rather than assigning autonomy from the name.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "autonomy-boundary",
+    "term": "Autonomy boundary",
+    "definition": "The set of decisions and actions an agent may take without an additional human approval in a specified deployment.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "human-approval",
+    "term": "Human approval",
+    "definition": "An explicit decision that authorizes an action. Approval of a goal should be distinguished from approval of every possible means of pursuing it.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "human-intervention",
+    "term": "Human intervention",
+    "definition": "A manual action needed during a run. Record what the person did and whether the task could continue without it.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "agent-product",
+    "term": "Agent product",
+    "definition": "A named product that offers agent behavior. Its operator may also sell frameworks, infrastructure or non-agent products.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "operator",
+    "term": "Operator",
+    "definition": "The organization or project responsible for providing a service. Product identity and legal-entity identity are separate fields.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "agent-framework",
+    "term": "Agent framework",
+    "definition": "Software used to construct agent behavior. The framework's documented features do not establish the behavior of every application built with it.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "agent-runtime",
+    "term": "Agent runtime",
+    "definition": "The environment that executes agent processes, tools and state transitions.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "harness",
+    "term": "Harness",
+    "definition": "The surrounding system that supplies a model with tools, context, execution control and feedback for a task.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "tool",
+    "term": "Tool",
+    "definition": "A callable operation made available to an agent, with defined inputs, outputs and possible side effects.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "tool-schema",
+    "term": "Tool schema",
+    "definition": "A machine-readable description of an operation's inputs and outputs. Validate the observed behavior separately.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "tool-inventory",
+    "term": "Tool inventory",
+    "definition": "The list of operations exposed by a particular service or deployment at a particular time.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "mcp-server",
+    "term": "MCP server",
+    "definition": "An implementation that exposes capabilities through Model Context Protocol. It may run locally or be provided as a remote service.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "mcp-client",
+    "term": "MCP client",
+    "definition": "A component that connects to MCP servers on behalf of a host application.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "mcp-host",
+    "term": "MCP host",
+    "definition": "The application that contains or coordinates MCP client connections and presents capabilities to the user or model.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "documentation-mcp",
+    "term": "Documentation MCP",
+    "definition": "An MCP service whose tools retrieve documentation or reference material. Its existence does not establish access to the documented product's execution functions.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "transport",
+    "term": "Transport",
+    "definition": "The mechanism carrying protocol messages between components. Record it alongside the protocol version and endpoint.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "endpoint",
+    "term": "Endpoint",
+    "definition": "A network location at which a service is accessed. A homepage, registry listing and callable endpoint are different URL roles.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "authentication",
+    "term": "Authentication",
+    "definition": "The process used to establish the identity of a caller or service.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "authorization",
+    "term": "Authorization",
+    "definition": "The rules determining which actions an authenticated or anonymous caller is permitted to perform.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "scope",
+    "term": "Scope",
+    "definition": "A bounded permission or area of access. Use the service's actual documented scope names when recording an integration.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "least-privilege",
+    "term": "Least privilege",
+    "definition": "The design practice of granting only the access needed for the intended task.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "oauth",
+    "term": "OAuth",
+    "definition": "An authorization framework used to delegate access. The actual grant, scopes and token handling must be recorded for a specific integration.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "api-key",
+    "term": "API key",
+    "definition": "A credential used to access an API. Its permissions, lifetime and organizational scope vary by service.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "secret",
+    "term": "Secret",
+    "definition": "A credential or other sensitive value that should not appear in public profiles, logs or exported content.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "sandbox",
+    "term": "Sandbox",
+    "definition": "An isolated or constrained environment used for execution or testing. Describe its actual boundaries instead of assuming complete isolation.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "read-effect",
+    "term": "Read effect",
+    "definition": "An operation that retrieves information. Reads can still expose sensitive data or incur charges.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "write-effect",
+    "term": "Write effect",
+    "definition": "An operation that changes state, such as editing a record, sending a message or submitting a transaction.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "idempotency",
+    "term": "Idempotency",
+    "definition": "A property where repeating the same operation has the same intended effect as performing it once. Verify the service's documented mechanism.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "retry",
+    "term": "Retry",
+    "definition": "A repeated attempt after a failure or uncertain result. Retries can create duplicate side effects if the workflow lacks appropriate controls.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "state",
+    "term": "State",
+    "definition": "Information maintained across steps or sessions, including task progress and stored context.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "memory",
+    "term": "Memory",
+    "definition": "Information retained for future use by an agent. Evaluate retention, retrieval, correction and deletion separately.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "context-window",
+    "term": "Context window",
+    "definition": "The amount of input and generated content a model can consider within a particular interaction, subject to the model's limits.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "skill",
+    "term": "Skill",
+    "definition": "A reusable set of instructions and resources for a class of tasks. In the Agent Skills format, the package centers on SKILL.md.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "skill-pack",
+    "term": "Skill pack",
+    "definition": "A collection of skills. Record individual paths and revisions when making claims about a specific skill.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "capability",
+    "term": "Capability",
+    "definition": "An action or function a system is documented or observed to support. A capability is not a guarantee of task success.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "task",
+    "term": "Task",
+    "definition": "A bounded request with inputs, constraints and an expected outcome.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "deliverable",
+    "term": "Deliverable",
+    "definition": "The artifact or result submitted for evaluation, such as a patch, report, structured dataset or completed fixture record.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "acceptance-criterion",
+    "term": "Acceptance criterion",
+    "definition": "An observable condition used to decide whether a deliverable satisfies the task.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "fixture",
+    "term": "Fixture",
+    "definition": "A controlled input and environment used to test behavior reproducibly.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "benchmark",
+    "term": "Benchmark",
+    "definition": "A defined evaluation set and scoring method. Scores need version, settings and methodology to be comparable.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "evaluation",
+    "term": "Evaluation",
+    "definition": "A process for measuring output or behavior against a stated rubric or expected result.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "trace",
+    "term": "Trace",
+    "definition": "A record of execution events, such as model calls, tool calls and intermediate results, subject to the logging system's coverage.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "observability",
+    "term": "Observability",
+    "definition": "The ability to inspect system behavior through traces, logs, metrics and related evidence.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "vendor-claim",
+    "term": "Vendor claim",
+    "definition": "A statement made by a product's operator. It should remain attributed until independently corroborated or tested.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "runtime-test",
+    "term": "Runtime test",
+    "definition": "An executed check against a specific version and environment. A documentation review is not a runtime test.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "security-audit",
+    "term": "Security audit",
+    "definition": "A scoped security assessment with identified methods and coverage. This package contains no new security-audit results.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "provenance",
+    "term": "Provenance",
+    "definition": "Information describing where a statement or artifact came from and how it was obtained.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "evidence-record",
+    "term": "Evidence record",
+    "definition": "A structured source observation linked to one or more claims, with retrieval time and scope.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "observed-date",
+    "term": "Observed date",
+    "definition": "The date a source or behavior was inspected. It differs from publication date and the date an event occurred.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "unknown",
+    "term": "Unknown",
+    "definition": "A field for which the research has not established a value. Unknown is different from unsupported, absent or false.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "unsupported",
+    "term": "Unsupported",
+    "definition": "A capability explicitly documented or tested as not available in a specified scope. Do not use this label merely because evidence is missing.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "registry",
+    "term": "Registry",
+    "definition": "A collection of structured identities or service records. Registration does not itself establish quality or trustworthiness.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "directory",
+    "term": "Directory",
+    "definition": "A collection of listings intended for discovery. Directory records may require independent identity and freshness checks.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "agent-card",
+    "term": "Agent Card",
+    "definition": "An A2A discovery document describing an agent's identity, advertised skills and interaction requirements.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "a2a",
+    "term": "A2A",
+    "definition": "Agent2Agent, a protocol for agent communication and task coordination.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "acp-ambiguity",
+    "term": "ACP ambiguity",
+    "definition": "Several unrelated protocols use ACP. Always expand the name and identify the ecosystem before comparing implementations.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "payment-mandate",
+    "term": "Payment mandate",
+    "definition": "A representation of authority to make a payment within stated conditions. Its format and enforcement depend on the implementation.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "facilitator",
+    "term": "Facilitator",
+    "definition": "In an agent-payment context, a service that assists payment verification or settlement. Record its exact role for the protocol in use.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "settlement",
+    "term": "Settlement",
+    "definition": "The completion of the relevant payment transfer. Settlement evidence does not establish that useful work was delivered.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "escrow",
+    "term": "Escrow",
+    "definition": "An arrangement that holds funds subject to specified release conditions. Record who controls acceptance, expiry and disputes.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "evaluator",
+    "term": "Evaluator",
+    "definition": "The party deciding whether submitted work meets the required conditions. The evaluator may or may not be independent of the client or provider.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "reputation",
+    "term": "Reputation",
+    "definition": "Recorded feedback or signals about past behavior. Interpret the source, incentives, identity linkage and susceptibility to manipulation.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "wallet",
+    "term": "Wallet",
+    "definition": "Software or a service used to manage signing or transaction authority. Custody, recovery and spending controls differ across implementations.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "spending-limit",
+    "term": "Spending limit",
+    "definition": "A constraint on payment authority, such as an amount, recipient, asset, time period or transaction class.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "testnet",
+    "term": "Testnet",
+    "definition": "A testing network. A testnet transaction should not be presented as production revenue or production settlement.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "cost-per-accepted-task",
+    "term": "Cost per accepted task",
+    "definition": "Total attributable cost divided by the number of tasks that met the acceptance rubric. Include retries and human review where measured.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "outcome-based-pricing",
+    "term": "Outcome-based pricing",
+    "definition": "Pricing linked to a vendor-defined outcome. Compare the contractual definition of an outcome before comparing headline prices.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "usage-based-pricing",
+    "term": "Usage-based pricing",
+    "definition": "Pricing tied to a consumption unit, such as credits, tokens, calls or execution time. Units are not necessarily comparable across vendors.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "byok",
+    "term": "BYOK",
+    "definition": "Bring your own key: the customer supplies credentials for an underlying provider. Model or infrastructure charges may remain separate.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "source-code-license",
+    "term": "Source code license",
+    "definition": "Terms governing use of a particular codebase or version. A repository license need not apply to a hosted service.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "canonical-entity",
+    "term": "Canonical entity",
+    "definition": "The atlas record representing one resolved entity. Aliases and registry listings can point to that record without becoming duplicate companies.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "freshness",
+    "term": "Freshness",
+    "definition": "How recently a fact was checked relative to how quickly it can change. Prices and endpoints often need more frequent review than historical announcements.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "indexable-page",
+    "term": "Indexable page",
+    "definition": "A page the publisher intends search engines to consider for indexing. This is an implementation choice, not a promise of inclusion.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "answer-block",
+    "term": "Answer block",
+    "definition": "A concise passage that directly answers a specific reader question and links to supporting evidence.",
+    "status": "editorial_working_definition"
+  },
+  {
+    "id": "editorial-inference",
+    "term": "Editorial inference",
+    "definition": "A conclusion drawn from evidence rather than explicitly stated by a source. It must be labeled and kept separate from observed facts.",
+    "status": "editorial_working_definition"
+  }
+]

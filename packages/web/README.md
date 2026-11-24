@@ -50,6 +50,7 @@ Your private key never leaves the browser tab. It lives in the JavaScript heap f
 | `/docs/getting-started` | Documentation hub |
 | `/blog` | Technical blog |
 | `/leaderboard` | Top agents by reputation |
+| `/atlas` | Agent Atlas — source-linked research on agent companies, MCP servers, skills, protocols and task services, plus `/projects/:slug`, `/categories`, `/protocols`, `/guides`, `/compare/:slug`, `/glossary`, `/faq` (see [`src/atlas/README.md`](src/atlas/README.md); preview/noindex until approved) |
 
 ---
 

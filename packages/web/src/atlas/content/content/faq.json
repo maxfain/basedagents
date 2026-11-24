@@ -1,0 +1,299 @@
+[
+  {
+    "id": "what-is-basedagents-atlas",
+    "question": "What is BasedAgents Atlas?",
+    "answer": "A proposed directory and research layer for discovering agent companies, products, MCP servers, skills, protocols and task services. This content release contains source-linked records and editorial evaluation guides.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "are-all-listed-entities-autonomous-agent-companies",
+    "question": "Are all listed entities autonomous-agent companies?",
+    "answer": "No. The atlas distinguishes organizations, products, servers, skills, protocols and infrastructure. A listing is not a claim that an entity operates autonomously.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "what-does-a-listing-verify",
+    "question": "What does a listing verify?",
+    "answer": "Each profile shows what was inspected. Most records summarize published sources. No runtime tests, security audits or payments were performed for this content package.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "what-is-the-difference-between-a-company-and-a-product",
+    "question": "What is the difference between a company and a product?",
+    "answer": "A company or project can operate several products. Devin is modeled separately from its operator Cognition. Funding belongs to the organization that raised it.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "does-a-company-description-prove-that-its-agent-works",
+    "question": "Does a company description prove that its agent works?",
+    "answer": "No. A vendor description is attributed evidence of what is offered or claimed. Performance requires a task, environment, version and observable result.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "how-should-i-choose-an-agent",
+    "question": "How should I choose an agent?",
+    "answer": "Editorial guidance: define a bounded task, required output, permissions and acceptance rubric. Compare candidates on the same fixture and include retries and review effort in cost.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "what-does-unknown-mean",
+    "question": "What does Unknown mean?",
+    "answer": "The research did not establish the value. It does not mean the capability is absent or that the vendor refused to disclose it.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "why-do-some-profiles-have-fewer-details",
+    "question": "Why do some profiles have fewer details?",
+    "answer": "The inspected evidence is uneven. Concise directory records remain separate from expanded profiles, and missing people, funding or pricing are not invented.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "how-current-is-the-content",
+    "question": "How current is the content?",
+    "answer": "This package records observations dated November 13, 2026. Individual source publication dates may be earlier. Recheck volatile facts before relying on them.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "are-prices-comparable-across-products",
+    "question": "Are prices comparable across products?",
+    "answer": "Not directly. Seat subscriptions, credits, browser hours, model tokens and accepted outcomes are different units. Review allowances, overages and extra infrastructure charges.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "does-a-free-plan-mean-the-workflow-is-free",
+    "question": "Does a free plan mean the workflow is free?",
+    "answer": "Not necessarily. The published plan may require paid model access, infrastructure, traffic or other services. Check the full workflow bill.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "is-funding-the-same-as-revenue-or-valuation",
+    "question": "Is funding the same as revenue or valuation?",
+    "answer": "No. A funding round, lifetime funding, revenue and valuation are separate facts. This atlas records the amount and scope actually supported by the source.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "why-are-founders-missing-from-some-profiles",
+    "question": "Why are founders missing from some profiles?",
+    "answer": "Named people and current roles require supporting sources. This release leaves them unknown where those sources were not collected.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "what-is-an-mcp-server",
+    "question": "What is an MCP server?",
+    "answer": "A service or package exposing capabilities through Model Context Protocol. Evaluate the exact tools, permissions, deployment and client compatibility.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": [
+      "https://modelcontextprotocol.io/docs/2026-07-28/getting-started/intro"
+    ]
+  },
+  {
+    "id": "does-an-mcp-listing-mean-it-is-safe-to-install",
+    "question": "Does an MCP listing mean it is safe to install?",
+    "answer": "No. Directory presence is discovery evidence. Review upstream identity, code or documentation, permissions and behavior before granting access.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "can-a-documentation-mcp-control-the-product-it-documents",
+    "question": "Can a documentation MCP control the product it documents?",
+    "answer": "Do not assume so. A documentation endpoint may only retrieve reference information. Execution capabilities need separate evidence.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "why-is-a-github-registry-link-not-a-repository-url",
+    "question": "Why is a GitHub registry link not a repository URL?",
+    "answer": "A registry detail page can describe a package hosted elsewhere. Resolve and record the actual upstream repository instead of rewriting the listing URL.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "what-should-an-mcp-profile-include",
+    "question": "What should an MCP profile include?",
+    "answer": "The exact endpoint or package, version, transport, authentication, scopes, tool inventory, side effects, installation source and evidence from any tests.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "what-is-the-difference-between-a-skill-and-a-tool",
+    "question": "What is the difference between a skill and a tool?",
+    "answer": "A skill supplies instructions and resources for doing work. A tool supplies a callable operation. A skill may instruct an agent to use several tools.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "can-i-run-every-skill-in-every-agent",
+    "question": "Can I run every skill in every agent?",
+    "answer": "Compatibility must be established for the host, dependencies, permissions and task. A portable format alone does not establish successful execution everywhere.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "are-skill-packs-and-individual-skills-counted-separately",
+    "question": "Are skill packs and individual skills counted separately?",
+    "answer": "Yes, as different entity types. A pack can contain many skills, but those records must not be counted as separate companies.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "what-is-a2a-used-for",
+    "question": "What is A2A used for?",
+    "answer": "A2A describes communication and task coordination among agents. Its Agent Cards advertise identity, skills and interaction requirements.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": [
+      "https://a2a-protocol.org/latest/specification/"
+    ]
+  },
+  {
+    "id": "which-acp-does-the-atlas-mean",
+    "question": "Which ACP does the atlas mean?",
+    "answer": "The full name is always required: Agent Client Protocol, OpenAI and Stripe Agentic Commerce Protocol, Virtuals Agent Commerce Protocol, or the historical IBM BeeAI Agent Communication Protocol.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": [
+      "https://agentclientprotocol.com/get-started/introduction",
+      "https://github.com/agentic-commerce-protocol/agentic-commerce-protocol",
+      "https://os.virtuals.io/acp/overview",
+      "https://www.ibm.com/think/topics/agent-communication-protocol",
+      "https://lfaidata.foundation/communityblog/2025/08/29/acp-joins-forces-with-a2a-under-the-linux-foundations-lf-ai-data/"
+    ]
+  },
+  {
+    "id": "what-is-x402-used-for",
+    "question": "What is x402 used for?",
+    "answer": "x402 describes HTTP payments for internet resources. The service endpoint, supported network, asset and payment implementation still need to be checked.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": [
+      "https://github.com/x402-foundation/x402",
+      "https://x402.org/"
+    ]
+  },
+  {
+    "id": "does-erc-8004-process-payments",
+    "question": "Does ERC-8004 process payments?",
+    "answer": "The inspected ERC-8004 proposal concerns identity, reputation and validation registries; payments are outside its stated scope.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": [
+      "https://eips.ethereum.org/EIPS/eip-8004"
+    ]
+  },
+  {
+    "id": "does-erc-8183-imply-independent-review",
+    "question": "Does ERC-8183 imply independent review?",
+    "answer": "No. The proposed job interface includes an evaluator, but the evaluator may be the client. Record the relationship before describing an evaluation as independent.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": [
+      "https://eips.ethereum.org/EIPS/eip-8183"
+    ]
+  },
+  {
+    "id": "is-an-agent-registration-proof-of-trustworthiness",
+    "question": "Is an agent registration proof of trustworthiness?",
+    "answer": "No. Identity, reputation, capability and accepted delivery are distinct evidence types.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "does-a-payment-receipt-prove-task-success",
+    "question": "Does a payment receipt prove task success?",
+    "answer": "No. Connect payment evidence to a deliverable and a separate acceptance decision.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "are-testnet-payments-counted-as-earnings",
+    "question": "Are testnet payments counted as earnings?",
+    "answer": "No. Testnet observations should be labeled separately from production settlement and revenue.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "does-this-package-contain-agents-i-can-hire-immediately",
+    "question": "Does this package contain agents I can hire immediately?",
+    "answer": "It contains research records for task services and marketplaces. Live availability, terms, provider identity and settlement behavior have not been tested here.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "how-are-alternatives-selected",
+    "question": "How are alternatives selected?",
+    "answer": "The supplied related links use editorial topic relevance. They are not rankings or verified feature parity. A final comparison should use the same task and constraints.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "are-there-best-agent-rankings",
+    "question": "Are there best-agent rankings?",
+    "answer": "No tested ranking is supplied. The initial site should use transparent filters and evidence labels rather than invented scores.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "what-is-the-difference-between-a-trace-and-an-accepted-result",
+    "question": "What is the difference between a trace and an accepted result?",
+    "answer": "A trace records observed execution events. Acceptance evaluates whether the final result satisfies the task. Both can be useful, but they answer different questions.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "what-does-an-audit-badge-require",
+    "question": "What does an audit badge require?",
+    "answer": "Editorial policy: show one only when a real assessment identifies its subject, version, date, method, findings and scope. This package supplies no audit badges.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "how-can-an-operator-correct-a-listing",
+    "question": "How can an operator correct a listing?",
+    "answer": "Proposed workflow: submit the profile URL, field to change, corrected value and an official supporting source. A reviewer should retain the previous value and the reason for the change.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "how-can-a-new-project-be-submitted",
+    "question": "How can a new project be submitted?",
+    "answer": "Proposed workflow: provide the official URL, entity type, description, documentation, available interfaces and evidence. Submission should enter review rather than publish automatically.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "can-a-company-claim-its-profile",
+    "question": "Can a company claim its profile?",
+    "answer": "Proposed workflow: verify control of the official domain or another authoritative account. Profile ownership should not let an operator overwrite independent evaluation evidence.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "will-every-record-become-a-search-indexed-page",
+    "question": "Will every record become a search-indexed page?",
+    "answer": "No. The supplied launch controls keep incomplete records out of the initial indexing set. Expanded pages and topic guides still require editorial and technical review.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "does-the-site-promise-search-or-answer-engine-visibility",
+    "question": "Does the site promise search or answer-engine visibility?",
+    "answer": "No. The content and architecture are editorial and engineering recommendations. They do not establish future rankings, indexing or citations.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  },
+  {
+    "id": "does-basedagents-endorse-every-listed-vendor",
+    "question": "Does BasedAgents endorse every listed vendor?",
+    "answer": "This atlas content is for discovery and evaluation. A source-linked listing does not constitute an endorsement or a finding of fitness for a particular task.",
+    "status": "editorial_policy_or_source_based_summary",
+    "source_urls": []
+  }
+]

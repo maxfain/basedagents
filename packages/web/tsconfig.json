@@ -8,5 +8,9 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "vite-env.d.ts"]
+  "include": [
+    "src/**/*.ts", "src/**/*.tsx", "vite-env.d.ts",
+    "src/atlas/content/manifest.json", "src/atlas/content/data/*.json", "src/atlas/content/content/*.json",
+    "src/atlas/content/implementation/*.json"
+  ]
 }

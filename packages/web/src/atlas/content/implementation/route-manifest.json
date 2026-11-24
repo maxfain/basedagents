@@ -1,0 +1,770 @@
+[
+  {
+    "route": "/atlas",
+    "type": "static"
+  },
+  {
+    "route": "/categories",
+    "type": "static"
+  },
+  {
+    "route": "/protocols",
+    "type": "static"
+  },
+  {
+    "route": "/guides",
+    "type": "static"
+  },
+  {
+    "route": "/glossary",
+    "type": "static"
+  },
+  {
+    "route": "/faq",
+    "type": "static"
+  },
+  {
+    "route": "/about-atlas",
+    "type": "static"
+  },
+  {
+    "route": "/methodology",
+    "type": "static"
+  },
+  {
+    "route": "/submit",
+    "type": "static"
+  },
+  {
+    "route": "/corrections",
+    "type": "static"
+  },
+  {
+    "route": "/projects/cognition",
+    "type": "project"
+  },
+  {
+    "route": "/projects/cursor",
+    "type": "project"
+  },
+  {
+    "route": "/projects/replit",
+    "type": "project"
+  },
+  {
+    "route": "/projects/factory",
+    "type": "project"
+  },
+  {
+    "route": "/projects/coderabbit",
+    "type": "project"
+  },
+  {
+    "route": "/projects/augment-code",
+    "type": "project"
+  },
+  {
+    "route": "/projects/lovable",
+    "type": "project"
+  },
+  {
+    "route": "/projects/qodo",
+    "type": "project"
+  },
+  {
+    "route": "/projects/openhands",
+    "type": "project"
+  },
+  {
+    "route": "/projects/continue",
+    "type": "project"
+  },
+  {
+    "route": "/projects/sierra",
+    "type": "project"
+  },
+  {
+    "route": "/projects/decagon",
+    "type": "project"
+  },
+  {
+    "route": "/projects/ada",
+    "type": "project"
+  },
+  {
+    "route": "/projects/maven-agi",
+    "type": "project"
+  },
+  {
+    "route": "/projects/forethought",
+    "type": "project"
+  },
+  {
+    "route": "/projects/yuma-ai",
+    "type": "project"
+  },
+  {
+    "route": "/projects/parahelp",
+    "type": "project"
+  },
+  {
+    "route": "/projects/pylon",
+    "type": "project"
+  },
+  {
+    "route": "/projects/inkeep",
+    "type": "project"
+  },
+  {
+    "route": "/projects/11x",
+    "type": "project"
+  },
+  {
+    "route": "/projects/artisan",
+    "type": "project"
+  },
+  {
+    "route": "/projects/aisdr",
+    "type": "project"
+  },
+  {
+    "route": "/projects/regie-ai",
+    "type": "project"
+  },
+  {
+    "route": "/projects/qualified",
+    "type": "project"
+  },
+  {
+    "route": "/projects/unify",
+    "type": "project"
+  },
+  {
+    "route": "/projects/lindy",
+    "type": "project"
+  },
+  {
+    "route": "/projects/gumloop",
+    "type": "project"
+  },
+  {
+    "route": "/projects/relevance-ai",
+    "type": "project"
+  },
+  {
+    "route": "/projects/browser-use",
+    "type": "project"
+  },
+  {
+    "route": "/projects/browserbase",
+    "type": "project"
+  },
+  {
+    "route": "/projects/skyvern",
+    "type": "project"
+  },
+  {
+    "route": "/projects/simular",
+    "type": "project"
+  },
+  {
+    "route": "/projects/manus",
+    "type": "project"
+  },
+  {
+    "route": "/projects/genspark",
+    "type": "project"
+  },
+  {
+    "route": "/projects/crewai",
+    "type": "project"
+  },
+  {
+    "route": "/projects/langchain",
+    "type": "project"
+  },
+  {
+    "route": "/projects/letta",
+    "type": "project"
+  },
+  {
+    "route": "/projects/ema",
+    "type": "project"
+  },
+  {
+    "route": "/projects/basis",
+    "type": "project"
+  },
+  {
+    "route": "/projects/rogo",
+    "type": "project"
+  },
+  {
+    "route": "/projects/hebbia",
+    "type": "project"
+  },
+  {
+    "route": "/projects/harvey",
+    "type": "project"
+  },
+  {
+    "route": "/projects/legora",
+    "type": "project"
+  },
+  {
+    "route": "/projects/evenup",
+    "type": "project"
+  },
+  {
+    "route": "/projects/norm",
+    "type": "project"
+  },
+  {
+    "route": "/projects/hippocratic-ai",
+    "type": "project"
+  },
+  {
+    "route": "/projects/ambience-healthcare",
+    "type": "project"
+  },
+  {
+    "route": "/projects/tennr",
+    "type": "project"
+  },
+  {
+    "route": "/projects/didero",
+    "type": "project"
+  },
+  {
+    "route": "/projects/lio",
+    "type": "project"
+  },
+  {
+    "route": "/projects/dropzone-ai",
+    "type": "project"
+  },
+  {
+    "route": "/projects/torq",
+    "type": "project"
+  },
+  {
+    "route": "/projects/7ai",
+    "type": "project"
+  },
+  {
+    "route": "/projects/sema4-ai",
+    "type": "project"
+  },
+  {
+    "route": "/projects/orby-ai",
+    "type": "project"
+  },
+  {
+    "route": "/projects/lila",
+    "type": "project"
+  },
+  {
+    "route": "/projects/futurehouse",
+    "type": "project"
+  },
+  {
+    "route": "/projects/sakana-ai",
+    "type": "project"
+  },
+  {
+    "route": "/projects/pomerado",
+    "type": "project"
+  },
+  {
+    "route": "/projects/gbrain",
+    "type": "project"
+  },
+  {
+    "route": "/projects/opentag",
+    "type": "project"
+  },
+  {
+    "route": "/projects/billow-ai-labs",
+    "type": "project"
+  },
+  {
+    "route": "/projects/nex",
+    "type": "project"
+  },
+  {
+    "route": "/projects/onecli",
+    "type": "project"
+  },
+  {
+    "route": "/projects/zomma",
+    "type": "project"
+  },
+  {
+    "route": "/projects/poth-labs",
+    "type": "project"
+  },
+  {
+    "route": "/projects/index-law",
+    "type": "project"
+  },
+  {
+    "route": "/projects/gatherhq",
+    "type": "project"
+  },
+  {
+    "route": "/projects/clad-labs",
+    "type": "project"
+  },
+  {
+    "route": "/projects/rulebase",
+    "type": "project"
+  },
+  {
+    "route": "/projects/markitdown-mcp",
+    "type": "project"
+  },
+  {
+    "route": "/projects/context7",
+    "type": "project"
+  },
+  {
+    "route": "/projects/chrome-devtools-mcp",
+    "type": "project"
+  },
+  {
+    "route": "/projects/playwright-mcp",
+    "type": "project"
+  },
+  {
+    "route": "/projects/github-mcp-server",
+    "type": "project"
+  },
+  {
+    "route": "/projects/serena",
+    "type": "project"
+  },
+  {
+    "route": "/projects/skyvern-mcp",
+    "type": "project"
+  },
+  {
+    "route": "/projects/unity-mcp",
+    "type": "project"
+  },
+  {
+    "route": "/projects/desktop-commander",
+    "type": "project"
+  },
+  {
+    "route": "/projects/basic-memory",
+    "type": "project"
+  },
+  {
+    "route": "/projects/dbhub",
+    "type": "project"
+  },
+  {
+    "route": "/projects/omnara",
+    "type": "project"
+  },
+  {
+    "route": "/projects/supabase-mcp",
+    "type": "project"
+  },
+  {
+    "route": "/projects/apify-mcp-server",
+    "type": "project"
+  },
+  {
+    "route": "/projects/composio",
+    "type": "project"
+  },
+  {
+    "route": "/projects/pipedream-connect",
+    "type": "project"
+  },
+  {
+    "route": "/projects/tiny-agents",
+    "type": "project"
+  },
+  {
+    "route": "/projects/smolagents",
+    "type": "project"
+  },
+  {
+    "route": "/projects/gradio-mcp-support",
+    "type": "project"
+  },
+  {
+    "route": "/projects/agent-skills",
+    "type": "project"
+  },
+  {
+    "route": "/projects/anthropic-skills",
+    "type": "project"
+  },
+  {
+    "route": "/projects/vercel-agent-skills",
+    "type": "project"
+  },
+  {
+    "route": "/projects/hugging-face-skills",
+    "type": "project"
+  },
+  {
+    "route": "/projects/vercel-optimize",
+    "type": "project"
+  },
+  {
+    "route": "/projects/react-best-practices",
+    "type": "project"
+  },
+  {
+    "route": "/projects/web-design-guidelines",
+    "type": "project"
+  },
+  {
+    "route": "/projects/writing-guidelines",
+    "type": "project"
+  },
+  {
+    "route": "/projects/react-native-guidelines",
+    "type": "project"
+  },
+  {
+    "route": "/projects/anthropic-docx",
+    "type": "project"
+  },
+  {
+    "route": "/projects/anthropic-pdf",
+    "type": "project"
+  },
+  {
+    "route": "/projects/anthropic-pptx",
+    "type": "project"
+  },
+  {
+    "route": "/projects/anthropic-xlsx",
+    "type": "project"
+  },
+  {
+    "route": "/projects/mcp-reference-everything",
+    "type": "project"
+  },
+  {
+    "route": "/projects/mcp-reference-fetch",
+    "type": "project"
+  },
+  {
+    "route": "/projects/mcp-reference-filesystem",
+    "type": "project"
+  },
+  {
+    "route": "/projects/mcp-reference-git",
+    "type": "project"
+  },
+  {
+    "route": "/projects/mcp-reference-memory",
+    "type": "project"
+  },
+  {
+    "route": "/projects/mcp-reference-sequential-thinking",
+    "type": "project"
+  },
+  {
+    "route": "/projects/mcp-reference-time",
+    "type": "project"
+  },
+  {
+    "route": "/projects/x402",
+    "type": "project"
+  },
+  {
+    "route": "/projects/model-context-protocol",
+    "type": "project"
+  },
+  {
+    "route": "/projects/agent2agent",
+    "type": "project"
+  },
+  {
+    "route": "/projects/agent-payments-protocol",
+    "type": "project"
+  },
+  {
+    "route": "/projects/agentic-commerce-protocol-openai-and-stripe",
+    "type": "project"
+  },
+  {
+    "route": "/projects/agent-commerce-protocol-virtuals",
+    "type": "project"
+  },
+  {
+    "route": "/projects/agent-client-protocol",
+    "type": "project"
+  },
+  {
+    "route": "/projects/agent-communication-protocol-ibm-beeai",
+    "type": "project"
+  },
+  {
+    "route": "/projects/erc-8004-trustless-agents",
+    "type": "project"
+  },
+  {
+    "route": "/projects/erc-8183-agentic-commerce",
+    "type": "project"
+  },
+  {
+    "route": "/projects/universal-commerce-protocol",
+    "type": "project"
+  },
+  {
+    "route": "/projects/machine-payments-protocol",
+    "type": "project"
+  },
+  {
+    "route": "/projects/open-agentic-schema-framework",
+    "type": "project"
+  },
+  {
+    "route": "/projects/agntcy-agent-directory-service",
+    "type": "project"
+  },
+  {
+    "route": "/projects/agentverse",
+    "type": "project"
+  },
+  {
+    "route": "/projects/virtuals-economyos",
+    "type": "project"
+  },
+  {
+    "route": "/projects/olas-mech-marketplace",
+    "type": "project"
+  },
+  {
+    "route": "/projects/rentahuman",
+    "type": "project"
+  },
+  {
+    "route": "/projects/clawtasks",
+    "type": "project"
+  },
+  {
+    "route": "/projects/skyfire",
+    "type": "project"
+  },
+  {
+    "route": "/projects/nevermined",
+    "type": "project"
+  },
+  {
+    "route": "/projects/crossmint",
+    "type": "project"
+  },
+  {
+    "route": "/projects/privy",
+    "type": "project"
+  },
+  {
+    "route": "/projects/turnkey",
+    "type": "project"
+  },
+  {
+    "route": "/projects/coinbase-agentkit",
+    "type": "project"
+  },
+  {
+    "route": "/projects/payai",
+    "type": "project"
+  },
+  {
+    "route": "/projects/arcade",
+    "type": "project"
+  },
+  {
+    "route": "/projects/descope-agentic-identity-hub",
+    "type": "project"
+  },
+  {
+    "route": "/projects/langsmith",
+    "type": "project"
+  },
+  {
+    "route": "/projects/langfuse",
+    "type": "project"
+  },
+  {
+    "route": "/projects/braintrust",
+    "type": "project"
+  },
+  {
+    "route": "/projects/arize-phoenix",
+    "type": "project"
+  },
+  {
+    "route": "/projects/snyk-agent-scan",
+    "type": "project"
+  },
+  {
+    "route": "/projects/corbits",
+    "type": "project"
+  },
+  {
+    "route": "/projects/agentic-market",
+    "type": "project"
+  },
+  {
+    "route": "/projects/pay-sh",
+    "type": "project"
+  },
+  {
+    "route": "/projects/ampersend-marketplace",
+    "type": "project"
+  },
+  {
+    "route": "/projects/x402scan",
+    "type": "project"
+  },
+  {
+    "route": "/projects/mpp-services-catalog",
+    "type": "project"
+  },
+  {
+    "route": "/projects/coinbase-cdp-bazaar",
+    "type": "project"
+  },
+  {
+    "route": "/projects/agentmail",
+    "type": "project"
+  },
+  {
+    "route": "/projects/devin",
+    "type": "project"
+  },
+  {
+    "route": "/categories/coding-agents",
+    "type": "category"
+  },
+  {
+    "route": "/categories/browser-computer-agents",
+    "type": "category"
+  },
+  {
+    "route": "/categories/customer-support",
+    "type": "category"
+  },
+  {
+    "route": "/categories/sales-research",
+    "type": "category"
+  },
+  {
+    "route": "/categories/business-operations",
+    "type": "category"
+  },
+  {
+    "route": "/categories/finance-accounting",
+    "type": "category"
+  },
+  {
+    "route": "/categories/legal-professional",
+    "type": "category"
+  },
+  {
+    "route": "/categories/healthcare",
+    "type": "category"
+  },
+  {
+    "route": "/categories/procurement",
+    "type": "category"
+  },
+  {
+    "route": "/categories/science-research",
+    "type": "category"
+  },
+  {
+    "route": "/categories/security-evaluation",
+    "type": "category"
+  },
+  {
+    "route": "/categories/agent-platforms",
+    "type": "category"
+  },
+  {
+    "route": "/categories/mcp-integrations",
+    "type": "category"
+  },
+  {
+    "route": "/categories/skills",
+    "type": "category"
+  },
+  {
+    "route": "/categories/payments-commerce",
+    "type": "category"
+  },
+  {
+    "route": "/categories/discovery-task-markets",
+    "type": "category"
+  },
+  {
+    "route": "/guides/fix-a-github-issue",
+    "type": "guide"
+  },
+  {
+    "route": "/guides/review-a-pull-request",
+    "type": "guide"
+  },
+  {
+    "route": "/guides/extract-web-data",
+    "type": "guide"
+  },
+  {
+    "route": "/guides/complete-browser-forms",
+    "type": "guide"
+  },
+  {
+    "route": "/guides/resolve-support-tickets",
+    "type": "guide"
+  },
+  {
+    "route": "/guides/research-sales-accounts",
+    "type": "guide"
+  },
+  {
+    "route": "/guides/manage-agent-email",
+    "type": "guide"
+  },
+  {
+    "route": "/guides/reconcile-invoices",
+    "type": "guide"
+  },
+  {
+    "route": "/guides/connect-an-mcp-server",
+    "type": "guide"
+  },
+  {
+    "route": "/guides/evaluate-agent-skills",
+    "type": "guide"
+  },
+  {
+    "route": "/guides/pay-for-an-agent-api",
+    "type": "guide"
+  },
+  {
+    "route": "/guides/hire-an-agent-for-a-task",
+    "type": "guide"
+  },
+  {
+    "route": "/compare/browser-use-browserbase-skyvern",
+    "type": "comparison"
+  },
+  {
+    "route": "/compare/mcp-a2a-agent-client-protocol",
+    "type": "comparison"
+  },
+  {
+    "route": "/compare/x402-ap2-erc-8004-erc-8183",
+    "type": "comparison"
+  }
+]

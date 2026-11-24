@@ -1,0 +1,410 @@
+[
+  {
+    "channel": "github_repository_rest",
+    "query": "topic:ai-agents fork:false archived:false",
+    "purpose": "Find topic-tagged repositories; run separate archived branch for history.",
+    "limitations": "Proposed query; results require eligibility screening."
+  },
+  {
+    "channel": "github_repository_rest",
+    "query": "topic:autonomous-agents fork:false archived:false",
+    "purpose": "Find topic-tagged repositories; run separate archived branch for history.",
+    "limitations": "Proposed query; results require eligibility screening."
+  },
+  {
+    "channel": "github_repository_rest",
+    "query": "topic:agentic-ai fork:false archived:false",
+    "purpose": "Find topic-tagged repositories; run separate archived branch for history.",
+    "limitations": "Proposed query; results require eligibility screening."
+  },
+  {
+    "channel": "github_repository_rest",
+    "query": "topic:mcp-server fork:false archived:false",
+    "purpose": "Find topic-tagged repositories; run separate archived branch for history.",
+    "limitations": "Proposed query; results require eligibility screening."
+  },
+  {
+    "channel": "github_repository_rest",
+    "query": "topic:model-context-protocol fork:false archived:false",
+    "purpose": "Find topic-tagged repositories; run separate archived branch for history.",
+    "limitations": "Proposed query; results require eligibility screening."
+  },
+  {
+    "channel": "github_repository_rest",
+    "query": "topic:agent-framework fork:false archived:false",
+    "purpose": "Find topic-tagged repositories; run separate archived branch for history.",
+    "limitations": "Proposed query; results require eligibility screening."
+  },
+  {
+    "channel": "github_repository_rest",
+    "query": "topic:multi-agent fork:false archived:false",
+    "purpose": "Find topic-tagged repositories; run separate archived branch for history.",
+    "limitations": "Proposed query; results require eligibility screening."
+  },
+  {
+    "channel": "github_repository_rest",
+    "query": "topic:x402 fork:false archived:false",
+    "purpose": "Find topic-tagged repositories; run separate archived branch for history.",
+    "limitations": "Proposed query; results require eligibility screening."
+  },
+  {
+    "channel": "github_repository_rest",
+    "query": "topic:agent-skills fork:false archived:false",
+    "purpose": "Find topic-tagged repositories; run separate archived branch for history.",
+    "limitations": "Proposed query; results require eligibility screening."
+  },
+  {
+    "channel": "github_repository_rest",
+    "query": "topic:a2a fork:false archived:false",
+    "purpose": "Find topic-tagged repositories; run separate archived branch for history.",
+    "limitations": "Proposed query; results require eligibility screening."
+  },
+  {
+    "channel": "github_repository_rest",
+    "query": "\"autonomous agent\" in:name,description,readme fork:false",
+    "purpose": "Find projects absent from topic tags.",
+    "limitations": "Proposed query; results require eligibility screening."
+  },
+  {
+    "channel": "github_repository_rest",
+    "query": "\"AI agent\" in:name,description,readme fork:false",
+    "purpose": "Find projects absent from topic tags.",
+    "limitations": "Proposed query; results require eligibility screening."
+  },
+  {
+    "channel": "github_repository_rest",
+    "query": "\"Model Context Protocol\" in:name,description,readme fork:false",
+    "purpose": "Find projects absent from topic tags.",
+    "limitations": "Proposed query; results require eligibility screening."
+  },
+  {
+    "channel": "github_repository_rest",
+    "query": "\"agent marketplace\" in:name,description,readme fork:false",
+    "purpose": "Find projects absent from topic tags.",
+    "limitations": "Proposed query; results require eligibility screening."
+  },
+  {
+    "channel": "github_repository_rest",
+    "query": "\"agent payment\" in:name,description,readme fork:false",
+    "purpose": "Find projects absent from topic tags.",
+    "limitations": "Proposed query; results require eligibility screening."
+  },
+  {
+    "channel": "github_repository_rest",
+    "query": "\"SKILL.md\" in:name,description,readme fork:false",
+    "purpose": "Find projects absent from topic tags.",
+    "limitations": "Proposed query; results require eligibility screening."
+  },
+  {
+    "channel": "github_repository_rest",
+    "query": "\"AgentCard\" in:name,description,readme fork:false",
+    "purpose": "Find projects absent from topic tags.",
+    "limitations": "Proposed query; results require eligibility screening."
+  },
+  {
+    "channel": "github_repository_rest",
+    "query": "topic:mcp-server created:2026-10-01..2026-10-31 fork:false",
+    "purpose": "Example creation-time shard; recursively split saturated windows.",
+    "limitations": "Illustrative interval, not a completeness claim; inspect incomplete_results."
+  },
+  {
+    "channel": "github_repository_rest",
+    "query": "topic:ai-agents pushed:>=2026-11-01 fork:false",
+    "purpose": "Find recently updated candidates.",
+    "limitations": "Push recency is not release date or active business evidence."
+  },
+  {
+    "channel": "github_code_rest",
+    "query": "\"modelcontextprotocol\" filename:package.json",
+    "purpose": "Detect manifests/SDK usage in scoped discovered repos.",
+    "limitations": "Legacy code API syntax; scope with repo: or org: to avoid broad truncation. Match is not verified adoption."
+  },
+  {
+    "channel": "github_code_rest",
+    "query": "\"mcp\" filename:pyproject.toml",
+    "purpose": "Detect manifests/SDK usage in scoped discovered repos.",
+    "limitations": "Legacy code API syntax; scope with repo: or org: to avoid broad truncation. Match is not verified adoption."
+  },
+  {
+    "channel": "github_code_rest",
+    "query": "\"x402\" filename:package.json",
+    "purpose": "Detect manifests/SDK usage in scoped discovered repos.",
+    "limitations": "Legacy code API syntax; scope with repo: or org: to avoid broad truncation. Match is not verified adoption."
+  },
+  {
+    "channel": "github_code_rest",
+    "query": "\"langgraph\" filename:pyproject.toml",
+    "purpose": "Detect manifests/SDK usage in scoped discovered repos.",
+    "limitations": "Legacy code API syntax; scope with repo: or org: to avoid broad truncation. Match is not verified adoption."
+  },
+  {
+    "channel": "github_code_rest",
+    "query": "\"crewai\" filename:pyproject.toml",
+    "purpose": "Detect manifests/SDK usage in scoped discovered repos.",
+    "limitations": "Legacy code API syntax; scope with repo: or org: to avoid broad truncation. Match is not verified adoption."
+  },
+  {
+    "channel": "github_code_rest",
+    "query": "\"agents\" filename:package.json",
+    "purpose": "Detect manifests/SDK usage in scoped discovered repos.",
+    "limitations": "Legacy code API syntax; scope with repo: or org: to avoid broad truncation. Match is not verified adoption."
+  },
+  {
+    "channel": "github_code_rest",
+    "query": "\"name\" filename:SKILL.md",
+    "purpose": "Detect manifests/SDK usage in scoped discovered repos.",
+    "limitations": "Legacy code API syntax; scope with repo: or org: to avoid broad truncation. Match is not verified adoption."
+  },
+  {
+    "channel": "github_code_rest",
+    "query": "\"mcpServers\" filename:mcp.json",
+    "purpose": "Detect manifests/SDK usage in scoped discovered repos.",
+    "limitations": "Legacy code API syntax; scope with repo: or org: to avoid broad truncation. Match is not verified adoption."
+  },
+  {
+    "channel": "github_code_rest",
+    "query": "\"schema\" filename:server.json",
+    "purpose": "Detect manifests/SDK usage in scoped discovered repos.",
+    "limitations": "Legacy code API syntax; scope with repo: or org: to avoid broad truncation. Match is not verified adoption."
+  },
+  {
+    "channel": "github_code_web",
+    "query": "path:SKILL.md \"description\"",
+    "purpose": "Manual discovery using modern web code syntax.",
+    "limitations": "Logged-in web interface required; not REST-compatible syntax or exhaustive."
+  },
+  {
+    "channel": "github_code_web",
+    "query": "path:server.json \"modelcontextprotocol\"",
+    "purpose": "Manual discovery using modern web code syntax.",
+    "limitations": "Logged-in web interface required; not REST-compatible syntax or exhaustive."
+  },
+  {
+    "channel": "github_code_web",
+    "query": "path:package.json \"@modelcontextprotocol/sdk\"",
+    "purpose": "Manual discovery using modern web code syntax.",
+    "limitations": "Logged-in web interface required; not REST-compatible syntax or exhaustive."
+  },
+  {
+    "channel": "github_code_web",
+    "query": "path:pyproject.toml \"crewai\"",
+    "purpose": "Manual discovery using modern web code syntax.",
+    "limitations": "Logged-in web interface required; not REST-compatible syntax or exhaustive."
+  },
+  {
+    "channel": "github_code_web",
+    "query": "path:AGENTS.md \"x402\"",
+    "purpose": "Manual discovery using modern web code syntax.",
+    "limitations": "Logged-in web interface required; not REST-compatible syntax or exhaustive."
+  },
+  {
+    "channel": "github_code_web",
+    "query": "path:agent-card.json \"skills\"",
+    "purpose": "Manual discovery using modern web code syntax.",
+    "limitations": "Logged-in web interface required; not REST-compatible syntax or exhaustive."
+  },
+  {
+    "channel": "x_api",
+    "query": "(\"AI agent\" OR \"autonomous agent\") (launching OR launched OR introducing) has:links -is:retweet",
+    "purpose": "Find launch announcements and project URLs.",
+    "limitations": "API authentication and current access/cost required. Translations proposed; review with fluent language speakers. Follow primary project links."
+  },
+  {
+    "channel": "x_api",
+    "query": "(\"MCP server\" OR \"Model Context Protocol\") (shipped OR released) has:links -is:retweet",
+    "purpose": "Find launch announcements and project URLs.",
+    "limitations": "API authentication and current access/cost required. Translations proposed; review with fluent language speakers. Follow primary project links."
+  },
+  {
+    "channel": "x_api",
+    "query": "(x402 OR \"agent payments\") (launch OR launching OR released) has:links -is:retweet",
+    "purpose": "Find launch announcements and project URLs.",
+    "limitations": "API authentication and current access/cost required. Translations proposed; review with fluent language speakers. Follow primary project links."
+  },
+  {
+    "channel": "x_api",
+    "query": "(\"agent skills\" OR \"SKILL.md\") has:links -is:retweet",
+    "purpose": "Find launch announcements and project URLs.",
+    "limitations": "API authentication and current access/cost required. Translations proposed; review with fluent language speakers. Follow primary project links."
+  },
+  {
+    "channel": "x_api",
+    "query": "(\"agent marketplace\" OR \"hire agents\") has:links -is:retweet",
+    "purpose": "Find launch announcements and project URLs.",
+    "limitations": "API authentication and current access/cost required. Translations proposed; review with fluent language speakers. Follow primary project links."
+  },
+  {
+    "channel": "x_api",
+    "query": "(\"AI agent\" OR MCP) url:github.com -is:retweet",
+    "purpose": "Find launch announcements and project URLs.",
+    "limitations": "API authentication and current access/cost required. Translations proposed; review with fluent language speakers. Follow primary project links."
+  },
+  {
+    "channel": "x_api",
+    "query": "(\"agente autónomo\" OR \"agentes IA\") has:links -is:retweet",
+    "purpose": "Find launch announcements and project URLs.",
+    "limitations": "API authentication and current access/cost required. Translations proposed; review with fluent language speakers. Follow primary project links."
+  },
+  {
+    "channel": "x_api",
+    "query": "(\"agent autonome\" OR \"agents IA\") has:links -is:retweet",
+    "purpose": "Find launch announcements and project URLs.",
+    "limitations": "API authentication and current access/cost required. Translations proposed; review with fluent language speakers. Follow primary project links."
+  },
+  {
+    "channel": "x_api",
+    "query": "(\"autonome Agenten\" OR \"KI Agent\") has:links -is:retweet",
+    "purpose": "Find launch announcements and project URLs.",
+    "limitations": "API authentication and current access/cost required. Translations proposed; review with fluent language speakers. Follow primary project links."
+  },
+  {
+    "channel": "x_api",
+    "query": "(\"智能体\" OR \"自主代理\") has:links -is:retweet",
+    "purpose": "Find launch announcements and project URLs.",
+    "limitations": "API authentication and current access/cost required. Translations proposed; review with fluent language speakers. Follow primary project links."
+  },
+  {
+    "channel": "x_api",
+    "query": "(\"AIエージェント\" OR \"自律エージェント\") has:links -is:retweet",
+    "purpose": "Find launch announcements and project URLs.",
+    "limitations": "API authentication and current access/cost required. Translations proposed; review with fluent language speakers. Follow primary project links."
+  },
+  {
+    "channel": "web_search",
+    "query": "site:x.com \"MCP server\" \"launch\"",
+    "purpose": "Discover or update project entities.",
+    "limitations": "Search coverage and freshness are unknown; no absence or completeness claims."
+  },
+  {
+    "channel": "web_search",
+    "query": "site:x.com \"AI agent\" \"introducing\"",
+    "purpose": "Discover or update project entities.",
+    "limitations": "Search coverage and freshness are unknown; no absence or completeness claims."
+  },
+  {
+    "channel": "web_search",
+    "query": "site:news.ycombinator.com \"Show HN\" \"autonomous agent\"",
+    "purpose": "Discover or update project entities.",
+    "limitations": "Search coverage and freshness are unknown; no absence or completeness claims."
+  },
+  {
+    "channel": "web_search",
+    "query": "site:news.ycombinator.com \"Show HN\" \"MCP\"",
+    "purpose": "Discover or update project entities.",
+    "limitations": "Search coverage and freshness are unknown; no absence or completeness claims."
+  },
+  {
+    "channel": "web_search",
+    "query": "site:devpost.com/software \"autonomous agent\"",
+    "purpose": "Discover or update project entities.",
+    "limitations": "Search coverage and freshness are unknown; no absence or completeness claims."
+  },
+  {
+    "channel": "web_search",
+    "query": "site:devpost.com/software \"MCP\" \"Built With\"",
+    "purpose": "Discover or update project entities.",
+    "limitations": "Search coverage and freshness are unknown; no absence or completeness claims."
+  },
+  {
+    "channel": "web_search",
+    "query": "site:ethglobal.com/showcase \"agent\" \"x402\"",
+    "purpose": "Discover or update project entities.",
+    "limitations": "Search coverage and freshness are unknown; no absence or completeness claims."
+  },
+  {
+    "channel": "web_search",
+    "query": "site:github.com \"mcpServers\" \"x402\"",
+    "purpose": "Discover or update project entities.",
+    "limitations": "Search coverage and freshness are unknown; no absence or completeness claims."
+  },
+  {
+    "channel": "web_search",
+    "query": "\"AI agents\" \"portfolio\" \"seed\"",
+    "purpose": "Discover or update project entities.",
+    "limitations": "Search coverage and freshness are unknown; no absence or completeness claims."
+  },
+  {
+    "channel": "web_search",
+    "query": "\"agent\" \"SOC 2\" \"pricing\"",
+    "purpose": "Discover or update project entities.",
+    "limitations": "Search coverage and freshness are unknown; no absence or completeness claims."
+  },
+  {
+    "channel": "web_search",
+    "query": "\"agent\" \"customer stories\" \"autonomous\"",
+    "purpose": "Discover or update project entities.",
+    "limitations": "Search coverage and freshness are unknown; no absence or completeness claims."
+  },
+  {
+    "channel": "web_search",
+    "query": "\"MCP\" \"integrations\" \"customers\"",
+    "purpose": "Discover or update project entities.",
+    "limitations": "Search coverage and freshness are unknown; no absence or completeness claims."
+  },
+  {
+    "channel": "web_search",
+    "query": "\"A2A\" \"agent card\" \"pricing\"",
+    "purpose": "Discover or update project entities.",
+    "limitations": "Search coverage and freshness are unknown; no absence or completeness claims."
+  },
+  {
+    "channel": "web_search",
+    "query": "\"AI agent\" \"we are shutting down\"",
+    "purpose": "Discover or update project entities.",
+    "limitations": "Search coverage and freshness are unknown; no absence or completeness claims."
+  },
+  {
+    "channel": "web_search",
+    "query": "\"AI agent\" \"acquired by\"",
+    "purpose": "Discover or update project entities.",
+    "limitations": "Search coverage and freshness are unknown; no absence or completeness claims."
+  },
+  {
+    "channel": "npm_cli",
+    "query": "npm search mcp --json",
+    "purpose": "Find package candidates using metadata.",
+    "limitations": "Set/inspect searchlimit; enrich with package metadata; do not install or execute packages."
+  },
+  {
+    "channel": "npm_cli",
+    "query": "npm search x402 --json",
+    "purpose": "Find package candidates using metadata.",
+    "limitations": "Set/inspect searchlimit; enrich with package metadata; do not install or execute packages."
+  },
+  {
+    "channel": "npm_cli",
+    "query": "npm search agentkit --json",
+    "purpose": "Find package candidates using metadata.",
+    "limitations": "Set/inspect searchlimit; enrich with package metadata; do not install or execute packages."
+  },
+  {
+    "channel": "npm_cli",
+    "query": "npm search autonomous --json",
+    "purpose": "Find package candidates using metadata.",
+    "limitations": "Set/inspect searchlimit; enrich with package metadata; do not install or execute packages."
+  },
+  {
+    "channel": "graph_expansion",
+    "query": "new package names + descriptions containing mcp / agent / x402",
+    "purpose": "Follow typed relationships beyond direct keywords.",
+    "limitations": "Proposed workflow, not an API query. A dependency/customer listing alone is insufficient to classify a company."
+  },
+  {
+    "channel": "graph_expansion",
+    "query": "distribution metadata Requires-Dist referencing known agent SDKs",
+    "purpose": "Follow typed relationships beyond direct keywords.",
+    "limitations": "Proposed workflow, not an API query. A dependency/customer listing alone is insufficient to classify a company."
+  },
+  {
+    "channel": "graph_expansion",
+    "query": "public sponsor project gallery -> repository -> official website",
+    "purpose": "Follow typed relationships beyond direct keywords.",
+    "limitations": "Proposed workflow, not an API query. A dependency/customer listing alone is insufficient to classify a company."
+  },
+  {
+    "channel": "graph_expansion",
+    "query": "official integrations directory -> partner domains -> partner docs",
+    "purpose": "Follow typed relationships beyond direct keywords.",
+    "limitations": "Proposed workflow, not an API query. A dependency/customer listing alone is insufficient to classify a company."
+  }
+]

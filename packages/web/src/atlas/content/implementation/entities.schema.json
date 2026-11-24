@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BasedAgents Atlas entity content v1",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "id",
+      "name",
+      "slug",
+      "route",
+      "entity_type",
+      "description",
+      "category_id",
+      "sources",
+      "facts",
+      "evidence",
+      "profile_depth",
+      "publication_state",
+      "indexable",
+      "runtime_tested",
+      "payment_tested",
+      "security_audited"
+    ],
+    "properties": {
+      "id": {
+        "type": "string",
+        "pattern": "^[a-z0-9-]+$"
+      },
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "route": {
+        "type": "string",
+        "pattern": "^/projects/"
+      },
+      "description": {
+        "type": "string",
+        "minLength": 1
+      },
+      "website_url": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "repository_url": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "sources": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "required": [
+            "url",
+            "observed_at",
+            "evidence_status"
+          ]
+        }
+      },
+      "facts": {
+        "type": "array"
+      },
+      "evidence": {
+        "type": "array"
+      },
+      "profile_depth": {
+        "enum": [
+          "directory_entry",
+          "expanded_profile",
+          "protocol_profile"
+        ]
+      },
+      "indexable": {
+        "type": "boolean"
+      },
+      "runtime_tested": {
+        "const": false
+      },
+      "payment_tested": {
+        "const": false
+      },
+      "security_audited": {
+        "const": false
+      }
+    },
+    "additionalProperties": true
+  },
+  "$comment": "Import shape for this source-research release. False test flags mean no tests were performed by this research; they do not mean the vendor has never tested the product. Future test-bearing releases require a new schema."
+}

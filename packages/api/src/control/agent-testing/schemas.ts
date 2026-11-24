@@ -244,7 +244,7 @@ export const WorkerResultSchema = z
       architecture: z.string().max(200).nullable(),
       model_identifier: z.string().max(200).nullable(),
       transport: z.string().min(1).max(200),
-      configuration_redacted: z.record(z.string().max(500)).default({}),
+      configuration_redacted: z.record(z.string(), z.string().max(500)).default({}),
     }),
     steps: z.array(z.object({
       index: z.number().int().min(1),

@@ -1,0 +1,1181 @@
+[
+  {
+    "from": "cognition",
+    "to": "devin",
+    "type": "operates",
+    "status": "vendor_documented",
+    "sources": [
+      "https://cognition.com/"
+    ]
+  },
+  {
+    "from": "cognition",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "cursor",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "replit",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "factory",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "coderabbit",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "augment-code",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "lovable",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "qodo",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "openhands",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "continue",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "sierra",
+    "to": "customer-support",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "decagon",
+    "to": "customer-support",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "ada",
+    "to": "customer-support",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "maven-agi",
+    "to": "customer-support",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "forethought",
+    "to": "customer-support",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "yuma-ai",
+    "to": "customer-support",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "parahelp",
+    "to": "customer-support",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "pylon",
+    "to": "customer-support",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "inkeep",
+    "to": "customer-support",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "11x",
+    "to": "sales-research",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "artisan",
+    "to": "sales-research",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "aisdr",
+    "to": "sales-research",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "regie-ai",
+    "to": "sales-research",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "qualified",
+    "to": "sales-research",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "unify",
+    "to": "sales-research",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "lindy",
+    "to": "business-operations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "gumloop",
+    "to": "agent-platforms",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "relevance-ai",
+    "to": "agent-platforms",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "browser-use",
+    "to": "browser-computer-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "browserbase",
+    "to": "browser-computer-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "skyvern",
+    "to": "browser-computer-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "simular",
+    "to": "browser-computer-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "manus",
+    "to": "business-operations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "genspark",
+    "to": "business-operations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "crewai",
+    "to": "agent-platforms",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "langchain",
+    "to": "agent-platforms",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "letta",
+    "to": "agent-platforms",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "ema",
+    "to": "business-operations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "basis",
+    "to": "finance-accounting",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "rogo",
+    "to": "finance-accounting",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "hebbia",
+    "to": "finance-accounting",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "harvey",
+    "to": "legal-professional",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "legora",
+    "to": "legal-professional",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "evenup",
+    "to": "legal-professional",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "norm",
+    "to": "legal-professional",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "hippocratic-ai",
+    "to": "healthcare",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "ambience-healthcare",
+    "to": "healthcare",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "tennr",
+    "to": "healthcare",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "didero",
+    "to": "procurement",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "lio",
+    "to": "procurement",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "dropzone-ai",
+    "to": "security-evaluation",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "torq",
+    "to": "security-evaluation",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "7ai",
+    "to": "security-evaluation",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "sema4-ai",
+    "to": "business-operations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "orby-ai",
+    "to": "business-operations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "lila",
+    "to": "science-research",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "futurehouse",
+    "to": "science-research",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "sakana-ai",
+    "to": "science-research",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "pomerado",
+    "to": "browser-computer-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "gbrain",
+    "to": "business-operations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "opentag",
+    "to": "business-operations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "billow-ai-labs",
+    "to": "finance-accounting",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "nex",
+    "to": "sales-research",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "onecli",
+    "to": "agent-platforms",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "zomma",
+    "to": "finance-accounting",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "poth-labs",
+    "to": "sales-research",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "index-law",
+    "to": "legal-professional",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "gatherhq",
+    "to": "sales-research",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "clad-labs",
+    "to": "customer-support",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "rulebase",
+    "to": "customer-support",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "markitdown-mcp",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "context7",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "chrome-devtools-mcp",
+    "to": "browser-computer-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "playwright-mcp",
+    "to": "browser-computer-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "github-mcp-server",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "serena",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "skyvern-mcp",
+    "to": "browser-computer-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "unity-mcp",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "desktop-commander",
+    "to": "browser-computer-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "basic-memory",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "dbhub",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "omnara",
+    "to": "agent-platforms",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "supabase-mcp",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "apify-mcp-server",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "composio",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "pipedream-connect",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "tiny-agents",
+    "to": "agent-platforms",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "smolagents",
+    "to": "agent-platforms",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "gradio-mcp-support",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "agent-skills",
+    "to": "skills",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "anthropic-skills",
+    "to": "skills",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "vercel-agent-skills",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "hugging-face-skills",
+    "to": "skills",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "vercel-optimize",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "react-best-practices",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "web-design-guidelines",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "writing-guidelines",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "react-native-guidelines",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "anthropic-docx",
+    "to": "skills",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "anthropic-pdf",
+    "to": "skills",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "anthropic-pptx",
+    "to": "skills",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "anthropic-xlsx",
+    "to": "skills",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "mcp-reference-everything",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "mcp-reference-fetch",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "mcp-reference-filesystem",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "mcp-reference-git",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "mcp-reference-memory",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "mcp-reference-sequential-thinking",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "mcp-reference-time",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "x402",
+    "to": "payments-commerce",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "model-context-protocol",
+    "to": "discovery-task-markets",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "agent2agent",
+    "to": "discovery-task-markets",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "agent-payments-protocol",
+    "to": "payments-commerce",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "agentic-commerce-protocol-openai-and-stripe",
+    "to": "payments-commerce",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "agent-commerce-protocol-virtuals",
+    "to": "payments-commerce",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "agent-client-protocol",
+    "to": "discovery-task-markets",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "agent-communication-protocol-ibm-beeai",
+    "to": "discovery-task-markets",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "erc-8004-trustless-agents",
+    "to": "discovery-task-markets",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "erc-8183-agentic-commerce",
+    "to": "payments-commerce",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "universal-commerce-protocol",
+    "to": "payments-commerce",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "machine-payments-protocol",
+    "to": "payments-commerce",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "open-agentic-schema-framework",
+    "to": "discovery-task-markets",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "agntcy-agent-directory-service",
+    "to": "discovery-task-markets",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "agentverse",
+    "to": "discovery-task-markets",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "virtuals-economyos",
+    "to": "discovery-task-markets",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "olas-mech-marketplace",
+    "to": "discovery-task-markets",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "rentahuman",
+    "to": "discovery-task-markets",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "clawtasks",
+    "to": "discovery-task-markets",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "skyfire",
+    "to": "payments-commerce",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "nevermined",
+    "to": "payments-commerce",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "crossmint",
+    "to": "payments-commerce",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "privy",
+    "to": "payments-commerce",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "turnkey",
+    "to": "payments-commerce",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "coinbase-agentkit",
+    "to": "payments-commerce",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "payai",
+    "to": "payments-commerce",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "arcade",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "descope-agentic-identity-hub",
+    "to": "mcp-integrations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "langsmith",
+    "to": "security-evaluation",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "langfuse",
+    "to": "security-evaluation",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "braintrust",
+    "to": "security-evaluation",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "arize-phoenix",
+    "to": "security-evaluation",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "snyk-agent-scan",
+    "to": "security-evaluation",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "corbits",
+    "to": "business-operations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "agentic-market",
+    "to": "discovery-task-markets",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "pay-sh",
+    "to": "discovery-task-markets",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "ampersend-marketplace",
+    "to": "discovery-task-markets",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "x402scan",
+    "to": "discovery-task-markets",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "mpp-services-catalog",
+    "to": "discovery-task-markets",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "coinbase-cdp-bazaar",
+    "to": "discovery-task-markets",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "agentmail",
+    "to": "business-operations",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "devin",
+    "to": "coding-agents",
+    "type": "categorized_as",
+    "status": "editorial_classification"
+  },
+  {
+    "from": "fix-a-github-issue",
+    "to": "cognition",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "fix-a-github-issue",
+    "to": "devin",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "fix-a-github-issue",
+    "to": "factory",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "fix-a-github-issue",
+    "to": "openhands",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "fix-a-github-issue",
+    "to": "cursor",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "review-a-pull-request",
+    "to": "coderabbit",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "review-a-pull-request",
+    "to": "qodo",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "review-a-pull-request",
+    "to": "devin",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "extract-web-data",
+    "to": "browser-use",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "extract-web-data",
+    "to": "skyvern",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "extract-web-data",
+    "to": "apify-mcp-server",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "extract-web-data",
+    "to": "browserbase",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "complete-browser-forms",
+    "to": "skyvern",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "complete-browser-forms",
+    "to": "browser-use",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "complete-browser-forms",
+    "to": "simular",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "resolve-support-tickets",
+    "to": "sierra",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "resolve-support-tickets",
+    "to": "decagon",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "resolve-support-tickets",
+    "to": "ada",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "resolve-support-tickets",
+    "to": "forethought",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "resolve-support-tickets",
+    "to": "yuma-ai",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "research-sales-accounts",
+    "to": "unify",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "research-sales-accounts",
+    "to": "11x",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "research-sales-accounts",
+    "to": "artisan",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "research-sales-accounts",
+    "to": "gatherhq",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "manage-agent-email",
+    "to": "agentmail",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "manage-agent-email",
+    "to": "lindy",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "reconcile-invoices",
+    "to": "basis",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "reconcile-invoices",
+    "to": "sema4-ai",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "reconcile-invoices",
+    "to": "billow-ai-labs",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "connect-an-mcp-server",
+    "to": "github-mcp-server",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "connect-an-mcp-server",
+    "to": "playwright-mcp",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "connect-an-mcp-server",
+    "to": "composio",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "connect-an-mcp-server",
+    "to": "pipedream-connect",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "evaluate-agent-skills",
+    "to": "anthropic-skills",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "evaluate-agent-skills",
+    "to": "vercel-agent-skills",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "evaluate-agent-skills",
+    "to": "hugging-face-skills",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "pay-for-an-agent-api",
+    "to": "x402",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "pay-for-an-agent-api",
+    "to": "machine-payments-protocol",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "pay-for-an-agent-api",
+    "to": "nevermined",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "pay-for-an-agent-api",
+    "to": "payai",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "hire-an-agent-for-a-task",
+    "to": "olas-mech-marketplace",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "hire-an-agent-for-a-task",
+    "to": "clawtasks",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "hire-an-agent-for-a-task",
+    "to": "rentahuman",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  },
+  {
+    "from": "hire-an-agent-for-a-task",
+    "to": "virtuals-economyos",
+    "type": "candidate_to_investigate",
+    "status": "editorial_topic_relevance_not_tested"
+  }
+]
