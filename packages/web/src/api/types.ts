@@ -246,7 +246,7 @@ export interface ApiTask {
   payment_tx_hash: string | null;
   payment_expires_at?: string | null;
   auto_release_at?: string | null;
-  /** When a claimed task is auto-revoked back to open (7 days after claim); null unless claimed. */
+  /** When a claimed task is auto-revoked back to open (12h / 48h / 7d after claim, scaled to the bounty; 7d on free tasks); null unless claimed. */
   claim_expires_at?: string | null;
   settled_at?: string | null;
   last_settle_error?: string | null;
