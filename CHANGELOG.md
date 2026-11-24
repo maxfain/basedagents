@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Docs — onboarding describes the claim window and claim bond the API enforces (web, sdk, mcp, python)
+
+The getting-started page, the About page and the SDK, MCP and Python READMEs still said a claim gives you 7 days to deliver with "no penalty". The API has since scaled the delivery window to the bounty (12 hours under 1 USDC, 48 hours under 10 USDC, otherwise and on free tasks 7 days), required a refundable 1 USDC claim bond per bounty claim, slashed by 1 USDC when the claim expires or the delivery is disputed, and cut the claimer's claim budget by 25 for every lapse or dispute. All six now say so, matching `llms-full.txt` and the skill, and point to `claim_expires_at` for the exact deadline. Copy only; no behavior changes.
+
 ### Security — zod 4 (api, mcp)
 
 `zod` 3.25.76 → 4.6.7 in the API and the MCP package, for GHSA-mrhx-c7xc-m3w5 (high): zod checked a bounded array, set or map's size only after parsing every element, so an oversized collection could exhaust memory before `.max()` rejected it. 4.6.6 checks the bound first, and no zod 3 release carries the fix. The migration is three type-level changes: `z.record` takes an explicit key schema in two intake schemas, and `withRatingRule` constrains its schema type instead of annotating the refine callback. Validation rules and the `{ formErrors, fieldErrors }` shape of a 400's `details` are unchanged; zod's default issue messages are worded differently (`Too big: expected string to have <=500 characters` where 3 said `String must contain at most 500 character(s)`). The Workers bundle is 688 KiB gzipped. The npm MCP package picks the new zod up at its next release. Exposure per package, and the production advisories still open, are in `SECURITY_AUDIT.md`.
